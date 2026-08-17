@@ -1,0 +1,37 @@
+[
+  {
+    "slug": "system-design-foundations",
+    "title": "System Design Foundations",
+    "description": "The complete learning path from fundamentals to interview readiness.",
+    "phases": [
+      {
+        "slug": "fundamentals",
+        "title": "Fundamentals",
+        "description": "How the internet works, DNS, request-response, client-server.",
+        "concepts": ["how-the-internet-works", "dns"],
+        "order": 1
+      },
+      {
+        "slug": "scaling",
+        "title": "Scaling",
+        "description": "Vertical vs horizontal, load balancing, bottlenecks, statelessness.",
+        "concepts": ["load-balancing"],
+        "order": 2
+      },
+      {
+        "slug": "caching",
+        "title": "Caching",
+        "description": "Strategies, cache-aside, invalidation, stampede control.",
+        "concepts": ["caching"],
+        "order": 3
+      },
+      {
+        "slug": "distributed-systems",
+        "title": "Distributed Systems",
+        "description": "Consistency, CAP, quorum, consensus, partitions.",
+        "concepts": ["cap-theorem"],
+        "order": 4
+      }
+    ]
+  }
+]

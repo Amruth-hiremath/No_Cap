@@ -1,0 +1,146 @@
+{
+  "slug": "cap-theorem",
+  "version": 1,
+  "title": "CAP Theorem",
+  "phase": "Distributed Systems",
+  "area": "Distributed Systems",
+  "estimated_minutes": 15,
+  "difficulty": "core",
+  "prerequisites": [
+    "load-balancing",
+    "caching"
+  ],
+  "related": [],
+  "used_in": [
+    "Every distributed database \u2014 Cassandra, DynamoDB, Spanner, MongoDB."
+  ],
+  "blocks": [
+    {
+      "type": "prose",
+      "id": "why",
+      "payload": {
+        "text": "CAP is the most quoted \u2014 and most misunderstood \u2014 theorem in distributed systems. Eric Brewer conjectured in 2000, Gilbert and Lynch proved in 2002, that a distributed system can provide at most two of three guarantees: Consistency, Availability, Partition tolerance. The practical takeaway is sharper than the slogan: because partitions are inevitable on real networks, you are really choosing between C and A when a partition occurs. You cannot have all three."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "definitions",
+      "payload": {
+        "title": "Definitions (precisely)",
+        "body": "Consistency (linearizability): every read sees the most recent write, as if there were a single copy. Availability: every non-failed node returns a response (not an error) for every request. Partition tolerance: the system continues to operate despite network partitions (dropped or delayed messages between nodes).",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "diagram",
+      "id": "triangle",
+      "payload": {
+        "ascii": "                    C\n                   / \\\n                  /   \\\n                 /     \\\n                /  CP   \\\n               /         \\\n              /    AP     \\\n             /             \\\n            A---------------P\n\n  CP: Consistency + Partition tolerance\n      -> reject requests during partition (sacrifice A)\n      -> e.g., Spanner, HBase, MongoDB (with majority write concern)\n\n  AP: Availability + Partition tolerance\n      -> serve stale data during partition (sacrifice C)\n      -> e.g., Cassandra, DynamoDB, CouchDB\n\n  CA: Consistency + Availability\n      -> only possible when there are no partitions\n      -> e.g., a single-machine database (PostgreSQL on one box)",
+        "caption": "CAP triangle. Because partitions are inevitable, real distributed systems are CP or AP.",
+        "voice_alt_text": "A triangle diagram showing the three CAP properties at the corners. CP systems prioritize consistency and partition tolerance by rejecting requests during a partition. AP systems prioritize availability and partition tolerance by serving possibly stale data. CA systems only work without partitions, which means single-machine databases."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "the-real-choice",
+      "payload": {
+        "text": "The common framing 'pick two' is misleading because Partition tolerance is not optional on a real network \u2014 partitions will happen, and your system must handle them. So the real choice is: when a partition occurs, do you (a) refuse to serve requests you cannot prove are correct (CP \u2014 sacrifice availability), or (b) serve requests with the data you have, accepting it may be stale (AP \u2014 sacrifice strong consistency)? Both are valid; the choice depends on the workload."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "misconception",
+      "payload": {
+        "title": "Common misconception",
+        "body": "CAP does NOT say 'you cannot have consistency and availability at the same time.' It says you cannot have both during a partition. When the network is healthy (no partition), a well-designed system can be both strongly consistent and highly available. PACELC is a more precise formulation: if there is a Partition (P), choose between A and C; Else (E), choose between L (latency) and C.",
+        "kind": "warning"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "examples",
+      "payload": {
+        "text": "CP systems: Google Spanner, HBase, MongoDB with majority write concern, any system using synchronous replication with quorum. They reject writes during partition rather than risk divergence. AP systems: Cassandra, DynamoDB, CouchDB, Riak \u2014 they accept writes on any reachable node and reconcile later (eventual consistency). CA systems: a single PostgreSQL instance. Not distributed, so no partition to tolerate \u2014 but also no fault tolerance."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q-1",
+      "payload": {
+        "question": "What does CAP theorem actually guarantee about a distributed system?",
+        "options": [
+          "You can always choose two of three: C, A, P.",
+          "During a network partition, you must choose between consistency and availability.",
+          "Strong consistency is impossible in distributed systems.",
+          "Availability is impossible in distributed systems."
+        ],
+        "answer_index": 1,
+        "rationale": "The 'pick two' framing is misleading because partitions are inevitable on real networks \u2014 P is not optional. The real guarantee is: during a partition, you cannot have both C and A. You either reject requests (CP) or serve possibly-stale data (AP). When there is no partition, you can have both. PACELC extends this: even without partition, you choose between latency and consistency on every write.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q-2",
+      "payload": {
+        "question": "You are designing a social media feed storage. Writes are user posts; reads are feed fetches. Which CAP trade-off makes sense?",
+        "options": [
+          "CP \u2014 feeds must always show the latest post.",
+          "AP \u2014 a slightly stale feed is fine; the system must stay up during partitions.",
+          "CA \u2014 single machine is enough.",
+          "All three are achievable with modern databases."
+        ],
+        "answer_index": 1,
+        "rationale": "Social media feeds tolerate staleness well \u2014 a user seeing a post 5 seconds late is not a problem. But the system being down during a partition is a major business problem. AP (eventual consistency) is the right choice: accept writes on any node, reconcile via read-repair or anti-entropy. This is why Cassandra and DynamoDB are popular for social feed storage. Note: some subsets (like payment state) might warrant CP \u2014 mixed systems are common.",
+        "difficulty": "interview"
+      }
+    }
+  ],
+  "trade_offs": {
+    "pros": [
+      "Gives a clear vocabulary for the consistency-availability trade-off.",
+      "Helps you choose the right database class for each workload.",
+      "Forces explicit reasoning about partition behavior."
+    ],
+    "cons": [
+      "Frequently misquoted as 'pick two' when P is not optional.",
+      "Binary C vs A is too coarse \u2014 real systems are tunable (quorum sizes, consistency levels).",
+      "Does not address latency, which is often the real cost of strong consistency."
+    ]
+  },
+  "common_mistakes": [
+    "Quoting CAP as 'pick two of three' without acknowledging partitions are inevitable.",
+    "Assuming 'eventual consistency' means 'eventually correct' \u2014 it means eventually converged, which can still be wrong.",
+    "Choosing AP for everything. Some data (payments, inventory) demands CP.",
+    "Forgetting that CAP is about partition behavior, not normal operation."
+  ],
+  "where_you_see_it": [
+    "Every distributed database \u2014 Cassandra (AP), Spanner (CP), DynamoDB (AP), MongoDB (configurable).",
+    "Microservice architectures face the same trade-off when services cannot reach each other.",
+    "The NO CAP app itself: D1 is CP (single region, SQLite), Workers KV is AP (eventual consistency across regions)."
+  ],
+  "interview_prompts": [
+    "Explain CAP theorem. What does it really say?",
+    "Design a distributed counter (likes on a post). CP or AP? Why?",
+    "Your bank's ledger system must never lose a transaction. CP or AP? What are the implications?",
+    "PACELC extends CAP. Explain the difference."
+  ],
+  "status": "published",
+  "summary": "CAP is the most quoted \u2014 and most misunderstood \u2014 theorem in distributed systems. A distributed system can provide at most two of three guarantees: Consistency, Availability, Partition tolerance.",
+  "why_it_matters": "Because partitions are inevitable on real networks, the real choice is between consistency and availability when a partition occurs. This trade-off shapes every distributed database design.",
+  "failure_modes": [
+    "Split-brain \u2014 network partition causes two primaries, divergent writes, data loss on heal.",
+    "Stale reads \u2014 AP system serves outdated data that violates business invariants.",
+    "Write unavailability \u2014 CP system rejects writes during partition, blocking users."
+  ],
+  "real_system_mappings": [
+    {
+      "system": "Cassandra",
+      "how": "AP system \u2014 accepts writes on any reachable node, reconciles via read-repair and anti-entropy."
+    },
+    {
+      "system": "Google Spanner",
+      "how": "CP system \u2014 synchronous replication with Paxos consensus, rejects writes during partition."
+    }
+  ]
+}

@@ -1,0 +1,154 @@
+{
+  "slug": "caching",
+  "version": 1,
+  "title": "Caching \u2014 Cache Aside Strategy",
+  "phase": "Caching",
+  "area": "Caching",
+  "estimated_minutes": 13,
+  "difficulty": "core",
+  "prerequisites": [
+    "how-the-internet-works",
+    "load-balancing"
+  ],
+  "related": [
+    "dns",
+    "cap-theorem"
+  ],
+  "used_in": [
+    "Netflix, web apps, APIs \u2014 everywhere reads outnumber writes."
+  ],
+  "blocks": [
+    {
+      "type": "prose",
+      "id": "why",
+      "payload": {
+        "text": "Most real workloads are read-heavy: news feeds, product pages, user profiles, search results. The database can serve these, but every read costs CPU, I/O, and latency. Caching stores the result of an expensive operation in faster storage, so subsequent reads skip the database entirely. Cache aside (also called lazy loading) is the most common strategy because it is simple, fault-tolerant, and wastes no memory on data no one reads."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "mechanism",
+      "payload": {
+        "text": "In cache aside, the application code manages the cache explicitly. On a read: check the cache first. If hit, return the cached value. If miss, query the database, write the result to the cache with a TTL, then return. The cache is not pre-populated \u2014 it fills lazily based on actual access patterns. Writes update the database, then either invalidate or update the cache."
+      }
+    },
+    {
+      "type": "code",
+      "id": "code-1",
+      "payload": {
+        "language": "python",
+        "code": "from redis import Redis\n\ncache = Redis(...)\n\ndef get_user(user_id):\n    key = f\"user:{user_id}\"\n\n    # 1. Check cache first\n    cached = cache.get(key)\n    if cached:\n        return cached  # cache hit\n\n    # 2. Cache miss \u2014 fetch from DB\n    user = db.fetch_user(user_id)\n\n    # 3. Write to cache with TTL\n    cache.set(key, user, ttl=300)  # 5 minutes\n\n    return user\n\ndef update_user(user_id, data):\n    # 1. Update DB\n    db.update_user(user_id, data)\n    # 2. Invalidate cache\n    cache.delete(f\"user:{user_id}\")",
+        "caption": "Cache aside in Python with Redis. Reads check cache, fall through to DB on miss, then populate. Writes invalidate."
+      }
+    },
+    {
+      "type": "diagram",
+      "id": "flow-1",
+      "payload": {
+        "ascii": "  [App]\n    |\n    | GET user:42\n    v\n  [Cache]  --MISS-->\n    |             |\n    |             v\n    |         [Database]\n    |             |\n    |  <---user---\n    |\n    | SET user:42 (TTL=300)\n    v\n  [Cache] now holds user:42\n    |\n    | return user\n    v\n  [App]\n\n  Next GET user:42:\n  [App] -> [Cache] --HIT--> return (no DB call)",
+        "caption": "Cache aside: first read misses and populates; subsequent reads hit.",
+        "voice_alt_text": "A diagram showing the cache aside pattern. On the first read, the app asks the cache, which misses, so the app fetches from the database, writes the result to the cache with a TTL, and returns. On the next read, the cache hits and returns immediately without touching the database."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "stale-warning",
+      "payload": {
+        "title": "Stale data risk",
+        "body": "Cache aside trades freshness for speed. Between a write and the cache invalidation, reads can return stale data. TTLs cap the staleness window \u2014 a 300s TTL means data is at most 5 minutes stale. For strong freshness, invalidate synchronously on write, but accept that the invalidation can fail (cache can be down) \u2014 always set a TTL as a safety net.",
+        "kind": "warning"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "stampede",
+      "payload": {
+        "text": "A subtle failure mode: cache stampede (or thundering herd). When a popular key expires, the next N requests all miss simultaneously, all fetch from the database, all write to the cache. The database takes N times the expected load for a brief window. Mitigations: lock the cache miss (only one request fetches, others wait), early refresh (refresh before expiry), or probabilistic early expiration. Each adds complexity."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q-1",
+      "payload": {
+        "question": "Your cache aside system uses a 5-minute TTL on user profiles. A user updates their bio, the DB write succeeds, but the cache invalidation call fails (cache is briefly down). What happens?",
+        "options": [
+          "The user sees their new bio immediately.",
+          "The user may see stale bio for up to 5 minutes, then it self-corrects.",
+          "The database rolls back the write.",
+          "The cache becomes permanently inconsistent."
+        ],
+        "answer_index": 1,
+        "rationale": "The write succeeded, but the cache still holds the old bio. Until the TTL expires (up to 5 minutes), reads return stale data. Once the TTL expires, the next read misses, fetches the updated bio from the DB, and the cache is correct again. This is why TTLs are a safety net, not just an optimization \u2014 they cap the maximum staleness window even when invalidation fails.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q-2",
+      "payload": {
+        "question": "A popular product page's cache entry expires. Within the same second, 1000 users request the page. What happens, and how do you mitigate it?",
+        "options": [
+          "Nothing special \u2014 the cache refills normally.",
+          "All 1000 requests miss simultaneously, hammering the database. Mitigate with cache locking or early refresh.",
+          "The cache automatically extends its TTL.",
+          "The load balancer blocks the requests."
+        ],
+        "answer_index": 1,
+        "rationale": "This is a cache stampede (thundering herd). All 1000 requests see a miss, all fetch from the database, all write to the cache. The database briefly takes 1000x the expected load. Mitigations: (a) cache locking \u2014 only the first miss fetches, others wait; (b) early refresh \u2014 refresh the cache before it expires, in the background; (c) probabilistic early expiration \u2014 add jitter to the TTL so misses spread out.",
+        "difficulty": "hard"
+      }
+    }
+  ],
+  "trade_offs": {
+    "pros": [
+      "Dramatically reduces database load \u2014 hot keys serve from cache in <1ms.",
+      "Lazy population \u2014 cache only holds data someone actually reads.",
+      "Fault-tolerant \u2014 if cache dies, system keeps working (just slower)."
+    ],
+    "cons": [
+      "Stale data window up to TTL duration.",
+      "Cache stampede on popular key expiry.",
+      "Application code is aware of the cache \u2014 more complex than transparent caching."
+    ]
+  },
+  "common_mistakes": [
+    "No TTL. Without a TTL, a cache invalidation failure means stale data forever.",
+    "Caching everything. Caching rarely-read data wastes memory and adds invalidation complexity.",
+    "Forgetting cache stampede protection on hot keys.",
+    "Updating cache before DB. If the cache write succeeds but the DB write fails, you are now inconsistent. Always write DB first, then cache."
+  ],
+  "where_you_see_it": [
+    "Netflix, web apps, APIs \u2014 everywhere reads outnumber writes.",
+    "Redis, Memcached, Varnish, CDN edge caching.",
+    "Browser cache, OS page cache \u2014 caching is everywhere, layered."
+  ],
+  "interview_prompts": [
+    "Design a caching layer for a news feed that gets 10k reads/sec and 10 writes/sec.",
+    "How do you handle cache stampedes? What are the trade-offs of each approach?",
+    "Your cache and database diverged. How do you detect it, and how do you fix it?",
+    "When would you NOT use cache aside? What are the alternatives?"
+  ],
+  "cost_metadata": {
+    "reference_monthly_cost_usd": 340,
+    "dominant_cost_driver": "ElastiCache node hours (memory + instance size)",
+    "reference_scale": "10k QPS, 1M users, 5GB cached data"
+  },
+  "status": "published",
+  "summary": "Cache aside (lazy loading) is the most common caching strategy. The application checks the cache first; on a miss, it fetches from the source, writes to the cache with a TTL, and returns.",
+  "why_it_matters": "Most real workloads are read-heavy. The database can serve these reads, but every read costs CPU, I/O, and latency. Caching stores the result of an expensive operation in faster storage.",
+  "failure_modes": [
+    "Cache stampede \u2014 popular key expires, 1000 requests miss simultaneously, hammering the DB.",
+    "Stale data \u2014 invalidation fails, users see old data until TTL expires.",
+    "Cache thundering herd \u2014 warm cache after cold restart overwhelms origin."
+  ],
+  "real_system_mappings": [
+    {
+      "system": "Netflix",
+      "how": "Multi-tier caching: CDN edge \u2192 origin cache (EVCache) \u2192 database. 90%+ of reads served from cache."
+    },
+    {
+      "system": "Redis / Memcached",
+      "how": "In-memory key-value stores implementing cache aside with TTL and LRU eviction."
+    }
+  ]
+}

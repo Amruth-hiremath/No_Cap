@@ -1,0 +1,122 @@
+{
+  "slug": "dns",
+  "version": 1,
+  "title": "DNS \u2014 Domain Name System",
+  "phase": "Fundamentals",
+  "area": "Fundamentals",
+  "estimated_minutes": 12,
+  "difficulty": "core",
+  "prerequisites": [
+    "how-the-internet-works"
+  ],
+  "related": [
+    "load-balancing"
+  ],
+  "used_in": [
+    "Every domain lookup on the planet.",
+    "Cloudflare DNS, Route 53, BIND."
+  ],
+  "blocks": [
+    {
+      "type": "prose",
+      "id": "why",
+      "payload": {
+        "text": "DNS is the phonebook of the internet. Humans remember example.com; routers need 93.184.216.34. DNS bridges this gap with a hierarchical, distributed, eventually-consistent database. It is also one of the most common single points of failure in real outages \u2014 if your DNS is down, no one can find you, no matter how healthy your servers are."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "mechanism",
+      "payload": {
+        "text": "DNS resolution is a recursive walk. Your browser asks the operating system's stub resolver. The stub resolver asks a recursive resolver (often your ISP's, or 8.8.8.8 / 1.1.1.1). The recursive resolver asks the root nameserver, which points to the TLD nameserver for .com, which points to the authoritative nameserver for example.com, which returns the A record. Each step is cached aggressively with a TTL (time to live)."
+      }
+    },
+    {
+      "type": "diagram",
+      "id": "flow-1",
+      "payload": {
+        "ascii": "  [Browser]\n      |  (asks for example.com)\n      v\n  [Stub Resolver] (in OS)\n      |\n      v\n  [Recursive Resolver] (1.1.1.1, 8.8.8.8, or ISP)\n      |\n      +---> [Root Nameserver]   (.)\n      |         |\n      |         v\n      +---> [TLD Nameserver]    (.com)\n      |         |\n      |         v\n      +---> [Authoritative NS]  (example.com)\n                |\n                v\n            A record: 93.184.216.34\n                |\n                v\n      (cached at every layer by TTL)",
+        "caption": "Recursive DNS resolution: each layer caches the answer.",
+        "voice_alt_text": "A diagram of DNS resolution. The browser asks the OS stub resolver, which asks a recursive resolver. The recursive resolver walks from root, to TLD, to the authoritative nameserver for example.com, which returns the A record. Every layer caches the answer based on its TTL."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "ttl-warning",
+      "payload": {
+        "title": "TTL is a trade-off",
+        "body": "Short TTLs (60s) let you fail over quickly but increase DNS query load. Long TTLs (86400s) reduce load but mean a DNS change takes up to a day to propagate globally. Most production setups use 300-3600s as a compromise, then lower the TTL ahead of planned changes.",
+        "kind": "warning"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "record-types",
+      "payload": {
+        "text": "Common record types: A (IPv4 address), AAAA (IPv6), CNAME (alias to another domain), MX (mail server), TXT (arbitrary text \u2014 used for verification, SPF, DKIM), NS (delegation to another nameserver), SOA (start of authority \u2014 zone metadata). CNAMEs cannot coexist with other records on the same name, which is why root domains (the apex example.com) often use ALIAS or ANAME records instead."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q-1",
+      "payload": {
+        "question": "You are planning a migration to a new origin IP next week. What should you do to your DNS TTL today?",
+        "options": [
+          "Leave it at 86400s (24h) to reduce resolver load during the migration.",
+          "Lower it to 60s a few days before, so the migration propagates quickly.",
+          "Set it to 0 so resolvers always re-query.",
+          "DNS TTL has no effect on migrations."
+        ],
+        "answer_index": 1,
+        "rationale": "Lowering the TTL to 60s a few days before the migration ensures every recursive resolver has cached the short TTL by migration day. When you flip the A record, the new IP propagates within 60s globally. Leaving it at 24h means some users will hit the old IP for up to a day. Setting TTL to 0 is not honored by all resolvers and dramatically increases query load.",
+        "difficulty": "solid"
+      }
+    }
+  ],
+  "trade_offs": {
+    "pros": [
+      "Hierarchical and distributed \u2014 no single server holds the entire database.",
+      "Aggressive caching keeps query latency low (usually <10ms after first lookup).",
+      "TTL-based caching gives operators explicit control over propagation speed."
+    ],
+    "cons": [
+      "DNS is a single point of failure for your domain. If your authoritative NS is down, you are unreachable.",
+      "Propagation is eventual, not instant. A misconfigured record can take hours to undo.",
+      "Originally unencrypted \u2014 ISPs and middlemen can snoop and hijack. DNS-over-HTTPS (DoH) and DNS-over-TLS (DoT) fix this."
+    ]
+  },
+  "common_mistakes": [
+    "Treating DNS as 'always works'. DNS outages are real and take down even the biggest companies.",
+    "Forgetting to lower TTL before a planned migration, then waiting hours for propagation.",
+    "CNAME at the apex domain. This is invalid in RFC 1033 \u2014 use ALIAS/ANAME or a redirect.",
+    "Single authoritative nameserver provider. Use two providers for redundancy."
+  ],
+  "where_you_see_it": [
+    "Every domain lookup on the planet.",
+    "Cloudflare DNS, AWS Route 53, Google Cloud DNS, NS1.",
+    "DNS-based load balancing (Route 53 weighted routing, geo DNS)."
+  ],
+  "interview_prompts": [
+    "Explain what happens when you type example.com into your browser, focusing on DNS.",
+    "How would you design DNS to survive a single nameserver failure?",
+    "Your DNS change has not propagated for some users 12 hours later. What could be wrong?"
+  ],
+  "status": "published",
+  "summary": "DNS is the phonebook of the internet. Humans remember example.com; routers need 93.184.216.34. DNS bridges this gap with a hierarchical, distributed, eventually-consistent database.",
+  "why_it_matters": "DNS is one of the most common single points of failure in real outages. If your DNS is down, no one can find you, no matter how healthy your servers are.",
+  "failure_modes": [
+    "Authoritative nameserver outage \u2014 your domain becomes unreachable globally.",
+    "DNS cache poisoning \u2014 users redirected to malicious IPs.",
+    "TTL too long \u2014 a misconfigured record takes hours to undo globally."
+  ],
+  "real_system_mappings": [
+    {
+      "system": "Cloudflare DNS",
+      "how": "1.1.1.1 public resolver with sub-10ms global anycast. Authoritative + recursive in one platform."
+    },
+    {
+      "system": "AWS Route 53",
+      "how": "Managed DNS with weighted routing, health checks, and failover policies."
+    }
+  ]
+}

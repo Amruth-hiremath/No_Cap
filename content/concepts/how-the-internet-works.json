@@ -1,0 +1,119 @@
+{
+  "slug": "how-the-internet-works",
+  "version": 1,
+  "title": "How the Internet Works",
+  "phase": "Fundamentals",
+  "area": "Fundamentals",
+  "estimated_minutes": 10,
+  "difficulty": "core",
+  "prerequisites": [],
+  "related": [
+    "dns",
+    "load-balancing"
+  ],
+  "used_in": [
+    "Every web request you have ever made."
+  ],
+  "blocks": [
+    {
+      "type": "prose",
+      "id": "why",
+      "payload": {
+        "text": "The internet is a network of networks. Your device does not connect directly to a server hosting example.com \u2014 it goes through a chain of intermediaries (router, ISP, DNS resolver, more routers, possibly a CDN, then the origin server). Understanding this chain is the foundation for every system-design decision: where to cache, what to replicate, why latency varies, why connections fail, and why TLS matters."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "mechanism",
+      "payload": {
+        "text": "At the core, the internet moves packets. A packet is a small chunk of data with a source IP, destination IP, and a payload. Routers inspect the destination IP and forward the packet closer to its destination, hop by hop. This is packet switching \u2014 many devices share the same physical wires, and each packet finds its own path."
+      }
+    },
+    {
+      "type": "diagram",
+      "id": "flow-1",
+      "payload": {
+        "ascii": "  [Browser]\n      |\n      v\n  [Router] (your home)\n      |\n      v\n  [ISP] (Comcast, Airtel, etc.)\n      |\n      v\n  [DNS Resolver] (8.8.8.8 or your ISP's)\n      |\n      v\n  [BGP / Core Routers]\n      |\n      v\n  [CDN edge] (Cloudflare, Fastly)  <-- often intercepts here\n      |\n      v\n  [Origin Server]\n      |\n      v\n  [Database]",
+        "caption": "The path of a single HTTP request from browser to origin.",
+        "voice_alt_text": "A diagram showing the path of a single HTTP request. The browser connects to a home router, which connects to an ISP, then a DNS resolver, then core BGP routers, optionally a CDN edge node, and finally the origin server and its database."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "key-insight",
+      "payload": {
+        "title": "Key insight",
+        "body": "Each hop in the chain can fail, add latency, or be a caching opportunity. System design is largely about deciding what to put where: what to cache at the CDN edge, what to cache at the origin, what to replicate, and what to keep on a single primary.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "tcp-ip",
+      "payload": {
+        "text": "Above packet switching sits TCP/IP. IP handles addressing and routing. TCP sits on top of IP and provides reliable, ordered, connection-oriented delivery. A TCP connection requires a three-way handshake (SYN, SYN-ACK, ACK) before any application data flows. This is why HTTPS is slower than it looks \u2014 every new connection pays the handshake tax. HTTP/2 and HTTP/3 reduce this by multiplexing multiple requests over a single connection (HTTP/2) or using UDP with QUIC (HTTP/3)."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q-1",
+      "payload": {
+        "question": "Why does HTTPS feel slower than plain HTTP for the first request to a new origin?",
+        "options": [
+          "Browsers intentionally throttle HTTPS.",
+          "TCP handshake + TLS handshake add round trips before any app data flows.",
+          "HTTPS packets are larger.",
+          "CDNs do not cache HTTPS traffic."
+        ],
+        "answer_index": 1,
+        "rationale": "A fresh HTTPS connection requires a TCP three-way handshake (1 round trip) plus a TLS handshake (1-2 round trips) before the HTTP request can even begin. Connection reuse, HTTP/2 multiplexing, and 0-RTT TLS all exist to mitigate this.",
+        "difficulty": "solid"
+      }
+    }
+  ],
+  "trade_offs": {
+    "pros": [
+      "Decentralized \u2014 no single owner or point of control.",
+      "Packet switching efficiently shares expensive long-haul links.",
+      "Layered protocols allow each layer to evolve independently."
+    ],
+    "cons": [
+      "Each hop adds latency and a potential failure point.",
+      "Best-effort delivery \u2014 packets can be dropped, reordered, or duplicated.",
+      "Trust model is fragile \u2014 security was bolted on later (TLS, DNSSEC)."
+    ]
+  },
+  "common_mistakes": [
+    "Treating 'the network' as a black box. In reality, every hop can fail, buffer, or reorder.",
+    "Assuming bandwidth equals speed. Latency (round-trip time) often dominates user-perceived performance.",
+    "Forgetting that DNS is a single point of failure for your domain \u2014 if DNS is down, you are down."
+  ],
+  "where_you_see_it": [
+    "Every web request you have ever made.",
+    "Cloudflare's edge network is one of the largest CDN + DNS providers on this chain.",
+    "Mobile apps reuse the same internet stack \u2014 they are not separate."
+  ],
+  "interview_prompts": [
+    "Walk me through what happens when you type a URL into a browser and press Enter.",
+    "Why does a request sometimes take 50ms and sometimes 500ms to the same origin?",
+    "If you were designing a global API, where would you place your servers and why?"
+  ],
+  "status": "published",
+  "summary": "The internet is a network of networks. Your device does not connect directly to a server \u2014 it goes through routers, ISPs, DNS resolvers, CDNs, and finally the origin. Understanding this chain is the foundation for every system-design decision.",
+  "why_it_matters": "Every system-design decision \u2014 where to cache, what to replicate, why latency varies, why TLS matters \u2014 depends on understanding the path a request takes from browser to origin and back.",
+  "failure_modes": [
+    "A single router failure can blackhole traffic until BGP converges (minutes).",
+    "DNS cache poisoning can redirect users to attacker-controlled servers.",
+    "TLS interception by middleboxes can break certificate pinning."
+  ],
+  "real_system_mappings": [
+    {
+      "system": "Cloudflare",
+      "how": "Operates one of the largest edge networks, intercepting requests at 300+ cities worldwide before they reach origin."
+    },
+    {
+      "system": "AWS VPC",
+      "how": "Isolates your servers in a virtual network with custom routing tables and security groups."
+    }
+  ]
+}

@@ -1,0 +1,349 @@
+@import 'tailwindcss';
+
+/* ═══════════════════════════════════════════════════════════════════
+   NO CAP — Studio Cockpit design tokens
+   Warm editorial palette. NO pink/purple/blue. NO gradients.
+   Theme applied via [data-theme="light"|"dark"] on <html>.
+   ═══════════════════════════════════════════════════════════════════ */
+
+@theme {
+  /* ── Surface tiers (backgrounds) ── */
+  --color-paper: #f7f3ec;
+  --color-surface: #fffdf8;
+  --color-surface-elevated: #ffffff;
+  --color-surface-subtle: #efe9dd;
+  --color-surface-inset: #f1ece1;
+
+  /* ── Borders ── */
+  --color-border: #e1d8c6;
+  --color-border-strong: #c8bca2;
+  --color-border-faint: #ebe4d4;
+
+  /* ── Text ── */
+  --color-text-primary: #1a1714;
+  --color-text-secondary: #4a4138;
+  --color-text-muted: #7a6f5f;
+  --color-text-faint: #a99c80;
+  --color-text-inverse: #fbf6ec;
+
+  /* ── Accent (burnt amber — primary brand) ── */
+  --color-accent: #b45309;
+  --color-accent-hover: #9a4708;
+  --color-accent-soft: #fbe9cf;
+  --color-accent-2: #166534; /* forest green — secondary */
+  --color-accent-2-soft: #d6ecdc;
+  --color-accent-3: #7c2d12; /* deep rust — tertiary */
+
+  /* ── Semantic ── */
+  --color-success: #166534;
+  --color-success-soft: #d6ecdc;
+  --color-warning: #92400e;
+  --color-warning-soft: #fbe9cf;
+  --color-danger: #991b1b;
+  --color-danger-soft: #f5dada;
+  --color-info: #0f766e;
+  --color-info-soft: #cdeae6;
+
+  /* ── Glass (used sparingly) ── */
+  --color-glass-light: rgba(255, 253, 248, 0.7);
+  --color-glass-dark: rgba(26, 23, 20, 0.6);
+
+  /* ── Fonts ── */
+  --font-sans:
+    ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI',
+    Roboto, 'Helvetica Neue', Arial, 'Noto Sans', sans-serif, 'Apple Color Emoji',
+    'Segoe UI Emoji';
+  --font-mono:
+    ui-monospace, 'JetBrains Mono', 'SF Mono', Menlo, Monaco, Consolas,
+    'Liberation Mono', 'Courier New', monospace;
+  --font-display: var(--font-sans);
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   Base styles
+   ═══════════════════════════════════════════════════════════════════ */
+
+:root {
+  --page-bg: var(--color-paper);
+  --ink: var(--color-text-primary);
+  color-scheme: light;
+}
+
+html[data-theme='dark'] {
+  --page-bg: #15130f;
+  --ink: #f0e6cf;
+  color-scheme: dark;
+
+  /* Override surface tokens for dark mode */
+  --color-paper: #15130f;
+  --color-surface: #1c1914;
+  --color-surface-elevated: #221e17;
+  --color-surface-subtle: #2a251c;
+  --color-surface-inset: #1f1c16;
+
+  --color-border: #2f2a22;
+  --color-border-strong: #4a4334;
+  --color-border-faint: #26221b;
+
+  --color-text-primary: #f0e6cf;
+  --color-text-secondary: #c8bda1;
+  --color-text-muted: #8e8268;
+  --color-text-faint: #6a6047;
+  --color-text-inverse: #15130f;
+
+  --color-accent: #d97706;
+  --color-accent-hover: #ee9224;
+  --color-accent-soft: #3a2a14;
+  --color-accent-2: #4ea36a;
+  --color-accent-2-soft: #18301f;
+
+  --color-success: #4ea36a;
+  --color-success-soft: #18301f;
+  --color-warning: #d97706;
+  --color-warning-soft: #3a2a14;
+  --color-danger: #f87171;
+  --color-danger-soft: #3a1f1f;
+  --color-info: #5eb8ad;
+  --color-info-soft: #15302d;
+
+  --color-glass-light: rgba(28, 25, 20, 0.7);
+  --color-glass-dark: rgba(26, 23, 20, 0.85);
+}
+
+html {
+  background: var(--page-bg);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-feature-settings: 'kern', 'liga', 'calt', 'ss01';
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+}
+
+/* Tabular figures for metrics */
+.tnum,
+.font-mono {
+  font-family: var(--font-mono);
+  font-feature-settings: 'tnum', 'zero';
+}
+
+.tnum {
+  letter-spacing: -0.01em;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   Glass utilities — used sparingly per design directive
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* Liquid glass — Today's Dose hero only (max 1 per screen) */
+.glass-liquid {
+  background: var(--color-glass-light);
+  backdrop-filter: blur(20px) saturate(160%);
+  -webkit-backdrop-filter: blur(20px) saturate(160%);
+  border: 1px solid var(--color-border);
+  box-shadow:
+    0 8px 32px rgba(26, 23, 20, 0.06),
+    inset 0 1px 0 rgba(255, 255, 255, 0.4);
+}
+
+html[data-theme='dark'] .glass-liquid {
+  border-color: var(--color-border-strong);
+  box-shadow:
+    0 8px 32px rgba(0, 0, 0, 0.3),
+    inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+/* Frosted glass — small supporting panels */
+.glass-frosted {
+  background: var(--color-glass-light);
+  backdrop-filter: blur(12px) saturate(140%);
+  -webkit-backdrop-filter: blur(12px) saturate(140%);
+  border: 1px solid var(--color-border);
+}
+
+html[data-theme='dark'] .glass-frosted {
+  border-color: var(--color-border);
+}
+
+/* Smoke glass — sidebar, topbar */
+.glass-smoke {
+  background: var(--color-glass-light);
+  backdrop-filter: blur(16px) saturate(150%);
+  -webkit-backdrop-filter: blur(16px) saturate(150%);
+}
+
+/* Dark glass — command palette, code blocks */
+.glass-dark {
+  background: var(--color-glass-dark);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid var(--color-border-strong);
+}
+
+@supports not (backdrop-filter: blur(1px)) {
+  .glass-liquid,
+  .glass-frosted,
+  .glass-smoke {
+    background: var(--color-surface);
+  }
+  .glass-dark {
+    background: var(--color-surface-inset);
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   Subtle grid texture (used on the main app background, very subtle)
+   ═══════════════════════════════════════════════════════════════════ */
+
+.bg-grid {
+  background-image:
+    linear-gradient(to right, var(--color-border-faint) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--color-border-faint) 1px, transparent 1px);
+  background-size: 32px 32px;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   Reduced motion
+   ═══════════════════════════════════════════════════════════════════ */
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   Scrollbar (warm, subtle)
+   ═══════════════════════════════════════════════════════════════════ */
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-border-strong);
+  border-radius: 5px;
+  border: 2px solid var(--page-bg);
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-text-muted);
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   Selection
+   ═══════════════════════════════════════════════════════════════════ */
+
+::selection {
+  background: var(--color-accent-soft);
+  color: var(--color-text-primary);
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   Focus ring
+   ═══════════════════════════════════════════════════════════════════ */
+
+:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+button:focus-visible,
+a:focus-visible {
+  outline-offset: 2px;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   Animations (subtle, causality only)
+   ═══════════════════════════════════════════════════════════════════ */
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes fade-in-up {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes scale-in {
+  from { opacity: 0; transform: scale(0.98); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+@keyframes pulse-soft {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.65; }
+}
+
+.animate-fade-in {
+  animation: fade-in 160ms ease-out;
+}
+
+.animate-fade-in-up {
+  animation: fade-in-up 200ms cubic-bezier(0.25, 0.9, 0.3, 1);
+}
+
+.animate-scale-in {
+  animation: scale-in 180ms cubic-bezier(0.25, 0.9, 0.3, 1);
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   Prose typography for lesson content
+   ═══════════════════════════════════════════════════════════════════ */
+
+.prose-nocap {
+  color: var(--color-text-secondary);
+  font-size: 15px;
+  line-height: 1.7;
+  letter-spacing: -0.005em;
+}
+
+.prose-nocap p {
+  margin: 0 0 1em;
+}
+
+.prose-nocap p:last-child {
+  margin-bottom: 0;
+}
+
+.prose-nocap strong {
+  color: var(--color-text-primary);
+  font-weight: 600;
+}
+
+.prose-nocap code {
+  font-family: var(--font-mono);
+  font-size: 0.875em;
+  background: var(--color-surface-inset);
+  padding: 0.1em 0.4em;
+  border-radius: 4px;
+  border: 1px solid var(--color-border);
+  color: var(--color-accent);
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   Safe area for iOS
+   ═══════════════════════════════════════════════════════════════════ */
+
+.pb-safe {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+.pt-safe {
+  padding-top: env(safe-area-inset-top, 0px);
+}

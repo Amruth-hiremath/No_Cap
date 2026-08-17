@@ -1,0 +1,104 @@
+{
+  "version": "aws-2026-08",
+  "as_of": "2026-08-01",
+  "provider": "aws",
+  "notes": "Bundled pricing dataset (Tier B, v1.0). Refreshed quarterly via PR. Prices are on-demand, us-east-1, in USD. Not live - no API calls. Used by the Cost Calculator client-side.",
+  "services": [
+    {
+      "service_code": "ec2.m6i.xlarge",
+      "name": "EC2 m6i.xlarge (4 vCPU, 16GB)",
+      "region": "us-east-1",
+      "price_unit": "hour",
+      "price_usd": 0.192,
+      "pricing_model": "on_demand"
+    },
+    {
+      "service_code": "ec2.m6i.2xlarge",
+      "name": "EC2 m6i.2xlarge (8 vCPU, 32GB)",
+      "region": "us-east-1",
+      "price_unit": "hour",
+      "price_usd": 0.384,
+      "pricing_model": "on_demand"
+    },
+    {
+      "service_code": "rds.db.r6.2xlarge",
+      "name": "RDS PostgreSQL r6.2xlarge",
+      "region": "us-east-1",
+      "price_unit": "hour",
+      "price_usd": 0.840,
+      "pricing_model": "on_demand"
+    },
+    {
+      "service_code": "elasticache.cache.r6g.large",
+      "name": "ElastiCache Redis r6g.large",
+      "region": "us-east-1",
+      "price_unit": "hour",
+      "price_usd": 0.170,
+      "pricing_model": "on_demand"
+    },
+    {
+      "service_code": "s3.standard",
+      "name": "S3 Standard storage",
+      "region": "us-east-1",
+      "price_unit": "gb-month",
+      "price_usd": 0.023,
+      "pricing_model": "storage"
+    },
+    {
+      "service_code": "cloudfront.transfer",
+      "name": "CloudFront data transfer out",
+      "region": "us-east-1",
+      "price_unit": "gb",
+      "price_usd": 0.085,
+      "pricing_model": "tiered"
+    },
+    {
+      "service_code": "lambda.requests",
+      "name": "Lambda request",
+      "region": "us-east-1",
+      "price_unit": "1m-requests",
+      "price_usd": 0.20,
+      "pricing_model": "per_request"
+    },
+    {
+      "service_code": "lambda.compute",
+      "name": "Lambda compute (gb-second)",
+      "region": "us-east-1",
+      "price_unit": "gb-second",
+      "price_usd": 0.0000166667,
+      "pricing_model": "per_compute"
+    },
+    {
+      "service_code": "dynamodb.write",
+      "name": "DynamoDB write capacity unit",
+      "region": "us-east-1",
+      "price_unit": "1m-wcus",
+      "price_usd": 1.25,
+      "pricing_model": "provisioned"
+    },
+    {
+      "service_code": "dynamodb.read",
+      "name": "DynamoDB read capacity unit",
+      "region": "us-east-1",
+      "price_unit": "1m-rcus",
+      "price_usd": 0.25,
+      "pricing_model": "provisioned"
+    },
+    {
+      "service_code": "data_transfer.out",
+      "name": "EC2 data transfer out to internet",
+      "region": "us-east-1",
+      "price_unit": "gb",
+      "price_usd": 0.09,
+      "pricing_model": "tiered"
+    },
+    {
+      "service_code": "alb.lcu",
+      "name": "ALB LCU-hour",
+      "region": "us-east-1",
+      "price_unit": "hour",
+      "price_usd": 0.008,
+      "pricing_model": "per_lcu"
+    }
+  ]
+}

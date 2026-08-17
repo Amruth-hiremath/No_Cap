@@ -1,0 +1,151 @@
+{
+  "slug": "load-balancing",
+  "version": 1,
+  "title": "Load Balancing",
+  "phase": "Scaling",
+  "area": "Scaling",
+  "estimated_minutes": 14,
+  "difficulty": "core",
+  "prerequisites": [
+    "how-the-internet-works"
+  ],
+  "related": [
+    "caching",
+    "dns"
+  ],
+  "used_in": [
+    "Every production web service with more than one server."
+  ],
+  "blocks": [
+    {
+      "type": "prose",
+      "id": "why",
+      "payload": {
+        "text": "A single server cannot handle meaningful traffic, cannot survive hardware failure, and cannot scale beyond one machine's CPU and RAM. Load balancing solves all three: distribute traffic across N servers, survive the loss of any one, and scale horizontally by adding more. It is the single most foundational scaling primitive in system design."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "mechanism",
+      "payload": {
+        "text": "A load balancer sits in front of a pool of backend servers. Incoming requests arrive at the LB; it picks a backend and forwards the request; the backend responds; the LB relays the response to the client. To the client, the LB is the server. To the backend, the LB is the client. The choice of which backend to pick is the algorithm."
+      }
+    },
+    {
+      "type": "diagram",
+      "id": "flow-1",
+      "payload": {
+        "ascii": "            [Clients]\n                |\n                v\n        +---------------+\n        |  Load Balancer |\n        +---------------+\n          /     |     \\\n         v      v      v\n      [S1]    [S2]    [S3]\n        \\      |      /\n         v     v     v\n        +-----------+\n        |  Database  |  (shared, so S1/S2/S3 are stateless)\n        +-----------+",
+        "caption": "A load balancer distributes requests across a pool of stateless servers sharing one database.",
+        "voice_alt_text": "A diagram of a load balancer in front of three servers, all sharing a single database. Clients connect to the load balancer, which forwards each request to one of the three servers using an algorithm like round-robin. The servers share the database so any of them can handle any request."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "algorithms",
+      "payload": {
+        "text": "Common algorithms: Round Robin (cycle through backends in order \u2014 simple, ignores load), Least Connections (pick the backend with the fewest active requests \u2014 better under uneven load), IP Hash (same client always goes to same backend \u2014 enables sticky sessions without cookies), Weighted (give stronger backends more traffic), Random (cheap, surprisingly effective at scale). Production LBs often combine: least-connections with health checks and slow-start for newly-added backends."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "stateless-rule",
+      "payload": {
+        "title": "The statelessness rule",
+        "body": "For horizontal scaling to work, backends must be stateless \u2014 no in-memory sessions, no local file uploads, no per-server caches. All shared state lives in the database, Redis, or object storage. If a backend holds session state, you need sticky sessions, which defeats the LB's ability to fail over.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "layers",
+      "payload": {
+        "text": "Load balancing happens at multiple layers. L4 (transport): the LB sees TCP/UDP, forwards bytes \u2014 fast, opaque, no HTTP awareness (HAProxy, AWS NLB). L7 (application): the LB parses HTTP, can route by URL/headers, terminate TLS, modify requests \u2014 flexible, slower (NGINX, AWS ALB, Cloudflare). Modern systems use both: an L4 LB at the edge for raw throughput, L7 LBs behind it for smart routing."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q-1",
+      "payload": {
+        "question": "Your web app stores user session data in memory on each server. After adding a load balancer with round-robin, users complain they get logged out randomly. What is the root cause?",
+        "options": [
+          "The load balancer is misconfigured.",
+          "Sessions are stateful, so a user's request hits a different server than the one holding their session.",
+          "Round-robin is too slow \u2014 switch to least-connections.",
+          "The database is overloaded."
+        ],
+        "answer_index": 1,
+        "rationale": "In-memory sessions make servers stateful. Round-robin sends each request to a different server, so the user's session is on server A but their next request hits server B, which does not know them. The fix is either (a) move sessions to shared storage (Redis), making servers stateless, or (b) use sticky sessions (IP hash), which trades off failover for session continuity. Option (a) is strongly preferred.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q-2",
+      "payload": {
+        "question": "When would you choose L4 over L7 load balancing?",
+        "options": [
+          "When you need to route by URL path.",
+          "When you need maximum throughput and do not need HTTP-level routing.",
+          "When you need to terminate TLS at the LB.",
+          "L4 and L7 are interchangeable."
+        ],
+        "answer_index": 1,
+        "rationale": "L4 LBs operate on TCP/UDP bytes without parsing HTTP, so they are dramatically faster and cheaper per request. Use L4 for raw throughput (e.g., database connection pooling, gRPC, raw TCP services). Use L7 when you need HTTP-aware features: path-based routing, header manipulation, TLS termination, content-based routing.",
+        "difficulty": "solid"
+      }
+    }
+  ],
+  "trade_offs": {
+    "pros": [
+      "Horizontal scaling \u2014 add more servers to handle more traffic.",
+      "Fault tolerance \u2014 lose a server, traffic shifts to the others.",
+      "Rolling deploys \u2014 drain one server, update it, repeat."
+    ],
+    "cons": [
+      "The LB itself can be a single point of failure (mitigate with active-active pairs).",
+      "Adds a network hop and a small amount of latency.",
+      "Requires stateless backends \u2014 moving session state to shared storage is real work."
+    ]
+  },
+  "common_mistakes": [
+    "Sticky sessions as a default. They defeat failover and complicate scaling.",
+    "Forgetting health checks. A dead backend will keep receiving traffic until the LB notices.",
+    "Single LB without redundancy. The LB is now your SPOF.",
+    "Mixing L4 and L7 without thinking. L7 in front of L4 in front of L7 is a common over-engineering smell."
+  ],
+  "where_you_see_it": [
+    "Every production web service with more than one server.",
+    "NGINX, HAProxy, AWS ALB/NLB, Cloudflare load balancing, Envoy.",
+    "Service mesh sidecars (Istio, Linkerd) are LBs running next to your app."
+  ],
+  "interview_prompts": [
+    "Design a load balancer for a globally-distributed API with 1M requests per second.",
+    "How do you ensure your load balancer is not a single point of failure?",
+    "When would you use sticky sessions, and what do they cost you?",
+    "Explain the difference between L4 and L7 load balancing with examples."
+  ],
+  "cost_metadata": {
+    "reference_monthly_cost_usd": 240,
+    "dominant_cost_driver": "LB capacity (LCU hours on AWS ALB, or instance hours on self-hosted)",
+    "reference_scale": "10k QPS, 3 backend servers"
+  },
+  "status": "published",
+  "summary": "A load balancer sits in front of a pool of backend servers, distributing incoming requests across them. It enables horizontal scaling, fault tolerance, and rolling deploys.",
+  "why_it_matters": "A single server cannot handle meaningful traffic, cannot survive hardware failure, and cannot scale beyond one machine. Load balancing solves all three.",
+  "failure_modes": [
+    "LB itself becomes SPOF without active-active redundancy.",
+    "Sticky sessions prevent failover \u2014 if a backend dies, its users lose their session.",
+    "Health check too slow \u2014 dead backends keep receiving traffic until LB notices."
+  ],
+  "real_system_mappings": [
+    {
+      "system": "AWS ALB",
+      "how": "L7 load balancer with path-based routing, TLS termination, and target group health checks."
+    },
+    {
+      "system": "NGINX",
+      "how": "Self-hosted L7 LB with least-connections, IP hash, and weighted round-robin algorithms."
+    }
+  ]
+}

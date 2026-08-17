@@ -1,0 +1,47 @@
+{
+  "name": "nocap",
+  "version": "0.1.0",
+  "private": true,
+  "description": "NO CAP - A personal system-design learning workbench",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "type-check": "tsc --noEmit",
+    "content:validate": "node scripts/validate-content.js",
+    "worker:dev": "cd worker && wrangler dev",
+    "worker:deploy": "cd worker && wrangler deploy",
+    "db:migrate": "cd worker && wrangler d1 migrations apply nocap --local",
+    "db:migrate:prod": "cd worker && wrangler d1 migrations apply nocap --remote"
+  },
+  "dependencies": {
+    "next": "^16.3.1",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "zustand": "^5.0.0",
+    "clsx": "^2.1.1",
+    "tailwind-merge": "^2.5.0",
+    "lucide-react": "^0.460.0",
+    "flexsearch": "^0.7.43"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.0",
+    "@types/node": "^22.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@types/flexsearch": "^0.7.6",
+    "tailwindcss": "^4.0.0",
+    "@tailwindcss/postcss": "^4.0.0",
+    "postcss": "^8.5.23",
+    "autoprefixer": "^10.4.20",
+    "wrangler": "^4.123.0"
+  },
+  "overrides": {
+    "postcss": "^8.5.23",
+    "sharp": "^0.35.0",
+    "esbuild": "^0.25.0",
+    "undici": "^6.28.0",
+    "ws": "^8.18.0"
+  }
+}

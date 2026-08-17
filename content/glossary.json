@@ -1,0 +1,96 @@
+[
+  {
+    "term": "CAP Theorem",
+    "aliases": ["Brewer's Theorem"],
+    "definition": "In a distributed system, you can provide at most two of three guarantees: Consistency, Availability, Partition tolerance. Under network partition, you must choose between C and A.",
+    "concept_slug": "cap-theorem"
+  },
+  {
+    "term": "Cache Aside",
+    "aliases": ["Lazy Loading", "Lazy Population"],
+    "definition": "A caching strategy where the application checks the cache first; on a miss, it fetches from the source, writes to the cache, and returns. The cache is not pre-populated.",
+    "concept_slug": "caching"
+  },
+  {
+    "term": "Load Balancer",
+    "aliases": ["LB"],
+    "definition": "A component that distributes incoming requests across multiple servers to maximize throughput, minimize response time, and avoid overload on any single server.",
+    "concept_slug": "load-balancing"
+  },
+  {
+    "term": "DNS",
+    "aliases": ["Domain Name System", "Domain Name Server"],
+    "definition": "A hierarchical, decentralized naming system that translates human-readable domain names (example.com) into IP addresses (93.184.216.34).",
+    "concept_slug": "dns"
+  },
+  {
+    "term": "CDN",
+    "aliases": ["Content Delivery Network", "Content Distribution Network"],
+    "definition": "A geographically distributed network of proxy servers that serves cached content to users from the nearest edge location, reducing latency and origin load."
+  },
+  {
+    "term": "SPOF",
+    "aliases": ["Single Point of Failure"],
+    "definition": "A component in a system whose failure causes the entire system to fail. Architecture review identifies and eliminates SPOFs through redundancy."
+  },
+  {
+    "term": "Quorum",
+    "aliases": [],
+    "definition": "The minimum number of nodes in a distributed system that must agree on a value for it to be accepted. Typically a majority (N/2 + 1) to tolerate minority failures."
+  },
+  {
+    "term": "Sharding",
+    "aliases": ["Horizontal Partitioning"],
+    "definition": "Splitting a large database into smaller, horizontally-partitioned pieces (shards) distributed across multiple servers. Each shard holds a subset of rows."
+  },
+  {
+    "term": "Replication",
+    "aliases": ["Replica"],
+    "definition": "Copying data from a primary database to one or more replica databases to improve read availability, scalability, and fault tolerance."
+  },
+  {
+    "term": "Idempotency",
+    "aliases": ["Idempotent"],
+    "definition": "A property of an operation where executing it once has the same effect as executing it multiple times. Critical for safe retries in distributed systems."
+  },
+  {
+    "term": "Backpressure",
+    "aliases": [],
+    "definition": "Resistance or force opposing the desired flow of data through a system. Used to slow down producers when consumers cannot keep up, preventing queue overflow."
+  },
+  {
+    "term": "Circuit Breaker",
+    "aliases": [],
+    "definition": "A reliability pattern that stops calling a failing downstream service after a threshold of failures, allowing it to recover. Trips 'open', then periodically tests 'half-open'."
+  },
+  {
+    "term": "Eventual Consistency",
+    "aliases": [],
+    "definition": "A consistency model where, given no new updates, all replicas will eventually converge to the same value. Reads may return stale data in the interim."
+  },
+  {
+    "term": "Strong Consistency",
+    "aliases": ["Linearizability"],
+    "definition": "A consistency model where all reads see the most recent write, as if there were a single copy of the data. Requires coordination, reducing availability under partition."
+  },
+  {
+    "term": "Latency",
+    "aliases": [],
+    "definition": "The time taken for a request to travel from source to destination and back. Measured in milliseconds. p95 and p99 latency are common SLOs."
+  },
+  {
+    "term": "Throughput",
+    "aliases": [],
+    "definition": "The rate at which a system processes requests or data, typically measured in requests per second (RPS) or bytes per second."
+  },
+  {
+    "term": "MVC",
+    "aliases": ["Model-View-Controller"],
+    "definition": "A software architectural pattern that separates application logic into three interconnected components: Model (data), View (UI), Controller (input)."
+  },
+  {
+    "term": "Microservice",
+    "aliases": ["Microservices"],
+    "definition": "An architectural style where an application is composed of small, independently-deployable services that communicate over a network. Opposite of monolith."
+  }
+]
