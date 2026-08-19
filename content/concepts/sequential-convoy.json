@@ -1,0 +1,412 @@
+{
+  "slug": "sequential-convoy",
+  "version": 3,
+  "title": "Sequential Convoy",
+  "phase": "cloud-architecture",
+  "area": "Cloud Architecture",
+  "estimated_minutes": 7,
+  "difficulty": "expert",
+  "summary": "The Sequential Convoy pattern processes a sequence of related messages in strict order per partition, while allowing parallelism across partitions. Messages with the same key (e.g., all events for one order, all transactions for one account) are routed to the same partition and processed serially — guaranteeing that `OrderCreated` is handled before `OrderShipped`. Messages with different keys go to different partitions and process in parallel. The pattern gives you the simplicity of ordered processing within a logical group without sacrificing fleet-wide throughput.",
+  "why_it_matters": "Many real-world workflows require ordering within an entity: bank account transactions (deposit before withdrawal), order state machines (paid before shipped), chat messages (no reply before the original). Naive parallel processing breaks these — race conditions cause wrong state, lost updates, duplicated effects. Sequential Convoy solves this elegantly: partition by entity ID, process each partition in order, parallelize across entities. This is exactly how Kafka partitions, how SQS FIFO groups work, and how sharded event processors operate.",
+  "prerequisites": [
+    "message-queues"
+  ],
+  "related": [
+    "priority-queue",
+    "queue-based-load-leveling"
+  ],
+  "used_in": [
+    "Event-sourced systems — events for one aggregate must be applied in order.",
+    "Order management systems — state transitions per order.",
+    "Banking systems — transactions per account, processed in order.",
+    "Chat / collaboration tools — messages per conversation, in order."
+  ],
+  "blocks": [
+    {
+      "type": "prose",
+      "id": "intro",
+      "payload": {
+        "text": "Sequential Convoy solves the tension between two requirements:\n\n1. **Order within a related group**: messages for the same entity (account, order, conversation) must be processed in the order they were produced. `Deposit $100` must be processed before `Withdraw $50`, or the account goes negative.\n2. **Parallelism across groups**: the system must process many entities concurrently to achieve throughput. Processing one entity at a time is too slow.\n\nThe pattern resolves both by **partitioning** — routing messages with the same key to the same consumer, which processes them serially:\n\n- Each message has a partition key (account_id, order_id, conversation_id).\n- A hash of the key determines the partition. Messages with the same key always go to the same partition.\n- Within a partition, messages are processed in order — strictly serial.\n- Across partitions, processing is parallel — multiple consumers each handle their own partitions concurrently.\n\nExample: 4 partitions, 4 consumers. Account A's messages all hash to partition 0; consumer 0 processes them in order. Account B's messages hash to partition 2; consumer 2 processes them in order. Accounts A and B are processed in parallel by different consumers — but within each account, strict ordering is preserved.\n\nThis is the model behind:\n- **Kafka partitions**: messages with the same key go to the same partition; consumers in a consumer group each own partitions.\n- **AWS SQS FIFO with message groups**: messages in the same group are processed in order; different groups are parallel.\n- **Azure Service Bus sessions**: messages in the same session are processed by one consumer at a time, in order.\n- **Event Hubs partitions**: same partition-per-key model as Kafka.\n\nThe name comes from the original Microsoft Azure Cloud Design Patterns documentation: a ‘convoy’ of messages traveling together, processed sequentially within their convoy."
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "topology",
+      "payload": {
+        "code": "flowchart TD\n    N0[\"Producer:\"]\n    N1[\"acct=A\"]\n    N2[\"acct=B\"]\n    N3[\"acct=C\"]\n    N4[\"msg1\"]\n    N5[\"(acct\"]\n    N6[\"msg2\"]\n    N7[\"msg3\"]\n    N8[\"msg4\"]\n    N9[\"msg5\"]\n    N10[\"key\"]\n    N11[\"hash(key)\"]\n    N12[\"partitions\"]\n    N13[\"Partitioned\"]\n    N14[\"Queue\"]\n    N15[\"Topic\"]\n    N16[\" msg1(A), msg3(A), msg5(A) \"]\n    N17[\"A\"]\n    N18[\"partition\"]\n    N19[\"msg1(A),\"]\n    N20[\"msg3(A),\"]\n    N21[\"msg5(A)\"]\n    N22[\"A's\"]\n    N23[\"messages,\"]\n    N24[\" msg4(C)                       \"]\n    N25[\"C\"]\n    N26[\"msg4(C)\"]\n    N27[\"order\"]\n    N28[\" msg2(B)                       \"]\n    N29[\"B\"]\n    N30[\"msg2(B)\"]\n    N31[\" (empty)                      \"]\n    N32[\"empty\"]\n    N33[\"(empty)\"]\n    N34[\"Cons.0\"]\n    N35[\"Cons.1\"]\n    N36[\"Cons.2\"]\n    N37[\"Cons.3\"]\n    N38[\"idle\"]\n    N39[\"m1,m3,\"]\n    N40[\"Each\"]\n    N41[\"consumer\"]\n    N42[\"processes\"]\n    N43[\"its\"]\n    N44[\"strictly\"]\n    N45[\"order.\"]\n    N46[\"different keys\"]\n    N47[\"Different\"]\n    N48[\"(different\"]\n    N49[\"keys)\"]\n    N50[\"process\"]\n    N51[\"parallel.\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44\n    N44 --> N45\n    N45 --> N46\n    N46 --> N47\n    N47 --> N48\n    N48 --> N49\n    N49 --> N50\n    N50 --> N51",
+        "caption": "Sequential Convoy: messages with the same key go to the same partition, processed in order; different keys go to different partitions, processed in parallel.",
+        "alt_text": "A diagram showing a producer sending five messages with keys A, B, A, C, A. A hash function distributes them across a partitioned queue with four partitions. Partition zero contains messages one, three, and five for account A. Partition one contains message four for account C. Partition two contains message two for account B. Partition three is empty. Each partition has a dedicated consumer that processes its messages strictly in order: consumer zero processes A's messages one, three, five in sequence; consumer one processes C's message four; consumer two processes B's message two. The caption notes that each consumer processes its partition in order, while different partitions process in parallel."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "guarantees",
+      "payload": {
+        "text": "What Sequential Convoy guarantees (and doesn't):\n\n**Guarantees:**\n- **Per-key ordering**: messages with the same key are delivered to the consumer in the order they were produced.\n- **At-least-once delivery** (typical): each message is delivered at least once; may be delivered more than once if a consumer fails mid-processing. Consumers must be idempotent.\n- **Single consumer per partition at a time**: only one consumer processes a given partition; no concurrent processing of the same key. (Across rebalances, a new consumer takes over.)\n\n**Does NOT guarantee:**\n- **Cross-key ordering**: there's no ordering between partitions. A's message 5 may be processed before B's message 2 even if 5 was produced after 2. If you need cross-key ordering, you need a single partition — which kills parallelism.\n- **Exactly-once delivery**: most implementations are at-least-once. True exactly-once requires transactional consumers (Kafka Transactions API) or idempotent consumers.\n- **Ordering across consumer rebalances**: when a consumer joins or leaves the group, partitions are reassigned. There's a brief window where the new consumer may reprocess messages the old consumer already processed (depending on commit semantics).\n\nKey design decisions:\n- **Choose the partition key carefully.** It must be stable, evenly distributed (no hot keys), and match your ordering requirement. For order processing, `order_id`. For account transactions, `account_id`. For chat, `conversation_id`.\n- **Beware hot keys.** If one key generates 90% of traffic (e.g., a celebrity's account), that partition is a bottleneck. Mitigations: sub-partition by time, hash-sub-key, or special-case hot keys.\n- **Choose partition count carefully.** Too few: limits parallelism. Too many: overhead per partition, and you need enough consumers to handle them all. A common rule: 10-20× the number of consumers, to allow rebalancing.\n- **Idempotency is required.** At-least-once means duplicates; consumers must handle them via deduplication keys, transactional writes, or idempotent operations."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "fifo-vs-fifo",
+      "payload": {
+        "title": "FIFO Queue vs Sequential Convoy",
+        "body": "A FIFO queue processes ALL messages in order, globally — one consumer, no parallelism. Sequential Convoy is FIFO *within a key* but parallel *across keys*. The two are different points on a spectrum: full FIFO = no parallelism; full parallel = no ordering; Sequential Convoy = ordered per-key, parallel across keys. The choice depends on whether your ordering requirement is global (use FIFO) or per-entity (use Sequential Convoy). Most real systems need per-entity, so Sequential Convoy dominates.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "implementation",
+      "payload": {
+        "text": "Concrete implementations:\n\n**Kafka partitions + consumer groups**: messages with the same key go to the same partition; consumers in a group each own a subset of partitions. Within a partition, ordering is guaranteed by Kafka's offset. Consumers commit offsets after processing. Rebalances redistribute partitions across consumers.\n\n**AWS SQS FIFO with Message Groups**: a FIFO queue supports multiple message groups. Messages in the same group are delivered in order to one consumer at a time. Different groups are processed in parallel by different consumers. Group ID = partition key.\n\n**Azure Service Bus Sessions**: messages with the same SessionId are processed by one consumer at a time, in order. Sessions are leased to consumers; when the consumer releases or the lease expires, another consumer can take over.\n\n**Event Hubs partitions**: same model as Kafka. Partitions are the unit of ordering and parallelism.\n\nIn all cases, the same concerns apply:\n- **Consumer failure**: if a consumer dies mid-message, the message is redelivered to another consumer. The new consumer may reprocess messages the dead consumer already processed. Idempotency is essential.\n- **Rebalance**: when consumers join/leave, partitions are reassigned. There's a brief window of unavailability or duplicate processing.\n- **Backpressure**: if a partition's consumer is slow, the partition's queue grows. Other partitions aren't affected (good for blast radius).\n\nThe pattern is robust and battle-tested. Most large-scale event-driven systems use it as the default model for ordered processing."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q1",
+      "payload": {
+        "question": "You process bank transactions and need: (1) transactions for the same account in order, (2) high throughput across accounts. Which pattern, and what's the partition key?",
+        "shape": "mcq",
+        "options": [
+          "Use a global FIFO queue, one consumer. Guarantees ordering but throughput is low.",
+          "Use Sequential Convoy with account_id as the partition key. Guarantees per-account ordering, parallel across accounts.",
+          "Use parallel processing with no ordering — eventual consistency will sort it out.",
+          "Use Sequential Convoy with transaction_id as the partition key — guarantees per-transaction ordering."
+        ],
+        "answer_index": 1,
+        "rationale": "Sequential Convoy with account_id as the partition key is exactly right. All transactions for one account go to the same partition and are processed in order — guaranteeing that deposit-before-withdrawal is preserved. Different accounts hash to different partitions and are processed in parallel — giving high throughput. Option (a) gives global ordering but kills parallelism — only one consumer processes everything. Option (c) is wrong because bank transactions genuinely require ordering; eventual consistency would let withdrawals see insufficient funds incorrectly. Option (d) is wrong because transaction_id is unique per transaction — every message would go to its own partition, giving no per-account ordering. The partition key must match the ordering requirement (per-account, so account_id).",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q2",
+      "payload": {
+        "question": "You're using Sequential Convoy and one partition key accounts for 80% of message volume (a hot key — say, a celebrity's account). What's the consequence and the mitigation?",
+        "shape": "mcq",
+        "options": [
+          "No issue — partitions handle any volume.",
+          "That partition's consumer becomes a bottleneck, while other partitions are underutilized. Mitigations: sub-partition the hot key (e.g., by message type or time window), use a separate high-throughput path for it, or co-locate processing for that key.",
+          "The whole system slows down uniformly.",
+          "The hot key's messages will be delivered out of order."
+        ],
+        "answer_index": 1,
+        "rationale": "A hot key causes uneven partition load — one partition has 80% of the messages, so one consumer is saturated while others idle. Throughput is capped by that one consumer. Mitigations: (1) sub-partition the hot key by adding a secondary key (e.g., `account_id + message_type` or `account_id + time_bucket`) — this preserves per-key ordering only if you can split the workload cleanly; (2) use a separate high-throughput path for the hot key (e.g., a dedicated topic with more partitions for that one account); (3) co-locate processing — have the consumer for the hot partition be a beefier machine, or shard processing within the partition via async sub-tasks. Option (a) is wrong — partitions have a single consumer and that consumer is the cap. Option (c) is wrong — the load is uneven, not uniform. Option (d) is wrong — within a partition, ordering is preserved regardless of volume. Hot keys are a well-known operational issue with partitioned systems; planning for them is essential."
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-sequential-convoy-mental",
+      "payload": {
+        "text": "Engineering mental model",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-sequential-convoy-mental",
+      "payload": {
+        "text": "**Mental model.** Think of Sequential Convoy as a deliberate boundary in a system. The boundary exists because something becomes harder to manage when everything is done in one place: latency, scale, failure isolation, consistency, cost, or team ownership. The useful question is not “what does Sequential Convoy mean?” but “what pressure makes this boundary worth introducing, and what new failure mode does it create?”"
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-sequential-convoy-decision",
+      "payload": {
+        "title": "Design lens",
+        "body": "Before choosing Sequential Convoy, name the workload, the critical user path, the dominant bottleneck, the failure you are trying to absorb, and the trade-off you are willing to accept. If you cannot name those five things, the design is probably premature.",
+        "kind": "info"
+      }
+    },
+    {
+      "type": "image",
+      "id": "upgrade-image-sequential-convoy",
+      "payload": {
+        "src": "/learning-visuals/sequential-convoy.svg",
+        "alt": "Original NO CAP systems visual for Sequential Convoy.",
+        "caption": "Sequential Convoy: a compact system-thinking visual.",
+        "credit": "Original NO CAP visual.",
+        "source_url": "https://github.com/donnemartin/system-design-primer"
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "upgrade-mermaid-sequential-convoy",
+      "payload": {
+        "code": "flowchart LR\n  A[Client] --> B[Gateway] --> C[Service] --> D[State] --> E[Outcome]",
+        "caption": "Sequential Convoy: a simplified system view showing the primary flow and the main state boundaries.",
+        "alt_text": "Sequential Convoy: a simplified system view showing the primary flow and the main state boundaries."
+      }
+    },
+    {
+      "type": "code",
+      "id": "upgrade-code-sequential-convoy",
+      "payload": {
+        "language": "text",
+        "code": "// Pseudocode\nrequest = receive()\nresult = sequential_convoy(request)\nreturn result\n\n// Production questions:\n// 1. What happens on timeout?\n// 2. Can this operation be retried safely?\n// 3. What is the bottleneck?",
+        "caption": "A minimal engineering sketch for reasoning about Sequential Convoy."
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-sequential-convoy-numbers",
+      "payload": {
+        "text": "Back-of-the-envelope reasoning",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-sequential-convoy-numbers",
+      "payload": {
+        "text": "Numerical lens: write down traffic, payload size, read/write ratio, peak multiplier and durability target before choosing a component. The numbers should justify the architecture."
+      }
+    },
+    {
+      "type": "simulation",
+      "id": "upgrade-sim-sequential-convoy",
+      "payload": {
+        "title": "Interactive thought experiment: Sequential Convoy",
+        "description": "Change the variables below and predict what breaks first in Sequential Convoy. The production lab can later reuse these same inputs.",
+        "variables": [
+          {
+            "name": "traffic",
+            "description": "Requests/events per second",
+            "default": "1000"
+          },
+          {
+            "name": "latency",
+            "description": "Dependency latency",
+            "default": "50ms"
+          },
+          {
+            "name": "failure_rate",
+            "description": "Injected failure rate",
+            "default": "0%"
+          }
+        ],
+        "placeholder_note": "Interactive controls are deterministic; use the linked Labs section when a dedicated lab exists."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-sequential-convoy-hint",
+      "payload": {
+        "title": "Hint",
+        "body": "If you are stuck on Sequential Convoy, start by drawing the request path and marking every network hop, stateful component, queue, cache and failure boundary. Then estimate where the system will saturate.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-sequential-convoy-1",
+      "payload": {
+        "shape": "prediction",
+        "question": "You increase traffic by 10× in a system using Sequential Convoy. What should you inspect first?",
+        "options": [
+          "The newest framework version",
+          "The dominant bottleneck and its saturation signal",
+          "Only the UI",
+          "Nothing; the architecture should absorb any traffic automatically"
+        ],
+        "answer_index": 1,
+        "rationale": "System design is a constraint-and-bottleneck exercise. Start with the resource or dependency that will saturate first, then choose the smallest change that removes that bottleneck.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-sequential-convoy-2",
+      "payload": {
+        "shape": "mcq",
+        "question": "Which statement is the safest engineering habit when using Sequential Convoy?",
+        "options": [
+          "Choose it because it is popular",
+          "Add it before measuring the problem",
+          "State the workload, failure mode and trade-off it is solving",
+          "Use the most distributed design possible"
+        ],
+        "answer_index": 2,
+        "rationale": "Good architecture starts from requirements, workload and failure assumptions. The component is the consequence of that reasoning, not the starting point.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "scenario",
+      "id": "upgrade-scenario-sequential-convoy",
+      "payload": {
+        "prompt": "Production scenario: your system uses Sequential Convoy, traffic suddenly spikes, and p99 latency doubles. What is your first move?",
+        "context": "You have dashboards for traffic, latency, errors and saturation. You can change the architecture, but every change has operational cost.",
+        "options": [
+          {
+            "id": "a",
+            "text": "Add more instances immediately",
+            "outcome": "This may help, but only if compute saturation is the bottleneck.",
+            "correct": false
+          },
+          {
+            "id": "b",
+            "text": "Inspect the bottleneck and its saturation signal first",
+            "outcome": "Correct: diagnose before scaling or introducing a new pattern.",
+            "correct": true
+          },
+          {
+            "id": "c",
+            "text": "Disable monitoring to reduce overhead",
+            "outcome": "This removes the evidence you need to diagnose the incident.",
+            "correct": false
+          }
+        ],
+        "rationale": "Measure the limiting resource or dependency first. A bottleneck can be compute, database I/O, network, cache misses, lock contention, downstream latency, or queue backlog.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-sequential-convoy-interview",
+      "payload": {
+        "text": "Interview drill",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-sequential-convoy-interview",
+      "payload": {
+        "text": "**Answer this without notes:** When would you choose Sequential Convoy, and when would you intentionally avoid it? Mention at least one bottleneck it addresses, one failure mode it introduces, and one alternative. Then quantify the workload you are designing for."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "field-guide-sequential-convoy",
+      "payload": {
+        "title": "Engineering lens",
+        "body": "A useful engineering lens for Sequential Convoy: define the problem it solves, the simpler design that fails first, the constraint that forces you to introduce this concept, and the new failure modes the concept creates.",
+        "kind": "tip"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "numerical-lens-sequential-convoy",
+      "payload": {
+        "text": "### Numerical sanity check\n\nBack-of-the-envelope reasoning beats fake precision. State your traffic, payload, concurrency and growth assumptions explicitly, then calculate enough to know whether the current architecture is orders of magnitude away from the target."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "field-question-sequential-convoy",
+      "payload": {
+        "shape": "prediction",
+        "question": "Imagine the simplest version of a system using Sequential Convoy. What breaks first as traffic grows by 10×, and what would you change before reaching 100×?",
+        "context": "Do not optimize for a memorized definition. Reason from the workload and failure mode.",
+        "options": [
+          "Scale the same component immediately.",
+          "Measure the current bottleneck and state the assumption that changed.",
+          "Add more technologies until throughput improves.",
+          "Choose the most popular architecture."
+        ],
+        "answer_index": 1,
+        "rationale": "Good system design starts with the bottleneck and the changed constraint. The most popular or complex choice is not automatically correct.",
+        "difficulty": "interview"
+      }
+    }
+  ],
+  "trade_offs": {
+    "pros": [
+      "Per-key ordering preserved while enabling parallelism across keys.",
+      "Scales horizontally by adding partitions and consumers.",
+      "Simpler than distributed locks or two-phase commit for ordering.",
+      "Failure isolated per partition — one slow key doesn't block others.",
+      "Idempotent consumers make at-least-once delivery acceptable."
+    ],
+    "cons": [
+      "Hot keys cause uneven load — one partition can become a bottleneck.",
+      "Requires choosing a good partition key — wrong choice means no ordering or hot spots.",
+      "At-least-once delivery — consumers must be idempotent.",
+      "Partition count is hard to change later (Kafka requires re-partitioning).",
+      "Brief duplicate processing during consumer rebalances."
+    ]
+  },
+  "failure_modes": [
+    "Hot key saturates one partition while others idle — throughput cap.",
+    "Consumer failure mid-message — message is redelivered; duplicate effects if not idempotent.",
+    "Rebalance causes brief duplicate or out-of-order processing during handoff.",
+    "Bad partition key choice — too coarse (one partition for everything) or too fine (no ordering).",
+    "Poison message blocks a partition — bad message can't be processed, blocks subsequent messages in that partition (needs dead-letter and skip).",
+    "Partition count too low — limits parallelism; too high — overhead per partition."
+  ],
+  "common_mistakes": [
+    "Choosing a partition key that doesn't match the ordering requirement (e.g., transaction_id when you need per-account ordering).",
+    "Not making consumers idempotent — duplicates cause double effects.",
+    "Ignoring hot keys until production — load-test with realistic key distribution.",
+    "Choosing partition count too low to start, then needing to repartition.",
+    "Not handling poison messages — one bad message blocks a partition forever.",
+    "Assuming cross-key ordering — there is none; if you need it, use a single partition (and lose parallelism)."
+  ],
+  "where_you_see_it": [
+    "Kafka partitions + consumer groups — the dominant implementation.",
+    "AWS SQS FIFO with Message Groups — managed FIFO with per-group ordering.",
+    "Azure Service Bus Sessions — per-session ordering with consumer leasing.",
+    "Event Hubs partitions — same model as Kafka.",
+    "Event-sourced systems — events for one aggregate applied in order via partitioning."
+  ],
+  "interview_prompts": [
+    "What is the Sequential Convoy pattern, and what problem does it solve?",
+    "How does Kafka implement Sequential Convoy? What guarantees does it provide and not provide?",
+    "You need per-account transaction ordering with high throughput across accounts. Walk me through the design.",
+    "What is a hot key in a partitioned system, and how do you mitigate it?",
+    "Why must consumers in a Sequential Convoy system be idempotent? What happens if they aren't?"
+  ],
+  "real_system_mappings": [
+    {
+      "system": "Apache Kafka partitions + consumer groups",
+      "how": "Kafka's partitioning is the canonical implementation: messages with the same key go to the same partition (in order); consumers in a group each own partitions; within a partition, ordering is guaranteed by offset. Used by LinkedIn, Netflix, Uber, and most large event-driven systems."
+    },
+    {
+      "system": "AWS SQS FIFO with Message Groups",
+      "how": "SQS FIFO queues support multiple message groups; messages in the same group are processed in order, while different groups are processed in parallel. Group ID is the partition key. Used for ordered workloads like transaction processing on AWS."
+    },
+    {
+      "system": "Azure Service Bus Sessions",
+      "how": "Service Bus sessions group messages by SessionId; one consumer at a time processes a session, in order. Sessions are leased to consumers; on lease expiry, another consumer can take over. Used for ordered per-entity processing on Azure."
+    }
+  ],
+  "status": "published",
+  "sources": [
+    {
+      "title": "System Design Primer",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Open source"
+    },
+    {
+      "title": "ByteByteGo — Scale from zero to millions",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "ByteByteGo"
+    },
+    {
+      "title": "System Design Tutorial",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "GeeksforGeeks"
+    },
+    {
+      "title": "System Design Roadmap",
+      "url": "https://roadmap.sh/system-design",
+      "publisher": "roadmap.sh"
+    },
+    {
+      "title": "Cloud Architecture reference",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Cloud Architecture reference",
+      "url": "https://learn.microsoft.com/en-us/azure/architecture/",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Cloud Architecture reference",
+      "url": "https://aws.amazon.com/architecture/",
+      "publisher": "Reference"
+    }
+  ]
+}

@@ -1,0 +1,444 @@
+{
+  "slug": "document-stores",
+  "version": 4,
+  "title": "Document Stores",
+  "phase": "databases-data-systems",
+  "area": "Databases & Data Systems",
+  "estimated_minutes": 7,
+  "difficulty": "core",
+  "summary": "Document stores (MongoDB, CouchDB, Couchbase, Elasticsearch) persist self-describing, JSON-like documents keyed by ID. Each document can have a different shape — fields can be added or removed without a schema migration. They excel when your data is naturally hierarchical, your read pattern is 'give me the whole aggregate by ID', and your write pattern is 'replace this document'. They struggle when you need cross-document JOINs or strict referential integrity.",
+  "why_it_matters": "Most real-world entities (an order with its items, a user with their preferences, a blog post with comments) are aggregates — they're read and written together. Document stores model aggregates directly, eliminating the object-relational impedance mismatch and the JOINs that plague SQL for these workloads. But the same flexibility that makes documents great for evolving data makes them dangerous when strict consistency is required: no foreign keys means no enforced relationships.",
+  "prerequisites": [
+    "sql-vs-nosql"
+  ],
+  "related": [
+    "key-value-stores",
+    "wide-column-stores",
+    "denormalization"
+  ],
+  "used_in": [
+    "Content management systems (CMS) — articles, pages, and assets as documents.",
+    "E-commerce product catalogs with wildly varying attributes per category.",
+    "User profiles and application configuration.",
+    "Mobile app backends (Couchbase/PouchDB sync).",
+    "Search and analytics over semi-structured logs (Elasticsearch)."
+  ],
+  "blocks": [
+    {
+      "type": "prose",
+      "id": "intro",
+      "payload": {
+        "text": "A document store is a key-value store that knows what's inside the value. Instead of treating the value as opaque bytes, the engine parses it as a structured document — typically BSON (MongoDB's binary JSON), JSON (CouchDB), or a similar format — and exposes operations to read, write, and query nested fields.\n\nThis awareness unlocks the document store's superpowers:\n- **Indexes on nested fields** — `db.orders.createIndex({ \"items.sku\": 1 })` indexes into the array of items.\n- **Ad-hoc queries** — `{ \"user.country\": \"US\", \"total\": { \"$gt\": 100 } }` is expressible without pre-planning every query.\n- **Atomic updates to subdocuments** — `$set: { \"address.city\": \"Lisbon\" }` mutates one nested field.\n- **Flexible schema** — a new field can be added to one document without altering any other.\n\nThe trade-off: **no JOINs**. If you need to combine data from multiple collections, you either denormalize (store the joined data inside the document), do multiple round-trips from the application, or use a `$lookup` aggregation stage that performs a nested-loop join in the database (slow at scale)."
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "normalized-vs-document",
+      "payload": {
+        "code": "flowchart TD\n    N0[\"SQL\"]\n    N1[\"NORMALIZED\"]\n    N2[\"(SQL)\"]\n    N3[\"users\"]\n    N4[\"orders\"]\n    N5[\"order_items\"]\n    N6[\"PK\"]\n    N7[\"(PK)\"]\n    N8[\"user_id\"]\n    N9[\"order_id\"]\n    N10[\"name\"]\n    N11[\"sku\"]\n    N12[\"email\"]\n    N13[\"total\"]\n    N14[\"qty\"]\n    N15[\"country\"]\n    N16[\"created\"]\n    N17[\"price\"]\n    N18[\"Read\"]\n    N19[\"order\"]\n    N20[\"JOIN\"]\n    N21[\"users,\"]\n    N22[\"orders,\"]\n    N23[\"order_items.\"]\n    N24[\"Three\"]\n    N25[\"tables,\"]\n    N26[\"three\"]\n    N27[\"migrations\"]\n    N28[\"field\"]\n    N29[\"changes.\"]\n    N30[\"MongoDB\"]\n    N31[\"DOCUMENT\"]\n    N32[\"(MongoDB)\"]\n    N33[\"one document\"]\n    N34[\"collection\"]\n    N35[\"(one\"]\n    N36[\"document)\"]\n    N37[\"'abc'\"]\n    N38[\"_id:\"]\n    N39[\"ObjectId('abc'),\"]\n    N40[\"user:\"]\n    N41[\"42,\"]\n    N42[\"name:\"]\n    N43[\"'Ada',\"]\n    N44[\"email:\"]\n    N45[\"'ada@x.io',\"]\n    N46[\"country:\"]\n    N47[\"'PT'\"]\n    N48[\"total:\"]\n    N49[\"145.50,\"]\n    N50[\"'2025-01-15'\"]\n    N51[\"created:\"]\n    N52[\"ISODate('2025\"]\n    N53[\"15'),\"]\n    N54[\"items:\"]\n    N55[\" sku:'B1', qty:1, price:45\"]\n    N56[\"sku:'B1',\"]\n    N57[\"qty:1,\"]\n    N58[\"price:45},\"]\n    N59[\" sku:'P2', qty:2, price:50\"]\n    N60[\"sku:'P2',\"]\n    N61[\"qty:2,\"]\n    N62[\"price:50}\"]\n    N63[\"one\"]\n    N64[\"document,\"]\n    N65[\"round\"]\n    N66[\"trip.\"]\n    N67[\"Schema\"]\n    N68[\"evolves:\"]\n    N69[\"just\"]\n    N70[\"add\"]\n    N71[\"field.\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44\n    N44 --> N45\n    N45 --> N46\n    N46 --> N47\n    N47 --> N48\n    N48 --> N49\n    N49 --> N50\n    N50 --> N51\n    N51 --> N52\n    N52 --> N53\n    N53 --> N54\n    N54 --> N55\n    N55 --> N56\n    N56 --> N57\n    N57 --> N58\n    N58 --> N59\n    N59 --> N60\n    N60 --> N61\n    N61 --> N62\n    N62 --> N63\n    N63 --> N64\n    N64 --> N65\n    N65 --> N66\n    N66 --> N67\n    N67 --> N68\n    N68 --> N69\n    N69 --> N70\n    N70 --> N71",
+        "caption": "SQL normalizes aggregates across tables; document stores persist them as one self-contained unit.",
+        "alt_text": "Side-by-side comparison. In SQL, an order with its user and line items lives across three normalized tables (users, orders, order_items) joined by foreign keys; reading an order requires a JOIN across three tables and a schema change requires three migrations. In MongoDB, the same order is a single nested JSON document in the orders collection containing the user object and an items array; reading the order is one round trip, and adding a field doesn't require touching any other document."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "aggregate-orientation",
+      "payload": {
+        "text": "The core insight that drives document store design is the **aggregate** — a cluster of related data that the application reads and writes as a unit. An order with its line items is an aggregate. A user with their preferences and shipping addresses is an aggregate. A blog post with its tags (but not its comments, if those are paginated separately) is an aggregate.\n\nMartin Fowler's *NoSQL Distilled* frames the choice cleanly:\n- If your application naturally operates on **aggregates**, a document store removes the JOIN tax and the object-relational mismatch.\n- If your application operates on **relationships** (find all orders across all users that contain a given SKU), a relational database is still the right tool — that's exactly what JOINs are for.\n\nA common anti-pattern is choosing MongoDB because 'JSON is easy', then immediately needing cross-collection queries that force you into `$lookup` joins. `$lookup` works, but it's a nested-loop join — performance is O(N×M) without careful indexing. If you're doing it on every read, you've reinvented SQL poorly."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "schema-flexibility",
+      "payload": {
+        "title": "Schema flexibility is not schema-free",
+        "body": "MongoDB is often called 'schemaless', but in practice every collection has an implicit schema defined by the application code. Without enforcement, a single bad deploy can write documents with the wrong field names or types, polluting the collection for years. Mature MongoDB deployments use JSON Schema validation (`$jsonSchema`) at the collection level — flexible where you want flexibility (new optional fields), strict where you need guarantees (required fields, type checks). Treat schemalessness as a tool for evolution, not an excuse for chaos.",
+        "kind": "warning"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "consistency-models",
+      "payload": {
+        "text": "Modern MongoDB (4.0+) does support **multi-document ACID transactions**, finally closing the gap with SQL on paper. In practice, multi-document transactions are slower, hold locks longer, and should be the exception — if you need them constantly, you've modeled your aggregates wrong.\n\nCouchDB takes a different tack: it's **multi-master with deterministic conflict resolution**. Every document carries a revision ID (`_rev`); concurrent writes create conflicts that the application resolves with a deterministic function. This is great for offline-first sync (PouchDB on mobile syncing to CouchDB on the server) but unusual for typical CRUD apps.\n\nReplication in MongoDB is **single-primary by default** (a replica set): one primary accepts writes, secondaries replicate the oplog asynchronously. Reads can go to secondaries (eventual consistency) or to the primary (strong). Read-your-writes consistency is achieved by routing the writing session's reads to the primary for a short window.\n\nThe consistency model you actually get depends on the **read concern** and **write concern** you pick per operation:\n- `w: 1` — primary acknowledged (default; can lose data on failover).\n- `w: majority` — majority of replica set acknowledged (durable).\n- `readConcern: majority` — read committed data that won't be rolled back.\n- `readConcern: linearizable` — read after acknowledging no newer write is in flight (strongest, slowest)."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "when-to-use",
+      "payload": {
+        "text": "**Use a document store when:**\n\n1. Your data is naturally an aggregate (order, user profile, blog post + comments).\n2. The read pattern is 'fetch this whole aggregate by ID'.\n3. Schemas evolve frequently and you don't want migrations to block deploys.\n4. The team is comfortable with eventual consistency for most reads.\n5. You're building content management, catalogs, or mobile-first backends.\n\n**Prefer SQL when:**\n\n1. You need real JOINs across many entities (analytics, reporting).\n2. Strict referential integrity (foreign keys) is non-negotiable.\n3. Multi-entity transactions are the norm, not the exception (payments, inventory).\n4. The schema is genuinely relational and stable.\n\nA useful pre-check: **write down every query** your app will run. If most of them are 'give me document X by ID', use a document store. If most of them are JOINs across entities, use SQL. PostgreSQL's `jsonb` column type is a fine compromise for apps that need both — you get SQL's JOINs and ACID, plus document-like flexibility for the parts that need it."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q1",
+      "payload": {
+        "question": "You're building an e-commerce catalog: thousands of products across dozens of categories, each with wildly different attributes (laptops have RAM and CPU; shoes have size and color; books have ISBN and author). What's the best data store and why?",
+        "shape": "mcq",
+        "options": [
+          "PostgreSQL with one giant products table and a column per possible attribute (most NULL).",
+          "MongoDB — flexible schema accommodates varying attributes per product naturally.",
+          "Redis — fastest lookups by product ID.",
+          "Neo4j — products form a graph with categories."
+        ],
+        "answer_index": 1,
+        "rationale": "Product catalogs are the textbook document-store use case. Different categories have radically different attributes, and forcing every product into a single SQL table creates a 'sparse table' problem — hundreds of mostly-NULL columns, painful schema additions, and a maintenance nightmare. MongoDB stores each product as a document with whatever fields it needs; adding a new attribute to a category is just a code change, no migration. Reads are by product ID (a perfect document lookup). PostgreSQL's jsonb columns are a viable hybrid, but for pure catalog workloads MongoDB (or Elasticsearch if search is the primary access pattern) is the cleaner fit.",
+        "difficulty": "core"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q2",
+      "payload": {
+        "question": "Your team migrated from PostgreSQL to MongoDB for 'scalability', and now every read does a `$lookup` join between the `users`, `orders`, and `order_items` collections. Performance is worse than before. What's the root cause and the fix?",
+        "shape": "mcq",
+        "options": [
+          "MongoDB is slower than PostgreSQL — switch back.",
+          "The data was modeled as normalized collections instead of aggregates; denormalize orders to embed their items (and key user fields) as a single document.",
+          "Add more MongoDB nodes to scale `$lookup`.",
+          "Use Cassandra instead — it's faster for joins."
+        ],
+        "answer_index": 1,
+        "rationale": "The migration kept SQL-style normalized collections but moved them to MongoDB, which has no native JOIN. `$lookup` is a nested-loop join — fine for occasional use, catastrophic when every read does it. The fix is to model data as aggregates: an order document embeds its line items and the user fields it needs, so a single `find({_id: orderId})` returns everything in one round trip. This is the core lesson of document modeling: design for your read patterns. If you're going to keep three normalized collections and join them constantly, you should have stayed in SQL — MongoDB is the wrong tool for that workload.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q3",
+      "payload": {
+        "question": "Which scenario is the WORST fit for a document store?",
+        "shape": "mcq",
+        "options": [
+          "A CMS where each article has rich content, tags, and metadata.",
+          "An accounting ledger where every transfer must atomically debit one account and credit another across two documents.",
+          "A user-profile service where profiles are read by user ID and updated field-by-field.",
+          "A mobile app backend syncing local changes to the cloud with offline-first conflict resolution."
+        ],
+        "answer_index": 1,
+        "rationale": "An accounting ledger requires strict, multi-entity ACID transactions: a transfer must atomically update two account balances, and any partial state is incorrect. While MongoDB does support multi-document transactions since 4.0, they're slower, hold locks longer, and are meant for occasional use — using them on every write defeats the purpose. SQL databases are designed for exactly this. The other scenarios map cleanly onto document stores: CMS (aggregate per article), profile service (single-document reads), and offline-first sync (CouchDB/PouchDB is purpose-built for it).",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-document-stores-mental",
+      "payload": {
+        "text": "Engineering mental model",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-document-stores-mental",
+      "payload": {
+        "text": "**Mental model.** Think of Document Stores as a deliberate boundary in a system. The boundary exists because something becomes harder to manage when everything is done in one place: latency, scale, failure isolation, consistency, cost, or team ownership. The useful question is not “what does Document Stores mean?” but “what pressure makes this boundary worth introducing, and what new failure mode does it create?”"
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-document-stores-decision",
+      "payload": {
+        "title": "Design lens",
+        "body": "Before choosing Document Stores, name the workload, the critical user path, the dominant bottleneck, the failure you are trying to absorb, and the trade-off you are willing to accept. If you cannot name those five things, the design is probably premature.",
+        "kind": "info"
+      }
+    },
+    {
+      "type": "image",
+      "id": "upgrade-image-document-stores",
+      "payload": {
+        "src": "/learning-visuals/document-stores.svg",
+        "alt": "Original NO CAP systems visual for Document Stores.",
+        "caption": "Document Stores: a compact system-thinking visual.",
+        "credit": "Original NO CAP visual.",
+        "source_url": "https://github.com/donnemartin/system-design-primer"
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "upgrade-mermaid-document-stores",
+      "payload": {
+        "code": "flowchart LR\n  A[Client] --> B[Service] --> C[Data layer] --> D[Replication] --> E[Durability]",
+        "caption": "Document Stores: a simplified system view showing the primary flow and the main state boundaries.",
+        "alt_text": "Document Stores: a simplified system view showing the primary flow and the main state boundaries."
+      }
+    },
+    {
+      "type": "code",
+      "id": "upgrade-code-document-stores",
+      "payload": {
+        "language": "sql",
+        "code": "SELECT id, created_at\nFROM records\nWHERE tenant_id = ?\nORDER BY created_at DESC\nLIMIT 50;\n\n-- Ask: which index makes this query predictable at scale?",
+        "caption": "A minimal engineering sketch for reasoning about Document Stores."
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-document-stores-numbers",
+      "payload": {
+        "text": "Back-of-the-envelope reasoning",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-document-stores-numbers",
+      "payload": {
+        "text": "Numerical lens: write down traffic, payload size, read/write ratio, peak multiplier and durability target before choosing a component. The numbers should justify the architecture."
+      }
+    },
+    {
+      "type": "simulation",
+      "id": "upgrade-sim-document-stores",
+      "payload": {
+        "title": "Interactive thought experiment: Document Stores",
+        "description": "Change the variables below and predict what breaks first in Document Stores. The production lab can later reuse these same inputs.",
+        "variables": [
+          {
+            "name": "traffic",
+            "description": "Requests/events per second",
+            "default": "1000"
+          },
+          {
+            "name": "latency",
+            "description": "Dependency latency",
+            "default": "50ms"
+          },
+          {
+            "name": "failure_rate",
+            "description": "Injected failure rate",
+            "default": "0%"
+          }
+        ],
+        "placeholder_note": "Interactive controls are deterministic; use the linked Labs section when a dedicated lab exists."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-document-stores-hint",
+      "payload": {
+        "title": "Hint",
+        "body": "If you are stuck on Document Stores, start by drawing the request path and marking every network hop, stateful component, queue, cache and failure boundary. Then estimate where the system will saturate.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-document-stores-1",
+      "payload": {
+        "shape": "prediction",
+        "question": "You increase traffic by 10× in a system using Document Stores. What should you inspect first?",
+        "options": [
+          "The newest framework version",
+          "The dominant bottleneck and its saturation signal",
+          "Only the UI",
+          "Nothing; the architecture should absorb any traffic automatically"
+        ],
+        "answer_index": 1,
+        "rationale": "System design is a constraint-and-bottleneck exercise. Start with the resource or dependency that will saturate first, then choose the smallest change that removes that bottleneck.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-document-stores-2",
+      "payload": {
+        "shape": "mcq",
+        "question": "Which statement is the safest engineering habit when using Document Stores?",
+        "options": [
+          "Choose it because it is popular",
+          "Add it before measuring the problem",
+          "State the workload, failure mode and trade-off it is solving",
+          "Use the most distributed design possible"
+        ],
+        "answer_index": 2,
+        "rationale": "Good architecture starts from requirements, workload and failure assumptions. The component is the consequence of that reasoning, not the starting point.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "scenario",
+      "id": "upgrade-scenario-document-stores",
+      "payload": {
+        "prompt": "Production scenario: your system uses Document Stores, traffic suddenly spikes, and p99 latency doubles. What is your first move?",
+        "context": "You have dashboards for traffic, latency, errors and saturation. You can change the architecture, but every change has operational cost.",
+        "options": [
+          {
+            "id": "a",
+            "text": "Add more instances immediately",
+            "outcome": "This may help, but only if compute saturation is the bottleneck.",
+            "correct": false
+          },
+          {
+            "id": "b",
+            "text": "Inspect the bottleneck and its saturation signal first",
+            "outcome": "Correct: diagnose before scaling or introducing a new pattern.",
+            "correct": true
+          },
+          {
+            "id": "c",
+            "text": "Disable monitoring to reduce overhead",
+            "outcome": "This removes the evidence you need to diagnose the incident.",
+            "correct": false
+          }
+        ],
+        "rationale": "Measure the limiting resource or dependency first. A bottleneck can be compute, database I/O, network, cache misses, lock contention, downstream latency, or queue backlog.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-document-stores-interview",
+      "payload": {
+        "text": "Interview drill",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-document-stores-interview",
+      "payload": {
+        "text": "**Answer this without notes:** When would you choose Document Stores, and when would you intentionally avoid it? Mention at least one bottleneck it addresses, one failure mode it introduces, and one alternative. Then quantify the workload you are designing for."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "field-guide-document-stores",
+      "payload": {
+        "title": "Engineering lens",
+        "body": "For Document Stores, start with access patterns rather than brand names. Identify the dominant reads/writes, data relationships, consistency requirements, partition key, hot keys and failure behavior before choosing a storage strategy.",
+        "kind": "tip"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "numerical-lens-document-stores",
+      "payload": {
+        "text": "### Numerical sanity check\n\nA rough capacity check: required write throughput ≈ peak writes/s × average record size. At 5,000 writes/s and 2 KB average payloads, the raw incoming data stream is about 10 MB/s before indexes, replication and overhead."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "field-question-document-stores",
+      "payload": {
+        "shape": "prediction",
+        "question": "A team proposes Document Stores because it 'scales'. What workload characteristic would make that choice a poor fit?",
+        "context": "Do not optimize for a memorized definition. Reason from the workload and failure mode.",
+        "options": [
+          "Scale the same component immediately.",
+          "Measure the current bottleneck and state the assumption that changed.",
+          "Add more technologies until throughput improves.",
+          "Choose the most popular architecture."
+        ],
+        "answer_index": 1,
+        "rationale": "Good system design starts with the bottleneck and the changed constraint. The most popular or complex choice is not automatically correct.",
+        "difficulty": "interview"
+      }
+    }
+  ],
+  "trade_offs": {
+    "pros": [
+      "Aggregate-oriented reads are one round trip — no JOIN tax.",
+      "Flexible schema supports rapid iteration — new fields don't require migrations.",
+      "Schema and code stay close — documents mirror the application's object model.",
+      "Horizontal scaling built in — MongoDB sharding by shard key scales writes.",
+      "Rich query language with nested field indexes, aggregation pipeline, geospatial queries."
+    ],
+    "cons": [
+      "No real JOINs — `$lookup` is a slow nested-loop join, not a SQL optimizer.",
+      "No enforced foreign keys — referential integrity is the application's problem.",
+      "Denormalization means updates fan out — changing a user's name means updating every order document that embedded it.",
+      "Multi-document transactions exist but are slower than SQL transactions.",
+      "Schema flexibility can mask data quality issues — bad deploys write malformed documents silently.",
+      "Larger storage footprint — denormalized data is repeated."
+    ]
+  },
+  "failure_modes": [
+    "Unbounded document growth — embedding comments in a blog post document eventually hits MongoDB's 16MB document cap.",
+    "Massive denormalization write amplification — updating a shared piece of data requires updating every document that embedded it.",
+    "Schema drift — different application versions write different shapes; queries return surprising results.",
+    "Hot shard — bad shard key sends all traffic to one shard; e.g., shard by `created_at` writes always to the latest shard.",
+    "`$lookup` everywhere — using MongoDB like SQL and paying the JOIN cost without SQL's optimizer.",
+    "Lost writes on failover — default `w: 1` means a primary crash before replication loses acknowledged writes."
+  ],
+  "common_mistakes": [
+    "Choosing MongoDB 'because JSON' without modeling aggregates — then needing JOINs that don't exist.",
+    "Embedding unbounded arrays (comments, activity feed) into parent documents — grows documents past useful size.",
+    "Not setting JSON Schema validation — flexibility becomes silent corruption.",
+    "Defaulting to `w: 1` writes — acceptable for some data, catastrophic for data you can't lose.",
+    "Sharding by a low-cardinality key (country, status) — creates uneven shards and hot partitions.",
+    "Treating MongoDB like SQL — assuming transactions, JOINs, and foreign keys just work."
+  ],
+  "where_you_see_it": [
+    "Content management (Contentful, Sanity, Strapi backends).",
+    "E-commerce catalogs (eBay uses MongoDB for catalog search; many Shopify-style stores).",
+    "Mobile backends with offline sync (Couchbase + PouchDB at hospitals, field apps).",
+    "Gaming backends for player profiles, match history, and inventory.",
+    "Search and logging (Elasticsearch is a document store at heart)."
+  ],
+  "interview_prompts": [
+    "When would you choose MongoDB over PostgreSQL, and what's the most common mistake teams make when migrating?",
+    "Design the data model for a blog with posts, comments, and tags in MongoDB. What do you embed vs. reference, and why?",
+    "Your MongoDB collection has documents growing past 16MB. What's wrong and how do you fix it?",
+    "Explain the difference between `w: 1`, `w: majority`, and `readConcern: linearizable` in MongoDB. When would you use each?",
+    "CouchDB and MongoDB both store JSON documents but take very different approaches to consistency and conflict. Compare them."
+  ],
+  "real_system_mappings": [
+    {
+      "system": "eBay",
+      "how": "Uses MongoDB for catalog search — products with wildly varying attributes fit the document model. Catalog data is read-heavy and accessed by product ID, a perfect document workload."
+    },
+    {
+      "system": "Uber",
+      "how": "Originally used MongoDB for trip data and document storage; later moved much of it to Schemaless (their custom doc store on MySQL) for tighter control over sharding and consistency. A reminder that 'the right store' evolves with scale."
+    },
+    {
+      "system": "Couchbase at LinkedIn",
+      "how": "LinkedIn uses Couchbase as a key-value/document store for high-throughput profile and messaging data; Couchbase's memcached-compatible caching layer plus document model fits their read-heavy workload."
+    },
+    {
+      "system": "Elasticsearch at Netflix",
+      "how": "Netflix runs Elasticsearch clusters for log search and operational analytics — documents are semi-structured log events, indexed for full-text and structured search."
+    }
+  ],
+  "status": "published",
+  "sources": [
+    {
+      "title": "System Design Primer",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Open source"
+    },
+    {
+      "title": "ByteByteGo — Scale from zero to millions",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "ByteByteGo"
+    },
+    {
+      "title": "System Design Tutorial",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "GeeksforGeeks"
+    },
+    {
+      "title": "System Design Roadmap",
+      "url": "https://roadmap.sh/system-design",
+      "publisher": "roadmap.sh"
+    },
+    {
+      "title": "Databases & Data Systems reference",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Databases & Data Systems reference",
+      "url": "https://www.postgresql.org/docs/",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Databases & Data Systems reference",
+      "url": "https://aws.amazon.com/what-is/database/",
+      "publisher": "Reference"
+    }
+  ]
+}

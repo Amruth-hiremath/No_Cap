@@ -1,0 +1,433 @@
+{
+  "slug": "multi-region",
+  "version": 4,
+  "title": "Multi-Region Architecture",
+  "phase": "reliability-resilience",
+  "area": "Reliability & Resilience",
+  "estimated_minutes": 7,
+  "difficulty": "advanced",
+  "summary": "Multi-region architecture deploys a service across multiple geographic regions for lower latency to global users and survival of region-level outages. The two topologies are active-passive (one region serves traffic; the other stands by) and active-active (both serve live traffic). The hard parts aren't deploying to two regions — they're data replication, consistency models, and data residency compliance.",
+  "why_it_matters": "A single-region deployment is betting your business on that region never having a multi-hour outage. AWS us-east-1 has had several, taking down thousands of services. Beyond resilience, single-region deployments also impose latency on global users: a user in Tokyo hitting us-east-1 sees ~150ms of network round-trip before any computation. Multi-region solves both: region failure is survived, and users hit a nearby region for low latency. The cost is operational complexity, replication trade-offs, and the need to design for partial failure.",
+  "prerequisites": [
+    "replication",
+    "failover",
+    "consistency-patterns",
+    "disaster-recovery"
+  ],
+  "related": [
+    "failover",
+    "availability-patterns",
+    "disaster-recovery",
+    "consensus"
+  ],
+  "used_in": [
+    "Global consumer products (Netflix, Spotify, Google).",
+    "Financial services with regulatory availability requirements.",
+    "Any system with a regional SLO above ~99.95%."
+  ],
+  "blocks": [
+    {
+      "type": "prose",
+      "id": "intro",
+      "payload": {
+        "text": "A multi-region system runs in two or more geographic cloud regions. The motivation is usually one or both of:\n\n- **Resilience**: a region outage doesn't take down the service.\n- **Latency**: users in each geography hit a local region, with network latency measured in ms instead of hundreds of ms.\n\nTwo topologies dominate:\n\n- **Active-passive**: one region serves all traffic; the other is a standby that takes over on failure. Simpler. Lower cost. Higher RTO/RPO on failover.\n- **Active-active**: both regions serve live traffic simultaneously. More complex. Higher cost. Lower RTO/RPO. Better latency for global users.\n\nThe trade-offs in multi-region are mostly about data, not compute. Replicating stateful services across regions is hard; replicating stateless services is easy."
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "topologies",
+      "payload": {
+        "code": "flowchart TD\n    N0[\"warm standby\"]\n    N1[\"ACTIVE\"]\n    N2[\"PASSIVE\"]\n    N3[\"(warm\"]\n    N4[\"standby)\"]\n    N5[\"east\"]\n    N6[\"async\"]\n    N7[\"west\"]\n    N8[\"STANDBY\"]\n    N9[\"all\"]\n    N10[\"traf.\"]\n    N11[\"Simple,\"]\n    N12[\"cheap.\"]\n    N13[\"Failover:\"]\n    N14[\"minutes.\"]\n    N15[\"RPO:\"]\n    N16[\"sec\"]\n    N17[\"min.\"]\n    N18[\"dir\"]\n    N19[\"sync\"]\n    N20[\"local\"]\n    N21[\"traf\"]\n    N22[\"Complex,\"]\n    N23[\"costly.\"]\n    N24[\"~0.\"]\n    N25[\"0–sec.\"]\n    N26[\"Needs\"]\n    N27[\"conflict\"]\n    N28[\"resolution\"]\n    N29[\"last\"]\n    N30[\"writer\"]\n    N31[\"wins.\"]\n    N32[\"LATENCY\"]\n    N33[\"BENEFIT\"]\n    N34[\"Tokyo\"]\n    N35[\"user\"]\n    N36[\"~150ms\"]\n    N37[\"RTT\"]\n    N38[\"northeast\"]\n    N39[\"~5ms\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39",
+        "caption": "Active-passive is simpler; active-active gives near-zero failover but needs conflict resolution. Multi-region also gives global latency wins.",
+        "alt_text": "Two topology diagrams. Active-passive: us-east-1 is active and serves all traffic; eu-west-1 is a standby receiving asynchronous replication. Failover takes minutes; RPO is seconds to minutes. Active-active: both regions serve local traffic with bidirectional replication, either async or sync. Failover is near-zero; RPO is zero to seconds but requires conflict resolution such as last-writer-wins. A third panel shows the latency benefit: a Tokyo user hits us-east-1 at 150ms round-trip but ap-northeast-1 at 5ms."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "stateless-vs-stateful",
+      "payload": {
+        "text": "Stateless services are easy to multi-region: deploy the same code to multiple regions, put a global load balancer (Cloudflare, Route 53, Cloud Load Balancing) in front, and route users to the nearest healthy region. No replication needed.\n\nStateful services are hard. A database in us-east-1 doesn't automatically exist in eu-west-1; you have to replicate it. The replication choices:\n\n- **Asynchronous**: writes commit locally, replicate later. Fast writes, but failover can lose data (RPO = lag, often seconds). The replica can also serve stale reads.\n- **Synchronous**: writes wait for the replica to acknowledge. Zero data loss, but every write pays cross-region latency (50-100ms+). Too slow for many workloads.\n- **Conflict resolution**: in active-active, both regions can accept writes to the same key. You need last-writer-wins (clock-based, error-prone), CRDTs (data-type-specific, complex), or application-level merge logic.\n\nThis is why most active-active systems are **sharded by region**: each user's data lives in one region, replicated to others as a standby. No write conflicts because each user writes to one region. Read replicas serve other regions for low-latency reads."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "traffic-routing",
+      "payload": {
+        "text": "How does traffic get to the right region? Three patterns:\n\n- **DNS-based routing** (Route 53 latency routing, Cloudflare load balancing): the user's DNS lookup returns the IP of the nearest region. Simple, but DNS caching means failover takes the TTL (often 60s).\n- **Anycast IP**: the same IP is announced from multiple regions; BGP routes the user to the nearest. Faster failover (no DNS), but harder to debug.\n- **Global proxy / CDN**: Cloudflare, Fastly, or a global Layer 7 LB inspects the request and routes it. Most flexible — can route by user, by health, by content.\n\nFailover works by removing the unhealthy region from the routing. The challenge is detecting regional failure: a region that's slow (not down) is harder to handle than one that's down. Most teams use a combination of health checks + manual approval for failover, to avoid false positives that route global traffic away from a healthy region."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "data-residency",
+      "payload": {
+        "title": "Data residency changes the design",
+        "body": "GDPR, CCPA, and similar regulations require user data to stay in specific geographies. A EU user's data must stay in EU regions. This breaks naive active-active designs where a US read replica serves EU users — the replica is a copy of EU data in the US, which violates GDPR. The fix is **region-pinned data**: each user's primary data lives in their residency region; other regions only see what they're allowed to see. This often means cross-region requests for users who travel — a US user visiting the EU might still need to hit US infrastructure for their data.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "cost-complexity",
+      "payload": {
+        "text": "Multi-region isn't free. The costs add up:\n\n- **Compute**: 2x the instances (or more, for active-active).\n- **Replication bandwidth**: cross-region data transfer is metered and expensive at scale. Streaming changelogs across regions can be a meaningful fraction of cloud bill.\n- **Storage**: each region has its own copy.\n- **Operational complexity**: deploying to multiple regions, monitoring both, debugging cross-region issues.\n- **Engineering complexity**: handling partial failures (one region up, one down), conflict resolution, eventual consistency.\n\nA common pattern: don't go multi-region until you've exhausted multi-AZ. Multi-AZ gives you single-region resilience cheaply. Multi-region is for when multi-AZ isn't enough — either because of latency to global users or because a single-region outage is unacceptable to the business."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q1",
+      "payload": {
+        "question": "Why is active-active multi-region harder than active-passive?",
+        "shape": "mcq",
+        "options": [
+          "Active-passive requires more regions.",
+          "Active-active means both regions can accept writes to the same data, requiring conflict resolution that active-passive doesn't need.",
+          "Active-active has lower latency requirements.",
+          "Active-passive uses synchronous replication, which is simpler."
+        ],
+        "answer_index": 1,
+        "rationale": "In active-passive, only one region accepts writes at a time — the standby just follows the primary's replication stream. There's no possibility of conflicting concurrent writes. In active-active, both regions accept writes simultaneously, so when the same logical record is written in both regions, you need a conflict resolution strategy: last-writer-wins (clock-skew prone), CRDTs (data-type specific), or application-level merge. This is the fundamental complexity of active-active and why many systems use region-sharding instead — each record belongs to one region, avoiding concurrent writes to the same data.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q2",
+      "payload": {
+        "question": "An EU user's data is replicated to a US region for low-latency reads by US support staff. Does this cause a problem?",
+        "shape": "mcq",
+        "options": [
+          "No — replication is fine as long as the primary is in the EU.",
+          "Yes — GDPR requires EU user data to stay in EU regions; the US replica violates this even if it's only read.",
+          "Yes — replication across regions is too slow.",
+          "No — but only if the US replica is encrypted."
+        ],
+        "answer_index": 1,
+        "rationale": "GDPR and similar regulations govern where personal data is stored, not just where it's written. A replica in a US region is a copy of EU user data in the US — a violation, even if the primary is in the EU and even if the replica is encrypted. The fix is data residency: don't replicate regulated data outside its residency region, or implement proper legal safeguards (Standard Contractual Clauses, etc.). For systems that need cross-region access (like global support), you typically route the request to the residency region rather than replicating the data out.",
+        "difficulty": "advanced"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q3",
+      "payload": {
+        "question": "Why would you choose asynchronous over synchronous cross-region replication?",
+        "shape": "mcq",
+        "options": [
+          "Asynchronous replication provides zero data loss.",
+          "Asynchronous replication has lower write latency because the primary doesn't wait for the remote replica.",
+          "Asynchronous replication is simpler to implement.",
+          "Synchronous replication only works within an AZ."
+        ],
+        "answer_index": 1,
+        "rationale": "Synchronous cross-region replication means every write waits for a round-trip to the remote region (50-100ms+ depending on geography). For an OLTP workload doing thousands of writes per second, this is often unacceptable. Asynchronous replication commits locally and replicates in the background, keeping write latency low — but with the cost that failover can lose data (the RPO equals the replication lag, often seconds). The right choice depends on the RPO target: if you can tolerate seconds of data loss, async is the answer; if not, sync or a hybrid (sync locally, async remotely) is needed.",
+        "difficulty": "core"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-multi-region-mental",
+      "payload": {
+        "text": "Engineering mental model",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-multi-region-mental",
+      "payload": {
+        "text": "**Mental model.** Think of Multi-Region Architecture as a deliberate boundary in a system. The boundary exists because something becomes harder to manage when everything is done in one place: latency, scale, failure isolation, consistency, cost, or team ownership. The useful question is not “what does Multi-Region Architecture mean?” but “what pressure makes this boundary worth introducing, and what new failure mode does it create?”"
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-multi-region-decision",
+      "payload": {
+        "title": "Design lens",
+        "body": "Before choosing Multi-Region Architecture, name the workload, the critical user path, the dominant bottleneck, the failure you are trying to absorb, and the trade-off you are willing to accept. If you cannot name those five things, the design is probably premature.",
+        "kind": "info"
+      }
+    },
+    {
+      "type": "image",
+      "id": "upgrade-image-multi-region",
+      "payload": {
+        "src": "/learning-visuals/multi-region.svg",
+        "alt": "Original NO CAP systems visual for Multi-Region Architecture.",
+        "caption": "Multi-Region Architecture: a compact system-thinking visual.",
+        "credit": "Original NO CAP visual.",
+        "source_url": "https://github.com/donnemartin/system-design-primer"
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "upgrade-mermaid-multi-region",
+      "payload": {
+        "code": "flowchart LR\n  A[Client] --> B[Gateway] --> C[Service] --> D[State] --> E[Outcome]",
+        "caption": "Multi-Region Architecture: a simplified system view showing the primary flow and the main state boundaries.",
+        "alt_text": "Multi-Region Architecture: a simplified system view showing the primary flow and the main state boundaries."
+      }
+    },
+    {
+      "type": "code",
+      "id": "upgrade-code-multi-region",
+      "payload": {
+        "language": "text",
+        "code": "// Pseudocode\nrequest = receive()\nresult = multi_region(request)\nreturn result\n\n// Production questions:\n// 1. What happens on timeout?\n// 2. Can this operation be retried safely?\n// 3. What is the bottleneck?",
+        "caption": "A minimal engineering sketch for reasoning about Multi-Region Architecture."
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-multi-region-numbers",
+      "payload": {
+        "text": "Back-of-the-envelope reasoning",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-multi-region-numbers",
+      "payload": {
+        "text": "Numerical lens: write down traffic, payload size, read/write ratio, peak multiplier and durability target before choosing a component. The numbers should justify the architecture."
+      }
+    },
+    {
+      "type": "simulation",
+      "id": "upgrade-sim-multi-region",
+      "payload": {
+        "title": "Interactive thought experiment: Multi-Region Architecture",
+        "description": "Change the variables below and predict what breaks first in Multi-Region Architecture. The production lab can later reuse these same inputs.",
+        "variables": [
+          {
+            "name": "traffic",
+            "description": "Requests/events per second",
+            "default": "1000"
+          },
+          {
+            "name": "latency",
+            "description": "Dependency latency",
+            "default": "50ms"
+          },
+          {
+            "name": "failure_rate",
+            "description": "Injected failure rate",
+            "default": "0%"
+          }
+        ],
+        "placeholder_note": "Interactive controls are deterministic; use the linked Labs section when a dedicated lab exists."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-multi-region-hint",
+      "payload": {
+        "title": "Hint",
+        "body": "If you are stuck on Multi-Region Architecture, start by drawing the request path and marking every network hop, stateful component, queue, cache and failure boundary. Then estimate where the system will saturate.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-multi-region-1",
+      "payload": {
+        "shape": "prediction",
+        "question": "You increase traffic by 10× in a system using Multi-Region Architecture. What should you inspect first?",
+        "options": [
+          "The newest framework version",
+          "The dominant bottleneck and its saturation signal",
+          "Only the UI",
+          "Nothing; the architecture should absorb any traffic automatically"
+        ],
+        "answer_index": 1,
+        "rationale": "System design is a constraint-and-bottleneck exercise. Start with the resource or dependency that will saturate first, then choose the smallest change that removes that bottleneck.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-multi-region-2",
+      "payload": {
+        "shape": "mcq",
+        "question": "Which statement is the safest engineering habit when using Multi-Region Architecture?",
+        "options": [
+          "Choose it because it is popular",
+          "Add it before measuring the problem",
+          "State the workload, failure mode and trade-off it is solving",
+          "Use the most distributed design possible"
+        ],
+        "answer_index": 2,
+        "rationale": "Good architecture starts from requirements, workload and failure assumptions. The component is the consequence of that reasoning, not the starting point.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "scenario",
+      "id": "upgrade-scenario-multi-region",
+      "payload": {
+        "prompt": "Production scenario: your system uses Multi-Region Architecture, traffic suddenly spikes, and p99 latency doubles. What is your first move?",
+        "context": "You have dashboards for traffic, latency, errors and saturation. You can change the architecture, but every change has operational cost.",
+        "options": [
+          {
+            "id": "a",
+            "text": "Add more instances immediately",
+            "outcome": "This may help, but only if compute saturation is the bottleneck.",
+            "correct": false
+          },
+          {
+            "id": "b",
+            "text": "Inspect the bottleneck and its saturation signal first",
+            "outcome": "Correct: diagnose before scaling or introducing a new pattern.",
+            "correct": true
+          },
+          {
+            "id": "c",
+            "text": "Disable monitoring to reduce overhead",
+            "outcome": "This removes the evidence you need to diagnose the incident.",
+            "correct": false
+          }
+        ],
+        "rationale": "Measure the limiting resource or dependency first. A bottleneck can be compute, database I/O, network, cache misses, lock contention, downstream latency, or queue backlog.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-multi-region-interview",
+      "payload": {
+        "text": "Interview drill",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-multi-region-interview",
+      "payload": {
+        "text": "**Answer this without notes:** When would you choose Multi-Region Architecture, and when would you intentionally avoid it? Mention at least one bottleneck it addresses, one failure mode it introduces, and one alternative. Then quantify the workload you are designing for."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "field-guide-multi-region",
+      "payload": {
+        "title": "Engineering lens",
+        "body": "A useful engineering lens for Multi-Region Architecture: define the problem it solves, the simpler design that fails first, the constraint that forces you to introduce this concept, and the new failure modes the concept creates.",
+        "kind": "tip"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "numerical-lens-multi-region",
+      "payload": {
+        "text": "### Numerical sanity check\n\nBack-of-the-envelope reasoning beats fake precision. State your traffic, payload, concurrency and growth assumptions explicitly, then calculate enough to know whether the current architecture is orders of magnitude away from the target."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "field-question-multi-region",
+      "payload": {
+        "shape": "prediction",
+        "question": "Imagine the simplest version of a system using Multi-Region Architecture. What breaks first as traffic grows by 10×, and what would you change before reaching 100×?",
+        "context": "Do not optimize for a memorized definition. Reason from the workload and failure mode.",
+        "options": [
+          "Scale the same component immediately.",
+          "Measure the current bottleneck and state the assumption that changed.",
+          "Add more technologies until throughput improves.",
+          "Choose the most popular architecture."
+        ],
+        "answer_index": 1,
+        "rationale": "Good system design starts with the bottleneck and the changed constraint. The most popular or complex choice is not automatically correct.",
+        "difficulty": "interview"
+      }
+    }
+  ],
+  "trade_offs": {
+    "pros": [
+      "Survives region-level outages — true high availability.",
+      "Lower latency for global users (nearest-region routing).",
+      "Enables data residency compliance by pinning data per region.",
+      "Decouples availability from any single cloud region."
+    ],
+    "cons": [
+      "Cost: roughly 2x compute, storage, and cross-region transfer fees.",
+      "Operational complexity: deploy, monitor, and debug across regions.",
+      "Replication trade-offs: sync is slow, async risks data loss, active-active needs conflict resolution.",
+      "Data residency regulations complicate active-active designs."
+    ]
+  },
+  "failure_modes": [
+    "Cross-region replication lag exceeds RPO — actual data loss larger than the target on failover.",
+    "DNS-based failover takes too long due to client DNS caching (TTL).",
+    "False-positive failover: traffic routed away from a healthy region, causing user impact.",
+    "Conflict resolution bugs in active-active (e.g., clock skew corrupts last-writer-wins)."
+  ],
+  "common_mistakes": [
+    "Going multi-region before exhausting multi-AZ options.",
+    "Using active-active without a conflict resolution strategy for writes.",
+    "Ignoring data residency when designing replication topology.",
+    "Forgetting that DNS-based failover is bounded by client TTLs."
+  ],
+  "where_you_see_it": [
+    "Netflix: active-active across AWS regions, with regional Independence.",
+    "Cloudflare: anycast routing to ~300 cities for sub-50ms global latency.",
+    "Banks: active-passive cross-region with synchronous replication for RPO=0."
+  ],
+  "interview_prompts": [
+    "Compare active-active and active-passive multi-region. When would you choose each?",
+    "How do you handle data residency in a multi-region system?",
+    "Why is synchronous cross-region replication often impractical, and what's the alternative?",
+    "How does traffic get routed to the right region, and how does it fail over?"
+  ],
+  "real_system_mappings": [
+    {
+      "system": "Netflix",
+      "how": "Active-active across multiple AWS regions. Each region is independent and serves its geography's traffic. Region failure is survived by routing traffic to another region."
+    },
+    {
+      "system": "Cloudflare",
+      "how": "Anycast routing across ~300 cities. The user's request hits the nearest PoP automatically. Failover is implicit — BGP withdraws unhealthy PoPs."
+    }
+  ],
+  "status": "published",
+  "sources": [
+    {
+      "title": "System Design Primer",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Open source"
+    },
+    {
+      "title": "ByteByteGo — Scale from zero to millions",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "ByteByteGo"
+    },
+    {
+      "title": "System Design Tutorial",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "GeeksforGeeks"
+    },
+    {
+      "title": "System Design Roadmap",
+      "url": "https://roadmap.sh/system-design",
+      "publisher": "roadmap.sh"
+    },
+    {
+      "title": "Reliability & Resilience reference",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Reliability & Resilience reference",
+      "url": "https://sre.google/sre-book/table-of-contents/",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Reliability & Resilience reference",
+      "url": "https://aws.amazon.com/builders-library/",
+      "publisher": "Reference"
+    },
+    {
+      "title": "AWS Well-Architected",
+      "url": "https://aws.amazon.com/architecture/well-architected/",
+      "publisher": "AWS"
+    }
+  ]
+}

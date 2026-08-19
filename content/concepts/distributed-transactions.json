@@ -1,0 +1,443 @@
+{
+  "slug": "distributed-transactions",
+  "version": 4,
+  "title": "Distributed Transactions",
+  "phase": "distributed-systems",
+  "area": "Distributed Systems",
+  "estimated_minutes": 7,
+  "difficulty": "expert",
+  "summary": "A distributed transaction is a unit of work that spans multiple independent resources — different databases, message brokers, or services — and must either commit on all of them or roll back on all of them. The classical solution is Two-Phase Commit (2PC): a coordinator asks every participant to prepare, then to commit, blocking until both phases complete. The modern solution for microservices is the saga pattern: a sequence of local transactions, each with a compensating action that undoes its effect if a later step fails. Both have steep costs — 2PC sacrifices availability and latency for strong consistency; sagas sacrifice isolation for resilience.",
+  "why_it_matters": "Every microservice architecture eventually hits the cross-service transaction problem: 'create order' updates the orders database, charges the payment service, reserves inventory, and enqueues a shipping message — and these must all happen atomically. If payment succeeds but the order write fails, you have charged a customer for nothing. If inventory is reserved but payment fails, you have stale inventory. 2PC solves this for tightly coupled databases (Postgres+Oracle in the same datacenter) but blocks on coordinator failure and is too slow for cross-region microservices. Sagas are the modern answer: each service does its local transaction and emits an event; the next service reacts to the event; failures trigger compensating actions. Knowing which pattern fits which situation is one of the most common architecture-interview questions.",
+  "prerequisites": [
+    "transactions",
+    "consensus"
+  ],
+  "related": [
+    "two-phase-commit",
+    "saga-pattern",
+    "consensus"
+  ],
+  "used_in": [
+    "Cross-service workflows in microservices (order -> payment -> inventory -> shipping).",
+    "Distributed databases (CockroachDB, Spanner — internal 2PC across replicas).",
+    "Database + message broker coordination (the transactional outbox pattern).",
+    "Multi-region transactional systems (rare, expensive, usually eventual)."
+  ],
+  "blocks": [
+    {
+      "type": "prose",
+      "id": "intro",
+      "payload": {
+        "text": "ACID transactions are well-defined on a single database: atomicity (all-or-nothing), consistency (invariants preserved), isolation (concurrent transactions appear serial), durability (committed data survives crashes). When the transaction spans multiple resources — different databases, message brokers, or services — ACID becomes much harder.\n\nThe fundamental difficulty is the **two generals problem**: there is no way to atomically commit on two independent resources over an unreliable network. Every protocol is a workaround that trades off some property:\n\n- **2PC** trades availability for atomicity — if the coordinator crashes, the system blocks.\n- **Sagas** trade isolation for resilience — intermediate states are visible, but the system never blocks.\n- **Transactional outbox** trades atomicity for eventual consistency — the database write and the message publish are eventually consistent, not atomically committed.\n\nThe choice depends on the workload. Tight coupling and strong consistency (single-cluster databases): 2PC. Loosely coupled microservices with eventual consistency tolerance: sagas."
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "2pc-vs-saga",
+      "payload": {
+        "code": "flowchart TD\n    N0[\"atomic, blocking\"]\n    N1[\"TWO\"]\n    N2[\"PHASE\"]\n    N3[\"COMMIT\"]\n    N4[\"(atomic,\"]\n    N5[\"blocking)\"]\n    N6[\"Coordinator\"]\n    N7[\"PREPARE\"]\n    N8[\"Participant\"]\n    N9[\"VOTE\"]\n    N10[\"YES\"]\n    N11[\"all\"]\n    N12[\"YES:\"]\n    N13[\"any\"]\n    N14[\"NO:\"]\n    N15[\"ABORT\"]\n    N16[\"ACK\"]\n    N17[\"all commit or all abort\"]\n    N18[\"Properties:\"]\n    N19[\"atomic\"]\n    N20[\"(all\"]\n    N21[\"commit\"]\n    N22[\"abort).\"]\n    N23[\"BLOCKS\"]\n    N24[\"coordinator\"]\n    N25[\"crashes\"]\n    N26[\"mid\"]\n    N27[\"protocol.\"]\n    N28[\"Slow\"]\n    N29[\"(multiple\"]\n    N30[\"network\"]\n    N31[\"round\"]\n    N32[\"trips,\"]\n    N33[\"locks\"]\n    N34[\"held\"]\n    N35[\"until\"]\n    N36[\"commit).\"]\n    N37[\"eventual, non-blocking\"]\n    N38[\"SAGA\"]\n    N39[\"(eventual,\"]\n    N40[\"non\"]\n    N41[\"Step\"]\n    N42[\"Order.create()\"]\n    N43[\"OrderCreated\"]\n    N44[\"event\"]\n    N45[\"or PaymentFailed\"]\n    N46[\"Payment.charge()\"]\n    N47[\"PaymentCharged\"]\n    N48[\"(or\"]\n    N49[\"PaymentFailed)\"]\n    N50[\"Inventory.reserve()\"]\n    N51[\"InventoryReserved\"]\n    N52[\"Shipping.enqueue()\"]\n    N53[\"ShippingQueued\"]\n    N54[\"failure:\"]\n    N55[\"run\"]\n    N56[\"COMPENSATING\"]\n    N57[\"actions\"]\n    N58[\"reverse\"]\n    N59[\"order:\"]\n    N60[\"Step 2 comp\"]\n    N61[\"Step 1 comp\"]\n    N62[\"failed\"]\n    N63[\"refund\"]\n    N64[\"payment\"]\n    N65[\"(Step\"]\n    N66[\"comp)\"]\n    N67[\"cancel\"]\n    N68[\"order\"]\n    N69[\"blocking,\"]\n    N70[\"resilient.\"]\n    N71[\"global\"]\n    N72[\"isolation\"]\n    N73[\"intermediate\"]\n    N74[\"order exists before payment\"]\n    N75[\"states\"]\n    N76[\"are\"]\n    N77[\"visible\"]\n    N78[\"(order\"]\n    N79[\"exists\"]\n    N80[\"before\"]\n    N81[\"payment).\"]\n    N82[\"Compensations\"]\n    N83[\"semantic,\"]\n    N84[\"not\"]\n    N85[\"technical\"]\n    N86[\"rollback.\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44\n    N44 --> N45\n    N45 --> N46\n    N46 --> N47\n    N47 --> N48\n    N48 --> N49\n    N49 --> N50\n    N50 --> N51\n    N51 --> N52\n    N52 --> N53\n    N53 --> N54\n    N54 --> N55\n    N55 --> N56\n    N56 --> N57\n    N57 --> N58\n    N58 --> N59\n    N59 --> N60\n    N60 --> N61\n    N61 --> N62\n    N62 --> N63\n    N63 --> N64\n    N64 --> N65\n    N65 --> N66\n    N66 --> N67\n    N67 --> N68\n    N68 --> N69\n    N69 --> N70\n    N70 --> N71\n    N71 --> N72\n    N72 --> N73\n    N73 --> N74\n    N74 --> N75\n    N75 --> N76\n    N76 --> N77\n    N77 --> N78\n    N78 --> N79\n    N79 --> N80\n    N80 --> N81\n    N81 --> N82\n    N82 --> N83\n    N83 --> N84\n    N84 --> N85\n    N85 --> N86",
+        "caption": "2PC: atomic but blocking. Saga: resilient but no isolation.",
+        "alt_text": "Two diagrams comparing distributed transaction approaches. In two-phase commit, a coordinator sends PREPARE to participants A, B, and C. Each votes YES or NO. If all vote YES, the coordinator sends COMMIT. If any votes NO, the coordinator sends ABORT. The protocol is atomic — all commit or all abort — but blocks if the coordinator crashes mid-protocol and is slow because participants hold locks during the round trips. In the saga pattern, a sequence of local transactions each emits an event: OrderCreated, PaymentCharged, InventoryReserved, ShippingQueued. Each step triggers the next. If a step fails, compensating actions run in reverse: refund payment, cancel order. Sagas are non-blocking and resilient, but there is no global isolation — intermediate states are visible to other transactions."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "2pc-deep",
+      "payload": {
+        "text": "**Two-Phase Commit** (2PC) is the classical distributed transaction protocol. A coordinator orchestrates two phases:\n\n1. **Prepare phase**: coordinator sends `PREPARE` to every participant. Each participant writes the work to a stable log (so it can survive a crash), then replies `VOTE YES` or `VOTE NO`. If any participant votes NO, the coordinator aborts.\n2. **Commit phase**: if all voted YES, the coordinator sends `COMMIT` to every participant. Each participant applies the work, releases locks, and replies `ACK`. Once the coordinator has all acks, the transaction is done.\n\n2PC guarantees atomicity: either all participants commit or none do. The cost:\n\n- **Blocking on coordinator failure**: if the coordinator crashes between prepare and commit, participants are stuck holding locks and cannot proceed. They must wait for the coordinator to recover — and during that wait, the locked resources are unavailable.\n- **Slow**: 2-3 network round trips plus fsync on every participant. Latency adds up.\n- **Failure scenarios**: participant crashes mid-protocol, coordinator crashes, network partition — each requires careful recovery logic.\n\n2PC is used internally by distributed databases (Spanner, CockroachDB, Postgres with foreign data wrappers) where the participants are tightly coupled. It is rarely used across microservices because of the blocking cost."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "cap-implication",
+      "payload": {
+        "title": "2PC is CP, not available",
+        "body": "During a coordinator failure or partition, 2PC blocks — no new transactions can complete, and existing ones are stuck. This is by design: atomicity is preserved at the cost of availability. The CAP theorem says you cannot have all three; 2PC chooses consistency over availability during partitions. For microservices where availability matters more, sagas (AP) are preferred — they accept intermediate inconsistency to stay available.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "saga-deep",
+      "payload": {
+        "text": "**Sagas** (Hector Garcia-Molina & Kenneth Salem, 1987) model a distributed transaction as a sequence of local transactions T1, T2, ..., Tn, each with a compensating transaction C1, C2, ..., Cn. If Ti fails, the saga runs C(i-1), C(i-2), ..., C1 to undo the work.\n\nExample: place-order saga.\n1. T1: Order.create() — emits `OrderCreated`. Compensating C1: Order.cancel().\n2. T2: Payment.charge() — emits `PaymentCharged`. C2: Payment.refund().\n3. T3: Inventory.reserve() — emits `InventoryReserved`. C3: Inventory.release().\n4. T4: Shipping.enqueue() — emits `ShippingQueued`. C4: Shipping.cancel().\n\nIf T3 fails, the saga runs C2 (refund payment) and C1 (cancel order). The customer is made whole — no charge, no order — but the cancellation is a semantic action, not a technical rollback. The order existed in the database for a brief moment; other services may have observed it.\n\nThere are two flavors:\n- **Choreography**: each service emits an event; the next service reacts. No central coordinator. Simple to start, harder to debug as the chain grows.\n- **Orchestration**: a central orchestrator (e.g., AWS Step Functions, Temporal) calls each service in order and handles compensations. Easier to reason about, but the orchestrator is a new component to manage.\n\nSagas trade isolation for resilience. Intermediate states are visible: the order exists before payment succeeds; the customer may see a 'pending' order briefly. The application must be designed to handle this — status enums, idempotency, and outbox pattern are essential."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "outbox",
+      "payload": {
+        "text": "The **transactional outbox pattern** solves the most common distributed-transaction problem: 'atomically update the database and publish a message.' The naive approach — write to the DB, then publish to the broker — fails if the publish call crashes (the DB write is committed, but the message is lost). 2PC across the DB and broker works but is slow and brittle.\n\nThe outbox: write the message to an `outbox` table in the **same database transaction** as the business write. Both commit atomically (local transaction). A separate process (the 'outbox poller' or CDC like Debezium) reads the outbox table and publishes messages to the broker, then marks them as sent. If the publisher crashes, the next poll re-publishes — at-least-once delivery, but the message is never lost.\n\nThis is the de facto standard for cross-service event emission in microservices. It is a special case of the saga pattern: the database write is the local transaction; the message publish is the eventual side effect. Stripe, Uber, Netflix, and every modern event-driven microservice architecture use this pattern. The cost: eventual consistency (the message appears in the broker seconds after the DB write) and at-least-once delivery (consumers must be idempotent)."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q1",
+      "payload": {
+        "question": "Why is Two-Phase Commit rarely used across microservices, even though it provides strong atomicity?",
+        "shape": "mcq",
+        "options": [
+          "It is too complex to implement.",
+          "It blocks on coordinator failure, holding locks and degrading availability — unacceptable in loosely coupled microservices.",
+          "It does not actually provide atomicity across services.",
+          "Microservices do not need transactions."
+        ],
+        "answer_index": 1,
+        "rationale": "2PC blocks when the coordinator crashes between the prepare and commit phases. Participants are stuck holding locks on resources they prepared, waiting for the coordinator to recover. During this time, those resources are unavailable — which means the entire service chain is degraded. In a tightly coupled single-cluster database, this is acceptable because failures are rare and recovery is fast. In microservices, where the participants are independent services owned by different teams and possibly in different regions, coordinator failures and partitions are common — and blocking is unacceptable. Sagas accept eventual consistency to stay available, which is the right trade-off for microservices. The CAP theorem formalizes this: 2PC is CP, sagas are AP.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q2",
+      "payload": {
+        "question": "In a saga, what is a 'compensating transaction,' and how does it differ from a database rollback?",
+        "shape": "mcq",
+        "options": [
+          "It is the same as a database rollback — it undoes the transaction technically.",
+          "It is a semantic undo — a new business-level action that reverses the effect of a prior step (e.g., refund a payment, cancel an order). The original write is not erased; the compensation is a new write.",
+          "It is a log entry recording that the transaction failed.",
+          "It is a synchronous call to the previous service to undo its work."
+        ],
+        "answer_index": 1,
+        "rationale": "A compensating transaction is a semantic undo, not a technical rollback. The original write was already committed and is visible to other services — it cannot be erased. The compensation is a new business action that reverses the effect: refund a payment (a new transaction that creates a refund record), cancel an order (a new transaction that flips the order status to cancelled), release inventory (a new transaction that returns stock to the pool). This means other services may have observed intermediate states — the order existed for a moment before being cancelled. The saga accepts this visibility trade-off to stay available and resilient. This is also why saga design is harder than 2PC: every step needs a meaningful compensation, and the application must handle intermediate states gracefully.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q3",
+      "payload": {
+        "question": "You need to update the orders database AND publish an 'OrderCreated' message to Kafka, atomically. What is the standard solution?",
+        "shape": "mcq",
+        "options": [
+          "Use 2PC across the database and Kafka.",
+          "Write the message to an 'outbox' table in the same database transaction as the order write; a separate poller or CDC publishes the message to Kafka.",
+          "Write to the database, then publish to Kafka; if publish fails, retry.",
+          "Use a saga with the database write as the first step and Kafka publish as the second."
+        ],
+        "answer_index": 1,
+        "rationale": "The transactional outbox pattern is the standard solution. The naive approach — write to the DB, then publish to Kafka — fails if the publish crashes: the DB write is committed but the message is lost. 2PC across the DB and Kafka works but is slow and brittle. The outbox: write the order AND the message to an outbox table in the same local DB transaction. Both commit atomically. A separate process (poller or CDC like Debezium) reads the outbox and publishes to Kafka, then marks messages as sent. If the publisher crashes, the next poll re-publishes — at-least-once delivery, but never lost. The cost: eventual consistency (the message appears in Kafka after the DB write, typically within seconds) and idempotency requirement on consumers. Stripe, Uber, Netflix, and every modern event-driven architecture use this.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-distributed-transactions-mental",
+      "payload": {
+        "text": "Engineering mental model",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-distributed-transactions-mental",
+      "payload": {
+        "text": "**Mental model.** Think of Distributed Transactions as a deliberate boundary in a system. The boundary exists because something becomes harder to manage when everything is done in one place: latency, scale, failure isolation, consistency, cost, or team ownership. The useful question is not “what does Distributed Transactions mean?” but “what pressure makes this boundary worth introducing, and what new failure mode does it create?”"
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-distributed-transactions-decision",
+      "payload": {
+        "title": "Design lens",
+        "body": "Before choosing Distributed Transactions, name the workload, the critical user path, the dominant bottleneck, the failure you are trying to absorb, and the trade-off you are willing to accept. If you cannot name those five things, the design is probably premature.",
+        "kind": "info"
+      }
+    },
+    {
+      "type": "image",
+      "id": "upgrade-image-distributed-transactions",
+      "payload": {
+        "src": "/learning-visuals/distributed-transactions.svg",
+        "alt": "Original NO CAP systems visual for Distributed Transactions.",
+        "caption": "Distributed Transactions: a compact system-thinking visual.",
+        "credit": "Original NO CAP visual.",
+        "source_url": "https://github.com/donnemartin/system-design-primer"
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "upgrade-mermaid-distributed-transactions",
+      "payload": {
+        "code": "flowchart LR\n  A[Client] --> B[Gateway] --> C[Service] --> D[State] --> E[Outcome]",
+        "caption": "Distributed Transactions: a simplified system view showing the primary flow and the main state boundaries.",
+        "alt_text": "Distributed Transactions: a simplified system view showing the primary flow and the main state boundaries."
+      }
+    },
+    {
+      "type": "code",
+      "id": "upgrade-code-distributed-transactions",
+      "payload": {
+        "language": "sql",
+        "code": "SELECT id, created_at\nFROM records\nWHERE tenant_id = ?\nORDER BY created_at DESC\nLIMIT 50;\n\n-- Ask: which index makes this query predictable at scale?",
+        "caption": "A minimal engineering sketch for reasoning about Distributed Transactions."
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-distributed-transactions-numbers",
+      "payload": {
+        "text": "Back-of-the-envelope reasoning",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-distributed-transactions-numbers",
+      "payload": {
+        "text": "Numerical lens: write down traffic, payload size, read/write ratio, peak multiplier and durability target before choosing a component. The numbers should justify the architecture."
+      }
+    },
+    {
+      "type": "simulation",
+      "id": "upgrade-sim-distributed-transactions",
+      "payload": {
+        "title": "Interactive thought experiment: Distributed Transactions",
+        "description": "Change the variables below and predict what breaks first in Distributed Transactions. The production lab can later reuse these same inputs.",
+        "variables": [
+          {
+            "name": "traffic",
+            "description": "Requests/events per second",
+            "default": "1000"
+          },
+          {
+            "name": "latency",
+            "description": "Dependency latency",
+            "default": "50ms"
+          },
+          {
+            "name": "failure_rate",
+            "description": "Injected failure rate",
+            "default": "0%"
+          }
+        ],
+        "placeholder_note": "Interactive controls are deterministic; use the linked Labs section when a dedicated lab exists."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-distributed-transactions-hint",
+      "payload": {
+        "title": "Hint",
+        "body": "If you are stuck on Distributed Transactions, start by drawing the request path and marking every network hop, stateful component, queue, cache and failure boundary. Then estimate where the system will saturate.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-distributed-transactions-1",
+      "payload": {
+        "shape": "prediction",
+        "question": "You increase traffic by 10× in a system using Distributed Transactions. What should you inspect first?",
+        "options": [
+          "The newest framework version",
+          "The dominant bottleneck and its saturation signal",
+          "Only the UI",
+          "Nothing; the architecture should absorb any traffic automatically"
+        ],
+        "answer_index": 1,
+        "rationale": "System design is a constraint-and-bottleneck exercise. Start with the resource or dependency that will saturate first, then choose the smallest change that removes that bottleneck.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-distributed-transactions-2",
+      "payload": {
+        "shape": "mcq",
+        "question": "Which statement is the safest engineering habit when using Distributed Transactions?",
+        "options": [
+          "Choose it because it is popular",
+          "Add it before measuring the problem",
+          "State the workload, failure mode and trade-off it is solving",
+          "Use the most distributed design possible"
+        ],
+        "answer_index": 2,
+        "rationale": "Good architecture starts from requirements, workload and failure assumptions. The component is the consequence of that reasoning, not the starting point.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "scenario",
+      "id": "upgrade-scenario-distributed-transactions",
+      "payload": {
+        "prompt": "Production scenario: your system uses Distributed Transactions, traffic suddenly spikes, and p99 latency doubles. What is your first move?",
+        "context": "You have dashboards for traffic, latency, errors and saturation. You can change the architecture, but every change has operational cost.",
+        "options": [
+          {
+            "id": "a",
+            "text": "Add more instances immediately",
+            "outcome": "This may help, but only if compute saturation is the bottleneck.",
+            "correct": false
+          },
+          {
+            "id": "b",
+            "text": "Inspect the bottleneck and its saturation signal first",
+            "outcome": "Correct: diagnose before scaling or introducing a new pattern.",
+            "correct": true
+          },
+          {
+            "id": "c",
+            "text": "Disable monitoring to reduce overhead",
+            "outcome": "This removes the evidence you need to diagnose the incident.",
+            "correct": false
+          }
+        ],
+        "rationale": "Measure the limiting resource or dependency first. A bottleneck can be compute, database I/O, network, cache misses, lock contention, downstream latency, or queue backlog.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-distributed-transactions-interview",
+      "payload": {
+        "text": "Interview drill",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-distributed-transactions-interview",
+      "payload": {
+        "text": "**Answer this without notes:** When would you choose Distributed Transactions, and when would you intentionally avoid it? Mention at least one bottleneck it addresses, one failure mode it introduces, and one alternative. Then quantify the workload you are designing for."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "field-guide-distributed-transactions",
+      "payload": {
+        "title": "Engineering lens",
+        "body": "For Distributed Transactions, start with access patterns rather than brand names. Identify the dominant reads/writes, data relationships, consistency requirements, partition key, hot keys and failure behavior before choosing a storage strategy.",
+        "kind": "tip"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "numerical-lens-distributed-transactions",
+      "payload": {
+        "text": "### Numerical sanity check\n\nA rough capacity check: required write throughput ≈ peak writes/s × average record size. At 5,000 writes/s and 2 KB average payloads, the raw incoming data stream is about 10 MB/s before indexes, replication and overhead."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "field-question-distributed-transactions",
+      "payload": {
+        "shape": "prediction",
+        "question": "A team proposes Distributed Transactions because it 'scales'. What workload characteristic would make that choice a poor fit?",
+        "context": "Do not optimize for a memorized definition. Reason from the workload and failure mode.",
+        "options": [
+          "Scale the same component immediately.",
+          "Measure the current bottleneck and state the assumption that changed.",
+          "Add more technologies until throughput improves.",
+          "Choose the most popular architecture."
+        ],
+        "answer_index": 1,
+        "rationale": "Good system design starts with the bottleneck and the changed constraint. The most popular or complex choice is not automatically correct.",
+        "difficulty": "interview"
+      }
+    }
+  ],
+  "trade_offs": {
+    "pros": [
+      "Enables atomic multi-resource updates that local transactions cannot do.",
+      "2PC gives true ACID atomicity across resources (when participants are tightly coupled).",
+      "Sagas provide resilience without blocking — the system stays available under failure.",
+      "Outbox pattern solves the DB+message atomicity problem with minimal complexity.",
+      "Foundation for cross-service workflows in microservices."
+    ],
+    "cons": [
+      "2PC blocks on coordinator failure — degrades availability; CP not AP.",
+      "2PC is slow — multiple round trips plus fsync on every participant.",
+      "Sagas sacrifice isolation — intermediate states are visible; applications must handle them.",
+      "Sagas require designing a compensating action for every step — semantic, not technical.",
+      "All variants add operational complexity — coordinators, orchestrators, outbox pollers, CDC."
+    ]
+  },
+  "failure_modes": [
+    "2PC coordinator crash mid-protocol — participants stuck holding locks; mitigated by recovery protocols but blocking is unavoidable.",
+    "Saga intermediate state observed — another service sees a 'pending' order; mitigated by status enums and idempotency.",
+    "Outbox poller crash — messages delayed but not lost (next poll re-publishes); mitigated by at-least-once consumers.",
+    "Compensating action failure — refund fails; requires retry + manual intervention path.",
+    "Out-of-order events in choreography sagas — events arrive in wrong order; mitigated by correlation IDs and idempotency.",
+    "Long-running saga — locks resources for a long time; mitigated by shorter steps and explicit state machines."
+  ],
+  "common_mistakes": [
+    "Using 2PC across microservices — blocks too often, too slow, too tightly coupled.",
+    "Using sagas without designing compensating actions — failures leave the system in inconsistent state.",
+    "Naive dual-write (DB then publish) — loses messages on publish crash.",
+    "Assuming saga isolation — concurrent sagas can see each other's intermediate states; design for it.",
+    "Forgetting that outbox consumers must be idempotent — at-least-once delivery is the norm.",
+    "Not propagating a correlation ID across saga steps — debugging becomes impossible."
+  ],
+  "where_you_see_it": [
+    "Cross-service workflows in microservices (order, payment, inventory, shipping).",
+    "Distributed databases internally (Spanner, CockroachDB — 2PC across participant groups).",
+    "Event-driven architectures (transactional outbox pattern for DB+broker atomicity).",
+    "Workflow engines (Temporal, AWS Step Functions, Camunda — orchestrated sagas).",
+    "Multi-region transactional systems (rare; usually eventual consistency via async replication)."
+  ],
+  "interview_prompts": [
+    "Compare 2PC and sagas. When do you choose each?",
+    "What is a compensating transaction? Why is it not the same as a rollback?",
+    "How does the transactional outbox pattern work? What problem does it solve?",
+    "Your saga step 3 failed. Walk through what happens. What if a compensation also fails?",
+    "Why does 2PC block on coordinator failure? Can you fix this?"
+  ],
+  "real_system_mappings": [
+    {
+      "system": "Google Spanner",
+      "how": "Uses 2PC across participant groups for true ACID distributed transactions. TrueTime bounds clock uncertainty to ~7ms, allowing external consistency. The cost: latency of cross-group commits is multiple round trips. Used when strong consistency is non-negotiable."
+    },
+    {
+      "system": "CockroachDB",
+      "how": "Uses 2PC across replicas for ACID transactions in a horizontally scalable SQL database. Latency is the trade-off — every write goes through consensus (Raft) and may span multiple ranges."
+    },
+    {
+      "system": "Temporal",
+      "how": "Workflow orchestration engine that runs sagas as durable, resumable state machines. Each step is idempotent and replayable on crash. Compensations are first-class. Used by Stripe, Snap, and many others for cross-service workflows."
+    },
+    {
+      "system": "Debezium",
+      "how": "Open-source CDC (Change Data Capture) tool that reads the WAL/binlog of a database and publishes row-level changes to Kafka. Often used as the 'outbox poller' in the transactional outbox pattern — turns DB writes into event stream publishes with no dual-write problem."
+    }
+  ],
+  "status": "published",
+  "sources": [
+    {
+      "title": "System Design Primer",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Open source"
+    },
+    {
+      "title": "ByteByteGo — Scale from zero to millions",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "ByteByteGo"
+    },
+    {
+      "title": "System Design Tutorial",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "GeeksforGeeks"
+    },
+    {
+      "title": "System Design Roadmap",
+      "url": "https://roadmap.sh/system-design",
+      "publisher": "roadmap.sh"
+    },
+    {
+      "title": "Distributed Systems reference",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Distributed Systems reference",
+      "url": "https://raft.github.io/",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Distributed Systems reference",
+      "url": "https://www.usenix.org/",
+      "publisher": "Reference"
+    }
+  ]
+}

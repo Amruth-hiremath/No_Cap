@@ -1,85 +1,46 @@
-# NO CAP Worker (Cloudflare Python Worker)
+# NO CAP Worker
 
-This is the backend for NO CAP. It runs as a Cloudflare Worker using the Python (Pyodide) runtime.
+Thin Cloudflare Worker API for authentication, account state and D1-backed synchronization.
 
-## Status: Scaffold
+## Production model
 
-The frontend (`/src`) runs fully on localStorage without this Worker. The Worker is wired up when you are ready to deploy to Cloudflare and want server-side state, auth, and quota tracking.
+The browser should normally use the NO CAP Pages origin. Cloudflare Pages Functions proxy `/auth/*` and `/v1/*` to this Worker so session cookies remain first-party on the Pages `*.pages.dev` origin.
 
-## Constraint: Thin Python Only
+Worker public URL:
 
-FastAPI on Python Workers runs in Pyodide (WebAssembly). Limits:
-- 10ms CPU time per request
-- 128MB memory
-- 3MB Worker size
-- 50 subrequests per request
+```text
+https://nocap-worker.YOUR-SUBDOMAIN.workers.dev
+```
 
-**Forbidden**: NumPy, Pandas, SciPy, native binary dependencies, heavyweight ML, image processing, server-side simulation engines.
+Public browser origin:
 
-All heavy computation (simulations, architecture validation, cost calculation) runs **client-side**. The Worker is a thin API/domain layer over D1.
+```text
+https://YOUR-PROJECT.pages.dev
+```
 
-## Setup
+## Required secrets
 
-1. Install wrangler:
-   ```bash
-   npm install -g wrangler
-   ```
+```text
+GITHUB_CLIENT_ID
+GITHUB_CLIENT_SECRET
+GOOGLE_CLIENT_ID
+GOOGLE_CLIENT_SECRET
+FRONTEND_ORIGIN
+APP_ORIGIN
+```
 
-2. Login to Cloudflare:
-   ```bash
-   wrangler login
-   ```
+`APP_ORIGIN` is used to build the OAuth callback URL in production.
 
-3. Create the D1 database:
-   ```bash
-   wrangler d1 create nocap
-   # Copy the database_id into wrangler.toml
-   ```
+## Deploy
 
-4. Create the KV namespace (optional):
-   ```bash
-   wrangler kv namespace create KV
-   # Copy the id into wrangler.toml
-   ```
-
-5. Create the R2 bucket:
-   ```bash
-   wrangler r2 bucket create nocap-assets
-   ```
-
-6. Set secrets:
-   ```bash
-   wrangler secret put GITHUB_CLIENT_ID
-   wrangler secret put GITHUB_CLIENT_SECRET
-   wrangler secret put ALLOWED_GITHUB_ID
-   wrangler secret put JWT_SECRET
-   ```
-
-7. Run migrations:
-   ```bash
-   wrangler d1 migrations apply nocap --local    # dev
-   wrangler d1 migrations apply nocap --remote   # prod
-   ```
-
-8. Run locally:
-   ```bash
-   wrangler dev
-   ```
-
-9. Deploy:
-   ```bash
-   wrangler deploy
-   ```
-
-## Free Tier Allocations
-
-| Service | Free | Expected single-user usage |
-|---------|------|---------------------------|
-| Workers | 100k req/day | ~5-15k/day |
-| D1 | 5GB, 5M reads/day, 100k writes/day | <100MB, <100k reads/day |
-| R2 | 10GB, free egress | <1GB |
-| KV (optional) | 100k reads/day, 1k writes/day | <1k/day |
-| Durable Objects (v2.0) | 100k req/day, 13k GB-s/day | only during collab |
-| Workers AI (v2.0, Tier C) | 10k neurons/day | <2k/day |
-
-All fail-closed: feature unavailable, not billed.
+```bash
+npx wrangler d1 create nocap
+npx wrangler d1 migrations apply nocap --remote
+npx wrangler secret put GITHUB_CLIENT_ID
+npx wrangler secret put GITHUB_CLIENT_SECRET
+npx wrangler secret put GOOGLE_CLIENT_ID
+npx wrangler secret put GOOGLE_CLIENT_SECRET
+npx wrangler secret put FRONTEND_ORIGIN
+npx wrangler secret put APP_ORIGIN
+npx wrangler deploy
+```

@@ -1,0 +1,442 @@
+{
+  "slug": "consensus",
+  "version": 4,
+  "title": "Consensus (Paxos / Raft)",
+  "phase": "distributed-systems",
+  "area": "Distributed Systems",
+  "estimated_minutes": 7,
+  "difficulty": "expert",
+  "summary": "Consensus is the problem of getting multiple distributed nodes to agree on a single value despite crashes, message loss, and reordering. Paxos (Lamport, 1998) and Raft (Ongaro & Ousterhout, 2014) are the two algorithms that solve this safely: they guarantee that the agreed value is never wrong (safety) and that the system eventually agrees as long as a majority of nodes can communicate (liveness, modulo FLP). Every strongly consistent distributed database, lock service, and configuration store is built on one of these or a variant.",
+  "why_it_matters": "Consensus is the foundation of every linearizable distributed system. Without it, you cannot have a single leader (who is the leader?), a replicated log (what is the next entry?), or a distributed lock (who holds it?). Every time you write to etcd, Consul, ZooKeeper, Spanner, CockroachDB, or Aurora, you are running Paxos or Raft under the hood. The cost is real — consensus requires a majority quorum round-trip on every decision, which sets the floor on write latency for strongly consistent systems — but the alternative (split-brain, data loss, divergent replicas) is worse. Understanding consensus is what separates 'I configured a database' from 'I understand what my database is doing under failure.'",
+  "prerequisites": [
+    "distributed-systems-intro",
+    "leader-election"
+  ],
+  "related": [
+    "leader-election",
+    "quorum",
+    "distributed-locks"
+  ],
+  "used_in": [
+    "Configuration and service discovery (etcd, Consul, ZooKeeper).",
+    "Strongly consistent databases (Spanner, CockroachDB, YugabyteDB).",
+    "Cluster leadership and replicated logs (Kafka controllers, KRaft).",
+    "Distributed lock services (Chubby, etcd locks)."
+  ],
+  "blocks": [
+    {
+      "type": "prose",
+      "id": "intro",
+      "payload": {
+        "text": "The consensus problem is deceptively simple to state: given N nodes, can they agree on a single value? The constraints make it hard:\n\n- **Safety**: only one value may be chosen, and once chosen, it never changes. No two nodes should ever disagree on the outcome.\n- **Liveness**: as long as a majority of nodes are reachable, the system eventually makes progress.\n- **Fault tolerance**: the system tolerates `f` failures with `2f+1` nodes (a majority must survive).\n\nThe **FLP impossibility result** (Fischer, Lynch, Paterson, 1985) proves that no asynchronous deterministic protocol can guarantee both safety and liveness if even one node may crash. In practice, real systems (Paxos, Raft) sidestep FLP by adding randomness (leader election with randomized timeouts) and accepting that liveness may stall for bounded periods under bad network conditions — but safety is never violated."
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "raft-phases",
+      "payload": {
+        "code": "flowchart TD\n    N0[\"RAFT\"]\n    N1[\"Three\"]\n    N2[\"node\"]\n    N3[\"roles,\"]\n    N4[\"term\"]\n    N5[\"based\"]\n    N6[\"leadership\"]\n    N7[\"start state\"]\n    N8[\"Follower\"]\n    N9[\"(start\"]\n    N10[\"state)\"]\n    N11[\"randomized 150-300ms\"]\n    N12[\"election\"]\n    N13[\"timeout\"]\n    N14[\"expires\"]\n    N15[\"one\"]\n    N16[\"(randomized\"]\n    N17[\"150\"]\n    N18[\"300ms)\"]\n    N19[\"RequestVote RPCs\"]\n    N20[\"Candidate\"]\n    N21[\"(RequestVote\"]\n    N22[\"RPCs)\"]\n    N23[\"candidate\"]\n    N24[\"gets\"]\n    N25[\"majority\"]\n    N26[\"votes\"]\n    N27[\"becomes\"]\n    N28[\"Leader\"]\n    N29[\"for\"]\n    N30[\"AppendEntries heartbeats\"]\n    N31[\"(AppendEntries\"]\n    N32[\"heartbeats)\"]\n    N33[\"leader\"]\n    N34[\"receives\"]\n    N35[\"write\"]\n    N36[\"AppendEntries\"]\n    N37[\"followers\"]\n    N38[\"ack\"]\n    N39[\"commit\"]\n    N40[\"reply\"]\n    N41[\"client\"]\n    N42[\"fails:\"]\n    N43[\"stop\"]\n    N44[\"receiving\"]\n    N45[\"heartbeats,\"]\n    N46[\"fires\"]\n    N47[\"one,\"]\n    N48[\"new\"]\n    N49[\"begins.\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44\n    N44 --> N45\n    N45 --> N46\n    N46 --> N47\n    N47 --> N48\n    N48 --> N49",
+        "caption": "Raft lifecycle: followers, candidate, leader. Terms monotonically increase; leader failures trigger re-election.",
+        "alt_text": "A diagram of the Raft consensus algorithm lifecycle. Three nodes start as followers. When the election timeout (a randomized 150 to 300 millisecond delay) expires on one node, it becomes a candidate, increments the term, and sends RequestVote RPCs to the others. If it wins a majority, it becomes the leader for that term and sends AppendEntries heartbeats to keep authority. When the leader receives a write, it replicates via AppendEntries to followers, waits for a majority ack, then commits and replies to the client. If the leader fails, followers stop receiving heartbeats, an election timeout fires on one, and a new term begins. Terms monotonically increase to prevent split-brain."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "paxos",
+      "payload": {
+        "text": "**Paxos** (Lamport, 1998) is the canonical consensus algorithm. It is famously hard to understand — Lamport himself wrote 'Paxos Made Simple' and 'Paxos Made Live' to explain it. The core idea:\n\n- A **proposer** suggests a value with a unique proposal number.\n- **Acceptors** promise to reject proposals with lower numbers, and accept the highest-numbered proposal they have seen.\n- Once a majority of acceptors accept, the value is **chosen** — it cannot be unchosen.\n- A **learner** discovers the chosen value and announces it.\n\nMulti-Paxos extends this to a sequence of values (a log) by reusing a stable leader to skip the prepare phase for subsequent entries. Modern systems rarely implement raw Paxos; they implement Multi-Paxos with optimizations (e.g., Fast Paxos, EPaxos) or use Raft.\n\n**Raft** was designed specifically for understandability. It decomposes consensus into three sub-problems: leader election (randomized timeouts), log replication (AppendEntries RPCs), and safety (terms and majority commits). The result is algorithmically equivalent to Multi-Paxos but dramatically easier to teach, implement, and debug — which is why every modern consensus system (etcd, Consul, CockroachDB, TiKV) uses Raft."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "quorum-why-majority",
+      "payload": {
+        "title": "Why a majority (N/2 + 1)?",
+        "body": "Two majorities cannot exist simultaneously. If 5 nodes vote for value A and a different 5 vote for value B, the two groups must share at least one node — which would have to vote for both, contradicting safety. This is why every consensus protocol requires a majority quorum and tolerates f failures with 2f+1 nodes: the smallest set that cannot simultaneously agree on two conflicting values. It is also why cluster sizes are odd (3, 5, 7) — adding one node to an even-sized cluster does not increase fault tolerance.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "raft-terms",
+      "payload": {
+        "text": "Raft's central trick is the **term** — a monotonically increasing integer that serves as a logical clock for leadership. Every election starts a new term; every RPC carries the sender's current term. If a node sees a higher term than its own, it immediately reverts to follower — this is how a stale leader learns it has been deposed.\n\nThe flow for a single write:\n1. Client sends write to the leader.\n2. Leader appends the entry to its log (uncommitted).\n3. Leader sends `AppendEntries` RPC to all followers in parallel.\n4. Followers append the entry and reply with success.\n5. Once a majority replies, the leader commits the entry (marks it durable) and applies it to its state machine.\n6. Leader replies to the client with success.\n7. Leader includes the commit index in the next `AppendEntries`, so followers learn the entry is committed.\n\nA read on the leader is 'free' but may be stale (the leader might have been deposed and not yet know). For strongly consistent reads, Raft systems add a **read index** round-trip: the leader confirms it is still leader (by getting heartbeats from a majority) before serving the read. This is why strongly consistent reads on etcd have higher latency than writes — they require a quorum check too."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "failure-cases",
+      "payload": {
+        "text": "What can go wrong in practice:\n\n- **Network partition with quorum**: 3-node cluster partitions 2/1. The 2-node side has quorum, elects a new leader, accepts writes. The 1-node side has no quorum, accepts no writes. On heal, the 1-node side catches up. This is correct behavior.\n- **Network partition without quorum**: 5-node cluster partitions 2/3. Both sides have a majority? No — only 3 has quorum. The 2-node side blocks. This is why 5-node clusters tolerate 2 failures, not 3 (3-failure would partition 0/5 or 1/4 — neither side of a 2/3 split has majority in the failed sense).\n- **Split-brain**: two leaders in different terms. Raft's term numbering prevents this — the older leader is forced to step down when it sees a higher term. The newer leader's commits win.\n- **Livelock**: candidate elections keep timing out and conflicting. Mitigated by randomized election timeouts (150-300ms) so collisions are unlikely to repeat.\n- **Slow disk**: a leader that cannot fsync its log cannot commit — disk latency is a hard floor on Raft throughput."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q1",
+      "payload": {
+        "question": "Why do Raft and Paxos require a majority quorum (N/2 + 1) rather than, say, two-thirds or three-quarters?",
+        "shape": "mcq",
+        "options": [
+          "Majority is the smallest set that cannot simultaneously agree on two conflicting values.",
+          "Majority is the only count that scales linearly with cluster size.",
+          "Majority is what the FLP impossibility result requires.",
+          "Majority is what the network can deliver reliably."
+        ],
+        "answer_index": 0,
+        "rationale": "Two majorities of an N-node set must share at least one node — so they cannot agree on conflicting values without that shared node voting twice, which violates safety. This is why majority quorums guarantee consensus safety. Smaller quorums (e.g., plurality) can have two disjoint sets agree on different values, breaking safety. Larger quorums (e.g., 2/3) provide no additional safety but reduce availability — fewer failures are tolerated. The FLP result does not specify quorum size; it proves consensus cannot guarantee both safety and liveness in an asynchronous network. The majority rule is the minimal quorum that gives safety.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q2",
+      "payload": {
+        "question": "A 5-node Raft cluster partitions 3 nodes on one side and 2 on the other. What happens on each side?",
+        "shape": "mcq",
+        "options": [
+          "Both sides elect leaders and accept writes — split-brain.",
+          "The 3-node side has quorum and continues; the 2-node side blocks until the partition heals.",
+          "Both sides block — no quorum on either side.",
+          "The 2-node side takes over because it has fewer nodes to coordinate."
+        ],
+        "answer_index": 1,
+        "rationale": "Quorum is 3 (majority of 5). The 3-node side has quorum, so it can elect a leader (if it did not already have one) and continue accepting writes. The 2-node side has no quorum, so any leader on that side cannot commit writes — they are stuck waiting for acks that never come. When the partition heals, the 2-node side's leader sees the higher term from the 3-node side's leader and reverts to follower, then catches up via log replication. This is the entire point of quorum-based consensus: it prevents split-brain by ensuring only one side can make progress. A 4-node cluster would partition 2/2 with no quorum on either side — both sides block. This is why odd cluster sizes are preferred.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q3",
+      "payload": {
+        "question": "What does the FLP impossibility result actually prove, and how do real consensus protocols (Paxos, Raft) get around it?",
+        "shape": "mcq",
+        "options": [
+          "FLP proves consensus is impossible; Paxos and Raft work because they assume synchronous networks.",
+          "FLP proves that no asynchronous deterministic protocol can guarantee both safety and liveness with one crash failure; Paxos and Raft preserve safety always and achieve liveness with high probability via randomized timeouts.",
+          "FLP proves that majority quorums do not work; Paxos uses three-phase commit instead.",
+          "FLP proves that consensus requires a leader; Paxos and Raft use leader election to comply."
+        ],
+        "answer_index": 1,
+        "rationale": "FLP proves that in a fully asynchronous network (no upper bound on message delay), no deterministic protocol can guarantee both safety and liveness if even one node may crash — the protocol can be stuck in a livelock forever. Paxos and Raft sidestep this by preserving safety absolutely (no two values are ever chosen) and achieving liveness with probability approaching 1 over time, using randomized election timeouts to break livelock cycles. In practice, real networks have bounded delays, so FLP's strict conditions do not hold — but the result shapes the design: never trade safety for liveness, and add randomness to escape livelock.",
+        "difficulty": "expert"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-consensus-mental",
+      "payload": {
+        "text": "Engineering mental model",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-consensus-mental",
+      "payload": {
+        "text": "**Mental model.** Think of Consensus (Paxos / Raft) as a deliberate boundary in a system. The boundary exists because something becomes harder to manage when everything is done in one place: latency, scale, failure isolation, consistency, cost, or team ownership. The useful question is not “what does Consensus (Paxos / Raft) mean?” but “what pressure makes this boundary worth introducing, and what new failure mode does it create?”"
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-consensus-decision",
+      "payload": {
+        "title": "Design lens",
+        "body": "Before choosing Consensus (Paxos / Raft), name the workload, the critical user path, the dominant bottleneck, the failure you are trying to absorb, and the trade-off you are willing to accept. If you cannot name those five things, the design is probably premature.",
+        "kind": "info"
+      }
+    },
+    {
+      "type": "image",
+      "id": "upgrade-image-consensus",
+      "payload": {
+        "src": "/learning-visuals/consensus.svg",
+        "alt": "Original NO CAP systems visual for Consensus (Paxos / Raft).",
+        "caption": "Consensus (Paxos / Raft): a compact system-thinking visual.",
+        "credit": "Original NO CAP visual.",
+        "source_url": "https://github.com/donnemartin/system-design-primer"
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "upgrade-mermaid-consensus",
+      "payload": {
+        "code": "flowchart LR\n C[Client] --> L[Leader]\n L --> F1[Follower]\n L --> F2[Follower]\n F1 --> Q[Quorum]\n F2 --> Q\n Q --> L",
+        "caption": "Consensus protocols coordinate replicated state so a cluster can agree on a value or log order despite failures.",
+        "alt_text": "Consensus protocols coordinate replicated state so a cluster can agree on a value or log order despite failures."
+      }
+    },
+    {
+      "type": "code",
+      "id": "upgrade-code-consensus",
+      "payload": {
+        "language": "text",
+        "code": "// Pseudocode\nrequest = receive()\nresult = consensus(request)\nreturn result\n\n// Production questions:\n// 1. What happens on timeout?\n// 2. Can this operation be retried safely?\n// 3. What is the bottleneck?",
+        "caption": "A minimal engineering sketch for reasoning about Consensus (Paxos / Raft)."
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-consensus-numbers",
+      "payload": {
+        "text": "Back-of-the-envelope reasoning",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-consensus-numbers",
+      "payload": {
+        "text": "Example: with 5 replicas, a majority quorum is 3. Losing 2 replicas still leaves a majority available for a quorum-based protocol."
+      }
+    },
+    {
+      "type": "simulation",
+      "id": "upgrade-sim-consensus",
+      "payload": {
+        "title": "Interactive thought experiment: Consensus (Paxos / Raft)",
+        "description": "Change the variables below and predict what breaks first in Consensus (Paxos / Raft). The production lab can later reuse these same inputs.",
+        "variables": [
+          {
+            "name": "replicas",
+            "description": "Replica count",
+            "default": "5"
+          },
+          {
+            "name": "read_ratio",
+            "description": "Fraction of reads",
+            "default": "80%"
+          },
+          {
+            "name": "lag",
+            "description": "Replication lag",
+            "default": "50ms"
+          }
+        ],
+        "placeholder_note": "Interactive controls are deterministic; use the linked Labs section when a dedicated lab exists."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-consensus-hint",
+      "payload": {
+        "title": "Hint",
+        "body": "If you are stuck on Consensus (Paxos / Raft), start by drawing the request path and marking every network hop, stateful component, queue, cache and failure boundary. Then estimate where the system will saturate.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-consensus-1",
+      "payload": {
+        "shape": "prediction",
+        "question": "You increase traffic by 10× in a system using Consensus (Paxos / Raft). What should you inspect first?",
+        "options": [
+          "The newest framework version",
+          "The dominant bottleneck and its saturation signal",
+          "Only the UI",
+          "Nothing; the architecture should absorb any traffic automatically"
+        ],
+        "answer_index": 1,
+        "rationale": "System design is a constraint-and-bottleneck exercise. Start with the resource or dependency that will saturate first, then choose the smallest change that removes that bottleneck.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-consensus-2",
+      "payload": {
+        "shape": "mcq",
+        "question": "Which statement is the safest engineering habit when using Consensus (Paxos / Raft)?",
+        "options": [
+          "Choose it because it is popular",
+          "Add it before measuring the problem",
+          "State the workload, failure mode and trade-off it is solving",
+          "Use the most distributed design possible"
+        ],
+        "answer_index": 2,
+        "rationale": "Good architecture starts from requirements, workload and failure assumptions. The component is the consequence of that reasoning, not the starting point.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "scenario",
+      "id": "upgrade-scenario-consensus",
+      "payload": {
+        "prompt": "Production scenario: your system uses Consensus (Paxos / Raft), traffic suddenly spikes, and p99 latency doubles. What is your first move?",
+        "context": "You have dashboards for traffic, latency, errors and saturation. You can change the architecture, but every change has operational cost.",
+        "options": [
+          {
+            "id": "a",
+            "text": "Add more instances immediately",
+            "outcome": "This may help, but only if compute saturation is the bottleneck.",
+            "correct": false
+          },
+          {
+            "id": "b",
+            "text": "Inspect the bottleneck and its saturation signal first",
+            "outcome": "Correct: diagnose before scaling or introducing a new pattern.",
+            "correct": true
+          },
+          {
+            "id": "c",
+            "text": "Disable monitoring to reduce overhead",
+            "outcome": "This removes the evidence you need to diagnose the incident.",
+            "correct": false
+          }
+        ],
+        "rationale": "Measure the limiting resource or dependency first. A bottleneck can be compute, database I/O, network, cache misses, lock contention, downstream latency, or queue backlog.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-consensus-interview",
+      "payload": {
+        "text": "Interview drill",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-consensus-interview",
+      "payload": {
+        "text": "**Answer this without notes:** When would you choose Consensus (Paxos / Raft), and when would you intentionally avoid it? Mention at least one bottleneck it addresses, one failure mode it introduces, and one alternative. Then quantify the workload you are designing for."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "field-guide-consensus",
+      "payload": {
+        "title": "Engineering lens",
+        "body": "A useful engineering lens for Consensus (Paxos / Raft): define the problem it solves, the simpler design that fails first, the constraint that forces you to introduce this concept, and the new failure modes the concept creates.",
+        "kind": "tip"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "numerical-lens-consensus",
+      "payload": {
+        "text": "### Numerical sanity check\n\nBack-of-the-envelope reasoning beats fake precision. State your traffic, payload, concurrency and growth assumptions explicitly, then calculate enough to know whether the current architecture is orders of magnitude away from the target."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "field-question-consensus",
+      "payload": {
+        "shape": "prediction",
+        "question": "Imagine the simplest version of a system using Consensus (Paxos / Raft). What breaks first as traffic grows by 10×, and what would you change before reaching 100×?",
+        "context": "Do not optimize for a memorized definition. Reason from the workload and failure mode.",
+        "options": [
+          "Scale the same component immediately.",
+          "Measure the current bottleneck and state the assumption that changed.",
+          "Add more technologies until throughput improves.",
+          "Choose the most popular architecture."
+        ],
+        "answer_index": 1,
+        "rationale": "Good system design starts with the bottleneck and the changed constraint. The most popular or complex choice is not automatically correct.",
+        "difficulty": "interview"
+      }
+    }
+  ],
+  "trade_offs": {
+    "pros": [
+      "Safety is absolute — once a value is chosen, it never changes; no two nodes disagree on committed values.",
+      "Tolerates minority failures (N/2 - 1 nodes can crash) without downtime.",
+      "Foundation for every linearizable distributed system — locks, leader election, replicated state machines.",
+      "Raft is well-understood and has multiple battle-tested open-source implementations (etcd, TiKV, CockroachDB)."
+    ],
+    "cons": [
+      "Every write requires a majority round-trip — latency is at least one network RTT plus fsync time.",
+      "Throughput is bounded by the leader (single-writer bottleneck); multi-leader variants (EPaxos) are complex.",
+      "Cluster size is odd and small (3, 5, 7) — large clusters slow down without improving fault tolerance.",
+      "Liveness can stall under network partition or livelock — FLP is a real bound, even if rare in practice.",
+      "Operations complexity: monitoring, reconfiguration, membership changes are non-trivial."
+    ]
+  },
+  "failure_modes": [
+    "Leader crash mid-term — election timeout fires; cluster pauses writes for 150-300ms until new leader elected.",
+    "Network partition without quorum — both sides block until healed (correct, but visible as downtime).",
+    "Livelock from election timeout collisions — randomized timeouts mitigate but do not eliminate.",
+    "Slow disk on leader — fsync latency caps throughput; leader becomes the bottleneck.",
+    "Membership change mishandled — adding/removing nodes naively can create two majorities (joint consensus is the safe path).",
+    "Byzantine faults — Raft and Paxos assume crash-stop; Byzantine faults require PBFT-style protocols (3f+1 nodes)."
+  ],
+  "common_mistakes": [
+    "Running consensus on even-sized clusters (4, 6) — partitions like 2/2 leave no quorum; odd is better.",
+    "Treating reads on the leader as strongly consistent without a read-index round — they can be stale.",
+    "Configuring election timeouts too short — false elections under load; too long — slow failover.",
+    "Using consensus for high-throughput writes when eventual consistency would do — pays the latency cost for nothing.",
+    "Forgetting that fsync latency is a floor on commit throughput — slow disk = slow consensus.",
+    "Adding nodes to a cluster without joint consensus — can split-brain."
+  ],
+  "where_you_see_it": [
+    "Service discovery and configuration (etcd in Kubernetes, Consul, ZooKeeper).",
+    "Strongly consistent SQL databases (CockroachDB, Spanner, YugabyteDB).",
+    "Distributed lock services (etcd-based locks, ZooKeeper locks, Chubby).",
+    "Cluster metadata and leader election (Kafka KRaft, HDFS NameNode HA).",
+    "Blockchains (BFT variants for consensus — Tendermint, HotStuff)."
+  ],
+  "interview_prompts": [
+    "Explain the difference between Paxos and Raft. Why did Raft displace Paxos in most modern systems?",
+    "Walk through what happens when a Raft leader crashes. How does the cluster recover, and what is the visible downtime?",
+    "Why do consensus clusters use odd numbers of nodes (3, 5, 7)? What goes wrong with even numbers?",
+    "What is the FLP impossibility result, and how do Paxos/Raft work around it?",
+    "Why are strongly consistent reads on a Raft leader more expensive than reads on a follower? How do you make reads strongly consistent?"
+  ],
+  "real_system_mappings": [
+    {
+      "system": "etcd",
+      "how": "Raft-based strongly consistent KV store that backs Kubernetes. Every API server write goes through Raft consensus. Cluster sizes are typically 3 or 5; odd to maximize fault tolerance."
+    },
+    {
+      "system": "CockroachDB",
+      "how": "Each 'range' of data is replicated across 3+ nodes via Raft. Writes commit when a majority of the range's replicas agree. Strong consistency across geo-distributed datacenters, with latency as the trade-off."
+    },
+    {
+      "system": "Apache ZooKeeper",
+      "how": "Uses ZAB (ZooKeeper Atomic Broadcast), a Paxos variant optimized for primary-backup replication. A single leader accepts writes, replicates to followers, commits on quorum ack. Used by Kafka (pre-KRaft), HBase, and many Hadoop-era systems."
+    },
+    {
+      "system": "Kafka KRaft",
+      "how": "Replaced ZooKeeper in Kafka 3.x. Uses Raft to elect a controller that manages broker metadata. Removes the external ZooKeeper dependency and reduces failure domains."
+    }
+  ],
+  "status": "published",
+  "sources": [
+    {
+      "title": "System Design Primer",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Open source"
+    },
+    {
+      "title": "ByteByteGo — Scale from zero to millions",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "ByteByteGo"
+    },
+    {
+      "title": "System Design Tutorial",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "GeeksforGeeks"
+    },
+    {
+      "title": "System Design Roadmap",
+      "url": "https://roadmap.sh/system-design",
+      "publisher": "roadmap.sh"
+    },
+    {
+      "title": "Distributed Systems reference",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Distributed Systems reference",
+      "url": "https://raft.github.io/",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Distributed Systems reference",
+      "url": "https://www.usenix.org/",
+      "publisher": "Reference"
+    }
+  ]
+}

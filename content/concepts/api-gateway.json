@@ -1,0 +1,430 @@
+{
+  "slug": "api-gateway",
+  "version": 3,
+  "title": "Gateway Routing",
+  "phase": "design-patterns",
+  "area": "Design Patterns",
+  "estimated_minutes": 7,
+  "difficulty": "advanced",
+  "summary": "An API Gateway is a single entry point that sits in front of all your backend services. It routes requests to the right service, terminates TLS, enforces authentication and rate limiting, transforms requests and responses, and shields clients from the internal topology. Think of it as the front desk of your microservices hotel: every visitor checks in here, gets vetted, and is escorted to the right room — without ever learning the building's floor plan.",
+  "why_it_matters": "Without an API gateway, every client must know the address of every backend service, every backend must re-implement auth and TLS, and every internal reorganization breaks clients. With one, you centralize cross-cutting concerns — auth, rate limiting, observability, TLS, routing — in a single, well-managed place. The API gateway is the pattern that makes microservices palatable to clients; it is also a single point of failure that demands careful engineering.",
+  "prerequisites": [
+    "load-balancers",
+    "microservices"
+  ],
+  "related": [
+    "reverse-proxy"
+  ],
+  "used_in": [
+    "Public APIs for SaaS products (Stripe, Twilio, GitHub).",
+    "Mobile app backends that aggregate many downstream services into a tailored response (BFF).",
+    "Internal microservice platforms where every external request enters through one gateway."
+  ],
+  "blocks": [
+    {
+      "type": "prose",
+      "id": "what-it-is",
+      "payload": {
+        "text": "An API gateway receives every external request, applies a stack of cross-cutting concerns, and forwards it to the right backend service. It is a reverse proxy with opinions. Where a generic reverse proxy just forwards bytes, an API gateway actively participates in the request: authenticating, transforming, rate-limiting, composing responses.\n\nThe core responsibilities are:\n1. **Routing** — `/api/users/*` goes to the user service, `/api/orders/*` to the order service, `/api/billing/*` to the billing service. Clients see one host; the gateway fans out to many.\n2. **TLS termination** — the gateway holds the TLS certificate and decrypts HTTPS, so backend services can speak plain HTTP on a private network.\n3. **Authentication & authorization** — validate JWTs, API keys, or OAuth tokens once at the gateway, then pass identity downstream. Backends don't each re-implement auth.\n4. **Rate limiting & quotas** — enforce per-client limits (100 req/min for free tier, 10000 for paid) at the edge, before backends ever see the traffic.\n5. **Request/response transformation** — reshape payloads for clients (e.g., strip internal fields, rename keys, aggregate multiple backend calls into one response).\n6. **Observability** — centralized logging, metrics, and distributed tracing for every request.\n7. **Protocol translation** — accept REST from clients, call gRPC internally; accept HTTP/1, speak HTTP/2 to backends."
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "gateway-flow",
+      "payload": {
+        "code": "flowchart TD\n    N0[\"mobile/web/IoT\"]\n    N1[\"Client\"]\n    N2[\"(mobile\"]\n    N3[\"web\"]\n    N4[\"IoT)\"]\n    N5[\"HTTPS\"]\n    N6[\"API\"]\n    N7[\"GATEWAY\"]\n    N8[\"TLS\"]\n    N9[\"termination\"]\n    N10[\"JWT / API key\"]\n    N11[\"AuthN\"]\n    N12[\"(JWT\"]\n    N13[\"key)\"]\n    N14[\"scope check\"]\n    N15[\"AuthZ\"]\n    N16[\"(scope\"]\n    N17[\"check)\"]\n    N18[\"Rate\"]\n    N19[\"limit\"]\n    N20[\"per\"]\n    N21[\"client\"]\n    N22[\"Route\"]\n    N23[\"path\"]\n    N24[\"host\"]\n    N25[\"Request\"]\n    N26[\"transformation\"]\n    N27[\"Logging\"]\n    N28[\"tracing\"]\n    N29[\"Users\"]\n    N30[\"Orders\"]\n    N31[\"Billing\"]\n    N32[\"plain HTTP on private net\"]\n    N33[\"[Users]\"]\n    N34[\"[Orders]\"]\n    N35[\"[Billing]\"]\n    N36[\"(plain\"]\n    N37[\"HTTP\"]\n    N38[\"private\"]\n    N39[\"net)\"]\n    N40[\"DB\"]\n    N41[\"[DB]\"]\n    N42[\"Clients\"]\n    N43[\"see\"]\n    N44[\"one\"]\n    N45[\"host:\"]\n    N46[\"api.example.com.\"]\n    N47[\"Gateway\"]\n    N48[\"authenticates\"]\n    N49[\"once,\"]\n    N50[\"routes\"]\n    N51[\"many.\"]\n    N52[\"Backends\"]\n    N53[\"speak\"]\n    N54[\"plain\"]\n    N55[\"HTTP,\"]\n    N56[\"behind\"]\n    N57[\"the\"]\n    N58[\"gateway.\"]\n    N59[\"Topology\"]\n    N60[\"hidden\"]\n    N61[\"from\"]\n    N62[\"clients.\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44\n    N44 --> N45\n    N45 --> N46\n    N46 --> N47\n    N47 --> N48\n    N48 --> N49\n    N49 --> N50\n    N50 --> N51\n    N51 --> N52\n    N52 --> N53\n    N53 --> N54\n    N54 --> N55\n    N55 --> N56\n    N56 --> N57\n    N57 --> N58\n    N58 --> N59\n    N59 --> N60\n    N60 --> N61\n    N61 --> N62",
+        "caption": "An API gateway terminates TLS, authenticates, rate-limits, and routes to many backend services.",
+        "alt_text": "A diagram of an API gateway. A client sends HTTPS to the gateway. Inside the gateway, a stack of middlewares handles TLS termination, authentication (JWT or API key), authorization (scope check), per-client rate limiting, path-based routing, request transformation, and logging with tracing. The gateway then forwards plain HTTP requests to multiple backend services — Users, Orders, and Billing — each with its own database. Clients see only one host, and the backend topology is hidden from them."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "gateway-vs-reverse-proxy",
+      "payload": {
+        "text": "**API Gateway vs Reverse Proxy:**\n\nThese terms overlap and the line is fuzzy, but the intent is different:\n\n| | Reverse Proxy | API Gateway |\n|---|---|---|\n| Primary job | Forward HTTP requests to backends | Full request lifecycle: route + transform + auth + rate limit |\n| Awareness of business | Low — usually path/host routing | High — knows about clients, scopes, quotas, products |\n| Cross-cutting concerns | TLS, basic LB, caching | TLS, auth, rate limit, request shaping, response aggregation, quotas |\n| Example tools | NGINX, HAProxy | Kong, AWS API Gateway, Apigee, Envoy (configured as gateway) |\n| Aggregation | No | Often — one client request may fan out to N backend services |\n\nA reverse proxy is a building block. An API gateway is a reverse proxy plus a stack of business-aware middlewares. NGINX can be configured as either; the difference is in what middlewares you enable and what rules you encode. Some teams call their NGINX front-end an 'API gateway' because it terminates TLS and routes by path — that's a fair use of the term. The pattern matters more than the label.\n\n**API Gateway vs Load Balancer:** A load balancer distributes traffic across instances of *one* service. An API gateway routes traffic across *many* services, and applies business logic (auth, rate limit). Production systems often stack both: a load balancer in front of a fleet of API gateway instances, which in turn route to backend services."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "bff-variant",
+      "payload": {
+        "text": "**The BFF variant — one gateway per client:**\n\nA single API gateway serving all clients (web, mobile, partner) often becomes a compromise: mobile wants smaller payloads, web wants richer aggregation, partners want SOAP. The **Backend-for-Frontend (BFF)** pattern instead runs one gateway per client type — a mobile BFF, a web BFF, a partner BFF — each tailored to its client. Each BFF is owned by the team that owns the client. This avoids the 'one gateway to rule them all' anti-pattern where every change needs agreement across all client teams.\n\nThe trade-off: more gateways means more operational surface. For most products, a single API gateway with route-based separation is enough. For organizations with sharply different client needs (mobile + web + partner APIs in different formats), BFFs are worth the cost."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "spof-warning",
+      "payload": {
+        "title": "The gateway is a single point of failure",
+        "body": "Every external request flows through the gateway. If it goes down, your entire API is down — no matter how healthy your backends are. Mitigations: run multiple gateway instances behind a load balancer, deploy across availability zones, have automated failover, and keep the gateway stateless (store rate-limit counters and auth state in Redis, not in the gateway process). Treat the gateway's SLO as the strictest in your system: it must be at least as available as the most available backend.",
+        "kind": "warning"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "what-not-to-put-here",
+      "payload": {
+        "text": "**What not to put in the gateway:**\n\nThe gateway is a routing and policy layer, not a backend. Avoid the temptation to put business logic here:\n\n- **Business rules** (order validation, pricing calculations, inventory checks) belong in backend services. The gateway should not know what a valid order looks like.\n- **Long-running work** (calling slow third parties, generating reports) belongs in background jobs. A gateway should respond in milliseconds, not minutes.\n- **Stateful operations** (session storage, shopping cart contents) belong in databases or Redis. The gateway should be stateless.\n- **Heavy request bodies** — gateways that buffer full request/response bodies to transform them pay a memory and latency tax. Where possible, stream.\n\nThe risk of putting too much in the gateway is that it becomes a distributed monolith: every business change requires a gateway redeploy, and the gateway team becomes a bottleneck. Keep the gateway thin; let the backends own the product."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q1",
+      "payload": {
+        "question": "Your team is debating whether to put order-validation rules in the API gateway or in the orders service. Which is the better choice, and why?",
+        "options": [
+          "In the gateway — it sees every request, so it's the most efficient place to reject bad requests.",
+          "In the orders service — business rules belong with the business logic that owns them; the gateway should route, authenticate, and rate-limit, not validate orders.",
+          "Split: basic checks in the gateway, complex ones in the service.",
+          "In the gateway, because the gateway team has the most on-call experience."
+        ],
+        "answer_index": 1,
+        "rationale": "Business rules belong in the service that owns the domain. If the gateway validates orders, it has to be updated every time order rules change — coupling the gateway's release cadence to every business decision. The gateway should handle cross-cutting concerns (TLS, auth, rate limit, routing) and leave domain logic to the domain services. Rejecting obviously malformed requests (e.g., missing required fields) is sometimes reasonable at the gateway for efficiency, but real validation (does this SKU exist? is this coupon still valid?) belongs in the service.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q2",
+      "payload": {
+        "question": "What is the most important operational property of an API gateway, and how is it usually achieved?",
+        "options": [
+          "Low latency — achieved by caching every response.",
+          "High availability — achieved by running multiple stateless instances behind a load balancer across availability zones, with auth/rate-limit state externalized to Redis.",
+          "High throughput — achieved by using the fastest programming language.",
+          "Strict schema validation — achieved by compiling OpenAPI specs into the gateway binary."
+        ],
+        "answer_index": 1,
+        "rationale": "Every external request flows through the gateway, so its availability directly bounds the system's availability. A single gateway instance is a single point of failure. The standard pattern: run N gateway instances (stateless) behind a load balancer, distribute them across AZs, and externalize any state (rate-limit counters, auth session info) to Redis or another shared store so any instance can serve any request. Latency (a) matters but is a secondary concern. Throughput (c) is a function of architecture, not language. Schema validation (d) is useful but not the most important property.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q3",
+      "payload": {
+        "question": "A mobile client needs a single response that combines user profile, recent orders, and recommendations. Where should this aggregation happen?",
+        "options": [
+          "On the mobile client — make three separate API calls and combine locally.",
+          "In the API gateway or a Backend-for-Frontend (BFF), which fans out to three services and aggregates the results into one tailored response.",
+          "In each backend service, by having them call each other.",
+          "It cannot be done — the client must accept three separate responses."
+        ],
+        "answer_index": 1,
+        "rationale": "The BFF pattern is purpose-built for this: a gateway (or BFF) receives one request from the mobile client, fans out to the three services in parallel, and returns a single aggregated response tailored to mobile (smaller fields, fewer round trips). This is faster for the client (one network hop instead of three, parallelism server-side) and reduces mobile data usage. Option (a) wastes battery and bandwidth on three round trips. Option (c) couples services to each other inappropriately. The BFF is the standard answer for client-tailored aggregation.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-api-gateway-mental",
+      "payload": {
+        "text": "Engineering mental model",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-api-gateway-mental",
+      "payload": {
+        "text": "**Mental model.** Think of Gateway Routing as a deliberate boundary in a system. The boundary exists because something becomes harder to manage when everything is done in one place: latency, scale, failure isolation, consistency, cost, or team ownership. The useful question is not “what does Gateway Routing mean?” but “what pressure makes this boundary worth introducing, and what new failure mode does it create?”"
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-api-gateway-decision",
+      "payload": {
+        "title": "Design lens",
+        "body": "Before choosing Gateway Routing, name the workload, the critical user path, the dominant bottleneck, the failure you are trying to absorb, and the trade-off you are willing to accept. If you cannot name those five things, the design is probably premature.",
+        "kind": "info"
+      }
+    },
+    {
+      "type": "image",
+      "id": "upgrade-image-api-gateway",
+      "payload": {
+        "src": "/learning-visuals/api-gateway.svg",
+        "alt": "Original NO CAP systems visual for Gateway Routing.",
+        "caption": "Gateway Routing: a compact system-thinking visual.",
+        "credit": "Original NO CAP visual.",
+        "source_url": "https://github.com/donnemartin/system-design-primer"
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "upgrade-mermaid-api-gateway",
+      "payload": {
+        "code": "flowchart LR\n  A[Client] --> B[Gateway] --> C[Service] --> D[State] --> E[Outcome]",
+        "caption": "Gateway Routing: a simplified system view showing the primary flow and the main state boundaries.",
+        "alt_text": "Gateway Routing: a simplified system view showing the primary flow and the main state boundaries."
+      }
+    },
+    {
+      "type": "code",
+      "id": "upgrade-code-api-gateway",
+      "payload": {
+        "language": "bash",
+        "code": "curl -i https://api.example.com/v1/api-gateway\n\n# Look for:\n# - status code\n# - latency\n# - retryability\n# - response size",
+        "caption": "A minimal engineering sketch for reasoning about Gateway Routing."
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-api-gateway-numbers",
+      "payload": {
+        "text": "Back-of-the-envelope reasoning",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-api-gateway-numbers",
+      "payload": {
+        "text": "Numerical lens: write down traffic, payload size, read/write ratio, peak multiplier and durability target before choosing a component. The numbers should justify the architecture."
+      }
+    },
+    {
+      "type": "simulation",
+      "id": "upgrade-sim-api-gateway",
+      "payload": {
+        "title": "Interactive thought experiment: Gateway Routing",
+        "description": "Change the variables below and predict what breaks first in Gateway Routing. The production lab can later reuse these same inputs.",
+        "variables": [
+          {
+            "name": "traffic",
+            "description": "Requests/events per second",
+            "default": "1000"
+          },
+          {
+            "name": "latency",
+            "description": "Dependency latency",
+            "default": "50ms"
+          },
+          {
+            "name": "failure_rate",
+            "description": "Injected failure rate",
+            "default": "0%"
+          }
+        ],
+        "placeholder_note": "Interactive controls are deterministic; use the linked Labs section when a dedicated lab exists."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-api-gateway-hint",
+      "payload": {
+        "title": "Hint",
+        "body": "If you are stuck on Gateway Routing, start by drawing the request path and marking every network hop, stateful component, queue, cache and failure boundary. Then estimate where the system will saturate.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-api-gateway-1",
+      "payload": {
+        "shape": "prediction",
+        "question": "You increase traffic by 10× in a system using Gateway Routing. What should you inspect first?",
+        "options": [
+          "The newest framework version",
+          "The dominant bottleneck and its saturation signal",
+          "Only the UI",
+          "Nothing; the architecture should absorb any traffic automatically"
+        ],
+        "answer_index": 1,
+        "rationale": "System design is a constraint-and-bottleneck exercise. Start with the resource or dependency that will saturate first, then choose the smallest change that removes that bottleneck.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-api-gateway-2",
+      "payload": {
+        "shape": "mcq",
+        "question": "Which statement is the safest engineering habit when using Gateway Routing?",
+        "options": [
+          "Choose it because it is popular",
+          "Add it before measuring the problem",
+          "State the workload, failure mode and trade-off it is solving",
+          "Use the most distributed design possible"
+        ],
+        "answer_index": 2,
+        "rationale": "Good architecture starts from requirements, workload and failure assumptions. The component is the consequence of that reasoning, not the starting point.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "scenario",
+      "id": "upgrade-scenario-api-gateway",
+      "payload": {
+        "prompt": "Production scenario: your system uses Gateway Routing, traffic suddenly spikes, and p99 latency doubles. What is your first move?",
+        "context": "You have dashboards for traffic, latency, errors and saturation. You can change the architecture, but every change has operational cost.",
+        "options": [
+          {
+            "id": "a",
+            "text": "Add more instances immediately",
+            "outcome": "This may help, but only if compute saturation is the bottleneck.",
+            "correct": false
+          },
+          {
+            "id": "b",
+            "text": "Inspect the bottleneck and its saturation signal first",
+            "outcome": "Correct: diagnose before scaling or introducing a new pattern.",
+            "correct": true
+          },
+          {
+            "id": "c",
+            "text": "Disable monitoring to reduce overhead",
+            "outcome": "This removes the evidence you need to diagnose the incident.",
+            "correct": false
+          }
+        ],
+        "rationale": "Measure the limiting resource or dependency first. A bottleneck can be compute, database I/O, network, cache misses, lock contention, downstream latency, or queue backlog.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-api-gateway-interview",
+      "payload": {
+        "text": "Interview drill",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-api-gateway-interview",
+      "payload": {
+        "text": "**Answer this without notes:** When would you choose Gateway Routing, and when would you intentionally avoid it? Mention at least one bottleneck it addresses, one failure mode it introduces, and one alternative. Then quantify the workload you are designing for."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "field-guide-api-gateway",
+      "payload": {
+        "title": "Engineering lens",
+        "body": "A useful engineering lens for Gateway Routing: define the problem it solves, the simpler design that fails first, the constraint that forces you to introduce this concept, and the new failure modes the concept creates.",
+        "kind": "tip"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "numerical-lens-api-gateway",
+      "payload": {
+        "text": "### Numerical sanity check\n\nBack-of-the-envelope reasoning beats fake precision. State your traffic, payload, concurrency and growth assumptions explicitly, then calculate enough to know whether the current architecture is orders of magnitude away from the target."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "field-question-api-gateway",
+      "payload": {
+        "shape": "prediction",
+        "question": "Imagine the simplest version of a system using Gateway Routing. What breaks first as traffic grows by 10×, and what would you change before reaching 100×?",
+        "context": "Do not optimize for a memorized definition. Reason from the workload and failure mode.",
+        "options": [
+          "Scale the same component immediately.",
+          "Measure the current bottleneck and state the assumption that changed.",
+          "Add more technologies until throughput improves.",
+          "Choose the most popular architecture."
+        ],
+        "answer_index": 1,
+        "rationale": "Good system design starts with the bottleneck and the changed constraint. The most popular or complex choice is not automatically correct.",
+        "difficulty": "interview"
+      }
+    }
+  ],
+  "trade_offs": {
+    "pros": [
+      "Single entry point for clients — topology of backends is hidden.",
+      "Centralized cross-cutting concerns: TLS, auth, rate limit, logging, tracing.",
+      "Protocol translation: clients speak REST, backends speak gRPC.",
+      "Client-tailored responses (BFF pattern) without burdening backends.",
+      "Independent backend evolution — clients are shielded from internal restructuring."
+    ],
+    "cons": [
+      "The gateway is a single point of failure — must be engineered for high availability.",
+      "Adds a network hop and processing latency (~1–5ms typical, more with heavy transformation).",
+      "Risk of becoming a distributed monolith if business logic leaks into the gateway.",
+      "Operational complexity: configuration, deploy pipeline, observability for the gateway itself.",
+      "A new layer of failure modes (auth bugs, rate-limit bugs, routing misconfigurations) that affect every request."
+    ]
+  },
+  "failure_modes": [
+    "Gateway outage takes down the entire API, even when all backends are healthy.",
+    "Business logic accumulating in the gateway — every business change requires a gateway redeploy.",
+    "Auth misconfiguration leaking unauthenticated traffic to backends.",
+    "Rate-limit state stored in-process (not Redis) breaking under horizontal scaling — each instance counts independently.",
+    "Heavy request/response buffering causing memory pressure and head-of-line blocking."
+  ],
+  "common_mistakes": [
+    "Putting business rules in the gateway — turns it into a distributed monolith.",
+    "Running a single gateway instance — single point of failure.",
+    "Storing rate-limit counters in-process — breaks under horizontal scaling.",
+    "Letting the gateway make slow third-party calls inline — every request pays the cost.",
+    "Forgetting that the gateway's SLO must be stricter than any backend's — it bounds total availability.",
+    "Skipping distributed tracing through the gateway — request flows become opaque."
+  ],
+  "where_you_see_it": [
+    "Stripe, Twilio, GitHub public APIs — all sit behind an API gateway that handles auth, rate limiting, and routing.",
+    "Mobile backends that aggregate multiple downstream services into one response (BFF).",
+    "Internal microservice platforms — every external request enters through one gateway."
+  ],
+  "interview_prompts": [
+    "Design an API gateway for a public API with 100,000 requests/sec. How do you keep it available and fast?",
+    "How does an API gateway differ from a reverse proxy and a load balancer? When do you need each?",
+    "Your gateway team is becoming a bottleneck — every business change requires a gateway redeploy. What went wrong, and how do you fix it?",
+    "When would you use the BFF pattern (one gateway per client) instead of a single API gateway?",
+    "How do you enforce rate limits across multiple gateway instances without inconsistency?"
+  ],
+  "real_system_mappings": [
+    {
+      "system": "Kong",
+      "how": "Open-source API gateway built on NGINX/OpenResty with a plugin architecture for auth, rate limiting, logging, and transformation. Deployed as multiple stateless instances behind a load balancer, with configuration stored in PostgreSQL or declarative YAML."
+    },
+    {
+      "system": "AWS API Gateway",
+      "how": "Managed service that handles TLS, API-key auth, JWT authorizers via Lambda, per-client usage plans and quotas, request/response transformations, and direct integration with Lambda, HTTP backends, and other AWS services. Scales horizontally and bills per-request."
+    },
+    {
+      "system": "Netflix Zuul",
+      "how": "Netflix's in-house API gateway, designed to handle runtime routing, auth, and insights for Netflix's streaming service at global scale. Pioneered many BFF and gateway patterns now common in the industry."
+    }
+  ],
+  "status": "published",
+  "sources": [
+    {
+      "title": "System Design Primer",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Open source"
+    },
+    {
+      "title": "ByteByteGo — Scale from zero to millions",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "ByteByteGo"
+    },
+    {
+      "title": "System Design Tutorial",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "GeeksforGeeks"
+    },
+    {
+      "title": "System Design Roadmap",
+      "url": "https://roadmap.sh/system-design",
+      "publisher": "roadmap.sh"
+    },
+    {
+      "title": "Design Patterns reference",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Design Patterns reference",
+      "url": "https://learn.microsoft.com/en-us/azure/architecture/patterns/",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Design Patterns reference",
+      "url": "https://martinfowler.com/",
+      "publisher": "Reference"
+    }
+  ]
+}

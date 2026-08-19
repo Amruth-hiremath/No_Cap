@@ -1,0 +1,445 @@
+{
+  "slug": "websockets",
+  "version": 3,
+  "title": "WebSockets — Full-Duplex Real-Time Over TCP",
+  "phase": "networking-communication",
+  "area": "Networking & Communication",
+  "estimated_minutes": 7,
+  "difficulty": "advanced",
+  "summary": "WebSockets is a protocol that upgrades a single HTTP connection into a persistent, full-duplex, bidirectional TCP-like channel between client and server. Once upgraded, either side can send messages to the other at any time without opening new HTTP requests. It is the standard solution for chat, multiplayer games, collaborative editing, live dashboards — any app where the server needs to push data to the client with sub-second latency.",
+  "why_it_matters": "HTTP is request-response: the client asks, the server answers, the connection closes. That model breaks for real-time apps — a chat server cannot wait for the client to ask 'any new messages?'. WebSockets solved this in 2011 with a clean upgrade mechanism that reuses the existing HTTP(S) connection. Knowing when WebSockets is the right tool (vs SSE, long polling, or HTTP/2 streaming) is the central real-time design decision.",
+  "prerequisites": [
+    "http"
+  ],
+  "related": [
+    "server-sent-events",
+    "webrtc",
+    "tcp",
+    "real-time-overview"
+  ],
+  "used_in": [
+    "Chat apps (Slack, Discord, WhatsApp Web).",
+    "Multiplayer games and live sports updates.",
+    "Collaborative editors (Google Docs, Figma).",
+    "Live dashboards and trading platforms."
+  ],
+  "blocks": [
+    {
+      "type": "prose",
+      "id": "intro",
+      "payload": {
+        "text": "HTTP is half-duplex and request-driven: the client asks, the server answers. The server cannot push anything unless the client asks first. For most apps this is fine. For real-time apps — chat, gaming, live dashboards — it is fatal. You cannot render a stock price 200ms late; you cannot show a chat message only when the user happens to refresh.\n\nThree pre-WebSocket workarounds existed, all bad:\n\n- **Polling**: client sends `GET /messages` every 1s. Wastes bandwidth and battery; latency floor of the poll interval.\n- **Long polling**: client sends `GET /messages` and the server holds the connection open until a message arrives, then responds. Better, but every message costs a new HTTP request with headers, and the server must track pending requests.\n- **HTTP streaming** (chunked transfer): the server keeps the response open and writes chunks. Works but fights proxies and has awkward framing.\n\nWebSockets fixes all three. The connection starts as an HTTP request with an `Upgrade: websocket` header; the server responds with `101 Switching Protocols`; from then on, the TCP connection is a full-duplex, framed, bidirectional channel. Both sides can send frames whenever they want, with minimal overhead (2-10 byte frame header)."
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "upgrade",
+      "payload": {
+        "code": "flowchart TD\n    N0[\"WebSocket\"]\n    N1[\"Upgrade\"]\n    N2[\"Handshake\"]\n    N3[\"Client\"]\n    N4[\"Server\"]\n    N5[\"HTTP\"]\n    N6[\"GET\"]\n    N7[\"chat\"]\n    N8[\"Upgrade:\"]\n    N9[\"websocket\"]\n    N10[\"Connection:\"]\n    N11[\"Sec\"]\n    N12[\"Key:\"]\n    N13[\"dGhlIHNhbXBsZQ\"]\n    N14[\"Version:\"]\n    N15[\"101\"]\n    N16[\"Switching\"]\n    N17[\"Protocols\"]\n    N18[\"server derives from key\"]\n    N19[\"Accept:\"]\n    N20[\"s3pPLMBiT...\"]\n    N21[\"(server\"]\n    N22[\"derives\"]\n    N23[\"from\"]\n    N24[\"key)\"]\n    N25[\"Now\"]\n    N26[\"full\"]\n    N27[\"duplex\"]\n    N28[\"channel\"]\n    N29[\"frame:\"]\n    N30[\"'hi'\"]\n    N31[\"'howdy'\"]\n    N32[\"'msg\"]\n    N33[\"'bye'\"]\n    N34[\"CLOSE\"]\n    N35[\"Cost:\"]\n    N36[\"round\"]\n    N37[\"trip\"]\n    N38[\"upgrade,\"]\n    N39[\"then\"]\n    N40[\"near\"]\n    N41[\"zero\"]\n    N42[\"per\"]\n    N43[\"message\"]\n    N44[\"overhead.\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44",
+        "caption": "WebSocket starts as an HTTP request, upgrades to a full-duplex binary channel. After upgrade, either side sends frames whenever it wants.",
+        "alt_text": "A sequence diagram of the WebSocket upgrade handshake. The client sends an HTTP GET request to /chat with the Upgrade: websocket header, Connection: Upgrade header, a Sec-WebSocket-Key, and version 13. The server responds with HTTP 101 Switching Protocols and a Sec-WebSocket-Accept value derived from the key. From then on, the connection is a full-duplex WebSocket channel. The client and server exchange frames freely: client sends hi, server sends howdy and msg 2, client sends bye, server closes. The cost is one HTTP round trip to upgrade, then near-zero per-message overhead."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "frames",
+      "payload": {
+        "text": "After the upgrade, the WebSocket protocol is a series of **frames** — binary or text messages with a small header. Key frame types:\n\n- **Text frames**: UTF-8 encoded (typically JSON).\n- **Binary frames**: opaque bytes (use this for protobuf, msgpack, or raw media).\n- **Ping/Pong**: heartbeat frames. Either side can ping; the other must pong. Used to keep the connection alive through idle proxies and detect dead peers.\n- **Close**: a clean shutdown with an optional status code and reason.\n\nThe frame header is small (2 bytes minimum) — much cheaper than HTTP's per-request headers. A WebSocket message can be split across multiple frames (fragmentation), useful for streaming large messages or for keeping the connection interactive while a big upload is in flight.\n\nFrames are not request-response. Either side can send any frame at any time. The application has to invent its own message-correlation protocol if it needs to match requests to responses — typically a message ID field in the JSON payload. This is the cost of full-duplex: more flexibility, more responsibility.\n\nTwo production details everyone hits:\n\n- **Heartbeats are mandatory**. Proxies and load balancers (especially on mobile carriers) kill idle connections after 30-60 seconds. Without ping/pong, the client thinks it is connected when it is not. Send a ping every 20-30s; if no pong arrives within a few seconds, reconnect.\n- **Reconnection is the application's job**. WebSocket has no auto-reconnect. The client must detect disconnection (heartbeat timeout, TCP RST) and re-establish, including replaying any messages missed during the gap. Production systems track a 'last event id' so the server can replay missed events on reconnect."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "scale",
+      "payload": {
+        "text": "Scaling WebSockets horizontally is the hard part. A single chat server can hold ~50-100k concurrent WebSocket connections (kernel memory per connection, file descriptors, per-connection goroutine/actor). For a million-user app you need many servers, and now you have a routing problem: user A is on server 1, user B is on server 5. When A sends a message to B, how does it get there?\n\nThe standard architecture:\n\n- **Load balancer**: routes incoming WebSocket connections across servers (sticky by user ID hash, or random with pub/sub).\n- **Pub/sub backbone**: a Redis, Kafka, or NATS cluster connecting all the chat servers. When server 1 receives a message for B, it publishes to a topic; server 5 (which holds B's connection) consumes and pushes to B.\n- **Connection registry**: which user is on which server. Often Redis, keyed by user ID. Used to route direct messages.\n\nThis is the architecture Slack, Discord, and similar chat systems use. Discord famously runs millions of concurrent WebSockets by sharding users across guild servers and routing messages through a Kafka backbone.\n\nOther scaling concerns:\n\n- **Memory per connection**: even 50KB per connection adds up at 100k connections = 5GB. Tune your runtime (Go goroutines are cheap; Java threads are not).\n- **Backpressure**: if a client is slow to read, the server's send buffer fills. You must either apply backpressure upstream (slow the producer) or close the slow client.\n- **Connection draining on deploy**: a deploy that kills all connections simultaneously causes a reconnect storm. Roll deploys gradually and let old connections finish.\n- **CDN/edge termination**: WebSockets can be terminated at a CDN edge (Cloudflare supports this), reducing latency to clients and absorbing connection churn."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "sse-vs-ws",
+      "payload": {
+        "title": "WebSocket vs Server-Sent Events — the real decision",
+        "body": "If the server only needs to push data to the client (live scores, dashboards, notifications), SSE is simpler: it runs over plain HTTP, auto-reconnects, and works through any proxy. If you need true bidirectional communication (chat, gaming, collaborative editing where the client streams lots of data), WebSocket is the right tool. Many teams reach for WebSocket out of habit when SSE would be simpler and more robust.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "subprotocols",
+      "payload": {
+        "text": "WebSocket is just a transport — you still need an application-level protocol on top. Three patterns dominate.\n\n**JSON-over-text-frames** is the default. Simple, debuggable (you can read it in the browser devtools), and integrates with any JSON-aware tool. The cost is verbosity: a 10-byte chat message becomes a 90-byte JSON object plus the WebSocket frame header. Fine for low-frequency chat; painful for 60Hz game updates.\n\n**Binary protocols** (protobuf, msgpack, CBOR) over binary frames shrink messages dramatically — a protobuf message can be 5-10x smaller than the equivalent JSON. Production real-time systems with high message rates (games, trading) almost always move to binary once the JSON-based protocol stabilizes. The trade-off is debuggability: you need tooling to inspect a binary frame, and schema evolution becomes a concern (protobuf field numbers, backward compatibility).\n\n**Standardized subprotocols** like STOMP (Simple Text Oriented Messaging Protocol) and WAMP (Web Application Messaging Protocol) layer publish-subscribe semantics on top of WebSocket. STOMP is popular with message brokers (RabbitMQ, ActiveMQ) — clients subscribe to `/topic/foo` and receive messages. WAMP adds RPC and pub/sub. The advantage is a defined protocol instead of inventing your own; the disadvantage is dependency on a spec that is less widely understood than plain JSON.\n\nWhatever you choose, document it. WebSocket gives you a free-form pipe; the application protocol is where the contracts live. Treat it like any other API: version it, schema-evolve it, and write clients in multiple languages to validate it is portable."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q1",
+      "payload": {
+        "question": "Your app shows a live stock ticker where prices update 10x per second. The client never sends data back. Which transport is most appropriate?",
+        "shape": "mcq",
+        "options": [
+          "WebSocket — it is the standard for real-time.",
+          "Server-Sent Events (SSE) — server-to-client only, runs over plain HTTP, auto-reconnects, simpler than WebSocket.",
+          "HTTP polling every 100ms — simple, no special protocol.",
+          "gRPC streaming — typed and efficient."
+        ],
+        "answer_index": 1,
+        "rationale": "For one-way server-to-client streaming, SSE is the right tool. It runs over plain HTTP (works through any proxy, CDN-friendly), auto-reconnects with Last-Event-ID, has a simple text/event-stream format, and does not require the WebSocket upgrade ceremony or a custom binary protocol. WebSocket is overkill — it gives you a full-duplex channel you never use the other half of. Polling at 10Hz is wasteful and adds latency. gRPC streaming is great for typed internal data but awkward from a browser. WebSocket is the right choice when the client also streams data upstream; for one-way server pushes, SSE wins.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q2",
+      "payload": {
+        "question": "You deploy a new version of your chat server, replacing all instances at once. 100k clients reconnect within seconds. What problems will you see, and how should you have deployed?",
+        "shape": "mcq",
+        "options": [
+          "No problem — clients reconnect automatically and the system recovers within seconds.",
+          "Reconnect storm: LB and chat servers spike; pub/sub replay floods; possibly cascade failure. Should have rolled gradually with connection draining.",
+          "A certificate error — clients refuse to reconnect to the new server.",
+          "A 502 Bad Gateway — the LB cannot handle the new server version."
+        ],
+        "answer_index": 1,
+        "rationale": "Mass simultaneous reconnect — the 'thundering herd' — is a classic WebSocket failure mode. 100k clients hitting the load balancer and the chat servers at once will saturate CPU and bandwidth; if the server replays missed events on reconnect, the pub/sub backbone floods too. The fix is gradual rollout: deploy to one server at a time, let old connections drain (stop accepting new ones, send existing clients a 'reconnect with jitter' message), and use random backoff so clients spread their reconnect attempts over 5-30s. Connection draining and staggered deployment are not optional in production WebSocket fleets.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q3",
+      "payload": {
+        "question": "Your users on mobile networks report that their WebSocket connections silently die after ~30 seconds of inactivity. What is happening, and what is the standard fix?",
+        "shape": "mcq",
+        "options": [
+          "TCP keepalive is too long; lower the kernel TCP_KEEPALIVE.",
+          "Mobile carriers and NATs kill idle connections after 30-60s. The fix is application-level ping/pong heartbeats every 20-30s.",
+          "The server is timing out the connection; raise the timeout.",
+          "TLS is renegotiating and failing; switch to plaintext."
+        ],
+        "answer_index": 1,
+        "rationale": "Mobile carriers and corporate NATs aggressively reclaim idle connection state — often after 30-60 seconds — because they have limited NAT table memory. The client's TCP socket is still open locally; the carrier has just dropped the mapping. The result: silent connection death, where the client thinks it is connected and the server thinks it is gone. TCP keepalive (default ~2 hours) is far too slow to detect this. The standard fix is application-level WebSocket ping/pong frames every 20-30 seconds, with reconnect on missed pong. Some teams also send 'no-op' application messages as a heartbeat. Either way, the principle is: keep the connection visibly active to defeat NAT timeouts.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-websockets-mental",
+      "payload": {
+        "text": "Engineering mental model",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-websockets-mental",
+      "payload": {
+        "text": "**Mental model.** Think of WebSockets — Full-Duplex Real-Time Over TCP as a deliberate boundary in a system. The boundary exists because something becomes harder to manage when everything is done in one place: latency, scale, failure isolation, consistency, cost, or team ownership. The useful question is not “what does WebSockets — Full-Duplex Real-Time Over TCP mean?” but “what pressure makes this boundary worth introducing, and what new failure mode does it create?”"
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-websockets-decision",
+      "payload": {
+        "title": "Design lens",
+        "body": "Before choosing WebSockets — Full-Duplex Real-Time Over TCP, name the workload, the critical user path, the dominant bottleneck, the failure you are trying to absorb, and the trade-off you are willing to accept. If you cannot name those five things, the design is probably premature.",
+        "kind": "info"
+      }
+    },
+    {
+      "type": "image",
+      "id": "upgrade-image-websockets",
+      "payload": {
+        "src": "/learning-visuals/websockets.svg",
+        "alt": "Original NO CAP systems visual for WebSockets — Full-Duplex Real-Time Over TCP.",
+        "caption": "WebSockets — Full-Duplex Real-Time Over TCP: a compact system-thinking visual.",
+        "credit": "Original NO CAP visual.",
+        "source_url": "https://github.com/donnemartin/system-design-primer"
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "upgrade-mermaid-websockets",
+      "payload": {
+        "code": "sequenceDiagram\n participant C as Client\n participant S as Server\n C->>S: HTTP upgrade\n S-->>C: 101 Switching Protocols\n C<<->>S: bidirectional messages",
+        "caption": "WebSockets upgrade an HTTP connection into a long-lived bidirectional channel.",
+        "alt_text": "WebSockets upgrade an HTTP connection into a long-lived bidirectional channel."
+      }
+    },
+    {
+      "type": "code",
+      "id": "upgrade-code-websockets",
+      "payload": {
+        "language": "text",
+        "code": "// Pseudocode\nrequest = receive()\nresult = websockets(request)\nreturn result\n\n// Production questions:\n// 1. What happens on timeout?\n// 2. Can this operation be retried safely?\n// 3. What is the bottleneck?",
+        "caption": "A minimal engineering sketch for reasoning about WebSockets — Full-Duplex Real-Time Over TCP."
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-websockets-numbers",
+      "payload": {
+        "text": "Back-of-the-envelope reasoning",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-websockets-numbers",
+      "payload": {
+        "text": "Numerical lens: write down traffic, payload size, read/write ratio, peak multiplier and durability target before choosing a component. The numbers should justify the architecture."
+      }
+    },
+    {
+      "type": "simulation",
+      "id": "upgrade-sim-websockets",
+      "payload": {
+        "title": "Interactive thought experiment: WebSockets — Full-Duplex Real-Time Over TCP",
+        "description": "Change the variables below and predict what breaks first in WebSockets — Full-Duplex Real-Time Over TCP. The production lab can later reuse these same inputs.",
+        "variables": [
+          {
+            "name": "traffic",
+            "description": "Requests/events per second",
+            "default": "1000"
+          },
+          {
+            "name": "latency",
+            "description": "Dependency latency",
+            "default": "50ms"
+          },
+          {
+            "name": "failure_rate",
+            "description": "Injected failure rate",
+            "default": "0%"
+          }
+        ],
+        "placeholder_note": "Interactive controls are deterministic; use the linked Labs section when a dedicated lab exists."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-websockets-hint",
+      "payload": {
+        "title": "Hint",
+        "body": "If you are stuck on WebSockets — Full-Duplex Real-Time Over TCP, start by drawing the request path and marking every network hop, stateful component, queue, cache and failure boundary. Then estimate where the system will saturate.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-websockets-1",
+      "payload": {
+        "shape": "prediction",
+        "question": "You increase traffic by 10× in a system using WebSockets — Full-Duplex Real-Time Over TCP. What should you inspect first?",
+        "options": [
+          "The newest framework version",
+          "The dominant bottleneck and its saturation signal",
+          "Only the UI",
+          "Nothing; the architecture should absorb any traffic automatically"
+        ],
+        "answer_index": 1,
+        "rationale": "System design is a constraint-and-bottleneck exercise. Start with the resource or dependency that will saturate first, then choose the smallest change that removes that bottleneck.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-websockets-2",
+      "payload": {
+        "shape": "mcq",
+        "question": "Which statement is the safest engineering habit when using WebSockets — Full-Duplex Real-Time Over TCP?",
+        "options": [
+          "Choose it because it is popular",
+          "Add it before measuring the problem",
+          "State the workload, failure mode and trade-off it is solving",
+          "Use the most distributed design possible"
+        ],
+        "answer_index": 2,
+        "rationale": "Good architecture starts from requirements, workload and failure assumptions. The component is the consequence of that reasoning, not the starting point.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "scenario",
+      "id": "upgrade-scenario-websockets",
+      "payload": {
+        "prompt": "Production scenario: your system uses WebSockets — Full-Duplex Real-Time Over TCP, traffic suddenly spikes, and p99 latency doubles. What is your first move?",
+        "context": "You have dashboards for traffic, latency, errors and saturation. You can change the architecture, but every change has operational cost.",
+        "options": [
+          {
+            "id": "a",
+            "text": "Add more instances immediately",
+            "outcome": "This may help, but only if compute saturation is the bottleneck.",
+            "correct": false
+          },
+          {
+            "id": "b",
+            "text": "Inspect the bottleneck and its saturation signal first",
+            "outcome": "Correct: diagnose before scaling or introducing a new pattern.",
+            "correct": true
+          },
+          {
+            "id": "c",
+            "text": "Disable monitoring to reduce overhead",
+            "outcome": "This removes the evidence you need to diagnose the incident.",
+            "correct": false
+          }
+        ],
+        "rationale": "Measure the limiting resource or dependency first. A bottleneck can be compute, database I/O, network, cache misses, lock contention, downstream latency, or queue backlog.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-websockets-interview",
+      "payload": {
+        "text": "Interview drill",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-websockets-interview",
+      "payload": {
+        "text": "**Answer this without notes:** When would you choose WebSockets — Full-Duplex Real-Time Over TCP, and when would you intentionally avoid it? Mention at least one bottleneck it addresses, one failure mode it introduces, and one alternative. Then quantify the workload you are designing for."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "field-guide-websockets",
+      "payload": {
+        "title": "Engineering lens",
+        "body": "A useful engineering lens for WebSockets - Full-Duplex Real-Time Over TCP: define the problem it solves, the simpler design that fails first, the constraint that forces you to introduce this concept, and the new failure modes the concept creates.",
+        "kind": "tip"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "numerical-lens-websockets",
+      "payload": {
+        "text": "### Numerical sanity check\n\nBack-of-the-envelope reasoning beats fake precision. State your traffic, payload, concurrency and growth assumptions explicitly, then calculate enough to know whether the current architecture is orders of magnitude away from the target."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "field-question-websockets",
+      "payload": {
+        "shape": "prediction",
+        "question": "Imagine the simplest version of a system using WebSockets - Full-Duplex Real-Time Over TCP. What breaks first as traffic grows by 10×, and what would you change before reaching 100×?",
+        "context": "Do not optimize for a memorized definition. Reason from the workload and failure mode.",
+        "options": [
+          "Scale the same component immediately.",
+          "Measure the current bottleneck and state the assumption that changed.",
+          "Add more technologies until throughput improves.",
+          "Choose the most popular architecture."
+        ],
+        "answer_index": 1,
+        "rationale": "Good system design starts with the bottleneck and the changed constraint. The most popular or complex choice is not automatically correct.",
+        "difficulty": "interview"
+      }
+    }
+  ],
+  "trade_offs": {
+    "pros": [
+      "True full-duplex, low-latency bidirectional communication over a single connection.",
+      "Small per-message overhead (2-10 byte frame header) — much cheaper than HTTP per-message.",
+      "Works over standard HTTP(S) ports; upgrade mechanism is clean and well-supported.",
+      "Wide browser support; trivial to use from JavaScript (the WebSocket API).",
+      "Binary frames enable efficient encoding (protobuf, msgpack) when JSON is too verbose."
+    ],
+    "cons": [
+      "Stateful connections — the server must hold per-connection state, limiting how many connections one server can hold.",
+      "No auto-reconnect — the application must detect dead connections and re-establish, including missed-message replay.",
+      "Routing across multiple servers requires a pub/sub backbone — architectural complexity.",
+      "Heartbeats are mandatory; without them, mobile connections die silently.",
+      "Harder to cache than HTTP — proxies and CDNs cannot help with the upgraded channel."
+    ]
+  },
+  "failure_modes": [
+    "Silent connection death from NAT or proxy idle timeouts — mitigated by application ping/pong.",
+    "Reconnect storm during deploys — mitigated by staggered rollout and client-side jitter.",
+    "Server memory exhaustion from too many connections — mitigated by sharding and connection caps.",
+    "Backpressure stalls when a slow client fills the server's send buffer — mitigated by closing slow clients.",
+    "Load balancer max-connection limits — a single LB might cap at hundreds of thousands of WebSockets.",
+    "Proxy or firewall that strips the Upgrade header — falls back to long polling or fails entirely."
+  ],
+  "common_mistakes": [
+    "Reaching for WebSocket when SSE would suffice — simpler and more robust for one-way streaming.",
+    "Not implementing heartbeats — silent connection death on mobile.",
+    "Not implementing reconnection with replay — users miss messages during network blips.",
+    "Doing a synchronous deploy across all servers — thundering herd reconnect storm.",
+    "Sending JSON over WS when binary protobuf would be much smaller for high-frequency messages.",
+    "Forgetting backpressure — slow clients cause memory bloat and eventual OOM.",
+    "Treating WS messages as request-response — the protocol is asynchronous; build your own correlation if needed."
+  ],
+  "where_you_see_it": [
+    "Chat apps — Slack, Discord, WhatsApp Web, Telegram.",
+    "Multiplayer games — many browser games use WebSocket for client-server communication.",
+    "Collaborative editors — Google Docs, Figma, Notion real-time cursors.",
+    "Live dashboards — trading platforms, monitoring, sports scores.",
+    "Customer support chat widgets on websites."
+  ],
+  "interview_prompts": [
+    "Design a chat system (Slack/Discord). How do you handle the WebSocket scaling problem?",
+    "WebSocket vs Server-Sent Events vs long polling — when would you choose each?",
+    "Your WebSocket clients on mobile networks silently disconnect after 30 seconds. Diagnose and fix.",
+    "How do you deploy a new version of your chat server without taking 100k users offline?",
+    "How would you handle backpressure in a WebSocket server?"
+  ],
+  "real_system_mappings": [
+    {
+      "system": "Discord",
+      "how": "Millions of concurrent WebSocket connections sharded across guild servers, with Kafka as the cross-server pub/sub backbone. Famous engineering posts detail their scaling journey."
+    },
+    {
+      "system": "Slack",
+      "how": "Every Slack client holds a long-lived WebSocket for receiving messages, presence, and typing indicators. Connection state is sharded across servers with a pub/sub routing layer."
+    },
+    {
+      "system": "Figma",
+      "how": "Uses WebSockets for multiplayer collaborative editing. Custom CRDT-based sync over the channel keeps edits conflict-free even with high latency."
+    }
+  ],
+  "status": "published",
+  "sources": [
+    {
+      "title": "System Design Primer",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Open source"
+    },
+    {
+      "title": "ByteByteGo — Scale from zero to millions",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "ByteByteGo"
+    },
+    {
+      "title": "System Design Tutorial",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "GeeksforGeeks"
+    },
+    {
+      "title": "System Design Roadmap",
+      "url": "https://roadmap.sh/system-design",
+      "publisher": "roadmap.sh"
+    },
+    {
+      "title": "Networking & Communication reference",
+      "url": "https://www.rfc-editor.org/",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Networking & Communication reference",
+      "url": "https://developer.mozilla.org/en-US/docs/Web/HTTP",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Networking & Communication reference",
+      "url": "https://www.cloudflare.com/learning/network-layer/what-is-a-protocol/",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Cloudflare Learning Center",
+      "url": "https://www.cloudflare.com/learning/",
+      "publisher": "Cloudflare"
+    }
+  ]
+}

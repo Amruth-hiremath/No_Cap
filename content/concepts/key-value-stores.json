@@ -1,0 +1,437 @@
+{
+  "slug": "key-value-stores",
+  "version": 4,
+  "title": "Key-Value Stores",
+  "phase": "databases-data-systems",
+  "area": "Databases & Data Systems",
+  "estimated_minutes": 7,
+  "difficulty": "core",
+  "summary": "Key-value stores are the simplest NoSQL model: a flat dictionary mapping keys to opaque values. Lookups are O(1) hash operations, writes are append-friendly, and the engine makes almost no assumptions about what the value contains. Redis and DynamoDB are the canonical examples, but they sit on opposite ends of the consistency/ durability spectrum — Redis is an in-memory cache, DynamoDB is a durable, replicated, multi-region store.",
+  "why_it_matters": "Almost every production system uses a key-value store somewhere — as a cache (Redis), a session store, a feature-flag lookup, or as a primary durable database (DynamoDB). Choosing a key-value store when you need ad-hoc querying or JOINs will hurt; choosing SQL when you only need point lookups will over-engineer. Understanding the spectrum from volatile in-memory to durable replicated KV is a foundational system-design decision.",
+  "prerequisites": [
+    "sql-vs-nosql"
+  ],
+  "related": [
+    "document-stores",
+    "wide-column-stores",
+    "cache-aside",
+    "database-caching"
+  ],
+  "used_in": [
+    "Caching layers (Redis, Memcached) in nearly every web app.",
+    "Session storage, rate-limit counters, leader-election locks.",
+    "DynamoDB as a primary store for serverless applications at AWS.",
+    "Shopping carts, user profiles, and configuration lookups."
+  ],
+  "blocks": [
+    {
+      "type": "prose",
+      "id": "intro",
+      "payload": {
+        "text": "A key-value (KV) store is exactly what it sounds like: a giant hash map. You give it a key, it gives you back a value. The store doesn't understand what's inside the value — it could be a string, a JSON blob, a serialized Protobuf, or raw bytes. The database treats it as opaque.\n\nThis simplicity is the entire point. Because the engine doesn't need to parse, validate, or index into the value, point reads and writes are extremely fast — typically O(1) hash lookups, often single-digit microseconds when data fits in memory. There are no JOINs, no secondary indexes (in pure KV), and no query planner.\n\nThe two reference implementations are very different beasts:\n\n- **Redis** — an in-memory data-structure server. Sub-millisecond operations, optional persistence via snapshotting or AOF (append-only file). Used as a cache, queue, leaderboard, and distributed lock.\n- **DynamoDB** — AWS's managed, durable, replicated KV/document store. Data is persisted across three facilities, automatically partitioned, and scales to virtually unlimited throughput. Used as a primary database for serverless apps.\n\nBoth are key-value stores, but they live at opposite ends of the durability/consistency spectrum. Redis is fast and volatile; DynamoDB is slower and durable. Picking 'a key-value store' without specifying which end of that spectrum you need is the most common mistake."
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "kv-spectrum",
+      "payload": {
+        "code": "flowchart TD\n    N0[\"speed vs. durability\"]\n    N1[\"The\"]\n    N2[\"key\"]\n    N3[\"value\"]\n    N4[\"spectrum\"]\n    N5[\"(speed\"]\n    N6[\"vs.\"]\n    N7[\"durability)\"]\n    N8[\"Faster\"]\n    N9[\"Durable\"]\n    N10[\"Volatile\"]\n    N11[\"Persistent\"]\n    N12[\"Redis\"]\n    N13[\"Memcached\"]\n    N14[\"Riak\"]\n    N15[\"DynamoDB\"]\n    N16[\"in-memory\"]\n    N17[\"on disk\"]\n    N18[\"(in\"]\n    N19[\"memory)\"]\n    N20[\"(on\"]\n    N21[\"disk)\"]\n    N22[\"(managed,\"]\n    N23[\"replicated)\"]\n    N24[\"GET\"]\n    N25[\"50µs\"]\n    N26[\"100µs\"]\n    N27[\"5ms\"]\n    N28[\"10ms\"]\n    N29[\"SET\"]\n    N30[\"8ms\"]\n    N31[\"evict\"]\n    N32[\"LRU\"]\n    N33[\"durable\"]\n    N34[\"replica\"]\n    N35[\"optional\"]\n    N36[\"persist\"]\n    N37[\"tunable\"]\n    N38[\"multi\"]\n    N39[\"cache, rate limit, session\"]\n    N40[\"Pick\"]\n    N41[\"for\"]\n    N42[\"speed\"]\n    N43[\"(cache,\"]\n    N44[\"rate\"]\n    N45[\"limit,\"]\n    N46[\"session).\"]\n    N47[\"primary\"]\n    N48[\"storage\"]\n    N49[\"scale.\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44\n    N44 --> N45\n    N45 --> N46\n    N46 --> N47\n    N47 --> N48\n    N48 --> N49",
+        "caption": "KV stores sit on a spectrum: in-memory (Redis, Memcached) for speed, on-disk replicated (DynamoDB, Riak) for durability.",
+        "alt_text": "A horizontal spectrum diagram. On the left, faster and volatile stores like Redis and Memcached offer microsecond reads and writes but evict data under memory pressure and may not persist. On the right, durable stores like Riak KV and DynamoDB take milliseconds per operation but persist to disk and replicate across availability zones. The caption notes that Redis is best for speed use cases such as caching, rate limiting, and sessions, while DynamoDB is best for durable primary storage at scale."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "data-structures",
+      "payload": {
+        "text": "What makes Redis more than a hash map is its rich set of value types. A key's value can be a string, a list, a set, a sorted set (the backbone of leaderboards and rate limiters), a hash, a stream, or a HyperLogLog. Each type comes with atomic server-side operations — `INCR`, `ZADD`, `LPUSH`, `HSET`, `XADD` — so you can build counters, queues, and leaderboards without read-modify-write cycles.\n\nDynamoDB, by contrast, treats values as opaque items (a flat map of attribute name → value). You can do `GetItem`, `PutItem`, `UpdateItem`, and `DeleteItem` by primary key. To query by something other than the key, you define a **Global Secondary Index (GSI)** or a Local Secondary Index — DynamoDB manages these as separate materialized tables. There is no ad-hoc query language like SQL.\n\nThe mental model:\n- **Redis**: a fast, in-memory data-structure toolkit you reach for to make your hot path faster.\n- **DynamoDB**: a horizontally scalable, durable KV store with tunable consistency that you reach for when your SQL primary can't scale to the write throughput or schema flexibility you need."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "tunable-consistency",
+      "payload": {
+        "title": "Tunable consistency in DynamoDB",
+        "body": "DynamoDB replicates each item across three nodes. A read can be Eventually Consistent (default, cheaper, ~50% of cost) or Strongly Consistent (returns the latest write, more expensive, not available if you read from a global table replica). This is a per-request decision, not a database-wide setting — a great example of letting the caller pick the trade-off. Redis, by contrast, is single-threaded and strongly consistent within a single instance; once you cluster Redis, you accept eventual consistency for cross-slot operations.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "when-to-use",
+      "payload": {
+        "text": "**When to use a key-value store:**\n\n- **Caching** — Redis as a cache in front of your SQL database is the textbook pattern. Lookups by primary key map directly to KV operations.\n- **Sessions and tokens** — short-lived, accessed by ID, with TTL semantics. Redis `EXPIRE` is a perfect fit.\n- **Counters and rate limiters** — atomic `INCR` + `EXPIRE` per IP or user gives a sliding-window rate limiter in two round-trips.\n- **Leaderboards and rankings** — Redis sorted sets (`ZADD`, `ZREVRANGE`) implement this in a single command.\n- **Distributed locks** — Redis with `SET NX PX` (or Redlock for multi-node) is a common lock primitive.\n- **Primary storage with simple access patterns** — DynamoDB shines when you always access an item by its key (user profile, configuration, shopping cart).\n\n**When NOT to use a key-value store:**\n\n- **Ad-hoc queries** — there's no query planner. If you need `WHERE age > 30 AND country = 'US'`, you need a secondary index or a different model.\n- **Multi-row transactions** — pure KV stores don't have ACID transactions across keys (Redis has Lua scripts and MULTI/EXEC for a single shard; DynamoDB has transactions limited to 100 items).\n- **Range scans** — DynamoDB range queries only work on a sort key within a partition; KV stores aren't built for analytical scans.\n- **Complex relationships** — use a relational DB or a graph DB.\n\nThe rule of thumb: if your access pattern is 'I have the key, give me the value', a KV store is appropriate. If you find yourself adding more and more secondary indexes to mimic SQL, you've picked the wrong model."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q1",
+      "payload": {
+        "question": "You need to implement a global leaderboard for a mobile game: top 100 players by score, updated thousands of times per second, read on every page load. What's the best data store and why?",
+        "shape": "mcq",
+        "options": [
+          "PostgreSQL with an index on score — flexible and ACID.",
+          "DynamoDB with a GSI on score — durable and serverless.",
+          "Redis sorted set (ZADD/ZREVRANGE) — atomic, in-memory, sub-millisecond.",
+          "Memcached — fastest KV store available."
+        ],
+        "answer_index": 2,
+        "rationale": "Redis sorted sets are purpose-built for this exact pattern: `ZADD leaderboard score member` updates a player's score atomically, and `ZREVRANGE leaderboard 0 99` returns the top 100 in O(log(N)+M) time. At thousands of updates per second, an in-memory data structure with server-side atomicity is the right fit. PostgreSQL would work but the per-row lock contention on a hot leaderboard row would be brutal. DynamoDB would be overkill for the latency budget. Memcached has no sorted-set type — it's pure key-value, so you'd have to implement the sorting in application code, which defeats the purpose. Redis is the textbook answer for leaderboards.",
+        "difficulty": "core"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q2",
+      "payload": {
+        "question": "You're building a serverless e-commerce API on AWS and need to store user shopping carts. Items are always accessed by `user_id`, no JOINs, throughput can spike 100x on Black Friday. Which store fits best, and what's the main reason?",
+        "shape": "mcq",
+        "options": [
+          "Redis — in-memory speed is ideal for carts.",
+          "DynamoDB — auto-scales throughput, durable, and access pattern is pure key lookup.",
+          "PostgreSQL on RDS — ACID transactions for cart integrity.",
+          "MongoDB — document model fits the nested cart structure."
+        ],
+        "answer_index": 1,
+        "rationale": "DynamoDB is purpose-built for this scenario. Carts are always accessed by `user_id` (a pure key lookup), the access pattern is simple, and DynamoDB's on-demand capacity mode absorbs 100x traffic spikes without provisioning. It's durable (3x replication), managed (no ops), and integrates natively with Lambda/IAM. Redis would lose carts on restart unless you configure persistence (which is fragile under memory pressure). PostgreSQL would require provisioning capacity ahead of Black Friday. MongoDB would work but adds operational burden DynamoDB removes. The trade-off: DynamoDB's cost curve at sustained high throughput can exceed self-hosted options, but for spiky serverless workloads it's a clear win.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q3",
+      "payload": {
+        "question": "What's the single most important difference between Redis and DynamoDB for an architect choosing a key-value store?",
+        "shape": "mcq",
+        "options": [
+          "Redis supports richer data types; DynamoDB only supports strings.",
+          "Redis is in-memory and volatile; DynamoDB is durable, replicated, and managed.",
+          "Redis is multi-region; DynamoDB is single-region.",
+          "DynamoDB is faster than Redis for point reads."
+        ],
+        "answer_index": 1,
+        "rationale": "The durability/persistence distinction is the architecturally significant difference. Redis keeps data in RAM and only persists opportunistically (RDB snapshots, AOF); a crash or memory eviction can lose data. DynamoDB writes are synchronously replicated to three facilities and survive AZ failures. This dictates where each fits: Redis for speed-critical data you can regenerate (cache, session, leaderboard), DynamoDB for primary storage you cannot lose. Data types are a secondary difference (Redis does have richer types, but DynamoDB items can hold nested maps). Region support: both have multi-region options (Redis Cluster/Active-Active, DynamoDB Global Tables). Speed: Redis is faster, not slower, than DynamoDB for point reads.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-key-value-stores-mental",
+      "payload": {
+        "text": "Engineering mental model",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-key-value-stores-mental",
+      "payload": {
+        "text": "**Mental model.** Think of Key-Value Stores as a deliberate boundary in a system. The boundary exists because something becomes harder to manage when everything is done in one place: latency, scale, failure isolation, consistency, cost, or team ownership. The useful question is not “what does Key-Value Stores mean?” but “what pressure makes this boundary worth introducing, and what new failure mode does it create?”"
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-key-value-stores-decision",
+      "payload": {
+        "title": "Design lens",
+        "body": "Before choosing Key-Value Stores, name the workload, the critical user path, the dominant bottleneck, the failure you are trying to absorb, and the trade-off you are willing to accept. If you cannot name those five things, the design is probably premature.",
+        "kind": "info"
+      }
+    },
+    {
+      "type": "image",
+      "id": "upgrade-image-key-value-stores",
+      "payload": {
+        "src": "/learning-visuals/key-value-stores.svg",
+        "alt": "Original NO CAP systems visual for Key-Value Stores.",
+        "caption": "Key-Value Stores: a compact system-thinking visual.",
+        "credit": "Original NO CAP visual.",
+        "source_url": "https://github.com/donnemartin/system-design-primer"
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "upgrade-mermaid-key-value-stores",
+      "payload": {
+        "code": "flowchart LR\n  A[Client] --> B[Service] --> C[Data layer] --> D[Replication] --> E[Durability]",
+        "caption": "Key-Value Stores: a simplified system view showing the primary flow and the main state boundaries.",
+        "alt_text": "Key-Value Stores: a simplified system view showing the primary flow and the main state boundaries."
+      }
+    },
+    {
+      "type": "code",
+      "id": "upgrade-code-key-value-stores",
+      "payload": {
+        "language": "sql",
+        "code": "SELECT id, created_at\nFROM records\nWHERE tenant_id = ?\nORDER BY created_at DESC\nLIMIT 50;\n\n-- Ask: which index makes this query predictable at scale?",
+        "caption": "A minimal engineering sketch for reasoning about Key-Value Stores."
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-key-value-stores-numbers",
+      "payload": {
+        "text": "Back-of-the-envelope reasoning",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-key-value-stores-numbers",
+      "payload": {
+        "text": "Numerical lens: write down traffic, payload size, read/write ratio, peak multiplier and durability target before choosing a component. The numbers should justify the architecture."
+      }
+    },
+    {
+      "type": "simulation",
+      "id": "upgrade-sim-key-value-stores",
+      "payload": {
+        "title": "Interactive thought experiment: Key-Value Stores",
+        "description": "Change the variables below and predict what breaks first in Key-Value Stores. The production lab can later reuse these same inputs.",
+        "variables": [
+          {
+            "name": "traffic",
+            "description": "Requests/events per second",
+            "default": "1000"
+          },
+          {
+            "name": "latency",
+            "description": "Dependency latency",
+            "default": "50ms"
+          },
+          {
+            "name": "failure_rate",
+            "description": "Injected failure rate",
+            "default": "0%"
+          }
+        ],
+        "placeholder_note": "Interactive controls are deterministic; use the linked Labs section when a dedicated lab exists."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-key-value-stores-hint",
+      "payload": {
+        "title": "Hint",
+        "body": "If you are stuck on Key-Value Stores, start by drawing the request path and marking every network hop, stateful component, queue, cache and failure boundary. Then estimate where the system will saturate.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-key-value-stores-1",
+      "payload": {
+        "shape": "prediction",
+        "question": "You increase traffic by 10× in a system using Key-Value Stores. What should you inspect first?",
+        "options": [
+          "The newest framework version",
+          "The dominant bottleneck and its saturation signal",
+          "Only the UI",
+          "Nothing; the architecture should absorb any traffic automatically"
+        ],
+        "answer_index": 1,
+        "rationale": "System design is a constraint-and-bottleneck exercise. Start with the resource or dependency that will saturate first, then choose the smallest change that removes that bottleneck.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-key-value-stores-2",
+      "payload": {
+        "shape": "mcq",
+        "question": "Which statement is the safest engineering habit when using Key-Value Stores?",
+        "options": [
+          "Choose it because it is popular",
+          "Add it before measuring the problem",
+          "State the workload, failure mode and trade-off it is solving",
+          "Use the most distributed design possible"
+        ],
+        "answer_index": 2,
+        "rationale": "Good architecture starts from requirements, workload and failure assumptions. The component is the consequence of that reasoning, not the starting point.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "scenario",
+      "id": "upgrade-scenario-key-value-stores",
+      "payload": {
+        "prompt": "Production scenario: your system uses Key-Value Stores, traffic suddenly spikes, and p99 latency doubles. What is your first move?",
+        "context": "You have dashboards for traffic, latency, errors and saturation. You can change the architecture, but every change has operational cost.",
+        "options": [
+          {
+            "id": "a",
+            "text": "Add more instances immediately",
+            "outcome": "This may help, but only if compute saturation is the bottleneck.",
+            "correct": false
+          },
+          {
+            "id": "b",
+            "text": "Inspect the bottleneck and its saturation signal first",
+            "outcome": "Correct: diagnose before scaling or introducing a new pattern.",
+            "correct": true
+          },
+          {
+            "id": "c",
+            "text": "Disable monitoring to reduce overhead",
+            "outcome": "This removes the evidence you need to diagnose the incident.",
+            "correct": false
+          }
+        ],
+        "rationale": "Measure the limiting resource or dependency first. A bottleneck can be compute, database I/O, network, cache misses, lock contention, downstream latency, or queue backlog.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-key-value-stores-interview",
+      "payload": {
+        "text": "Interview drill",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-key-value-stores-interview",
+      "payload": {
+        "text": "**Answer this without notes:** When would you choose Key-Value Stores, and when would you intentionally avoid it? Mention at least one bottleneck it addresses, one failure mode it introduces, and one alternative. Then quantify the workload you are designing for."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "field-guide-key-value-stores",
+      "payload": {
+        "title": "Engineering lens",
+        "body": "For Key-Value Stores, start with access patterns rather than brand names. Identify the dominant reads/writes, data relationships, consistency requirements, partition key, hot keys and failure behavior before choosing a storage strategy.",
+        "kind": "tip"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "numerical-lens-key-value-stores",
+      "payload": {
+        "text": "### Numerical sanity check\n\nA rough capacity check: required write throughput ≈ peak writes/s × average record size. At 5,000 writes/s and 2 KB average payloads, the raw incoming data stream is about 10 MB/s before indexes, replication and overhead."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "field-question-key-value-stores",
+      "payload": {
+        "shape": "prediction",
+        "question": "A team proposes Key-Value Stores because it 'scales'. What workload characteristic would make that choice a poor fit?",
+        "context": "Do not optimize for a memorized definition. Reason from the workload and failure mode.",
+        "options": [
+          "Scale the same component immediately.",
+          "Measure the current bottleneck and state the assumption that changed.",
+          "Add more technologies until throughput improves.",
+          "Choose the most popular architecture."
+        ],
+        "answer_index": 1,
+        "rationale": "Good system design starts with the bottleneck and the changed constraint. The most popular or complex choice is not automatically correct.",
+        "difficulty": "interview"
+      }
+    }
+  ],
+  "trade_offs": {
+    "pros": [
+      "O(1) point lookups — fastest possible reads for the access pattern they optimize.",
+      "Simple operational model — no query planner, no schema migrations, no JOINs to tune.",
+      "Horizontal scalability — DynamoDB partitions automatically; Redis Cluster shards by hash slot.",
+      "Schema flexibility — values are opaque, so schema evolution is an application concern, not a DB migration.",
+      "Rich server-side operations in Redis (INCR, ZADD, XADD) enable atomic complex updates without read-modify-write."
+    ],
+    "cons": [
+      "No ad-hoc querying — if you didn't plan for an access pattern, you can't query it efficiently.",
+      "No JOINs — relationships must be denormalized or handled in application code.",
+      "Limited transactions — Redis MULTI is single-shard; DynamoDB transactions cap at 100 items.",
+      "Redis volatility — in-memory means data loss risk; you must choose what to persist and how.",
+      "DynamoDB cost surprise — sustained high throughput can be dramatically more expensive than self-hosted alternatives.",
+      "Hot keys — a single popular key (e.g., a viral celebrity's profile) can saturate one partition and become a bottleneck."
+    ]
+  },
+  "failure_modes": [
+    "Redis OOM eviction — when memory fills, Redis evicts keys by policy (LRU/LFU); if you persist critical data only in Redis, you lose it.",
+    "Hot partition in DynamoDB — a single partition key receiving all writes (e.g., a global counter) hits the 1000 WCU/partition ceiling and throttles.",
+    "Cache stampede — Redis cold start or restart causes thundering herd on the backing store.",
+    "Treating Redis as durable primary storage — losing it on crash reveals what was never supposed to live there.",
+    "Unbounded key growth — never expiring keys (no TTL) cause Redis to grow indefinitely and eventually OOM.",
+    "Cross-slot operations in Redis Cluster — MULTI/EXEC, SUNION, etc. fail if keys hash to different slots; design keys carefully."
+  ],
+  "common_mistakes": [
+    "Choosing a KV store without writing down the access patterns first — then discovering you need a query the store can't run.",
+    "Storing the source of truth in Redis — it's a cache. The source of truth should be a durable store.",
+    "Not setting TTLs on ephemeral data (sessions, rate-limit buckets) — Redis grows until it evicts something you cared about.",
+    "Treating DynamoDB like SQL — designing for ad-hoc queries instead of one-query-per-access-pattern.",
+    "Forgetting Redis Cluster's hash-slot constraint when naming keys — wrap related keys with `{tag}` for hash-tag locality.",
+    "Underestimating DynamoDB costs — on-demand pricing at scale can dwarf self-hosted Postgres; model it before committing."
+  ],
+  "where_you_see_it": [
+    "Almost every web app uses Redis (or Memcached) as a cache in front of its primary database.",
+    "Session stores — Slack, GitHub, and most SaaS apps persist sessions in Redis.",
+    "Rate limiters — distributed INCR-based counters in Redis.",
+    "DynamoDB as primary store — Lyft, Snapchat, Discord (originally), and many serverless-first startups.",
+    "Feature flag and configuration stores — LaunchDarkly and similar use KV backends."
+  ],
+  "interview_prompts": [
+    "When would you choose Redis over DynamoDB (or vice versa) for a key-value workload?",
+    "You're seeing occasional 'slow log' entries on a Redis instance that's only at 60% memory. What's likely going on and how would you diagnose it?",
+    "Design a rate limiter that allows 100 requests per minute per user. How would you implement it on top of a key-value store?",
+    "Your DynamoDB table is throttled despite provisioned capacity being high. The hot partition key is `user_id` of a celebrity. How do you fix it?",
+    "Why is Redis single-threaded, and how does it still achieve >100k ops/sec on a single instance?"
+  ],
+  "real_system_mappings": [
+    {
+      "system": "Discord",
+      "how": "Originally ran on a 5-node Cassandra cluster for messages but moved to ScyllaDB (a C++ wide-column store) for higher throughput. Used Redis for caching and presence."
+    },
+    {
+      "system": "Snapchat",
+      "how": "DynamoDB stores user profiles, snaps metadata, and stories. They've publicly described auto-scaling and how they handle hot partitions by sharding keys in the application layer."
+    },
+    {
+      "system": "GitHub",
+      "how": "Uses Redis extensively for caching repository metadata, session storage, and rate limiting. Open-sourced their tooling around it."
+    },
+    {
+      "system": "Lyft",
+      "how": "DynamoDB as primary store for many microservices, with Redis (ElastiCache) in front for hot reads and geospatial indexing."
+    }
+  ],
+  "status": "published",
+  "sources": [
+    {
+      "title": "System Design Primer",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Open source"
+    },
+    {
+      "title": "ByteByteGo — Scale from zero to millions",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "ByteByteGo"
+    },
+    {
+      "title": "System Design Tutorial",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "GeeksforGeeks"
+    },
+    {
+      "title": "System Design Roadmap",
+      "url": "https://roadmap.sh/system-design",
+      "publisher": "roadmap.sh"
+    },
+    {
+      "title": "Databases & Data Systems reference",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Databases & Data Systems reference",
+      "url": "https://www.postgresql.org/docs/",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Databases & Data Systems reference",
+      "url": "https://aws.amazon.com/what-is/database/",
+      "publisher": "Reference"
+    }
+  ]
+}

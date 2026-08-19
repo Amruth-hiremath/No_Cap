@@ -1,0 +1,436 @@
+{
+  "slug": "design-whatsapp",
+  "version": 3,
+  "title": "Design WhatsApp",
+  "phase": "case-studies",
+  "area": "Case Studies",
+  "estimated_minutes": 12,
+  "difficulty": "interview",
+  "summary": "Design WhatsApp at 2B users, 100B messages/day. Covers long-lived WebSocket connection fabric (1M conns per chat server in Erlang/Go), presence-in-Redis routing, message ordering via Snowflake TIMEUUIDs, idempotent sends via client_msg_id, single/double/blue tick delivery receipts, group fan-out optimization (batch presence + batched RPCs per chat server), 30-day server retention, and E2E encryption (server never sees plaintext).",
+  "why_it_matters": "WhatsApp is the canonical real-time messaging design because it combines three problems that are each individually hard: massive concurrent connection count (50M+ WebSockets per region), strict message ordering under failures, and group fan-out at the extreme tail (1024-member groups). The Erlang/Go chat-server pattern, the presence-Redis routing trick, and the idempotent client_msg_id pattern are reusable for any real-time bidirectional system (Slack, Discord, Telegram, Signal).",
+  "prerequisites": [
+    "websockets",
+    "replication",
+    "sharding"
+  ],
+  "related": [
+    "design-chat-system"
+  ],
+  "used_in": [
+    "WhatsApp (Meta)",
+    "Telegram",
+    "Signal",
+    "Facebook Messenger",
+    "iMessage"
+  ],
+  "blocks": [
+    {
+      "type": "prose",
+      "id": "problem",
+      "payload": {
+        "text": "**What are we designing?** WhatsApp — a mobile-first real-time chat application. Users send text/voice messages and media to individuals or groups. Messages must be delivered instantly when the recipient is online, queued and pushed when offline. The system must show delivery status (single tick = sent, double tick = delivered, blue tick = read), support group chats of up to 1024 members, and do all this at WhatsApp's legendary efficiency (a small engineering team serving 2B+ users).\n\nThe defining challenges: **always-on connections** (each user has a long-lived WebSocket to a chat server), **message ordering** (messages in a conversation must appear in the order they were sent, even across failures), and **group fan-out** (one message to a 1024-person group = 1024 deliveries)."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "requirements",
+      "payload": {
+        "text": "**Functional requirements.**\n- Send a text/voice/media message to a 1:1 or group chat.\n- Receive messages in real-time when online.\n- Receive push notifications when offline.\n- Delivery and read receipts (single / double / blue ticks).\n- Last-seen / online presence.\n- Message history (last 30 days on server, full history on device).\n- Groups up to 1024 members.\n\n**Non-functional requirements.**\n- **Send-to-deliver latency**: p99 < 1 s for online recipients.\n- **Connection count**: 50M+ concurrent WebSocket connections per region.\n- **Availability**: 99.9% (chat is high-stakes; outages are noticed).\n- **Durability**: no message loss, even if the recipient's chat server crashes mid-delivery.\n- **End-to-end encryption**: messages are encrypted on-device; the server never sees plaintext.\n- **Scale**: 2B users, 100B messages/day.\n\n**Non-goals.** No voice/video calls (separate media-relay system), no channels/broadcasts."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "capacity",
+      "payload": {
+        "text": "**Capacity estimation.**\n\n*Messages.* 100B messages/day. Each ~200 bytes encrypted. 100B x 200 B = 20 GB/day of message text — tiny. The real cost is connections and metadata, not storage.\n\n*Concurrent connections.* 2B users, ~30% online at peak = 600M concurrent WebSockets. A single chat-server host handles ~1M connections (Go + epoll), so we need ~600 chat servers globally. Realistic WhatsApp numbers are ~600 servers.\n\n*Connection bandwidth.* Each WebSocket idles at ~50 bytes/sec of keepalive traffic. 600M x 50 B/s = 30 GB/s = 240 Mbps of pure keepalive. Message traffic adds ~5x peak.\n\n*Group fan-out.* Average group has 10 members. 10% of messages go to groups of 100+; 1% go to groups of 1000+. The long tail of large groups dominates fan-out load. A single message to a 1024-person group = 1024 fan-out writes.\n\n*Push notifications.* ~70% of messages go to offline recipients and trigger push via APNs/FCM. That's 70B push notifications/day = 800K push/sec peak. APNs/FCM rate limit is ~10K/sec per app, so we batch and shard across multiple FCM sender IDs.\n\n*Storage.* Each message row is ~500 bytes (encrypted payload + metadata). 100B messages x 30 days retention = 3T messages x 500 B = 1.5 PB hot. Sharded Cassandra."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "apis",
+      "payload": {
+        "text": "**APIs.** WhatsApp uses a custom binary protocol over WebSocket (NOT REST) to minimize byte overhead on mobile networks. Conceptually:\n\n```\nWS /v1/connect    (long-lived; auth token in handshake)\n  -> frame: SEND  { conversation_id, encrypted_payload, client_msg_id }\n  <- frame: ACK   { server_msg_id, ts }\n  <- frame: RECV  { conversation_id, sender_id, encrypted_payload, server_msg_id }\n  -> frame: DELIVERED  { server_msg_id }\n  -> frame: READ       { server_msg_id }\n\nREST /v1/media/upload_url      (presigned URL for media)\nREST /v1/media/{media_id}      (fetch media)\n```\n\nEvery frame is binary, length-prefixed, with a small header (sender_id, conversation_id, msg_id, ts). The client_msg_id is the client's UUID for idempotency — if the client retries after a network blip, the server deduplicates."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "data-model",
+      "payload": {
+        "text": "**Data model.**\n\n*Messages* (Cassandra, partitioned by conversation_id, sorted by server_msg_id):\n```\nmessages (\n  conversation_id  TIMEUUID,\n  server_msg_id    TIMEUUID,     -- Snowflake, sortable\n  sender_id        BIGINT,\n  encrypted_payload BLOB,        -- E2E encrypted; server never decrypts\n  delivered_to     SET<BIGINT>,  -- which recipients have it\n  read_by          SET<BIGINT>,\n  ts               TIMESTAMP,\n  PRIMARY KEY ((conversation_id), server_msg_id)\n)\n```\n\n*Conversations / groups* (sharded SQL):\n```\nconversations (id BIGINT PK, type ENUM('1to1','group'), created_at)\ngroup_members (conversation_id, user_id, role, joined_at,\n               PRIMARY KEY (conversation_id, user_id))\n```\n\n*Connection registry* (Redis, mapping user_id -> chat-server-id):\n```\nkey: presence:{user_id}\nvalue: { chat_server_id, last_seen_ts }\nTTL:   60s    -- refreshed by WebSocket keepalive\n```\n\n*Offline message queue* (per-user Kafka or Redis LIST):\n```\nkey: pending:{user_id}\nvalue: LIST of server_msg_ids awaiting delivery\n```\nOn reconnect, the chat server drains this queue and pushes all messages."
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "arch",
+      "payload": {
+        "code": "flowchart TD\n    N0[\"Mobile Client\"]\n    N1[\"Chat Server\"]\n    N2[\"Message Store\"]\n    N3[\"[Mobile\"]\n    N4[\"Client]\"]\n    N5[\"WebSocket\"]\n    N6[\"[Chat\"]\n    N7[\"Server]\"]\n    N8[\"[Message\"]\n    N9[\"Store]\"]\n    N10[\"E2E encrypts\"]\n    N11[\"(E2E\"]\n    N12[\"encrypts)\"]\n    N13[\"(stateless\"]\n    N14[\"per\"]\n    N15[\"conn;\"]\n    N16[\"(Cassandra,\"]\n    N17[\"conns\"]\n    N18[\"host)\"]\n    N19[\"sharded\"]\n    N20[\"conversation_id)\"]\n    N21[\"Presence Redis\"]\n    N22[\"[Presence\"]\n    N23[\"Redis]\"]\n    N24[\"user_id\"]\n    N25[\"chat_server_id\"]\n    N26[\"keepalive refresh\"]\n    N27[\"TTL\"]\n    N28[\"60s\"]\n    N29[\"(keepalive\"]\n    N30[\"refresh)\"]\n    N31[\"Send\"]\n    N32[\"path\"]\n    N33[\"sends\"]\n    N34[\"conversation\"]\n    N35[\"server_msg_id assigned\"]\n    N36[\"A's\"]\n    N37[\"chat\"]\n    N38[\"server\"]\n    N39[\"writes\"]\n    N40[\"message\"]\n    N41[\"Message\"]\n    N42[\"Store\"]\n    N43[\"(server_msg_id\"]\n    N44[\"assigned)\"]\n    N45[\"single tick on A's screen\"]\n    N46[\"ACKs\"]\n    N47[\"(single\"]\n    N48[\"tick\"]\n    N49[\"screen)\"]\n    N50[\"looks\"]\n    N51[\"B's\"]\n    N52[\"Presence\"]\n    N53[\"Redis\"]\n    N54[\"online:\"]\n    N55[\"forward\"]\n    N56[\"server,\"]\n    N57[\"which\"]\n    N58[\"pushes\"]\n    N59[\"via\"]\n    N60[\"B\"]\n    N61[\"offline:\"]\n    N62[\"enqueue\"]\n    N63[\"server_msg_id\"]\n    N64[\"pending:{B}\"]\n    N65[\"queue\"]\n    N66[\"receives\"]\n    N67[\"the\"]\n    N68[\"message,\"]\n    N69[\"double tick\"]\n    N70[\"client\"]\n    N71[\"DELIVERED\"]\n    N72[\"frame\"]\n    N73[\"(double\"]\n    N74[\"tick)\"]\n    N75[\"blue tick\"]\n    N76[\"READ\"]\n    N77[\"(blue\"]\n    N78[\"Group\"]\n    N79[\"fan\"]\n    N80[\"out\"]\n    N81[\"group\"]\n    N82[\"1024:\"]\n    N83[\"write\"]\n    N84[\"once\"]\n    N85[\"worker\"]\n    N86[\"group_members,\"]\n    N87[\"then\"]\n    N88[\"for\"]\n    N89[\"each\"]\n    N90[\"member\"]\n    N91[\"one per distinct chat server\"]\n    N92[\"batch\"]\n    N93[\"servers\"]\n    N94[\"(one\"]\n    N95[\"distinct\"]\n    N96[\"server)\"]\n    N97[\"its\"]\n    N98[\"local\"]\n    N99[\"WebSockets\"]\n    N100[\"Offline\"]\n    N101[\"offline\"]\n    N102[\"step\"]\n    N103[\"enqueue,\"]\n    N104[\"push\"]\n    N105[\"notification\"]\n    N106[\"APNs\"]\n    N107[\"FCM.\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44\n    N44 --> N45\n    N45 --> N46\n    N46 --> N47\n    N47 --> N48\n    N48 --> N49\n    N49 --> N50\n    N50 --> N51\n    N51 --> N52\n    N52 --> N53\n    N53 --> N54\n    N54 --> N55\n    N55 --> N56\n    N56 --> N57\n    N57 --> N58\n    N58 --> N59\n    N59 --> N60\n    N60 --> N61\n    N61 --> N62\n    N62 --> N63\n    N63 --> N64\n    N64 --> N65\n    N65 --> N66\n    N66 --> N67\n    N67 --> N68\n    N68 --> N69\n    N69 --> N70\n    N70 --> N71\n    N71 --> N72\n    N72 --> N73\n    N73 --> N74\n    N74 --> N75\n    N75 --> N76\n    N76 --> N77\n    N77 --> N78\n    N78 --> N79\n    N79 --> N80\n    N80 --> N81\n    N81 --> N82\n    N82 --> N83\n    N83 --> N84\n    N84 --> N85\n    N85 --> N86\n    N86 --> N87\n    N87 --> N88\n    N88 --> N89\n    N89 --> N90\n    N90 --> N91\n    N91 --> N92\n    N92 --> N93\n    N93 --> N94\n    N94 --> N95\n    N95 --> N96\n    N96 --> N97\n    N97 --> N98\n    N98 --> N99\n    N99 --> N100\n    N100 --> N101\n    N101 --> N102\n    N102 --> N103\n    N103 --> N104\n    N104 --> N105\n    N105 --> N106\n    N106 --> N107",
+        "caption": "WhatsApp: clients hold WebSocket to chat servers; presence in Redis routes messages to the right chat server; offline messages queued and push-notified.",
+        "alt_text": "A diagram of WhatsApp's architecture. Mobile clients hold long-lived WebSockets to chat servers, which are stateless per-connection and handle 1 million connections each. Chat servers read and write messages to a Cassandra message store sharded by conversation_id. A presence Redis cluster maps each user_id to the chat server hosting their current WebSocket, with a 60-second TTL refreshed by keepalives. The send path: A sends a message to B in conversation C; A's chat server writes the message to the message store, assigns a server_msg_id, ACKs to A; looks up B's chat server in presence Redis; if B is online it forwards to B's chat server which pushes via WebSocket; if B is offline it enqueues the server_msg_id in a pending queue. B's chat server pushes the message; B's client returns a DELIVERED frame which propagates back to A as a double tick; then a READ frame propagates as a blue tick. Group fan-out uses a worker that looks up group members and batches forwards to distinct chat servers. Offline recipients get push notifications via APNs or FCM."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "deep-dive",
+      "payload": {
+        "text": "**Deep dive: message delivery, ordering, and the connection fabric.**\n\n**Connection fabric.** Each chat server runs an event loop (Go or Erlang/Elixir — WhatsApp famously uses Erlang) holding 1M WebSocket connections. Each connection is a lightweight process/goroutine. When a frame arrives, the server parses it and either: (a) ACKs to sender, (b) looks up recipient in Presence Redis, (c) forwards to the recipient's chat server via an internal RPC.\n\n**Message ordering.** Messages in a conversation are ordered by `server_msg_id`, which is a Snowflake TIMEUUID. Cassandra stores them in this order, so a recipient fetching recent messages gets them in send order. For groups, all members see the same order because they all read from the same partition.\n\n**Idempotency.** Each send includes a client_msg_id (UUID generated on the device). If the client retries after a network blip (didn't receive the server ACK), the chat server checks a short-TTL cache of recent client_msg_ids; if seen, it returns the same server_msg_id. This prevents duplicate messages on retries.\n\n**Delivery guarantees.** The server's contract: once the server ACKs (single tick), the message is durable in the message store and will be delivered to the recipient eventually. If the recipient is online, immediately. If offline, on next reconnect (plus a push notification in the meantime).\n\n**Read receipts.** When B opens the message, B's client sends a READ frame with the server_msg_id. B's chat server updates `read_by` in the messages table and forwards the read receipt to A's chat server, which pushes to A (turning the double tick blue). Read receipts can be disabled per-user privacy settings.\n\n**Group fan-out optimization.** A naive group send to 1024 members looks up presence for each (1024 Redis lookups) and forwards to each chat server. We optimize: (1) batch the presence lookup (one Redis MGET for all 1024 user_ids), (2) group members by their chat_server_id, (3) send one batched RPC per distinct chat server containing all messages for its local members. This collapses 1024 forwards into ~10 (number of distinct chat servers).\n\n**End-to-end encryption.** Each 1:1 conversation has a shared key derived via X3DH (Extended Triple Diffie-Hellman) on first contact. The server NEVER sees plaintext; it forwards opaque encrypted blobs. Group chats use a Sender Key framework so each sender has one key per group, not pairwise keys. Receipts and presence are NOT encrypted (the server needs them to route)."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "bottlenecks",
+      "payload": {
+        "text": "**Bottlenecks and failure modes.**\n\n- **Chat server failure mid-delivery.** If the chat server hosting A's connection crashes after writing the message but before forwarding to B, B never receives it. *Mitigation*: a background 'sweeper' job compares the message store against delivered_to and re-delivers anything missing.\n\n- **Connection rebalancing.** When a chat server dies, its 1M connections all reconnect to other servers within seconds. *Mitigation*: clients use exponential backoff with jitter to avoid a thundering herd; DNS / load balancer redistributes.\n\n- **Hot conversation.** A 1024-person group with active chatters fans out constantly. *Mitigation*: rate-limit group sends (e.g. 1 msg/sec per sender); batch fan-out per chat server.\n\n- **Push notification rate limits.** APNs and FCM rate-limit per-app. *Mitigation*: batch notifications per user (one push per 5 seconds of unread messages); use multiple FCM sender IDs for sharding.\n\n- **Presence Redis failure.** Without presence, sends can't route to online users. *Mitigation*: Redis cluster with replicas; fail-open by treating the user as offline (queue + push).\n\n- **Cassandra hot partition.** A 1024-person group's conversation_id partition receives all writes for that group; an active group can saturate one Cassandra node. *Mitigation*: split group messages across sub-partitions (e.g. conversation_id + day).\n\n- **Backpressure on offline users.** A user who has been offline for a month has thousands of pending messages; on reconnect, draining them can saturate their device. *Mitigation*: cap the pending queue to last 1000 messages; pull older ones via pagination.\n\n- **Read-receipt storms.** A user opens a 1024-person group chat after a week offline, generating 1024 read receipts. *Mitigation*: batch read receipts (one READ frame with the highest server_msg_id read)."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "scaling",
+      "payload": {
+        "text": "**Scaling strategy and trade-offs.**\n\n*Connection scaling.* Add chat servers horizontally. Each holds 1M WebSockets. 600M concurrent = 600 chat servers. Stateful per-connection; rebalancing handled by clients reconnecting with backoff.\n\n*Multi-region.* Deploy chat servers in 10+ regions. Each user connects to the nearest region. Cross-region routing for messages between users in different regions goes through a backbone RPC.\n\n*Group scaling.* For very large groups (1000+), use a tree-based fan-out: the sender's chat server forwards to N 'hub' chat servers, each of which fans out to their local members. This keeps fan-out latency logarithmic.\n\n*Message store scaling.* Cassandra sharded by conversation_id. Each conversation's messages live on one partition (so reads are cheap). For very active groups, sub-partition by day.\n\n*Push notification scaling.* Maintain multiple FCM sender IDs (each rate-limited separately); hash user_id -> sender_id to distribute load.\n\n*Trade-offs made explicit.*\n- We chose per-connection stateful chat servers — **gained** low-latency delivery (no Redis lookup on the hot path), **lost** easy rebalancing (mitigated by client backoff).\n- We chose 30-day server retention — **gained** smaller storage, **lost** long-term server-side history (device is the source of truth).\n- We chose E2E encryption — **gained** user privacy, **lost** server-side search and moderation (must be done on-device).\n- We chose Snowflake TIMEUUID for ordering — **gained** no-coordinator uniqueness, **lost** total ordering across nodes in the same millisecond (rarely matters).\n- We chose push notifications for offline delivery — **gained** reach users anywhere, **lost** dependency on APNs/FCM availability (out of our control)."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q1",
+      "payload": {
+        "question": "User A sends a message to a 1024-person group. How does the system avoid 1024 separate lookups and forwards?",
+        "shape": "mcq",
+        "options": [
+          "Batch the presence lookup (one Redis MGET for all members), then batch forward one RPC per distinct chat server that hosts at least one member — collapsing 1024 forwards to ~10.",
+          "Broadcast to every chat server, which filters.",
+          "Send 1024 individual Redis lookups in parallel — fast enough.",
+          "Use a separate group-message broadcast service that fans out per-member."
+        ],
+        "answer_index": 0,
+        "rationale": "The naive approach (1024 presence lookups + 1024 forwards) is expensive. WhatsApp's actual optimization: one Redis MGET for all 1024 user_ids (returns their chat_server_ids), then group members by chat_server_id (typically ~10 distinct servers), and send one batched RPC per distinct server containing all messages for its local members. Each chat server then iterates its local WebSocket list to deliver. This collapses 1024 operations to ~10, keeping group fan-out fast even for 1024-member groups.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q2",
+      "payload": {
+        "question": "Your client sends a message but the network drops before receiving the server's ACK. The client retries with the same message. What prevents a duplicate?",
+        "shape": "mcq",
+        "options": [
+          "The server detects duplicate content via SHA-256 hash.",
+          "The client includes a client_msg_id (UUID); the server caches it briefly and returns the same server_msg_id if seen.",
+          "The recipient's client deduplicates by message content.",
+          "Nothing — duplicates are accepted as a trade-off for reliability."
+        ],
+        "answer_index": 1,
+        "rationale": "Each send includes a client-generated client_msg_id (UUID). The chat server checks a short-TTL cache (e.g. 5 min) of recent client_msg_ids; if it has seen this one, it returns the same server_msg_id without writing a new message. This makes sends idempotent: the client can retry freely without risk of duplication. Content-hash dedup (option A) is fragile (two users could legitimately send 'hi' to the same conversation); recipient-side dedup (option C) races with the read path.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-design-whatsapp-mental",
+      "payload": {
+        "text": "Engineering mental model",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-design-whatsapp-mental",
+      "payload": {
+        "text": "**Mental model.** Think of Design WhatsApp as a deliberate boundary in a system. The boundary exists because something becomes harder to manage when everything is done in one place: latency, scale, failure isolation, consistency, cost, or team ownership. The useful question is not “what does Design WhatsApp mean?” but “what pressure makes this boundary worth introducing, and what new failure mode does it create?”"
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-design-whatsapp-decision",
+      "payload": {
+        "title": "Design lens",
+        "body": "Before choosing Design WhatsApp, name the workload, the critical user path, the dominant bottleneck, the failure you are trying to absorb, and the trade-off you are willing to accept. If you cannot name those five things, the design is probably premature.",
+        "kind": "info"
+      }
+    },
+    {
+      "type": "image",
+      "id": "upgrade-image-design-whatsapp",
+      "payload": {
+        "src": "/learning-visuals/design-whatsapp.svg",
+        "alt": "Original NO CAP systems visual for Design WhatsApp.",
+        "caption": "Design WhatsApp: a compact system-thinking visual.",
+        "credit": "Original NO CAP visual.",
+        "source_url": "https://github.com/donnemartin/system-design-primer"
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "upgrade-mermaid-design-whatsapp",
+      "payload": {
+        "code": "flowchart LR\n  A[Client] --> B[Gateway] --> C[Services] --> D[Data] --> E[Delivery]",
+        "caption": "Design WhatsApp: a simplified system view showing the primary flow and the main state boundaries.",
+        "alt_text": "Design WhatsApp: a simplified system view showing the primary flow and the main state boundaries."
+      }
+    },
+    {
+      "type": "code",
+      "id": "upgrade-code-design-whatsapp",
+      "payload": {
+        "language": "text",
+        "code": "// Pseudocode\nrequest = receive()\nresult = design_whatsapp(request)\nreturn result\n\n// Production questions:\n// 1. What happens on timeout?\n// 2. Can this operation be retried safely?\n// 3. What is the bottleneck?",
+        "caption": "A minimal engineering sketch for reasoning about Design WhatsApp."
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-design-whatsapp-numbers",
+      "payload": {
+        "text": "Back-of-the-envelope reasoning",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-design-whatsapp-numbers",
+      "payload": {
+        "text": "Numerical lens: write down traffic, payload size, read/write ratio, peak multiplier and durability target before choosing a component. The numbers should justify the architecture."
+      }
+    },
+    {
+      "type": "simulation",
+      "id": "upgrade-sim-design-whatsapp",
+      "payload": {
+        "title": "Interactive thought experiment: Design WhatsApp",
+        "description": "Change the variables below and predict what breaks first in Design WhatsApp. The production lab can later reuse these same inputs.",
+        "variables": [
+          {
+            "name": "traffic",
+            "description": "Requests/events per second",
+            "default": "1000"
+          },
+          {
+            "name": "latency",
+            "description": "Dependency latency",
+            "default": "50ms"
+          },
+          {
+            "name": "failure_rate",
+            "description": "Injected failure rate",
+            "default": "0%"
+          }
+        ],
+        "placeholder_note": "Interactive controls are deterministic; use the linked Labs section when a dedicated lab exists."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-design-whatsapp-hint",
+      "payload": {
+        "title": "Hint",
+        "body": "If you are stuck on Design WhatsApp, start by drawing the request path and marking every network hop, stateful component, queue, cache and failure boundary. Then estimate where the system will saturate.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-design-whatsapp-1",
+      "payload": {
+        "shape": "prediction",
+        "question": "You increase traffic by 10× in a system using Design WhatsApp. What should you inspect first?",
+        "options": [
+          "The newest framework version",
+          "The dominant bottleneck and its saturation signal",
+          "Only the UI",
+          "Nothing; the architecture should absorb any traffic automatically"
+        ],
+        "answer_index": 1,
+        "rationale": "System design is a constraint-and-bottleneck exercise. Start with the resource or dependency that will saturate first, then choose the smallest change that removes that bottleneck.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-design-whatsapp-2",
+      "payload": {
+        "shape": "mcq",
+        "question": "Which statement is the safest engineering habit when using Design WhatsApp?",
+        "options": [
+          "Choose it because it is popular",
+          "Add it before measuring the problem",
+          "State the workload, failure mode and trade-off it is solving",
+          "Use the most distributed design possible"
+        ],
+        "answer_index": 2,
+        "rationale": "Good architecture starts from requirements, workload and failure assumptions. The component is the consequence of that reasoning, not the starting point.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "scenario",
+      "id": "upgrade-scenario-design-whatsapp",
+      "payload": {
+        "prompt": "Production scenario: your system uses Design WhatsApp, traffic suddenly spikes, and p99 latency doubles. What is your first move?",
+        "context": "You have dashboards for traffic, latency, errors and saturation. You can change the architecture, but every change has operational cost.",
+        "options": [
+          {
+            "id": "a",
+            "text": "Add more instances immediately",
+            "outcome": "This may help, but only if compute saturation is the bottleneck.",
+            "correct": false
+          },
+          {
+            "id": "b",
+            "text": "Inspect the bottleneck and its saturation signal first",
+            "outcome": "Correct: diagnose before scaling or introducing a new pattern.",
+            "correct": true
+          },
+          {
+            "id": "c",
+            "text": "Disable monitoring to reduce overhead",
+            "outcome": "This removes the evidence you need to diagnose the incident.",
+            "correct": false
+          }
+        ],
+        "rationale": "Measure the limiting resource or dependency first. A bottleneck can be compute, database I/O, network, cache misses, lock contention, downstream latency, or queue backlog.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-design-whatsapp-interview",
+      "payload": {
+        "text": "Interview drill",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-design-whatsapp-interview",
+      "payload": {
+        "text": "**Answer this without notes:** When would you choose Design WhatsApp, and when would you intentionally avoid it? Mention at least one bottleneck it addresses, one failure mode it introduces, and one alternative. Then quantify the workload you are designing for."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "field-guide-design-whatsapp",
+      "payload": {
+        "title": "Engineering lens",
+        "body": "A useful engineering lens for Design WhatsApp: define the problem it solves, the simpler design that fails first, the constraint that forces you to introduce this concept, and the new failure modes the concept creates.",
+        "kind": "tip"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "numerical-lens-design-whatsapp",
+      "payload": {
+        "text": "### Numerical sanity check\n\nBack-of-the-envelope reasoning beats fake precision. State your traffic, payload, concurrency and growth assumptions explicitly, then calculate enough to know whether the current architecture is orders of magnitude away from the target."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "field-question-design-whatsapp",
+      "payload": {
+        "shape": "prediction",
+        "question": "Imagine the simplest version of a system using Design WhatsApp. What breaks first as traffic grows by 10×, and what would you change before reaching 100×?",
+        "context": "Do not optimize for a memorized definition. Reason from the workload and failure mode.",
+        "options": [
+          "Scale the same component immediately.",
+          "Measure the current bottleneck and state the assumption that changed.",
+          "Add more technologies until throughput improves.",
+          "Choose the most popular architecture."
+        ],
+        "answer_index": 1,
+        "rationale": "Good system design starts with the bottleneck and the changed constraint. The most popular or complex choice is not automatically correct.",
+        "difficulty": "interview"
+      }
+    }
+  ],
+  "trade_offs": {
+    "pros": [
+      "Sub-second delivery for online recipients via per-connection stateful chat servers.",
+      "Idempotent sends via client_msg_id — clients can retry freely.",
+      "Group fan-out optimized from O(N) to O(distinct chat servers) via batching.",
+      "E2E encryption means the server never sees plaintext — privacy by design."
+    ],
+    "cons": [
+      "30-day server retention limits server-side history and search.",
+      "Push notifications depend on APNs/FCM — out of our control.",
+      "Per-connection stateful servers complicate rebalancing on failure.",
+      "E2E encryption blocks server-side content moderation and search."
+    ]
+  },
+  "failure_modes": [
+    "Chat server failure mid-delivery — needs a sweeper to reconcile delivered_to.",
+    "Connection thundering-herd on chat-server death — needs client backoff with jitter.",
+    "Hot conversation for 1024-member groups — needs conversation sub-partitioning by day.",
+    "Push notification rate limits on APNs/FCM — needs multiple sender IDs + batching.",
+    "Backpressure on long-offline users reconnecting — needs pending queue capping."
+  ],
+  "common_mistakes": [
+    "Storing messages as plaintext on the server — breaks E2E encryption.",
+    "Per-member group fan-out without batching — 1024x the work for large groups.",
+    "Synchronous group fan-out blocking the sender's ACK — slow sends.",
+    "Single global Redis for presence — single point of failure + hotspot.",
+    "Storing full message history on the server — explodes storage cost."
+  ],
+  "where_you_see_it": [
+    "WhatsApp (Meta)",
+    "Telegram",
+    "Signal",
+    "Facebook Messenger",
+    "iMessage"
+  ],
+  "interview_prompts": [
+    "Design WhatsApp. How do you handle 50M concurrent WebSocket connections?",
+    "How do you prevent duplicate messages when the client retries after a network blip?",
+    "A user sends to a 1024-person group. How do you avoid 1024 separate lookups?",
+    "How does end-to-end encryption affect what the server can do?"
+  ],
+  "real_system_mappings": [
+    {
+      "system": "WhatsApp",
+      "how": "Erlang/BEAM chat servers, 1M+ conns/host, custom binary protocol over WebSocket, E2E encryption via Signal Protocol. Acquired by Facebook in 2014; runs ~600 servers for 2B users."
+    },
+    {
+      "system": "Signal",
+      "how": "Open-source E2E-encrypted messenger. Pioneered the X3DH key agreement and Sender Key group framework that WhatsApp adopted."
+    },
+    {
+      "system": "Telegram",
+      "how": "Custom MTProto protocol over TCP/WebSocket. Not E2E by default (only 'secret chats'), but extremely efficient at scale."
+    }
+  ],
+  "status": "published",
+  "sources": [
+    {
+      "title": "System Design Primer",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Open source"
+    },
+    {
+      "title": "ByteByteGo — Scale from zero to millions",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "ByteByteGo"
+    },
+    {
+      "title": "System Design Tutorial",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "GeeksforGeeks"
+    },
+    {
+      "title": "System Design Roadmap",
+      "url": "https://roadmap.sh/system-design",
+      "publisher": "roadmap.sh"
+    },
+    {
+      "title": "Case Studies reference",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Case Studies reference",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Case Studies reference",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "Reference"
+    }
+  ]
+}

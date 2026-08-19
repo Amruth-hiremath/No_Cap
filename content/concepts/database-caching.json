@@ -1,0 +1,441 @@
+{
+  "slug": "database-caching",
+  "version": 4,
+  "title": "Database Caching",
+  "phase": "cache-aside",
+  "area": "Caching",
+  "estimated_minutes": 7,
+  "difficulty": "advanced",
+  "summary": "Database caching is the cache layer built into the database engine itself — PostgreSQL's `shared_buffers` and OS page cache, MySQL's InnoDB buffer pool, the (deprecated) MySQL query cache, SQL Server's plan cache. It is the deepest cache layer, transparent to the application, and the foundation that makes modern relational databases usable. The trade-off is that you have very little control: the engine chooses what to cache based on access patterns, and tuning is limited to sizing the buffer and choosing storage layouts.",
+  "why_it_matters": "Database caching is the most under-acknowledged cache layer in system design discussions. Engineers talk endlessly about Redis and CDNs, but the single biggest performance lever in most systems is the size of the database's buffer pool. A query that hits `shared_buffers` returns in microseconds; a query that misses and goes to disk takes milliseconds — a 1000x difference. Understanding this layer means understanding why \"just add an index\" sometimes makes things 10x faster (the index fits in the buffer pool) and sometimes does nothing (the working set does not fit). It also explains why the MySQL query cache was removed in MySQL 8.0 — naive query-result caching fights the engine's own buffer pool, and the contention cost exceeded the benefit.",
+  "prerequisites": [
+    "caching-strategies"
+  ],
+  "related": [
+    "application-caching",
+    "web-server-caching",
+    "sql-tuning"
+  ],
+  "used_in": [
+    "Every relational database (PostgreSQL, MySQL, SQL Server, Oracle).",
+    "Every NoSQL store with an in-memory buffer (Cassandra's row cache, key cache).",
+    "Search engines (Elasticsearch's filesystem cache, Lucene's MMapDirectory).",
+    "Any system where the working set must fit in RAM for acceptable latency."
+  ],
+  "blocks": [
+    {
+      "type": "prose",
+      "id": "intro",
+      "payload": {
+        "text": "**Database caching** is the cache layer built into the database engine. It is not a separate process or a separate store — it is part of the database's own memory, managed by the engine's own logic. The application has no direct control over it; the engine decides what to cache based on its own access statistics.\n\nThere are two distinct caches inside most databases:\n\n1. **Buffer pool / shared buffers.** This caches 8 KB (PostgreSQL) or 16 KB (InnoDB) disk pages in RAM. When the engine needs a page, it checks the buffer pool first; on a hit, no disk I/O is needed. On a miss, the engine reads from disk and stores the page in the pool, evicting the least-recently-used page if the pool is full. This is the foundation — every relational database does this.\n\n2. **Query cache (deprecated in MySQL 8.0).** This caches the *result* of a query, keyed by the literal query string. If the same query arrives again and no underlying table has changed, the engine returns the cached result without executing. Sounds great — but in practice the invalidation cost (any write to any table in the query invalidates all queries referencing that table) caused more contention than the cache saved. MySQL removed it in 8.0.\n\n3. **Plan cache.** This caches the parsed-and-optimized query plan, so the engine doesn't have to re-parse and re-optimize the same SQL repeatedly. Does not cache results — only the plan. Useful for parameterized queries that are executed many times.\n\nThe crucial insight: **the buffer pool is the cache that matters.** It is automatic, transparent, and huge — but its size and the size of your working set determine whether your database feels fast (everything in RAM) or slow (disk I/O on every query)."
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "flow",
+      "payload": {
+        "code": "flowchart TD\n    N0[\"shared_buffers\"]\n    N1[\"POSTGRESQL\"]\n    N2[\"BUFFER\"]\n    N3[\"POOL\"]\n    N4[\"(shared_buffers)\"]\n    N5[\"Application\"]\n    N6[\"PostgreSQL engine\"]\n    N7[\"[Application]\"]\n    N8[\"SQL\"]\n    N9[\"[PostgreSQL\"]\n    N10[\"engine]\"]\n    N11[\"RAM, e.g. 25% of total RAM\"]\n    N12[\"[shared_buffers]\"]\n    N13[\"(RAM,\"]\n    N14[\"e.g.\"]\n    N15[\"25%\"]\n    N16[\"total\"]\n    N17[\"RAM)\"]\n    N18[\"microseconds\"]\n    N19[\"HIT?\"]\n    N20[\"YES\"]\n    N21[\"return\"]\n    N22[\"page\"]\n    N23[\"(microseconds)\"]\n    N24[\"OS page cache\"]\n    N25[\"RAM, rest of free RAM\"]\n    N26[\"[OS\"]\n    N27[\"cache]\"]\n    N28[\"rest\"]\n    N29[\"free\"]\n    N30[\"load\"]\n    N31[\"shared_buffers,\"]\n    N32[\"Disk\"]\n    N33[\"SSD/HDD, milliseconds\"]\n    N34[\"[Disk]\"]\n    N35[\"(SSD\"]\n    N36[\"HDD,\"]\n    N37[\"milliseconds)\"]\n    N38[\"THE\"]\n    N39[\"TWO\"]\n    N40[\"LAYER\"]\n    N41[\"CACHE\"]\n    N42[\"PROBLEM\"]\n    N43[\"25% of RAM\"]\n    N44[\"(25%\"]\n    N45[\"engine\"]\n    N46[\"managed,\"]\n    N47[\"LRU.\"]\n    N48[\"rest of RAM\"]\n    N49[\"cache\"]\n    N50[\"(rest\"]\n    N51[\"kernel\"]\n    N52[\"engine buffer AND OS cache\"]\n    N53[\"Double\"]\n    N54[\"caching:\"]\n    N55[\"may\"]\n    N56[\"BOTH\"]\n    N57[\"(engine\"]\n    N58[\"buffer\"]\n    N59[\"AND\"]\n    N60[\"cache).\"]\n    N61[\"Postgres\"]\n    N62[\"recommends\"]\n    N63[\"RAM\"]\n    N64[\"precisely\"]\n    N65[\"because\"]\n    N66[\"the\"]\n    N67[\"handles\"]\n    N68[\"they\"]\n    N69[\"cooperate.\"]\n    N70[\"LATENCY\"]\n    N71[\"COMPARISON\"]\n    N72[\"HIT:\"]\n    N73[\"100\"]\n    N74[\"~200\"]\n    N75[\"500\"]\n    N76[\"10-50x slower\"]\n    N77[\"SSD\"]\n    N78[\"read:\"]\n    N79[\"(10\"]\n    N80[\"50x\"]\n    N81[\"slower)\"]\n    N82[\"100-1000x slower\"]\n    N83[\"HDD\"]\n    N84[\"(100\"]\n    N85[\"1000x\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44\n    N44 --> N45\n    N45 --> N46\n    N46 --> N47\n    N47 --> N48\n    N48 --> N49\n    N49 --> N50\n    N50 --> N51\n    N51 --> N52\n    N52 --> N53\n    N53 --> N54\n    N54 --> N55\n    N55 --> N56\n    N56 --> N57\n    N57 --> N58\n    N58 --> N59\n    N59 --> N60\n    N60 --> N61\n    N61 --> N62\n    N62 --> N63\n    N63 --> N64\n    N64 --> N65\n    N65 --> N66\n    N66 --> N67\n    N67 --> N68\n    N68 --> N69\n    N69 --> N70\n    N70 --> N71\n    N71 --> N72\n    N72 --> N73\n    N73 --> N74\n    N74 --> N75\n    N75 --> N76\n    N76 --> N77\n    N77 --> N78\n    N78 --> N79\n    N79 --> N80\n    N80 --> N81\n    N81 --> N82\n    N82 --> N83\n    N83 --> N84\n    N84 --> N85",
+        "caption": "PostgreSQL's two-layer cache: shared_buffers (engine-managed) and OS page cache (kernel-managed).",
+        "alt_text": "PostgreSQL buffer pool diagram. A query from the application goes to the PostgreSQL engine, which checks shared_buffers (RAM, typically 25 percent of total system RAM). On a hit, the engine returns the page in microseconds. On a miss, it checks the OS page cache, which uses the rest of free RAM. On a hit there, the page is loaded into shared_buffers and returned. On a miss, the engine reads from disk (SSD or HDD), which takes milliseconds. The two-layer cache problem: shared_buffers is 25 percent of RAM and engine-managed with LRU eviction; the OS page cache uses the rest of RAM and is kernel-managed with LRU. A page may be in both — double caching. Postgres recommends shared_buffers at 25 percent of RAM because the OS page cache handles the rest and they cooperate. Latency comparison: shared_buffers hit is under 100 microseconds; OS page cache hit is 200 to 500 microseconds; SSD read is 1 to 5 milliseconds — 10 to 50 times slower; HDD read is 5 to 50 milliseconds — 100 to 1000 times slower."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "buffer-pool",
+      "payload": {
+        "text": "**Buffer pool sizing — the most important database tuning knob.**\n\nThe single most important tuning decision for a database is the size of its buffer pool. The rule of thumb:\n\n- **PostgreSQL**: set `shared_buffers` to 25% of system RAM. The OS page cache uses the rest, cooperating with the engine.\n- **MySQL/InnoDB**: set `innodb_buffer_pool_size` to 50-75% of system RAM. InnoDB does its own caching and does not rely on the OS page cache as heavily.\n- **MS SQL Server**: set `max server memory` to ~75% of system RAM (the engine manages its own buffer pool).\n- **Oracle**: SGA target similar, ~60-70% of RAM.\n\nThe deeper question is whether your **working set** fits in the buffer pool. The working set is the data that is actively being read — typically the hot indexes, the recently-written rows, the hot lookup tables. If the working set fits, hit rate is 99%+ and latency is uniform and low. If the working set exceeds the buffer pool, the engine evicts and reads back constantly (cache thrashing), and latency becomes dominated by disk I/O.\n\nThis is the cliff that every database hits: the moment the working set exceeds RAM, performance degrades 10-100x. The fix is either more RAM (vertical scaling), sharding (horizontal scaling), or a tiered storage layer (NVMe for cold, RAM for hot — what databases like Aerospike or ScyllaDB do natively)."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "query-cache-removed",
+      "payload": {
+        "title": "Why MySQL removed the query cache in 8.0",
+        "body": "MySQL's query cache (cached result sets keyed by query string) was a tempting feature: identical queries return instantly if the underlying data hasn't changed. But in practice it was a net loss for most workloads. Every write to a table invalidated every cached query referencing that table — a single UPDATE could invalidate thousands of cached queries. The invalidation lock contended with reads, slowing down the very queries the cache was meant to speed up. On write-heavy workloads, the query cache made the system slower, not faster. MySQL removed it in 8.0. The lesson: caches whose invalidation cost scales with write rate are dangerous. The buffer pool, which invalidates only the modified page, scales gracefully.",
+        "kind": "warning"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "vs-app-cache",
+      "payload": {
+        "text": "**Database cache vs application cache — when each matters.**\n\nThe database cache (buffer pool) and the application cache (Redis/Memcached) are complementary, not competing. They serve different needs:\n\n- **Database cache** caches *pages*, not results. A query that hits the buffer pool still executes — parses, plans, walks the index, joins, filters. The cache only saves the disk I/O. This is great for query throughput (no disk waits) but does not eliminate query execution cost. A complex analytical query on hot data still takes 50 ms even with a perfect buffer pool hit rate.\n\n- **Application cache** caches *results*. A query that hits Redis returns in 1 ms with zero database work. The execution cost (parsing, planning, joining) is eliminated, not just the I/O.\n\nThe decision rule: if the same query is executed thousands of times per second with the same result, an application cache (Redis) eliminates the repeated execution cost. If the queries are diverse (different filters, different joins) but operate on the same underlying pages, the database cache handles it for free.\n\nA typical system uses both: Redis for the top-N hot queries (the ones being executed repeatedly), and the database buffer pool for everything else (one-off queries, joins, scans). Adding Redis does not reduce the importance of the buffer pool — it just absorbs the highest-frequency queries, freeing the buffer pool to do its job on the long tail."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "when-to-use",
+      "payload": {
+        "text": "**When database caching is the right layer to tune:**\n- **Always** — it is the foundation. Every database deployment should size its buffer pool correctly.\n- **When the working set fits in RAM** — the system feels instant. Sizing the buffer pool to fit the working set is the single highest-leverage tuning.\n- **When queries are diverse** — different filters, different joins, but on the same hot data. The buffer pool handles this for free; an application cache cannot.\n- **When query execution is cheap** but disk I/O is the bottleneck. Index lookups, primary-key fetches.\n\n**When to add an application cache instead (or in addition):**\n- **When the same query is executed thousands of times per second** — Redis eliminates the execution cost, not just the I/O.\n- **When the working set does not fit in RAM** — an application cache can hold just the hot keys, fitting in much less RAM than the full dataset.\n- **When query execution itself is expensive** (analytical queries, multi-table joins) and you want to skip it entirely.\n- **When you need cross-DB caching** (multiple DBs sharing a hot result) — the buffer pool is per-DB.\n\n**When NOT to rely on the buffer pool alone:**\n- **Working set exceeds RAM** — the cache thrashes, latency degrades 10-100x.\n- **You need cross-shard caching** — the buffer pool is per-instance.\n- **You need cache invalidation semantics the engine does not provide** (per-key, per-session).\n- **You need predictable latency** — buffer pool hit rate fluctuates with the working set; an explicit cache gives you control."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q1",
+      "payload": {
+        "question": "Your PostgreSQL database was fast at 50 GB of data. You added more data; at 200 GB it became 50x slower, even though queries are the same. What happened, and what is the fix?",
+        "shape": "mcq",
+        "options": [
+          "The queries need new indexes.",
+          "The working set exceeded the size of `shared_buffers` + OS page cache, so the buffer pool thrashes and most reads go to disk. Fix: add RAM (vertical scaling), shard the data, or move hot data to a separate DB.",
+          "The disk failed.",
+          "PostgreSQL has a bug at 200 GB."
+        ],
+        "answer_index": 1,
+        "rationale": "This is the classic cache-cliff failure mode. At 50 GB, the working set fit in `shared_buffers` (RAM) plus the OS page cache (more RAM), so hit rate was 99%+ and queries returned in microseconds. At 200 GB, the working set exceeds available RAM, the buffer pool evicts and reads back constantly (thrashing), and most reads go to disk (10-1000x slower). The query plan and indexes are unchanged — the problem is the cache layer, not the query layer. Fixes: add RAM (vertical scaling — the simplest fix if the working set is close to the current RAM), shard the data so each shard's working set fits in its node's RAM, or move hot data to a separate DB. Adding indexes won't help if the issue is I/O, not query plan.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q2",
+      "payload": {
+        "question": "Why did MySQL remove the query cache in version 8.0, and what is the lesson for cache design?",
+        "shape": "mcq",
+        "options": [
+          "The query cache was too slow to look up results.",
+          "Every write to a table invalidated every cached query referencing that table, causing contention that exceeded the cache's benefit on most workloads. Lesson: caches whose invalidation cost scales with write rate are dangerous.",
+          "MySQL was acquired by Oracle, which removed it for licensing reasons.",
+          "The buffer pool made it redundant."
+        ],
+        "answer_index": 1,
+        "rationale": "MySQL's query cache invalidated every cached query that referenced a table whenever ANY write occurred to that table. On write-heavy workloads, this meant constant invalidation, constant cache misses, and — worse — a global lock that contended with reads. The cache made the system slower, not faster, on the workloads it was supposed to optimize. MySQL removed it in 8.0. The lesson for cache design is general: caches whose invalidation cost scales with write rate are dangerous. The buffer pool, which invalidates only the modified page (not all queries touching that table), scales gracefully. This is why most modern databases cache pages, not query results.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q3",
+      "payload": {
+        "question": "A query takes 30 ms on your PostgreSQL database. The execution plan is optimal, the indexes are perfect, and `EXPLAIN ANALYZE` shows 99% of the time is in \"I/O Read.\" What does this tell you, and what should you do?",
+        "shape": "mcq",
+        "options": [
+          "Rewrite the query in a faster language.",
+          "The query is missing the buffer pool — most reads are going to disk. Either increase `shared_buffers`, add RAM, or cache the result in Redis if the query is executed repeatedly.",
+          "Add another index.",
+          "Switch to a NoSQL database."
+        ],
+        "answer_index": 1,
+        "rationale": "If the query plan is optimal and 99% of time is in I/O Read, the problem is that the pages are not in the buffer pool — they are being read from disk. The fix is either (a) increase `shared_buffers` so more of the working set fits in RAM (if RAM is available), (b) add RAM to the server (vertical scaling), or (c) if the same query is executed thousands of times per second, cache the *result* in Redis so the execution is eliminated entirely. Adding another index will not help — the plan is already optimal. Rewriting in a faster language is irrelevant — the time is in I/O, not CPU. Switching databases is a drastic overreaction to a sizing problem. The diagnostic insight is: \"I/O Read\" in EXPLAIN ANALYZE points directly at the buffer pool layer, not the query layer.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-database-caching-mental",
+      "payload": {
+        "text": "Engineering mental model",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-database-caching-mental",
+      "payload": {
+        "text": "**Mental model.** Think of Database Caching as a deliberate boundary in a system. The boundary exists because something becomes harder to manage when everything is done in one place: latency, scale, failure isolation, consistency, cost, or team ownership. The useful question is not “what does Database Caching mean?” but “what pressure makes this boundary worth introducing, and what new failure mode does it create?”"
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-database-caching-decision",
+      "payload": {
+        "title": "Design lens",
+        "body": "Before choosing Database Caching, name the workload, the critical user path, the dominant bottleneck, the failure you are trying to absorb, and the trade-off you are willing to accept. If you cannot name those five things, the design is probably premature.",
+        "kind": "info"
+      }
+    },
+    {
+      "type": "image",
+      "id": "upgrade-image-database-caching",
+      "payload": {
+        "src": "/learning-visuals/database-caching.svg",
+        "alt": "Original NO CAP systems visual for Database Caching.",
+        "caption": "Database Caching: a compact system-thinking visual.",
+        "credit": "Original NO CAP visual.",
+        "source_url": "https://github.com/donnemartin/system-design-primer"
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "upgrade-mermaid-database-caching",
+      "payload": {
+        "code": "flowchart LR\n  C[Client] --> S[Service] --> D[(Data layer)]\n  D --> R[Replication] --> F[Durability]",
+        "caption": "Database Caching: a simplified system view showing the primary flow and the main state boundaries.",
+        "alt_text": "Database Caching: a simplified system view showing the primary flow and the main state boundaries."
+      }
+    },
+    {
+      "type": "code",
+      "id": "upgrade-code-database-caching",
+      "payload": {
+        "language": "sql",
+        "code": "SELECT id, created_at\nFROM records\nWHERE tenant_id = ?\nORDER BY created_at DESC\nLIMIT 50;\n\n-- Ask: which index makes this query predictable at scale?",
+        "caption": "A minimal engineering sketch for reasoning about Database Caching."
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-database-caching-numbers",
+      "payload": {
+        "text": "Back-of-the-envelope reasoning",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-database-caching-numbers",
+      "payload": {
+        "text": "Example: 5M writes/day × 1 KB/row ≈ 5 GB/day of logical data. Add indexes, replication, backups and growth headroom before sizing a real store."
+      }
+    },
+    {
+      "type": "simulation",
+      "id": "upgrade-sim-database-caching",
+      "payload": {
+        "title": "Interactive thought experiment: Database Caching",
+        "description": "Change the variables below and predict what breaks first in Database Caching. The production lab can later reuse these same inputs.",
+        "variables": [
+          {
+            "name": "traffic",
+            "description": "Requests/events per second",
+            "default": "1000"
+          },
+          {
+            "name": "latency",
+            "description": "Dependency latency",
+            "default": "50ms"
+          },
+          {
+            "name": "failure_rate",
+            "description": "Injected failure rate",
+            "default": "0%"
+          }
+        ],
+        "placeholder_note": "Interactive controls are deterministic; use the linked Labs section when a dedicated lab exists."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-database-caching-hint",
+      "payload": {
+        "title": "Hint",
+        "body": "If you are stuck on Database Caching, start by drawing the request path and marking every network hop, stateful component, queue, cache and failure boundary. Then estimate where the system will saturate.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-database-caching-1",
+      "payload": {
+        "shape": "prediction",
+        "question": "You increase traffic by 10× in a system using Database Caching. What should you inspect first?",
+        "options": [
+          "The newest framework version",
+          "The dominant bottleneck and its saturation signal",
+          "Only the UI",
+          "Nothing; the architecture should absorb any traffic automatically"
+        ],
+        "answer_index": 1,
+        "rationale": "System design is a constraint-and-bottleneck exercise. Start with the resource or dependency that will saturate first, then choose the smallest change that removes that bottleneck.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-database-caching-2",
+      "payload": {
+        "shape": "mcq",
+        "question": "Which statement is the safest engineering habit when using Database Caching?",
+        "options": [
+          "Choose it because it is popular",
+          "Add it before measuring the problem",
+          "State the workload, failure mode and trade-off it is solving",
+          "Use the most distributed design possible"
+        ],
+        "answer_index": 2,
+        "rationale": "Good architecture starts from requirements, workload and failure assumptions. The component is the consequence of that reasoning, not the starting point.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "scenario",
+      "id": "upgrade-scenario-database-caching",
+      "payload": {
+        "prompt": "Production scenario: your system uses Database Caching, traffic suddenly spikes, and p99 latency doubles. What is your first move?",
+        "context": "You have dashboards for traffic, latency, errors and saturation. You can change the architecture, but every change has operational cost.",
+        "options": [
+          {
+            "id": "a",
+            "text": "Add more instances immediately",
+            "outcome": "This may help, but only if compute saturation is the bottleneck.",
+            "correct": false
+          },
+          {
+            "id": "b",
+            "text": "Inspect the bottleneck and its saturation signal first",
+            "outcome": "Correct: diagnose before scaling or introducing a new pattern.",
+            "correct": true
+          },
+          {
+            "id": "c",
+            "text": "Disable monitoring to reduce overhead",
+            "outcome": "This removes the evidence you need to diagnose the incident.",
+            "correct": false
+          }
+        ],
+        "rationale": "Measure the limiting resource or dependency first. A bottleneck can be compute, database I/O, network, cache misses, lock contention, downstream latency, or queue backlog.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-database-caching-interview",
+      "payload": {
+        "text": "Interview drill",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-database-caching-interview",
+      "payload": {
+        "text": "**Answer this without notes:** When would you choose Database Caching, and when would you intentionally avoid it? Mention at least one bottleneck it addresses, one failure mode it introduces, and one alternative. Then quantify the workload you are designing for."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "field-guide-database-caching",
+      "payload": {
+        "title": "Engineering lens",
+        "body": "For Database Caching, reason in this order: what data is hottest, where can it live closer to the caller, what makes it stale, and what happens on a miss or cache failure. A cache is an optimization boundary, not the source of truth.",
+        "kind": "tip"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "numerical-lens-database-caching",
+      "payload": {
+        "text": "### Numerical sanity check\n\nA useful first-order model is cache_load = request_rate × (1 - hit_rate). If traffic is 20,000 req/s and the hit rate is 90%, roughly 2,000 req/s still reaches the origin before considering misses caused by expiration or eviction."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "field-question-database-caching",
+      "payload": {
+        "shape": "prediction",
+        "question": "You have a read-heavy Database Caching path. Traffic doubles overnight. What metric would you inspect first, and what would convince you to add another cache layer?",
+        "context": "Do not optimize for a memorized definition. Reason from the workload and failure mode.",
+        "options": [
+          "Scale the same component immediately.",
+          "Measure the current bottleneck and state the assumption that changed.",
+          "Add more technologies until throughput improves.",
+          "Choose the most popular architecture."
+        ],
+        "answer_index": 1,
+        "rationale": "Good system design starts with the bottleneck and the changed constraint. The most popular or complex choice is not automatically correct.",
+        "difficulty": "interview"
+      }
+    }
+  ],
+  "trade_offs": {
+    "pros": [
+      "Transparent — application code is unchanged; the engine handles everything.",
+      "Foundation — without it, relational databases would be unusably slow on any non-trivial dataset.",
+      "Cooperative with OS page cache — Postgres + Linux uses both layers automatically.",
+      "Engine-aware — caches pages, plans, and (sometimes) results with appropriate invalidation semantics.",
+      "Free — included in the database; no extra infrastructure."
+    ],
+    "cons": [
+      "Limited operator control — sizing is the main knob; the engine chooses what to cache.",
+      "Per-instance — does not help across shards or replicas.",
+      "Working set cliff — if working set exceeds RAM, performance degrades 10-100x.",
+      "Double caching — the same page may be in shared_buffers AND the OS page cache (wastes RAM).",
+      "Query result caching (where it exists) is dangerous — invalidation cost scales with write rate."
+    ]
+  },
+  "failure_modes": [
+    "Working set exceeds RAM → buffer pool thrashes, latency degrades 10-100x (the cliff).",
+    "Long-running transactions pin old versions of pages, preventing vacuum/cleanup → buffer bloat.",
+    "Query cache contention (MySQL pre-8.0) — global lock slows reads on write-heavy workloads.",
+    "Cold start after restart — buffer pool is empty; first queries are slow until warm.",
+    "Cache pollution — a single full-table scan evicts the hot working set (PostgreSQL has no scan-resistant eviction by default).",
+    "OOM if buffer pool sized too aggressively — leaves no RAM for OS / connections / queries."
+  ],
+  "common_mistakes": [
+    "Setting `shared_buffers` too small — most cloud default DBs ship with a few GB; production needs 25% of RAM.",
+    "Setting `shared_buffers` too large (>40% of RAM) — leaves no room for the OS page cache, which Postgres relies on.",
+    "Adding indexes when the problem is the buffer pool — index optimization does not fix cache thrashing.",
+    "Treating the buffer pool as a substitute for an application cache — page caching does not eliminate query execution cost.",
+    "Not warming the cache after a restart — first production traffic takes the hit of cold-cache misses.",
+    "Running a single full-table scan query that evicts the hot working set from the buffer pool."
+  ],
+  "where_you_see_it": [
+    "Every relational database — PostgreSQL shared_buffers, MySQL/InnoDB buffer pool, SQL Server buffer pool, Oracle SGA.",
+    "NoSQL stores — Cassandra's row cache and key cache, MongoDB's WiredTiger cache.",
+    "Search engines — Elasticsearch's filesystem cache (relies on OS page cache), Lucene's MMapDirectory.",
+    "Any system where the working set must fit in RAM for acceptable latency."
+  ],
+  "interview_prompts": [
+    "Your database was fast at 50 GB and is 50x slower at 200 GB. Diagnose the issue and propose fixes.",
+    "When does adding Redis in front of a database help, and when is it unnecessary because the buffer pool is enough?",
+    "Why did MySQL remove the query cache? What is the general lesson for cache design?",
+    "How would you size `shared_buffers` for a PostgreSQL instance with 64 GB of RAM? Why 25%?",
+    "A query takes 30 ms with a perfect plan and 99% I/O Read time. What is the problem and what do you do?"
+  ],
+  "real_system_mappings": [
+    {
+      "system": "PostgreSQL shared_buffers + OS page cache",
+      "how": "PostgreSQL uses a 25%-of-RAM shared_buffers pool plus the OS page cache for the rest. The two layers cooperate — the engine manages its pool, the kernel manages the rest, and a page may be in both. The recommendation is explicit: shared_buffers = 25% of RAM because the OS page cache handles the rest."
+    },
+    {
+      "system": "MySQL/InnoDB buffer pool",
+      "how": "InnoDB manages its own buffer pool (50-75% of RAM recommended) and does its own LRU eviction, with the middle-of-list insertion trick to prevent full-table scans from evicting the hot working set. Online buffer pool resizing (since 5.7) lets you resize without restart."
+    },
+    {
+      "system": "Elasticsearch filesystem cache",
+      "how": "Elasticsearch relies almost entirely on the OS page cache (via Lucene's MMapDirectory). The recommendation is to give the JVM only 50% of RAM and leave the rest for the OS page cache — the inverse of the database pattern."
+    },
+    {
+      "system": "Cassandra row cache + key cache",
+      "how": "Cassandra offers both a key cache (always on) and a row cache (off by default, opt-in for very hot tables). The row cache is risky because it can hurt write performance; most production deployments disable it and rely on the OS page cache and SSTable bloom filters."
+    }
+  ],
+  "status": "published",
+  "sources": [
+    {
+      "title": "System Design Primer",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Open source"
+    },
+    {
+      "title": "ByteByteGo — Scale from zero to millions",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "ByteByteGo"
+    },
+    {
+      "title": "System Design Tutorial",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "GeeksforGeeks"
+    },
+    {
+      "title": "System Design Roadmap",
+      "url": "https://roadmap.sh/system-design",
+      "publisher": "roadmap.sh"
+    },
+    {
+      "title": "Caching reference",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Caching reference",
+      "url": "https://aws.amazon.com/caching/",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Caching reference",
+      "url": "https://redis.io/docs/latest/develop/get-started/",
+      "publisher": "Reference"
+    }
+  ]
+}

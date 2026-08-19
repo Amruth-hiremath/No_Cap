@@ -1,0 +1,442 @@
+{
+  "slug": "client-caching",
+  "version": 4,
+  "title": "Client Caching",
+  "phase": "cache-aside",
+  "area": "Caching",
+  "estimated_minutes": 7,
+  "difficulty": "core",
+  "summary": "Client caching stores responses on the client — browser, mobile app, or desktop — so that subsequent reads are served locally without touching the network at all. It is the cheapest, fastest, and most distributed cache layer: zero server load, zero network latency, infinite horizontal scale (every client is its own cache). The cost is invalidation: once a response is on a client, the server cannot easily retract or update it, so client caches must be designed around TTLs, versioned URLs, and explicit cache-busting strategies.",
+  "why_it_matters": "Client caching is the most under-appreciated cache layer in system design. A browser-cached static asset serves millions of users at zero marginal cost — there is no faster or cheaper caching strategy. But the same property that makes it powerful (the server does not participate in the read) makes it dangerous: a cached response cannot be recalled, and a buggy cache header can serve stale content for the full TTL. Every frontend engineer must understand HTTP cache headers, every mobile engineer must understand app-level cache invalidation, and every backend engineer must design APIs that are safe to cache on the client. Mistakes here cause \"I see the old version\" bug reports that are notoriously hard to debug.",
+  "prerequisites": [
+    "caching-strategies"
+  ],
+  "related": [
+    "cdn-caching",
+    "web-server-caching",
+    "http"
+  ],
+  "used_in": [
+    "Every web browser (HTTP cache).",
+    "Mobile apps (image, API response, and asset caches).",
+    "Progressive Web Apps (PWAs) with service workers.",
+    "Desktop apps with offline-first sync."
+  ],
+  "blocks": [
+    {
+      "type": "prose",
+      "id": "intro",
+      "payload": {
+        "text": "**Client caching** stores responses on the client — the browser, mobile app, or desktop app — so that the next request for the same resource is served locally without touching the network. It is the outermost cache layer in the standard cache hierarchy:\n\n```\nclient cache → CDN → web-server cache → application cache → database cache → database\n```\n\nEach layer is faster than the one to its right and harder to invalidate. Client caching is the fastest (no network at all) and the hardest to invalidate (the server has no control over the client's storage).\n\nThere are three flavors of client caching, each with its own semantics:\n\n1. **HTTP cache (browser cache).** Built into the browser. Controlled by HTTP headers: `Cache-Control`, `ETag`, `Last-Modified`, `Expires`. Stores responses keyed by URL. No code needed on the client — the browser does it automatically.\n2. **Service Worker cache.** Explicit programmatic control from JavaScript. The service worker intercepts `fetch` events and can serve from a `Cache` object, allowing offline-first behavior. Used by Progressive Web Apps.\n3. **App-level cache.** Mobile and desktop apps maintain their own cache — image caches (Glide, SDWebImage, Kingfisher), API response caches, asset caches. Controlled entirely by app code, with whatever invalidation strategy the app chooses."
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "flow",
+      "payload": {
+        "code": "flowchart TD\n    N0[\"request flows left to right; each layer caches\"]\n    N1[\"CACHE\"]\n    N2[\"HIERARCHY\"]\n    N3[\"(request\"]\n    N4[\"flows\"]\n    N5[\"left\"]\n    N6[\"right;\"]\n    N7[\"each\"]\n    N8[\"layer\"]\n    N9[\"caches)\"]\n    N10[\"Browser / App\"]\n    N11[\"CDN edge\"]\n    N12[\"Web server\"]\n    N13[\"App tier\"]\n    N14[\"DB\"]\n    N15[\"[Browser\"]\n    N16[\"App]\"]\n    N17[\"[CDN\"]\n    N18[\"edge]\"]\n    N19[\"[Web\"]\n    N20[\"server]\"]\n    N21[\"[App\"]\n    N22[\"tier]\"]\n    N23[\"[DB]\"]\n    N24[\"client\"]\n    N25[\"cache\"]\n    N26[\"edge\"]\n    N27[\"proxy\"]\n    N28[\"app\"]\n    N29[\"buffer\"]\n    N30[\"HTTP/SW/app\"]\n    N31[\"Cloudflare\"]\n    N32[\"NGINX\"]\n    N33[\"Redis\"]\n    N34[\"shared_buffers\"]\n    N35[\"(HTTP\"]\n    N36[\"app)\"]\n    N37[\"(Cloudflare)\"]\n    N38[\"(NGINX)\"]\n    N39[\"(Redis)\"]\n    N40[\"(shared_buffers)\"]\n    N41[\"typical\"]\n    N42[\"Latency\"]\n    N43[\"per\"]\n    N44[\"(typical):\"]\n    N45[\"no network\"]\n    N46[\"cache:\"]\n    N47[\"(no\"]\n    N48[\"network)\"]\n    N49[\"fastest\"]\n    N50[\"CDN\"]\n    N51[\"edge:\"]\n    N52[\"in-process\"]\n    N53[\"web\"]\n    N54[\"server\"]\n    N55[\"(in\"]\n    N56[\"process)\"]\n    N57[\"RAM\"]\n    N58[\"sub\"]\n    N59[\"(RAM)\"]\n    N60[\"disk:\"]\n    N61[\"Cost\"]\n    N62[\"layer:\"]\n    N63[\"user pays\"]\n    N64[\"(user\"]\n    N65[\"pays)\"]\n    N66[\"cheapest\"]\n    N67[\"CDN:\"]\n    N68[\"$0.01\"]\n    N69[\"0.10\"]\n    N70[\"month\"]\n    N71[\"SSD\"]\n    N72[\"(SSD)\"]\n    N73[\"KEY\"]\n    N74[\"PROPERTY:\"]\n    N75[\"the\"]\n    N76[\"ONLY\"]\n    N77[\"that\"]\n    N78[\"fully\"]\n    N79[\"offloads\"]\n    N80[\"server.\"]\n    N81[\"Every\"]\n    N82[\"other\"]\n    N83[\"still\"]\n    N84[\"pays\"]\n    N85[\"for\"]\n    N86[\"network\"]\n    N87[\"round\"]\n    N88[\"trip.\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44\n    N44 --> N45\n    N45 --> N46\n    N46 --> N47\n    N47 --> N48\n    N48 --> N49\n    N49 --> N50\n    N50 --> N51\n    N51 --> N52\n    N52 --> N53\n    N53 --> N54\n    N54 --> N55\n    N55 --> N56\n    N56 --> N57\n    N57 --> N58\n    N58 --> N59\n    N59 --> N60\n    N60 --> N61\n    N61 --> N62\n    N62 --> N63\n    N63 --> N64\n    N64 --> N65\n    N65 --> N66\n    N66 --> N67\n    N67 --> N68\n    N68 --> N69\n    N69 --> N70\n    N70 --> N71\n    N71 --> N72\n    N72 --> N73\n    N73 --> N74\n    N74 --> N75\n    N75 --> N76\n    N76 --> N77\n    N77 --> N78\n    N78 --> N79\n    N79 --> N80\n    N80 --> N81\n    N81 --> N82\n    N82 --> N83\n    N83 --> N84\n    N84 --> N85\n    N85 --> N86\n    N86 --> N87\n    N87 --> N88",
+        "caption": "Client cache sits at the outermost edge of the cache hierarchy — fastest and cheapest, but hardest to invalidate.",
+        "alt_text": "Cache hierarchy diagram. From left to right: browser or app, then CDN edge, then web server, then app tier, then database. Each layer has its own cache: client cache at the browser or app, edge cache at the CDN, proxy cache at the web server, app cache at the app tier using Redis, and buffer cache at the database using shared buffers. Latency per layer: client cache is zero milliseconds because there is no network; CDN edge is 5 to 30 milliseconds; web server cache is 1 to 5 milliseconds in-process; app cache is 1 to 5 milliseconds with Redis; DB cache is sub-millisecond in RAM; DB disk is 5 to 50 milliseconds. Cost per layer: client cache is free because the user pays; CDN is 1 to 10 cents per gigabyte; app cache costs dollars per gigabyte-month in RAM; DB disk costs dollars per gigabyte-month on SSD. The key property is that the client cache is the only layer that fully offloads the server — every other layer still pays for a network round-trip."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "http-headers",
+      "payload": {
+        "text": "**HTTP cache headers — the foundation of browser caching.**\n\nThe browser's cache is controlled entirely by HTTP response headers. If you control the headers, you control the cache; if you don't set headers, the browser guesses (often conservatively, re-fetching when it doesn't have to).\n\nThe key headers:\n\n- **`Cache-Control: max-age=N`** — the response is fresh for N seconds. Within N seconds, the browser serves from cache with no network call at all. This is the strongest cache directive.\n- **`Cache-Control: public`** vs **`private`** — `public` means any cache (browser, CDN, proxy) may store it; `private` means only the end-user's browser may store it (e.g., responses containing user-specific data).\n- **`Cache-Control: no-cache`** — the browser must revalidate before using the cached response (conditional request with `If-None-Match`). The cached response is still stored, but it is always checked.\n- **`Cache-Control: no-store`** — the browser must NOT store the response at all. Used for sensitive data (bank balances, one-time tokens).\n- **`ETag`** + **`If-None-Match`** — server provides an opaque version tag. On subsequent requests the browser sends `If-None-Match: <etag>`. If unchanged, the server returns `304 Not Modified` (no body) and the browser uses its cached copy.\n- **`Last-Modified`** + **`If-Modified-Since`** — same idea as ETag but time-based. ETag is more precise (handles sub-second changes), Last-Modified is simpler.\n- **`stale-while-revalidate=N`** — the response may be served stale for up to N seconds while the browser revalidates in the background. This is refresh-ahead at the client level.\n\nThe two-question decision: is this resource user-specific? → `private`. Is it the same for everyone? → `public`. Does it ever change? → no, set `max-age=31536000` (one year) and version the URL. Does it change sometimes? → set a short `max-age` or use `no-cache` with ETag."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "versioning",
+      "payload": {
+        "title": "Cache-busting via versioned URLs",
+        "body": "The cleanest way to make a client-cached resource updateable is to embed a version (or hash) in the URL: `app.abc123.js` instead of `app.js`. When the file changes, you change the URL to `app.def456.js`. The browser fetches the new URL because it has never seen it; the old URL remains in clients' caches until it expires (which is fine, because nothing references it anymore). This is why every modern bundler (webpack, Vite, esbuild) produces hashed filenames. Combine with `Cache-Control: max-age=31536000, immutable` for perfect caching: infinite cache lifetime, no revalidation traffic, instant updates when the URL changes.",
+        "kind": "info"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "app-level",
+      "payload": {
+        "text": "**App-level client caches.**\n\nMobile and desktop apps do not have an HTTP cache that works transparently for API responses and images. They build their own caches with explicit invalidation strategies:\n\n- **Image caches** (Glide on Android, SDWebImage on iOS, Kingfisher on Swift): cache decoded images in memory and on disk, keyed by URL. Invalidation is TTL-based or by URL change (cache-busting).\n- **API response caches**: the app caches API responses for a TTL and revalidates. Often paired with conditional requests (`If-None-Match`) so the server can return 304 cheaply.\n- **Offline-first caches**: the app stores a full local copy of the user's data (often in SQLite) and syncs with the server. Reads are always local; writes are queued and synced when online. Used by Notion, Linear, GitHub mobile, and most modern apps.\n\nThe crucial difference from browser caching: **the app controls invalidation, not the server.** If the app caches a response with no expiry, the server cannot force it to refresh — the app will serve stale data forever. This is why mobile apps ship with cache TTLs baked in, and why server-side cache-busting (versioned URLs, cache-version query params) is essential.\n\nThe other major risk is **disk space**. Unlike a browser, which manages its own cache eviction, an app's cache lives in the user's storage and can grow unboundedly. Apps must implement LRU eviction and respect system storage pressure events or risk being uninstalled for being a storage hog."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "when-to-use",
+      "payload": {
+        "text": "**When to use client caching:**\n- **Static assets** (JS, CSS, images, fonts). Always. Versioned URLs + `max-age=31536000, immutable`.\n- **Public, slowly-changing data** (product catalog, pricing). Short TTL or `stale-while-revalidate`.\n- **User-specific data with TTL tolerance** (timeline, notifications). `private` cache with short TTL.\n- **Offline-first apps** (note-taking, email clients). Full local cache with sync.\n- **Read-heavy APIs where the client can tolerate brief staleness.**\n\n**When NOT to use client caching:**\n- **Sensitive data** (bank balances, one-time tokens, PII). `no-store` — do not let it sit on the client.\n- **Data that must be fresh on every read** (real-time stock prices, live scores). `no-cache` with ETag, or no cache at all.\n- **Data the server cannot invalidate** (long TTLs without versioning). A 1-year TTL on a non-versioned URL means a buggy response is cached for a year.\n- **Highly personalized data** (per-user recommendations) without per-user cache keys. Caching by URL alone would leak one user's data to another."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q1",
+      "payload": {
+        "question": "You serve a JS bundle at `/app.js` with `Cache-Control: max-age=31536000`. You deploy a bug fix and rename nothing. What happens?",
+        "shape": "mcq",
+        "options": [
+          "All users see the fix immediately.",
+          "All users see the old (buggy) version for up to a year, because their browsers will not re-fetch `/app.js` until the TTL expires.",
+          "The browser automatically revalidates on every page load.",
+          "The CDN serves the new version, but browsers serve the old."
+        ],
+        "answer_index": 1,
+        "rationale": "With a one-year TTL on a non-versioned URL, browsers will not re-fetch `/app.js` until the TTL expires. The bug fix is invisible to existing users for up to a year. This is exactly the failure mode that versioned URLs (cache-busting) solve: deploy the fix as `/app.def456.js`, update the HTML to reference the new URL, and browsers fetch the new file (because the URL is new) while old files naturally age out of their caches. Versioned URLs + immutable long TTLs is the correct pattern; non-versioned URLs with long TTLs is the most common client-caching bug.",
+        "difficulty": "core"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q2",
+      "payload": {
+        "question": "An API response contains the logged-in user's bank balance. Which `Cache-Control` directive should you set?",
+        "shape": "mcq",
+        "options": [
+          "`public, max-age=60` — short TTL is fine.",
+          "`private, max-age=60` — only the user's browser may cache it.",
+          "`no-store` — must never be cached, because balance changes and stale data could cause incorrect transactions.",
+          "`no-cache, must-revalidate` — store but revalidate."
+        ],
+        "answer_index": 2,
+        "rationale": "Bank balances are sensitive and must always be fresh. `no-store` instructs the browser (and any intermediate cache) to never store the response. A 60-second `private` cache would serve a stale balance for up to a minute — enough to cause a user to attempt a transaction they cannot afford, or to assume funds they do not have. `no-cache` would store it and revalidate on each request, which is safer but still leaves the balance on disk briefly. `no-store` is the strictest and the correct choice for financially sensitive data. The performance cost of one extra DB read per balance check is negligible compared to the correctness cost.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q3",
+      "payload": {
+        "question": "A mobile app caches API responses indefinitely with no TTL, and the backend changed the response format. After the update, the app crashes for some users. Why, and what is the fix?",
+        "shape": "mcq",
+        "options": [
+          "The app needs to be restarted — the cache is in memory only.",
+          "The app is parsing the old cached response with the new parser, causing crashes. The fix is to version the cache (cache key includes API version) and ship a TTL or version check.",
+          "The backend should roll back the change.",
+          "The cache is on the server, not the client — this is a server bug."
+        ],
+        "answer_index": 1,
+        "rationale": "Indefinite client caches with no TTL or version are a classic source of post-update crashes. The app is serving a cached response in the old format, but the parser has been updated to expect the new format — schema mismatch, crash. The fix is two-fold: (a) include the API version in the cache key, so old responses do not collide with new ones, and (b) ship a TTL or explicit version check that forces re-fetch when the format changes. The backend should not roll back — versioned cache keys let new and old coexist gracefully. This is the mobile equivalent of cache-busting via versioned URLs in the browser.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-client-caching-mental",
+      "payload": {
+        "text": "Engineering mental model",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-client-caching-mental",
+      "payload": {
+        "text": "**Mental model.** Think of Client Caching as a deliberate boundary in a system. The boundary exists because something becomes harder to manage when everything is done in one place: latency, scale, failure isolation, consistency, cost, or team ownership. The useful question is not “what does Client Caching mean?” but “what pressure makes this boundary worth introducing, and what new failure mode does it create?”"
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-client-caching-decision",
+      "payload": {
+        "title": "Design lens",
+        "body": "Before choosing Client Caching, name the workload, the critical user path, the dominant bottleneck, the failure you are trying to absorb, and the trade-off you are willing to accept. If you cannot name those five things, the design is probably premature.",
+        "kind": "info"
+      }
+    },
+    {
+      "type": "image",
+      "id": "upgrade-image-client-caching",
+      "payload": {
+        "src": "/learning-visuals/client-caching.svg",
+        "alt": "Original NO CAP systems visual for Client Caching.",
+        "caption": "Client Caching: a compact system-thinking visual.",
+        "credit": "Original NO CAP visual.",
+        "source_url": "https://github.com/donnemartin/system-design-primer"
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "upgrade-mermaid-client-caching",
+      "payload": {
+        "code": "flowchart LR\n  A[Client] --> B[Gateway] --> C[Service] --> D[State] --> E[Outcome]",
+        "caption": "Client Caching: a simplified system view showing the primary flow and the main state boundaries.",
+        "alt_text": "Client Caching: a simplified system view showing the primary flow and the main state boundaries."
+      }
+    },
+    {
+      "type": "code",
+      "id": "upgrade-code-client-caching",
+      "payload": {
+        "language": "text",
+        "code": "// Pseudocode\nrequest = receive()\nresult = client_caching(request)\nreturn result\n\n// Production questions:\n// 1. What happens on timeout?\n// 2. Can this operation be retried safely?\n// 3. What is the bottleneck?",
+        "caption": "A minimal engineering sketch for reasoning about Client Caching."
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-client-caching-numbers",
+      "payload": {
+        "text": "Back-of-the-envelope reasoning",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-client-caching-numbers",
+      "payload": {
+        "text": "Numerical lens: write down traffic, payload size, read/write ratio, peak multiplier and durability target before choosing a component. The numbers should justify the architecture."
+      }
+    },
+    {
+      "type": "simulation",
+      "id": "upgrade-sim-client-caching",
+      "payload": {
+        "title": "Interactive thought experiment: Client Caching",
+        "description": "Change the variables below and predict what breaks first in Client Caching. The production lab can later reuse these same inputs.",
+        "variables": [
+          {
+            "name": "traffic",
+            "description": "Requests/events per second",
+            "default": "1000"
+          },
+          {
+            "name": "latency",
+            "description": "Dependency latency",
+            "default": "50ms"
+          },
+          {
+            "name": "failure_rate",
+            "description": "Injected failure rate",
+            "default": "0%"
+          }
+        ],
+        "placeholder_note": "Interactive controls are deterministic; use the linked Labs section when a dedicated lab exists."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-client-caching-hint",
+      "payload": {
+        "title": "Hint",
+        "body": "If you are stuck on Client Caching, start by drawing the request path and marking every network hop, stateful component, queue, cache and failure boundary. Then estimate where the system will saturate.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-client-caching-1",
+      "payload": {
+        "shape": "prediction",
+        "question": "You increase traffic by 10× in a system using Client Caching. What should you inspect first?",
+        "options": [
+          "The newest framework version",
+          "The dominant bottleneck and its saturation signal",
+          "Only the UI",
+          "Nothing; the architecture should absorb any traffic automatically"
+        ],
+        "answer_index": 1,
+        "rationale": "System design is a constraint-and-bottleneck exercise. Start with the resource or dependency that will saturate first, then choose the smallest change that removes that bottleneck.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-client-caching-2",
+      "payload": {
+        "shape": "mcq",
+        "question": "Which statement is the safest engineering habit when using Client Caching?",
+        "options": [
+          "Choose it because it is popular",
+          "Add it before measuring the problem",
+          "State the workload, failure mode and trade-off it is solving",
+          "Use the most distributed design possible"
+        ],
+        "answer_index": 2,
+        "rationale": "Good architecture starts from requirements, workload and failure assumptions. The component is the consequence of that reasoning, not the starting point.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "scenario",
+      "id": "upgrade-scenario-client-caching",
+      "payload": {
+        "prompt": "Production scenario: your system uses Client Caching, traffic suddenly spikes, and p99 latency doubles. What is your first move?",
+        "context": "You have dashboards for traffic, latency, errors and saturation. You can change the architecture, but every change has operational cost.",
+        "options": [
+          {
+            "id": "a",
+            "text": "Add more instances immediately",
+            "outcome": "This may help, but only if compute saturation is the bottleneck.",
+            "correct": false
+          },
+          {
+            "id": "b",
+            "text": "Inspect the bottleneck and its saturation signal first",
+            "outcome": "Correct: diagnose before scaling or introducing a new pattern.",
+            "correct": true
+          },
+          {
+            "id": "c",
+            "text": "Disable monitoring to reduce overhead",
+            "outcome": "This removes the evidence you need to diagnose the incident.",
+            "correct": false
+          }
+        ],
+        "rationale": "Measure the limiting resource or dependency first. A bottleneck can be compute, database I/O, network, cache misses, lock contention, downstream latency, or queue backlog.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-client-caching-interview",
+      "payload": {
+        "text": "Interview drill",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-client-caching-interview",
+      "payload": {
+        "text": "**Answer this without notes:** When would you choose Client Caching, and when would you intentionally avoid it? Mention at least one bottleneck it addresses, one failure mode it introduces, and one alternative. Then quantify the workload you are designing for."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "field-guide-client-caching",
+      "payload": {
+        "title": "Engineering lens",
+        "body": "For Client Caching, reason in this order: what data is hottest, where can it live closer to the caller, what makes it stale, and what happens on a miss or cache failure. A cache is an optimization boundary, not the source of truth.",
+        "kind": "tip"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "numerical-lens-client-caching",
+      "payload": {
+        "text": "### Numerical sanity check\n\nA useful first-order model is cache_load = request_rate × (1 - hit_rate). If traffic is 20,000 req/s and the hit rate is 90%, roughly 2,000 req/s still reaches the origin before considering misses caused by expiration or eviction."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "field-question-client-caching",
+      "payload": {
+        "shape": "prediction",
+        "question": "You have a read-heavy Client Caching path. Traffic doubles overnight. What metric would you inspect first, and what would convince you to add another cache layer?",
+        "context": "Do not optimize for a memorized definition. Reason from the workload and failure mode.",
+        "options": [
+          "Scale the same component immediately.",
+          "Measure the current bottleneck and state the assumption that changed.",
+          "Add more technologies until throughput improves.",
+          "Choose the most popular architecture."
+        ],
+        "answer_index": 1,
+        "rationale": "Good system design starts with the bottleneck and the changed constraint. The most popular or complex choice is not automatically correct.",
+        "difficulty": "interview"
+      }
+    }
+  ],
+  "trade_offs": {
+    "pros": [
+      "Zero server load — the request never reaches the server.",
+      "Zero network latency — served from local disk or memory.",
+      "Infinite horizontal scale — every client is its own cache, no shared infrastructure.",
+      "Free — the user pays for the storage, not the operator.",
+      "Offline-capable — combined with a service worker or app cache, the app works without connectivity."
+    ],
+    "cons": [
+      "Hardest to invalidate — the server cannot reach into the client to evict.",
+      "Buggy responses are cached for the full TTL — no rollback.",
+      "Disk space on the client is finite and shared with other apps — must implement LRU eviction.",
+      "Per-user cache keys are required for personalized data — easy to leak across users.",
+      "Debugging is hard — \"works on my machine\" because the cache state is invisible to the operator."
+    ]
+  },
+  "failure_modes": [
+    "Long TTL on non-versioned URL → buggy response cached for months.",
+    "Per-user data cached under a shared URL → cross-user data leakage.",
+    "Sensitive data cached on a shared device → next user sees the previous user's data.",
+    "App cache with no TTL → stale response parsed by new code → crash.",
+    "Service worker stuck serving an old version → app cannot update until SW is forcibly updated.",
+    "Cache key collisions across API versions → mixed-format responses."
+  ],
+  "common_mistakes": [
+    "Setting `max-age=31536000` on a non-versioned URL — deploy-time bug fix is invisible for a year.",
+    "Using `Cache-Control: public` for user-specific data — leaks across users via shared proxies.",
+    "Forgetting `no-store` on sensitive responses — bank balances cached on shared library computers.",
+    "Not implementing cache eviction in mobile apps — app storage grows unboundedly until uninstall.",
+    "Treating the client cache as just another Redis — it is not observable, not invalidate-able, and shared with the user's other apps.",
+    "Not versioning cache keys when changing API response formats — old cached responses parsed by new code → crashes."
+  ],
+  "where_you_see_it": [
+    "Every web browser — HTTP cache is built in.",
+    "Every modern mobile app — image caches (Glide, SDWebImage, Kingfisher) and API response caches.",
+    "Progressive Web Apps (Twitter Lite, Pinterest) — service worker caches for offline use.",
+    "Offline-first desktop apps (Notion, Linear) — full local SQLite cache with sync.",
+    "Service worker caches in modern web apps — explicit programmatic cache control."
+  ],
+  "interview_prompts": [
+    "How would you cache static assets for a website with millions of users? What headers would you set, and how would you handle updates?",
+    "A user reports seeing stale data after a deploy. Walk through every cache layer where the stale data could be hiding.",
+    "Your mobile app crashes for some users after a backend API format change. What went wrong, and how do you prevent it next time?",
+    "When should you use `no-store` vs `no-cache` vs a short `max-age`?",
+    "How do service workers change the client caching story? What new capabilities and risks do they introduce?"
+  ],
+  "real_system_mappings": [
+    {
+      "system": "Webpack / Vite / esbuild hashed bundle filenames",
+      "how": "Modern JS bundlers emit content-hashed filenames (app.abc123.js) so that static assets can be cached for a year (`max-age=31536000, immutable`) and updates are deployed by changing the URL — the canonical client caching pattern."
+    },
+    {
+      "system": "Twitter Lite / Pinterest PWA",
+      "how": "Service workers cache the app shell and static assets for offline-first use. The shell is versioned; updates ship as a new service worker version that takes over on next page load."
+    },
+    {
+      "system": "Glide (Android) / SDWebImage (iOS) image caches",
+      "how": "Image-loading libraries cache decoded images in memory and on disk, keyed by URL. Invalidation is TTL-based or via URL change. LRU eviction keeps disk usage bounded."
+    },
+    {
+      "system": "Notion / Linear offline-first local cache",
+      "how": "Desktop and mobile clients maintain a full SQLite replica of the user's data. Reads are always local (sub-ms); writes are queued and synced via a delta protocol when online."
+    }
+  ],
+  "status": "published",
+  "sources": [
+    {
+      "title": "System Design Primer",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Open source"
+    },
+    {
+      "title": "ByteByteGo — Scale from zero to millions",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "ByteByteGo"
+    },
+    {
+      "title": "System Design Tutorial",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "GeeksforGeeks"
+    },
+    {
+      "title": "System Design Roadmap",
+      "url": "https://roadmap.sh/system-design",
+      "publisher": "roadmap.sh"
+    },
+    {
+      "title": "Caching reference",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Caching reference",
+      "url": "https://aws.amazon.com/caching/",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Caching reference",
+      "url": "https://redis.io/docs/latest/develop/get-started/",
+      "publisher": "Reference"
+    }
+  ]
+}

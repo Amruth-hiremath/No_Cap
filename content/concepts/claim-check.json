@@ -1,0 +1,416 @@
+{
+  "slug": "claim-check",
+  "version": 3,
+  "title": "Claim Check",
+  "phase": "cloud-architecture",
+  "area": "Cloud Architecture",
+  "estimated_minutes": 7,
+  "difficulty": "advanced",
+  "summary": "The Claim Check pattern stores a large message payload in external storage (object store, database) and passes only a small reference (the claim check) through the message queue. The consumer uses the reference to retrieve the full payload when needed. This keeps messages small (queues are optimized for small, fast messages), avoids message size limits, and reduces broker storage costs. The pattern is named after the claim check you get at a coat check — a small token representing a large object stored elsewhere.",
+  "why_it_matters": "Message brokers have size limits — typically 256KB (SQS) to a few MB (Kafka default). Trying to push a 100 MB video or a 50 MB JSON document through the queue fails, or worse, succeeds but tanks broker performance and storage. The Claim Check pattern lets you handle arbitrarily large payloads cleanly: store the bytes in S3, push a 1 KB message with the S3 URL, consumer fetches the bytes on demand. The queue stays fast and small; the heavy payload lives where it belongs — in object storage.",
+  "prerequisites": [
+    "message-queues",
+    "object-storage"
+  ],
+  "related": [
+    "async-request-reply",
+    "valet-key",
+    "queue-based-load-leveling"
+  ],
+  "used_in": [
+    "Media processing pipelines — video transcoding, image processing.",
+    "Batch data pipelines — large CSV/JSON files for ETL.",
+    "Machine learning — large model artifacts or datasets.",
+    "Document processing — large PDFs, scanned images."
+  ],
+  "blocks": [
+    {
+      "type": "prose",
+      "id": "intro",
+      "payload": {
+        "text": "Message queues are optimized for small, fast messages. They're meant to handle thousands of small messages per second, with low latency and predictable throughput. They are not designed to handle large payloads:\n\n- **Size limits**: SQS hard limit 256KB, Kafka default 1MB (configurable to higher, but discouraged), Azure Service Bus 256KB (Standard) / 100MB (Premium).\n- **Broker memory pressure**: large messages consume broker memory and slow down all messages in the queue.\n- **Storage cost**: most brokers charge for storage; large messages cost more.\n- **Throughput impact**: a 100 MB message blocks the queue for the duration it takes to write/read.\n\nThe Claim Check pattern solves this:\n\n1. The producer has a large payload (e.g., a 100 MB video to be transcoded).\n2. The producer uploads the payload to object storage (S3, Azure Blob, GCS), getting back a URL.\n3. The producer publishes a small message to the queue, containing the URL (the claim check) and metadata (size, type, content hash).\n4. The consumer receives the small message quickly, then fetches the large payload from object storage using the URL.\n5. After processing, the consumer may delete the payload from storage (or a TTL handles it).\n\nThe analogy is the coat check at a theater: you give the attendant your coat (large), they give you a small numbered token (the claim check). You don't carry the coat around — you carry the token, and retrieve the coat when you need it. The queue is the token distribution system; the coat check room is the object store.\n\nCrucially, the claim check itself is small (a few hundred bytes: URL + metadata), so the queue stays fast even when the payloads are huge."
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "flow",
+      "payload": {
+        "code": "flowchart TD\n    N0[\"Producer\"]\n    N1[\"100\"]\n    N2[\"video\"]\n    N3[\"process\"]\n    N4[\"PUT\"]\n    N5[\"payload\"]\n    N6[\"object\"]\n    N7[\"storage\"]\n    N8[\"Object\"]\n    N9[\"Storage\"]\n    N10[\"Azure\"]\n    N11[\"Blob\"]\n    N12[\"GCS\"]\n    N13[\"12345.bin\"]\n    N14[\"returns\"]\n    N15[\"URL\"]\n    N16[\"key\"]\n    N17[\"~1 KB\"]\n    N18[\"Message:\"]\n    N19[\"small\"]\n    N20[\"(~1\"]\n    N21[\"KB)\"]\n    N22[\"'claim_check':\"]\n    N23[\"'s3:\"]\n    N24[\"bucket\"]\n    N25[\"12345',\"]\n    N26[\"'size':\"]\n    N27[\"104857600,\"]\n    N28[\"'content_type':\"]\n    N29[\"'video\"]\n    N30[\"mp4',\"]\n    N31[\"'sha256':\"]\n    N32[\"'abc123...'\"]\n    N33[\"publish\"]\n    N34[\"message\"]\n    N35[\"SQS / Kafka / Service Bus\"]\n    N36[\"Message\"]\n    N37[\"Queue\"]\n    N38[\"(SQS\"]\n    N39[\"Kafka\"]\n    N40[\"Service\"]\n    N41[\"Bus)\"]\n    N42[\"consumer\"]\n    N43[\"receives\"]\n    N44[\"fast\"]\n    N45[\"Consumer\"]\n    N46[\"fetch\"]\n    N47[\"uses\"]\n    N48[\"claim_check\"]\n    N49[\"from\"]\n    N50[\"holds\"]\n    N51[\"messages\"]\n    N52[\"stays\"]\n    N53[\"fast.\"]\n    N54[\"Large\"]\n    N55[\"payloads\"]\n    N56[\"live\"]\n    N57[\"storage.\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44\n    N44 --> N45\n    N45 --> N46\n    N46 --> N47\n    N47 --> N48\n    N48 --> N49\n    N49 --> N50\n    N50 --> N51\n    N51 --> N52\n    N52 --> N53\n    N53 --> N54\n    N54 --> N55\n    N55 --> N56\n    N56 --> N57",
+        "caption": "Claim Check: producer uploads large payload to object storage, queues a small message with a reference. Consumer fetches the payload using the reference.",
+        "alt_text": "A flow diagram with the producer at the top, holding a 100 MB video to process. Step one: the producer PUTs the payload to object storage (S3, Azure Blob, or GCS), storing it as payload-12345.bin and receiving back a URL and key. Step two: the producer publishes a small message — about 1 KB — to the message queue containing the claim check URL (s3://bucket/12345), the size, content type, and sha256 hash. Step three: the consumer receives the small message quickly. Step four: the consumer fetches the payload from storage using the claim check URL. The caption notes that the queue holds small messages and stays fast, while large payloads live in object storage."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "lifecycle",
+      "payload": {
+        "text": "Design decisions for the Claim Check pattern:\n\n**Where to store the payload?**\n- **Object storage** (S3, Azure Blob, GCS) — most common; cheap, durable, scalable, supports TTLs and lifecycle rules.\n- **A database BLOB column** — for smaller large payloads (1-50 MB) where you want transactional consistency with the message.\n- **A dedicated blob store** (Redis, MinIO) — for very short-lived payloads (seconds to minutes).\n\n**How long to keep the payload?**\n- **Until the consumer confirms processing** — consumer deletes the payload after successful processing. Requires the consumer to have delete permissions.\n- **TTL-based** — set a TTL on the payload; if the consumer never processes it, the payload auto-expires. Decouples payload lifecycle from consumer success.\n- **Indefinitely** — for payloads that may need to be re-processed (replays, bug fixes). Storage costs add up.\n\n**What metadata to include in the claim check?**\n- **URL/key** — required, the pointer to the payload.\n- **Size** — so the consumer knows what it's fetching.\n- **Content type** — so the consumer knows how to parse.\n- **Hash (SHA-256)** — for integrity verification; the consumer can detect corruption.\n- **Source/timestamp** — for debugging and tracing.\n- **Compression info** — if the payload was compressed before upload.\n\n**Access control?**\n- **Public read** — if the payload is non-sensitive; consumer fetches via plain URL.\n- **Presigned URL** — producer mints a presigned URL (Valet Key) for the consumer; tight scope, short expiry.\n- **IAM role-based** — consumer has its own credentials to read from the bucket.\n\n**Cleanup?**\n- A common bug: payloads accumulate in storage forever because nobody deletes them. Always have a cleanup strategy — TTL, post-processing delete, or a periodic GC job."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "compression",
+      "payload": {
+        "title": "Compress + Claim Check",
+        "body": "Combine compression with the Claim Check pattern for text-heavy payloads (JSON, XML, logs). A 50 MB JSON document compresses to 5 MB with gzip. Compress before upload, store compressed, and include the compression codec in the claim check metadata (e.g., `compression: gzip`). The consumer fetches the compressed bytes and decompresses. This reduces storage cost, network transfer time, and consumer memory pressure. The pattern composes naturally: compress first, then claim-check.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "when",
+      "payload": {
+        "text": "When to use Claim Check:\n\n- **Payload exceeds broker's size limit** (e.g., SQS's 256KB). Required, not optional.\n- **Payload is large (>1MB) and would slow the broker or other messages.** Even if technically allowed, large messages hurt broker performance.\n- **Multiple consumers need to fetch the same payload.** Store once, queue references multiple times.\n- **The payload is large but rarely consumed.** E.g., a daily report that most consumers don't read; let them fetch on demand.\n- **The payload needs to outlive the message.** Keep the message small and short-lived; the payload lives in storage until explicitly deleted.\n\nWhen NOT to use Claim Check:\n\n- **Payloads are small (<100KB).** No benefit; the indirection adds latency.\n- **The consumer needs strict ordering with the payload.** Claim checks add an extra hop; if you need atomicity, a single small message is better.\n- **You're already in a system that handles large messages well** (e.g., Kafka configured for large messages, with the operational cost accepted).\n- **Latency is critical** — the extra hop to object storage adds 50-200ms.\n\nA common variation: store the payload in object storage, then queue a small message with the URL and a few essential fields. The consumer can decide whether to fetch the full payload based on the metadata — skipping fetches for uninteresting messages entirely. This is the ‘envelope with metadata + claim check’ pattern, common in event-driven architectures."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q1",
+      "payload": {
+        "question": "You're sending 50 MB JSON documents through SQS for asynchronous processing. What's the issue, and how does the Claim Check pattern solve it?",
+        "shape": "mcq",
+        "options": [
+          "There's no issue — SQS handles 50 MB messages fine.",
+          "SQS has a 256 KB message size limit, so 50 MB messages won't fit. Use Claim Check: store the JSON in S3, send a small message with the S3 URL and metadata; consumer fetches the JSON from S3.",
+          "SQS supports large messages natively, but Claim Check is faster because it skips the queue entirely.",
+          "You should switch to Kafka, which has no message size limit."
+        ],
+        "answer_index": 1,
+        "rationale": "SQS has a hard 256 KB message size limit — a 50 MB message won't fit at all. The Claim Check pattern solves this: the producer uploads the 50 MB JSON to S3 (which has no practical size limit), then publishes a small message (1 KB) to SQS containing the S3 URL, size, content type, and a hash. The consumer receives the small message quickly, then fetches the full payload from S3. The queue stays fast (small messages only); the large payload lives in object storage where it belongs. Option (a) is wrong — SQS's limit is real. Option (c) is wrong — Claim Check still uses the queue; it just keeps messages small. Option (d) is wrong — Kafka has its own default 1 MB limit (configurable but discouraged for large payloads), and switching brokers doesn't solve the underlying issue of large payloads hurting broker performance.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q2",
+      "payload": {
+        "question": "After implementing Claim Check, your object storage costs keep growing. What's the most likely cause and fix?",
+        "shape": "mcq",
+        "options": [
+          "The queue is too small; increase the queue size.",
+          "Payloads are not being deleted after the consumer processes them. Add a cleanup step (consumer deletes the payload after successful processing) or a TTL/lifecycle policy on the storage.",
+          "The claim check messages are too large; reduce their size.",
+          "Switch to a different object storage provider."
+        ],
+        "answer_index": 1,
+        "rationale": "The classic operational bug with Claim Check: payloads accumulate forever because nobody deletes them. The producer uploads; the consumer fetches and processes; the payload sits in storage until you pay the bill. Fixes: (1) the consumer deletes the payload after successful processing (requires delete permissions); (2) set a TTL on the storage (S3 lifecycle rule, Azure Blob TTL) so payloads auto-expire after N days; (3) a periodic GC job that scans for orphaned payloads (those whose messages have been consumed and acknowledged). Option (a) is wrong — queue size is unrelated to storage cost. Option (c) is wrong — the claim check message is small by design; it's the payloads that grow. Option (d) is wrong — switching providers doesn't solve the underlying issue of un-cleaned payloads.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-claim-check-mental",
+      "payload": {
+        "text": "Engineering mental model",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-claim-check-mental",
+      "payload": {
+        "text": "**Mental model.** Think of Claim Check as a deliberate boundary in a system. The boundary exists because something becomes harder to manage when everything is done in one place: latency, scale, failure isolation, consistency, cost, or team ownership. The useful question is not “what does Claim Check mean?” but “what pressure makes this boundary worth introducing, and what new failure mode does it create?”"
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-claim-check-decision",
+      "payload": {
+        "title": "Design lens",
+        "body": "Before choosing Claim Check, name the workload, the critical user path, the dominant bottleneck, the failure you are trying to absorb, and the trade-off you are willing to accept. If you cannot name those five things, the design is probably premature.",
+        "kind": "info"
+      }
+    },
+    {
+      "type": "image",
+      "id": "upgrade-image-claim-check",
+      "payload": {
+        "src": "/learning-visuals/claim-check.svg",
+        "alt": "Original NO CAP systems visual for Claim Check.",
+        "caption": "Claim Check: a compact system-thinking visual.",
+        "credit": "Original NO CAP visual.",
+        "source_url": "https://github.com/donnemartin/system-design-primer"
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "upgrade-mermaid-claim-check",
+      "payload": {
+        "code": "flowchart LR\n  A[Client] --> B[Gateway] --> C[Service] --> D[State] --> E[Outcome]",
+        "caption": "Claim Check: a simplified system view showing the primary flow and the main state boundaries.",
+        "alt_text": "Claim Check: a simplified system view showing the primary flow and the main state boundaries."
+      }
+    },
+    {
+      "type": "code",
+      "id": "upgrade-code-claim-check",
+      "payload": {
+        "language": "text",
+        "code": "// Pseudocode\nrequest = receive()\nresult = claim_check(request)\nreturn result\n\n// Production questions:\n// 1. What happens on timeout?\n// 2. Can this operation be retried safely?\n// 3. What is the bottleneck?",
+        "caption": "A minimal engineering sketch for reasoning about Claim Check."
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-claim-check-numbers",
+      "payload": {
+        "text": "Back-of-the-envelope reasoning",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-claim-check-numbers",
+      "payload": {
+        "text": "Numerical lens: write down traffic, payload size, read/write ratio, peak multiplier and durability target before choosing a component. The numbers should justify the architecture."
+      }
+    },
+    {
+      "type": "simulation",
+      "id": "upgrade-sim-claim-check",
+      "payload": {
+        "title": "Interactive thought experiment: Claim Check",
+        "description": "Change the variables below and predict what breaks first in Claim Check. The production lab can later reuse these same inputs.",
+        "variables": [
+          {
+            "name": "traffic",
+            "description": "Requests/events per second",
+            "default": "1000"
+          },
+          {
+            "name": "latency",
+            "description": "Dependency latency",
+            "default": "50ms"
+          },
+          {
+            "name": "failure_rate",
+            "description": "Injected failure rate",
+            "default": "0%"
+          }
+        ],
+        "placeholder_note": "Interactive controls are deterministic; use the linked Labs section when a dedicated lab exists."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-claim-check-hint",
+      "payload": {
+        "title": "Hint",
+        "body": "If you are stuck on Claim Check, start by drawing the request path and marking every network hop, stateful component, queue, cache and failure boundary. Then estimate where the system will saturate.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-claim-check-1",
+      "payload": {
+        "shape": "prediction",
+        "question": "You increase traffic by 10× in a system using Claim Check. What should you inspect first?",
+        "options": [
+          "The newest framework version",
+          "The dominant bottleneck and its saturation signal",
+          "Only the UI",
+          "Nothing; the architecture should absorb any traffic automatically"
+        ],
+        "answer_index": 1,
+        "rationale": "System design is a constraint-and-bottleneck exercise. Start with the resource or dependency that will saturate first, then choose the smallest change that removes that bottleneck.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-claim-check-2",
+      "payload": {
+        "shape": "mcq",
+        "question": "Which statement is the safest engineering habit when using Claim Check?",
+        "options": [
+          "Choose it because it is popular",
+          "Add it before measuring the problem",
+          "State the workload, failure mode and trade-off it is solving",
+          "Use the most distributed design possible"
+        ],
+        "answer_index": 2,
+        "rationale": "Good architecture starts from requirements, workload and failure assumptions. The component is the consequence of that reasoning, not the starting point.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "scenario",
+      "id": "upgrade-scenario-claim-check",
+      "payload": {
+        "prompt": "Production scenario: your system uses Claim Check, traffic suddenly spikes, and p99 latency doubles. What is your first move?",
+        "context": "You have dashboards for traffic, latency, errors and saturation. You can change the architecture, but every change has operational cost.",
+        "options": [
+          {
+            "id": "a",
+            "text": "Add more instances immediately",
+            "outcome": "This may help, but only if compute saturation is the bottleneck.",
+            "correct": false
+          },
+          {
+            "id": "b",
+            "text": "Inspect the bottleneck and its saturation signal first",
+            "outcome": "Correct: diagnose before scaling or introducing a new pattern.",
+            "correct": true
+          },
+          {
+            "id": "c",
+            "text": "Disable monitoring to reduce overhead",
+            "outcome": "This removes the evidence you need to diagnose the incident.",
+            "correct": false
+          }
+        ],
+        "rationale": "Measure the limiting resource or dependency first. A bottleneck can be compute, database I/O, network, cache misses, lock contention, downstream latency, or queue backlog.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-claim-check-interview",
+      "payload": {
+        "text": "Interview drill",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-claim-check-interview",
+      "payload": {
+        "text": "**Answer this without notes:** When would you choose Claim Check, and when would you intentionally avoid it? Mention at least one bottleneck it addresses, one failure mode it introduces, and one alternative. Then quantify the workload you are designing for."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "field-guide-claim-check",
+      "payload": {
+        "title": "Engineering lens",
+        "body": "A useful engineering lens for Claim Check: define the problem it solves, the simpler design that fails first, the constraint that forces you to introduce this concept, and the new failure modes the concept creates.",
+        "kind": "tip"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "numerical-lens-claim-check",
+      "payload": {
+        "text": "### Numerical sanity check\n\nBack-of-the-envelope reasoning beats fake precision. State your traffic, payload, concurrency and growth assumptions explicitly, then calculate enough to know whether the current architecture is orders of magnitude away from the target."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "field-question-claim-check",
+      "payload": {
+        "shape": "prediction",
+        "question": "Imagine the simplest version of a system using Claim Check. What breaks first as traffic grows by 10×, and what would you change before reaching 100×?",
+        "context": "Do not optimize for a memorized definition. Reason from the workload and failure mode.",
+        "options": [
+          "Scale the same component immediately.",
+          "Measure the current bottleneck and state the assumption that changed.",
+          "Add more technologies until throughput improves.",
+          "Choose the most popular architecture."
+        ],
+        "answer_index": 1,
+        "rationale": "Good system design starts with the bottleneck and the changed constraint. The most popular or complex choice is not automatically correct.",
+        "difficulty": "interview"
+      }
+    }
+  ],
+  "trade_offs": {
+    "pros": [
+      "Handles arbitrarily large payloads — no broker size limit.",
+      "Queue stays fast — small messages only, low latency, high throughput.",
+      "Lower broker storage cost — large payloads live in cheaper object storage.",
+      "Multiple consumers can fetch the same payload without duplicating it in the queue.",
+      "Payload can outlive the message — useful for replays and retries.",
+      "Composes with compression, presigned URLs, and TTLs."
+    ],
+    "cons": [
+      "Extra hop — consumer must fetch the payload from object storage (50-200ms latency).",
+      "Operational complexity — now you operate the queue AND the object storage AND the cleanup logic.",
+      "Cleanup burden — payloads accumulate if not deleted; storage costs grow.",
+      "Idempotency required — if the consumer fails and the message is redelivered, it must handle re-fetching the payload safely.",
+      "Failure modes multiply — queue failure, storage failure, or partial fetch failure all need handling."
+    ]
+  },
+  "failure_modes": [
+    "Payload deleted before consumer fetches it — TTL too short or premature cleanup; consumer sees 404.",
+    "Payload never deleted — storage grows forever; cost surprise.",
+    "Consumer fetches the wrong payload — claim check message corrupted or routed incorrectly.",
+    "Object storage outage — consumer can't fetch; queue backs up.",
+    "Network failure during fetch — partial download; verify hash to detect.",
+    "Producer writes payload but fails to send message — orphaned payload with no consumer."
+  ],
+  "common_mistakes": [
+    "Not having a cleanup strategy — payloads accumulate, costs grow.",
+    "Setting TTLs too short — consumer may not have processed the payload before it expires.",
+    "Forgetting idempotency — redelivered messages must handle re-fetching safely.",
+    "Not including the size or hash in the claim check — consumer can't pre-validate or detect corruption.",
+    "Using public-read URLs for sensitive payloads — use presigned URLs with short expiries instead.",
+    "Storing payloads in the same database as the queue — couples storage latency to broker latency."
+  ],
+  "where_you_see_it": [
+    "AWS SQS + S3 — the canonical combination for large-payload async processing.",
+    "Azure Service Bus + Blob Storage — same pattern, Azure stack.",
+    "Kafka with S3 (for payloads exceeding Kafka's 1MB default) —Claim Check on top of Kafka.",
+    "Media processing pipelines — video, image, audio files for transcoding.",
+    "ML inference pipelines — large model artifacts or datasets passed between stages."
+  ],
+  "interview_prompts": [
+    "What is the Claim Check pattern, and why is it needed for large payloads?",
+    "Your SQS-based pipeline needs to process 100 MB video files. Walk me through the design.",
+    "After implementing Claim Check, your S3 storage keeps growing. What's the issue and how do you fix it?",
+    "How does Claim Check compose with other patterns like Valet Key, compression, or queue-based load leveling?",
+    "When should you NOT use Claim Check? When is a single large message preferable?"
+  ],
+  "real_system_mappings": [
+    {
+      "system": "AWS S3 + SQS Extended Client Library",
+      "how": "AWS publishes an Extended Client Library for Java that automatically uses the Claim Check pattern: messages larger than 256KB are uploaded to S3, and only the S3 pointer is sent through SQS. The consumer library fetches the payload transparently. This is AWS's official recommendation for large payloads through SQS."
+    },
+    {
+      "system": "Azure Service Bus attachments / blobs",
+      "how": "Azure Service Bus Premium supports up to 100 MB messages, but the recommended pattern for large payloads is the same Claim Check: store the payload in Azure Blob Storage, send only the URL through Service Bus. Microsoft's documentation explicitly recommends this for payloads above the standard tier's 256 KB limit."
+    },
+    {
+      "system": "Apache Kafka with external payload storage",
+      "how": "Kafka's default max message size is 1 MB. Companies needing larger payloads (Netflix, LinkedIn) commonly use a Claim Check pattern: store large payloads in S3, send only the reference through Kafka. This keeps Kafka's throughput high and avoids the operational pain of large Kafka messages."
+    }
+  ],
+  "status": "published",
+  "sources": [
+    {
+      "title": "System Design Primer",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Open source"
+    },
+    {
+      "title": "ByteByteGo — Scale from zero to millions",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "ByteByteGo"
+    },
+    {
+      "title": "System Design Tutorial",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "GeeksforGeeks"
+    },
+    {
+      "title": "System Design Roadmap",
+      "url": "https://roadmap.sh/system-design",
+      "publisher": "roadmap.sh"
+    },
+    {
+      "title": "Cloud Architecture reference",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Cloud Architecture reference",
+      "url": "https://learn.microsoft.com/en-us/azure/architecture/",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Cloud Architecture reference",
+      "url": "https://aws.amazon.com/architecture/",
+      "publisher": "Reference"
+    }
+  ]
+}

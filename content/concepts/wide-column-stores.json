@@ -1,0 +1,447 @@
+{
+  "slug": "wide-column-stores",
+  "version": 4,
+  "title": "Wide Column Stores",
+  "phase": "databases-data-systems",
+  "area": "Databases & Data Systems",
+  "estimated_minutes": 7,
+  "difficulty": "advanced",
+  "summary": "Wide-column stores (Cassandra, HBase, ScyllaDB, Bigtable) store data in sparse, sorted, multi-dimensional maps: rows are keyed by a partition key, and within a partition, columns are sorted by a clustering key. They are optimized for massive write throughput (millions of writes/sec across a cluster) and time-series access patterns, at the cost of JOINs, ad-hoc queries, and strong cross-row consistency.",
+  "why_it_matters": "When you outgrow a single primary's write capacity — usually at hundreds of thousands of writes per second — wide-column stores are the standard answer. They power IoT telemetry, event logs, messaging systems, and time-series databases at companies like Netflix, Apple, Discord, and Instagram. Choosing one means committing to a query-first data model: you design the schema around the queries you'll run, not the entities you'll store.",
+  "prerequisites": [
+    "sql-vs-nosql"
+  ],
+  "related": [
+    "key-value-stores",
+    "consistent-hashing",
+    "sharding",
+    "cap-theorem"
+  ],
+  "used_in": [
+    "Time-series telemetry (Netflix viewing history, Apple's metrics).",
+    "Messaging inbox storage (Discord, Instagram DMs).",
+    "IoT and sensor data at massive write throughput.",
+    "Event and audit logs.",
+    "Recommendation feature stores with heavy write volume."
+  ],
+  "blocks": [
+    {
+      "type": "prose",
+      "id": "intro",
+      "payload": {
+        "text": "A wide-column store sits between a key-value store and a relational database. It is best understood as a **sorted, sparse, multi-dimensional map**: `(row_key, column_key) → value`, sorted by row key first, then by column key within a row.\n\nTwo implementations dominate:\n- **Google Bigtable** (and its open-source cousins HBase, Accumulo) — the original. Rows are sorted lexicographically by row key; columns within a row are sorted and sparse (you only store columns you have data for).\n- **Apache Cassandra** — derived from Amazon's Dynamo (distribution) and Bigtable (data model). Adds tunable consistency, peer-to-peer topology (no master), and a query language (CQL).\n\nBoth models share the same trade-off: they optimize for **high write throughput** and **range scans within a partition**, at the cost of JOINs, cross-row transactions, and ad-hoc queries.\n\nScyllaDB is a C++ rewrite of Cassandra that's wire-compatible (speaks CQL) but achieves 5-10× higher throughput per node by using a thread-per-core 'seastar' architecture instead of Cassandra's JVM."
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "wide-column-data-model",
+      "payload": {
+        "code": "flowchart TD\n    N0[\"a partitioned, sorted wide row\"]\n    N1[\"Cassandra\"]\n    N2[\"data\"]\n    N3[\"model\"]\n    N4[\"partitioned,\"]\n    N5[\"sorted\"]\n    N6[\"wide\"]\n    N7[\"row)\"]\n    N8[\"user_id, activity_ts\"]\n    N9[\"Table:\"]\n    N10[\"user_activity\"]\n    N11[\"(user_id,\"]\n    N12[\"activity_ts)\"]\n    N13[\"action,\"]\n    N14[\"device\"]\n    N15[\"hash → which node\"]\n    N16[\"Partition\"]\n    N17[\"key:\"]\n    N18[\"user_id\"]\n    N19[\"(hash\"]\n    N20[\"which\"]\n    N21[\"node)\"]\n    N22[\"sort order within partition\"]\n    N23[\"Clustering\"]\n    N24[\"activity_ts\"]\n    N25[\"(sort\"]\n    N26[\"order\"]\n    N27[\"within\"]\n    N28[\"partition)\"]\n    N29[\"Partition:\"]\n    N30[\"action\"]\n    N31[\"10:01:00\"]\n    N32[\"login\"]\n    N33[\"ios\"]\n    N34[\"10:02:14\"]\n    N35[\"view\"]\n    N36[\"10:02:45\"]\n    N37[\"click\"]\n    N38[\"10:05:10\"]\n    N39[\"logout\"]\n    N40[\"...\"]\n    N41[\"11:30:00\"]\n    N42[\"web\"]\n    N43[\"range\"]\n    N44[\"scan:\"]\n    N45[\"WHERE\"]\n    N46[\"AND\"]\n    N47[\"10:00\"]\n    N48[\"11:00\"]\n    N49[\"single\"]\n    N50[\"partition,\"]\n    N51[\"disk\"]\n    N52[\"sequential\"]\n    N53[\"read.\"]\n    N54[\"Each\"]\n    N55[\"partition\"]\n    N56[\"lives\"]\n    N57[\"node\"]\n    N58[\"chosen\"]\n    N59[\"hash(user_id).\"]\n    N60[\"activity_ts.\"]\n    N61[\"log N + result size\"]\n    N62[\"Range\"]\n    N63[\"scans\"]\n    N64[\"inside\"]\n    N65[\"are\"]\n    N66[\"O(log\"]\n    N67[\"result\"]\n    N68[\"size).\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44\n    N44 --> N45\n    N45 --> N46\n    N46 --> N47\n    N47 --> N48\n    N48 --> N49\n    N49 --> N50\n    N50 --> N51\n    N51 --> N52\n    N52 --> N53\n    N53 --> N54\n    N54 --> N55\n    N55 --> N56\n    N56 --> N57\n    N57 --> N58\n    N58 --> N59\n    N59 --> N60\n    N60 --> N61\n    N61 --> N62\n    N62 --> N63\n    N63 --> N64\n    N64 --> N65\n    N65 --> N66\n    N66 --> N67\n    N67 --> N68",
+        "caption": "Wide-column data model: data is partitioned by a key and sorted within a partition by a clustering key — perfect for time-bucketed range scans.",
+        "alt_text": "A diagram of a Cassandra partition. The table is user_activity with primary key (user_id, activity_ts). user_id is the partition key that determines which node stores the data via a hash. activity_ts is the clustering key that sorts rows within a partition on disk. The diagram shows partition user_id=42 holding a sorted sequence of activity records: login at 10:01, view at 10:02, click at 10:02, logout at 10:05, and a later login at 11:30. A range scan filtering user_id=42 and activity_ts between 10:00 and 11:00 is a single-partition, sequential on-disk read."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "partition-and-cluster",
+      "payload": {
+        "text": "The two most important decisions in wide-column schema design are:\n\n1. **The partition key** — determines which node holds the data. Hashed and distributed via consistent hashing across the cluster. All rows in a partition live on the same set of replica nodes and are queried together.\n2. **The clustering key** — sorts rows within a partition on disk. Range scans on the clustering key are sequential reads, the fastest possible disk pattern.\n\nGet these right and a query like `SELECT * FROM user_activity WHERE user_id = 42 AND activity_ts > '10:00' AND activity_ts < '11:00'` is a single-partition lookup followed by a sequential on-disk read — O(log N + result size), with no fan-out across nodes.\n\nGet them wrong and the query either fails outright (Cassandra refuses cross-partition range scans by default) or becomes a full-cluster scatter-gather that's 100× slower.\n\nThis is the fundamental mental shift from SQL: **in Cassandra, the schema IS the query plan.** You can't add an index later to fix a slow query — you'd have to design a new table that materializes the data in a different shape for that specific query. This pattern is called **query-first design**: enumerate the queries first, then create one table per query shape."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "tunable-consistency",
+      "payload": {
+        "title": "Cassandra's tunable consistency",
+        "body": "Every read and write in Cassandra specifies a consistency level: ONE, QUORUM, LOCAL_QUORUM, ALL, etc. With replication factor 3, `QUORUM` means 2 of 3 replicas must acknowledge. This gives you per-operation control of the latency/durability/consistency trade-off: `ONE` for fastest, `QUORUM` for strong-ish, `ALL` for strict (slowest, fails if any replica is down). The CAP-theorem math: reads + writes > replication factor → strong consistency (R+W>N). For RF=3: QUORUM reads + QUORUM writes = 2+2 > 3, so reads reflect all confirmed writes.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "compaction-and-lsm",
+      "payload": {
+        "text": "Wide-column stores are built on **LSM trees** (Log-Structured Merge trees), not B-trees. Writes go to an in-memory `MemTable` and an append-only commit log (for crash recovery); when the MemTable fills, it's flushed to disk as an immutable `SSTable`. Background **compaction** merges multiple SSTables into larger ones, discarding tombstones (deletion markers) and superseded versions.\n\nThe LSM architecture is the secret to Cassandra's write throughput: writes are always sequential appends, never random disk I/O. The cost is **read amplification** — a read may need to consult the MemTable plus multiple SSTables before finding the latest value (mitigated by Bloom filters and caches). It also means **deletes are soft** — tombstones persist until compaction, so heavy delete workloads can bloat disk usage and slow reads until compaction catches up.\n\nThis is the opposite trade-off from B-tree databases (PostgreSQL, MySQL), which optimize for fast point reads at the cost of slower random writes."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "when-to-use",
+      "payload": {
+        "text": "**Use a wide-column store when:**\n\n1. **Write throughput is the bottleneck** — millions of writes per second, beyond what a single SQL primary can handle.\n2. **Time-series or event-log access patterns** — data written in time order, queried by time range within an entity.\n3. **Geo-distributed deployment** — Cassandra's multi-datacenter replication is first-class (LOCAL_QUORUM keeps reads in-region).\n4. **Schema is stable per query** — you can enumerate queries up front and design tables for each.\n5. **Eventual consistency is acceptable** — telemetry, activity logs, messaging metadata.\n\n**Avoid wide-column stores when:**\n\n1. You need ad-hoc analytical queries (use a columnar warehouse like ClickHouse, Snowflake, BigQuery).\n2. You need ACID transactions across rows (use SQL).\n3. Your access patterns are unknown or evolving fast (each new query shape needs a new table).\n4. The data is highly relational (use SQL or a graph DB).\n5. Read latency must be single-digit milliseconds with strong consistency (Cassandra is eventually consistent by default).\n\nA useful rule of thumb: Cassandra is the right answer when you can describe every query as `(partition_key, clustering_key_range)` and accept that adding a new access pattern means writing a new materialized table."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q1",
+      "payload": {
+        "question": "You're storing IoT sensor data: 10,000 devices each emitting a reading every second, with queries like 'last 24 hours of readings for device X' and 'all readings for device X between time A and B'. What's the right Cassandra primary key, and why?",
+        "shape": "mcq",
+        "options": [
+          "((device_id), reading_ts) — device_id as partition key, reading_ts as clustering key.",
+          "((reading_ts), device_id) — timestamp as partition key for time-bucket queries.",
+          "device_id only — simplest lookup.",
+          "(device_id, reading_id) — UUID reading_id as clustering key."
+        ],
+        "answer_index": 0,
+        "rationale": "device_id as the partition key keeps all of a device's readings on the same replica set, enabling single-partition queries. reading_ts as the clustering key sorts readings within the partition by time on disk, so a time-range query becomes a sequential on-disk read — the fastest possible pattern. The trap of option 2 (timestamp as partition key) is hot partitions: all devices' current readings go to the same time bucket partition, creating a write hotspot. Option 3 doesn't allow time-range scans. Option 4 sorts by UUID, not time, so range scans by time are impossible. The general pattern for time-series: (entity_id, timestamp).",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q2",
+      "payload": {
+        "question": "A teammate suggests adding an index on `device_id` to speed up a Cassandra query that filters by `reading_ts` only (no partition key). What's the right response?",
+        "shape": "mcq",
+        "options": [
+          "Good idea — Cassandra supports secondary indexes for exactly this case.",
+          "Wrong approach — Cassandra can't efficiently do cross-partition range scans; either redesign the table to bucket by time, or use Spark for offline analysis.",
+          "Add a Global Secondary Index (GSI) like in DynamoDB.",
+          "Increase the replication factor to spread the load."
+        ],
+        "answer_index": 1,
+        "rationale": "A query that filters by `reading_ts` alone with no partition key is a full-cluster scatter-gather — it asks every node to scan its partitions for matching rows. Cassandra's secondary indexes are designed for high-cardinality, low-selectivity lookups within a known partition, not global range scans. Adding an index won't fix this; it'll just hide the cost. The correct fix is data modeling: create a second table bucketed by time (e.g., partition key = (day, hour_bucket)) that materializes the same data for time-range queries, or accept that this is an analytical query and run it via Spark/Cassandra Analytics. Wide-column stores require query-first design — you cannot retroactively index your way out of an unmodeled query.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q3",
+      "payload": {
+        "question": "Why does Cassandra achieve such high write throughput compared to a B-tree database like PostgreSQL?",
+        "shape": "mcq",
+        "options": [
+          "It uses faster SSDs through direct I/O bypass.",
+          "Writes are sequential appends to a log and in-memory MemTable, not random in-place updates to a B-tree.",
+          "It runs on the JVM which is faster than native code for I/O.",
+          "It uses ZFS compression to fit more data per disk."
+        ],
+        "answer_index": 1,
+        "rationale": "The LSM tree architecture is the core reason: writes go to an in-memory MemTable and an append-only commit log on disk. Disk I/O is always sequential (the fastest pattern for spinning disks and still optimal for SSDs). B-tree databases like PostgreSQL write in place — they locate the page containing the row, modify it, and write it back, which is random I/O that competes with reads and requires careful WAL/fsync handling. The trade-off: LSM trees shift the cost to reads (which may consult multiple SSTables) and to background compaction. Cassandra wins on writes, PostgreSQL wins on point reads with strong consistency.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-wide-column-stores-mental",
+      "payload": {
+        "text": "Engineering mental model",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-wide-column-stores-mental",
+      "payload": {
+        "text": "**Mental model.** Think of Wide Column Stores as a deliberate boundary in a system. The boundary exists because something becomes harder to manage when everything is done in one place: latency, scale, failure isolation, consistency, cost, or team ownership. The useful question is not “what does Wide Column Stores mean?” but “what pressure makes this boundary worth introducing, and what new failure mode does it create?”"
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-wide-column-stores-decision",
+      "payload": {
+        "title": "Design lens",
+        "body": "Before choosing Wide Column Stores, name the workload, the critical user path, the dominant bottleneck, the failure you are trying to absorb, and the trade-off you are willing to accept. If you cannot name those five things, the design is probably premature.",
+        "kind": "info"
+      }
+    },
+    {
+      "type": "image",
+      "id": "upgrade-image-wide-column-stores",
+      "payload": {
+        "src": "/learning-visuals/wide-column-stores.svg",
+        "alt": "Original NO CAP systems visual for Wide Column Stores.",
+        "caption": "Wide Column Stores: a compact system-thinking visual.",
+        "credit": "Original NO CAP visual.",
+        "source_url": "https://github.com/donnemartin/system-design-primer"
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "upgrade-mermaid-wide-column-stores",
+      "payload": {
+        "code": "flowchart LR\n  A[Client] --> B[Service] --> C[Data layer] --> D[Replication] --> E[Durability]",
+        "caption": "Wide Column Stores: a simplified system view showing the primary flow and the main state boundaries.",
+        "alt_text": "Wide Column Stores: a simplified system view showing the primary flow and the main state boundaries."
+      }
+    },
+    {
+      "type": "code",
+      "id": "upgrade-code-wide-column-stores",
+      "payload": {
+        "language": "sql",
+        "code": "SELECT id, created_at\nFROM records\nWHERE tenant_id = ?\nORDER BY created_at DESC\nLIMIT 50;\n\n-- Ask: which index makes this query predictable at scale?",
+        "caption": "A minimal engineering sketch for reasoning about Wide Column Stores."
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-wide-column-stores-numbers",
+      "payload": {
+        "text": "Back-of-the-envelope reasoning",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-wide-column-stores-numbers",
+      "payload": {
+        "text": "Numerical lens: write down traffic, payload size, read/write ratio, peak multiplier and durability target before choosing a component. The numbers should justify the architecture."
+      }
+    },
+    {
+      "type": "simulation",
+      "id": "upgrade-sim-wide-column-stores",
+      "payload": {
+        "title": "Interactive thought experiment: Wide Column Stores",
+        "description": "Change the variables below and predict what breaks first in Wide Column Stores. The production lab can later reuse these same inputs.",
+        "variables": [
+          {
+            "name": "traffic",
+            "description": "Requests/events per second",
+            "default": "1000"
+          },
+          {
+            "name": "latency",
+            "description": "Dependency latency",
+            "default": "50ms"
+          },
+          {
+            "name": "failure_rate",
+            "description": "Injected failure rate",
+            "default": "0%"
+          }
+        ],
+        "placeholder_note": "Interactive controls are deterministic; use the linked Labs section when a dedicated lab exists."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-wide-column-stores-hint",
+      "payload": {
+        "title": "Hint",
+        "body": "If you are stuck on Wide Column Stores, start by drawing the request path and marking every network hop, stateful component, queue, cache and failure boundary. Then estimate where the system will saturate.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-wide-column-stores-1",
+      "payload": {
+        "shape": "prediction",
+        "question": "You increase traffic by 10× in a system using Wide Column Stores. What should you inspect first?",
+        "options": [
+          "The newest framework version",
+          "The dominant bottleneck and its saturation signal",
+          "Only the UI",
+          "Nothing; the architecture should absorb any traffic automatically"
+        ],
+        "answer_index": 1,
+        "rationale": "System design is a constraint-and-bottleneck exercise. Start with the resource or dependency that will saturate first, then choose the smallest change that removes that bottleneck.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-wide-column-stores-2",
+      "payload": {
+        "shape": "mcq",
+        "question": "Which statement is the safest engineering habit when using Wide Column Stores?",
+        "options": [
+          "Choose it because it is popular",
+          "Add it before measuring the problem",
+          "State the workload, failure mode and trade-off it is solving",
+          "Use the most distributed design possible"
+        ],
+        "answer_index": 2,
+        "rationale": "Good architecture starts from requirements, workload and failure assumptions. The component is the consequence of that reasoning, not the starting point.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "scenario",
+      "id": "upgrade-scenario-wide-column-stores",
+      "payload": {
+        "prompt": "Production scenario: your system uses Wide Column Stores, traffic suddenly spikes, and p99 latency doubles. What is your first move?",
+        "context": "You have dashboards for traffic, latency, errors and saturation. You can change the architecture, but every change has operational cost.",
+        "options": [
+          {
+            "id": "a",
+            "text": "Add more instances immediately",
+            "outcome": "This may help, but only if compute saturation is the bottleneck.",
+            "correct": false
+          },
+          {
+            "id": "b",
+            "text": "Inspect the bottleneck and its saturation signal first",
+            "outcome": "Correct: diagnose before scaling or introducing a new pattern.",
+            "correct": true
+          },
+          {
+            "id": "c",
+            "text": "Disable monitoring to reduce overhead",
+            "outcome": "This removes the evidence you need to diagnose the incident.",
+            "correct": false
+          }
+        ],
+        "rationale": "Measure the limiting resource or dependency first. A bottleneck can be compute, database I/O, network, cache misses, lock contention, downstream latency, or queue backlog.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-wide-column-stores-interview",
+      "payload": {
+        "text": "Interview drill",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-wide-column-stores-interview",
+      "payload": {
+        "text": "**Answer this without notes:** When would you choose Wide Column Stores, and when would you intentionally avoid it? Mention at least one bottleneck it addresses, one failure mode it introduces, and one alternative. Then quantify the workload you are designing for."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "field-guide-wide-column-stores",
+      "payload": {
+        "title": "Engineering lens",
+        "body": "For Wide Column Stores, start with access patterns rather than brand names. Identify the dominant reads/writes, data relationships, consistency requirements, partition key, hot keys and failure behavior before choosing a storage strategy.",
+        "kind": "tip"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "numerical-lens-wide-column-stores",
+      "payload": {
+        "text": "### Numerical sanity check\n\nA rough capacity check: required write throughput ≈ peak writes/s × average record size. At 5,000 writes/s and 2 KB average payloads, the raw incoming data stream is about 10 MB/s before indexes, replication and overhead."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "field-question-wide-column-stores",
+      "payload": {
+        "shape": "prediction",
+        "question": "A team proposes Wide Column Stores because it 'scales'. What workload characteristic would make that choice a poor fit?",
+        "context": "Do not optimize for a memorized definition. Reason from the workload and failure mode.",
+        "options": [
+          "Scale the same component immediately.",
+          "Measure the current bottleneck and state the assumption that changed.",
+          "Add more technologies until throughput improves.",
+          "Choose the most popular architecture."
+        ],
+        "answer_index": 1,
+        "rationale": "Good system design starts with the bottleneck and the changed constraint. The most popular or complex choice is not automatically correct.",
+        "difficulty": "interview"
+      }
+    }
+  ],
+  "trade_offs": {
+    "pros": [
+      "Highest write throughput of any data model — millions of writes/sec per cluster.",
+      "Linear horizontal scalability — add nodes, redistribute ranges automatically.",
+      "First-class multi-datacenter replication — geo-distributed workloads are native.",
+      "Tunable consistency per operation — ONE, QUORUM, LOCAL_QUORUM, ALL.",
+      "Sequential on-disk writes (LSM) are durable-friendly and SSD-friendly.",
+      "Time-series access patterns are O(log N + result size) when partitioned correctly."
+    ],
+    "cons": [
+      "No JOINs — relationships must be denormalized or handled in app code.",
+      "No ad-hoc queries — every query shape needs its own table.",
+      "Eventual consistency by default — strong consistency (QUORUM+QUORUM) is slower.",
+      "Schema changes that alter partitioning require full table rebuilds.",
+      "Read amplification and tombstone bloat can hurt reads until compaction catches up.",
+      "Operational complexity — compaction strategy, repair, gc_grace_seconds all need tuning."
+    ]
+  },
+  "failure_modes": [
+    "Hot partition — bad partition key (timestamp, auto-increment) sends all writes to one node.",
+    "Tombstone explosion — heavy deletes create many tombstones that slow reads until compaction.",
+    "Unbounded partition growth — a partition key with too many clustering rows can exceed manageable size.",
+    "Cross-partition range scans — accidentally querying without a partition key causes full-cluster scatter-gather.",
+    "Stale data after read-repair lag — read-repair async writes can momentarily expose inconsistent data.",
+    "Compaction storms — too-small compaction windows or bad strategy can saturate I/O and starve reads."
+  ],
+  "common_mistakes": [
+    "Designing tables like SQL — one big 'events' table and hoping indexes will fix queries.",
+    "Using a timestamp as the partition key — guarantees hot partitions and uneven load.",
+    "Forgetting that secondary indexes in Cassandra are not like SQL indexes — they're for narrow lookups, not range scans.",
+    "Treating Cassandra as strongly consistent by default — it isn't, and that's bitten many teams.",
+    "Not planning compaction strategy (SizeTiered vs Leveled vs TimeWindow) for the workload.",
+    "Not modeling materialized tables for each query shape — leading to slow cross-partition reads."
+  ],
+  "where_you_see_it": [
+    "Netflix — viewing history and activity logs on Cassandra across multiple regions.",
+    "Discord — originally Cassandra for messages, moved to ScyllaDB for higher throughput per node.",
+    "Apple — Siri usage data and metrics on Cassandra at massive scale (tens of thousands of nodes).",
+    "Instagram — direct-message inbox storage on Cassandra.",
+    "Reddit — uses Cassandra for hot data and time-series style access patterns.",
+    "Spotify — uses Cassandra for user-generated playlists and listening history."
+  ],
+  "interview_prompts": [
+    "When would you choose Cassandra over PostgreSQL? Over MongoDB? Over DynamoDB?",
+    "Design a Cassandra schema for storing user activity events with queries by user-time-range and by device-time-range. How many tables do you need?",
+    "Your Cassandra cluster is showing read latency spikes. Walk through what you'd investigate.",
+    "Explain the LSM tree vs B-tree trade-off and why it matters for write-heavy workloads.",
+    "What does `QUORUM` consistency mean in Cassandra with replication factor 3? What's the CAP-theorem implication of using QUORUM for both reads and writes?"
+  ],
+  "real_system_mappings": [
+    {
+      "system": "Netflix",
+      "how": "Runs hundreds of Cassandra nodes across multiple AWS regions for viewing history, where every play event is appended and queried by user-time range. Uses LOCAL_QUORUM reads in-region to keep latency low while preserving consistency within a region."
+    },
+    {
+      "system": "Discord",
+      "how": "Originally stored billions of messages in Cassandra; moved to ScyllaDB (C++ rewrite of Cassandra, CQL-compatible) to reduce per-node overhead and the number of nodes needed. Their blog post on the migration is a classic case study in wide-column store tuning."
+    },
+    {
+      "system": "Apple",
+      "how": "Reported to run one of the largest Cassandra deployments in the world (tens of thousands of nodes) for Siri analytics and metrics — write-heavy, eventually consistent, time-bucketed queries."
+    },
+    {
+      "system": "Instagram",
+      "how": "Uses Cassandra for direct-message inbox storage — every message is keyed by recipient ID and timestamp, and reads are time-range scans within a partition."
+    }
+  ],
+  "status": "published",
+  "sources": [
+    {
+      "title": "System Design Primer",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Open source"
+    },
+    {
+      "title": "ByteByteGo — Scale from zero to millions",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "ByteByteGo"
+    },
+    {
+      "title": "System Design Tutorial",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "GeeksforGeeks"
+    },
+    {
+      "title": "System Design Roadmap",
+      "url": "https://roadmap.sh/system-design",
+      "publisher": "roadmap.sh"
+    },
+    {
+      "title": "Databases & Data Systems reference",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Databases & Data Systems reference",
+      "url": "https://www.postgresql.org/docs/",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Databases & Data Systems reference",
+      "url": "https://aws.amazon.com/what-is/database/",
+      "publisher": "Reference"
+    }
+  ]
+}

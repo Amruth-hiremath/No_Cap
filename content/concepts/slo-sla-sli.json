@@ -1,0 +1,430 @@
+{
+  "slug": "slo-sla-sli",
+  "version": 4,
+  "title": "SLO / SLA / SLI",
+  "phase": "observability",
+  "area": "Observability",
+  "estimated_minutes": 7,
+  "difficulty": "advanced",
+  "summary": "SLI (Service Level Indicator) is a measurement: \"99.5% of requests succeeded.\" SLO (Service Level Objective) is the target: \"we aim for 99.9% success over 30 days.\" SLA (Service Level Agreement) is the contract: \"if we miss 99.5%, we refund you.\" The error budget — the gap between the SLO and 100% — is the controlled resource that lets teams balance reliability against feature velocity.",
+  "why_it_matters": "Without SLOs, \"is the service up?\" is a vibes question. With SLOs, it's quantitative: we said 99.9% availability, we're at 99.85%, that's an error budget overspend. SLOs let teams decide when to ship features vs stabilize, when to alert vs ignore, and when to escalate vs accept. They turn reliability from an emotional debate (\"the site feels slow\") into a measurable contract. The error budget is the secret weapon: it gives engineers permission to take risks (deploy, refactor) when there's budget, and forces conservatism when there isn't.",
+  "prerequisites": [
+    "metrics-logs-traces",
+    "availability-vs-consistency"
+  ],
+  "related": [
+    "metrics-logs-traces",
+    "alerts-visualization",
+    "availability-monitoring"
+  ],
+  "used_in": [
+    "Every modern production service.",
+    "Cloud provider contracts (AWS, GCP, Azure SLAs).",
+    "Cross-team reliability commitments."
+  ],
+  "blocks": [
+    {
+      "type": "prose",
+      "id": "intro",
+      "payload": {
+        "text": "Three terms, often confused:\n\n- **SLI (Service Level Indicator)**: a measurement. \"What fraction of requests succeeded?\" \"What's the p99 latency?\" It's a metric with a definition (numerator, denominator, aggregation window).\n- **SLO (Service Level Objective)**: the target. \"99.9% of requests succeed over 30 days.\" It's an internal goal — what the team commits to.\n- **SLA (Service Level Agreement)**: the contract. \"If we miss 99.5% over a month, we refund 10% of your bill.\" It's a customer-facing promise with consequences.\n\nThe relationship is layered: SLA < SLO < 100%. The SLA is the contractual floor — missing it costs money. The SLO is the operational target — usually set 1-2 nines above the SLA so the team has margin. The gap between SLO and 100% is the **error budget** — the failures the team is allowed to have."
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "error-budget",
+      "payload": {
+        "code": "flowchart TD\n    N0[\"impossible\"]\n    N1[\"100.0%\"]\n    N2[\"perfect\"]\n    N3[\"(impossible)\"]\n    N4[\"99.9%\"]\n    N5[\"SLO\"]\n    N6[\"target\"]\n    N7[\"error\"]\n    N8[\"budget\"]\n    N9[\"0.1% allowed failures\"]\n    N10[\"(0.1%\"]\n    N11[\"allowed\"]\n    N12[\"failures)\"]\n    N13[\"99.5%\"]\n    N14[\"SLA\"]\n    N15[\"contract\"]\n    N16[\"floor\"]\n    N17[\"safety\"]\n    N18[\"margin\"]\n    N19[\"don't burn budget here\"]\n    N20[\"(don't\"]\n    N21[\"burn\"]\n    N22[\"here)\"]\n    N23[\"99.0%\"]\n    N24[\"breach\"]\n    N25[\"refund\"]\n    N26[\"day\"]\n    N27[\"window.\"]\n    N28[\"Budget\"]\n    N29[\"0.1%\"]\n    N30[\"30d\"]\n    N31[\"43min\"]\n    N32[\"downtime.\"]\n    N33[\"tracking:\"]\n    N34[\"green:\"]\n    N35[\"deploying\"]\n    N36[\"freely\"]\n    N37[\"yellow:\"]\n    N38[\"only\"]\n    N39[\"safe\"]\n    N40[\"changes\"]\n    N41[\"red:\"]\n    N42[\"freeze;\"]\n    N43[\"focus\"]\n    N44[\"reliability\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44",
+        "caption": "SLA < SLO < 100%. The gap between SLO and 100% is the error budget; the gap between SLA and SLO is the safety margin.",
+        "alt_text": "A vertical scale from one hundred percent down. The SLO target at ninety-nine point nine percent defines the error budget of zero point one percent allowed failures. Below that, the SLA contract floor at ninety-nine point five percent defines a safety margin that should never be burned. Below that, ninety-nine percent is the SLA breach threshold that triggers refunds. Over a thirty-day window, the zero point one percent error budget equals about forty-three minutes of allowed downtime. Budget tracking is green when deploying freely, yellow when only safe changes are allowed, and red when there's a freeze to focus on reliability."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "sli-design",
+      "payload": {
+        "text": "Designing SLIs is harder than it looks. The Google SRE book recommends a structure: \"SLI = good events / total events.\" Examples:\n\n- Availability: `count(requests with status < 500) / count(all requests)` over the last 5 minutes.\n- Latency: `count(requests with latency < 500ms) / count(all requests)` over the last 5 minutes.\n- Freshness: `count(records updated in last 5 min) / count(all records)`.\n- Correctness: `count(results matching reference) / count(results)`.\n\nThe trick is choosing what \"good\" means. Availability alone is weak — a service that returns 500 for 1% of users but 200 for 99% looks fine on average. Latency alone is weak — a service that returns in 1ms but gives wrong answers is failing. Good SLIs combine user-visible metrics: \"99% of requests return <500ms with status 200 and a non-empty body.\""
+      }
+    },
+    {
+      "type": "prose",
+      "id": "slo-setting",
+      "payload": {
+        "text": "How to choose an SLO? The trap is picking 100% or 99.999% because it sounds impressive. The right approach:\n\n1. **Measure current performance** over a representative period (e.g., 90 days). What's the actual p99 latency? Actual success rate?\n2. **Pick an SLO slightly below current performance.** If you currently achieve 99.95%, set the SLO at 99.9%. This gives you error budget to use.\n3. **Align SLO with user happiness.** What latency do users tolerate before they abandon? What error rate do they tolerate before churning?\n4. **Re-evaluate quarterly.** If you consistently exceed your SLO, raise it. If you consistently miss it, either lower it or invest in reliability.\n\nThe cost of more nines is exponential: 99% is one bad day per quarter; 99.9% is one bad day per year; 99.99% requires multi-region active-active with sophisticated automation. Each additional nine roughly doubles operational cost.\n\nDon't set SLOs you can't meet. A 99.99% SLO that you miss monthly is worse than a 99.5% SLO you always hit — it destroys trust and trains teams to ignore alerts."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "error-budget-policy",
+      "payload": {
+        "title": "The error budget policy is what makes SLOs work",
+        "body": "An SLO without a policy is just a number. The policy says: when the budget is healthy (green), teams can deploy freely, take risks, ship features. When the budget is burning (yellow), only safe changes. When the budget is exhausted (red), feature work freezes and the team focuses on reliability until the budget recovers. This converts reliability from an argument (\"should we ship?\") into a rule (\"budget is red, freeze\"). The rule must be enforced — typically by a release freeze that only the SRE or VP can override. Without enforcement, SLOs are decoration.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "sla-vs-slo",
+      "payload": {
+        "text": "The SLA is the contract, and it's deliberately weaker than the SLO. If your SLO is 99.9%, your SLA might be 99.5% — giving you a safety margin where you can miss the SLO (an internal signal) without breaching the SLA (a contractual breach). The SLA specifies consequences: refunds, credits, contract termination. These force the company to take reliability seriously because missing it costs money.\n\nInternal services typically have SLOs but not SLAs — they don't have a customer to refund. But the SLOs still matter: they define what dependencies can rely on. If service A has an SLO of 99.9% and service B depends on A, B can design its own SLO with A's reliability as a floor.\n\nSLAs are usually measured monthly. SLOs are usually measured on a rolling 28-day or 30-day window — long enough to smooth blips, short enough that an outage actually consumes budget."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q1",
+      "payload": {
+        "question": "Your team's SLO is 99.9% availability over 30 days. You're at 99.95%. What does this mean, and what should the team do?",
+        "shape": "mcq",
+        "options": [
+          "The team is failing and should stop all feature work.",
+          "The team has error budget remaining; they can continue shipping features and taking risks.",
+          "The team is over-performing and should raise the SLO to 99.99%.",
+          "The team should stop monitoring — they're fine."
+        ],
+        "answer_index": 1,
+        "rationale": "99.95% exceeds the 99.9% target, which means the team has unused error budget. The whole point of the error budget is to give teams permission to take risks when it's healthy. Stopping feature work would be the response if budget were exhausted (under 99.9%). Raising the SLO is premature — quarterly reviews handle that. Stopping monitoring is never right. The error budget framework specifically allows risk-taking when budget is green; freezing when there's budget defeats the purpose.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q2",
+      "payload": {
+        "question": "Why is the SLA usually set lower than the SLO?",
+        "shape": "mcq",
+        "options": [
+          "Because customers prefer lower commitments.",
+          "To create a safety margin: the team can miss the SLO (internal signal) without breaching the SLA (contractual, costs money).",
+          "Because SLAs are calculated differently.",
+          "It's just convention; there's no real reason."
+        ],
+        "answer_index": 1,
+        "rationale": "The SLA is a contract with consequences (refunds, credits, termination). The SLO is an internal target. If they were equal, every internal miss would also be a contractual breach — leaving no room for the normal operational variance that SLOs are designed to absorb. The gap (typically one or two nines) is the safety margin: the team operates against the SLO, and missing it triggers internal reviews, but doesn't breach the contract unless the SLA is also missed. This is why, e.g., AWS might publish a 99.9% SLA while internally targeting 99.99%.",
+        "difficulty": "core"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q3",
+      "payload": {
+        "question": "Which SLI is most useful for measuring user-visible latency?",
+        "shape": "mcq",
+        "options": [
+          "Average latency over the last 5 minutes.",
+          "p99 latency: the latency under which 99% of requests complete. Captures the worst experience most users see.",
+          "Maximum latency observed.",
+          "Count of requests with latency < 1 second."
+        ],
+        "answer_index": 1,
+        "rationale": "Average latency hides outliers — if 1% of users see 10-second latency and 99% see 100ms, the average looks fine but 1% of users are unhappy. p99 captures the experience of the slowest 1%, which is what most users see in the worst case. Maximum is too sensitive (one outlier skews it). Count of requests under a threshold is a valid SLI (\"good events / total events\") but is less precise than a percentile. The standard practice is to set an SLO on a high percentile (p99 or p99.9) — not the average.",
+        "difficulty": "core"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-slo-sla-sli-mental",
+      "payload": {
+        "text": "Engineering mental model",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-slo-sla-sli-mental",
+      "payload": {
+        "text": "**Mental model.** Think of SLO / SLA / SLI as a deliberate boundary in a system. The boundary exists because something becomes harder to manage when everything is done in one place: latency, scale, failure isolation, consistency, cost, or team ownership. The useful question is not “what does SLO / SLA / SLI mean?” but “what pressure makes this boundary worth introducing, and what new failure mode does it create?”"
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-slo-sla-sli-decision",
+      "payload": {
+        "title": "Design lens",
+        "body": "Before choosing SLO / SLA / SLI, name the workload, the critical user path, the dominant bottleneck, the failure you are trying to absorb, and the trade-off you are willing to accept. If you cannot name those five things, the design is probably premature.",
+        "kind": "info"
+      }
+    },
+    {
+      "type": "image",
+      "id": "upgrade-image-slo-sla-sli",
+      "payload": {
+        "src": "/learning-visuals/slo-sla-sli.svg",
+        "alt": "Original NO CAP systems visual for SLO / SLA / SLI.",
+        "caption": "SLO / SLA / SLI: a compact system-thinking visual.",
+        "credit": "Original NO CAP visual.",
+        "source_url": "https://github.com/donnemartin/system-design-primer"
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "upgrade-mermaid-slo-sla-sli",
+      "payload": {
+        "code": "flowchart LR\n  A[Client] --> B[Gateway] --> C[Service] --> D[State] --> E[Outcome]",
+        "caption": "SLO / SLA / SLI: a simplified system view showing the primary flow and the main state boundaries.",
+        "alt_text": "SLO / SLA / SLI: a simplified system view showing the primary flow and the main state boundaries."
+      }
+    },
+    {
+      "type": "code",
+      "id": "upgrade-code-slo-sla-sli",
+      "payload": {
+        "language": "text",
+        "code": "// Pseudocode\nrequest = receive()\nresult = slo_sla_sli(request)\nreturn result\n\n// Production questions:\n// 1. What happens on timeout?\n// 2. Can this operation be retried safely?\n// 3. What is the bottleneck?",
+        "caption": "A minimal engineering sketch for reasoning about SLO / SLA / SLI."
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-slo-sla-sli-numbers",
+      "payload": {
+        "text": "Back-of-the-envelope reasoning",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-slo-sla-sli-numbers",
+      "payload": {
+        "text": "Numerical lens: write down traffic, payload size, read/write ratio, peak multiplier and durability target before choosing a component. The numbers should justify the architecture."
+      }
+    },
+    {
+      "type": "simulation",
+      "id": "upgrade-sim-slo-sla-sli",
+      "payload": {
+        "title": "Interactive thought experiment: SLO / SLA / SLI",
+        "description": "Change the variables below and predict what breaks first in SLO / SLA / SLI. The production lab can later reuse these same inputs.",
+        "variables": [
+          {
+            "name": "traffic",
+            "description": "Requests/events per second",
+            "default": "1000"
+          },
+          {
+            "name": "latency",
+            "description": "Dependency latency",
+            "default": "50ms"
+          },
+          {
+            "name": "failure_rate",
+            "description": "Injected failure rate",
+            "default": "0%"
+          }
+        ],
+        "placeholder_note": "Interactive controls are deterministic; use the linked Labs section when a dedicated lab exists."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-slo-sla-sli-hint",
+      "payload": {
+        "title": "Hint",
+        "body": "If you are stuck on SLO / SLA / SLI, start by drawing the request path and marking every network hop, stateful component, queue, cache and failure boundary. Then estimate where the system will saturate.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-slo-sla-sli-1",
+      "payload": {
+        "shape": "prediction",
+        "question": "You increase traffic by 10× in a system using SLO / SLA / SLI. What should you inspect first?",
+        "options": [
+          "The newest framework version",
+          "The dominant bottleneck and its saturation signal",
+          "Only the UI",
+          "Nothing; the architecture should absorb any traffic automatically"
+        ],
+        "answer_index": 1,
+        "rationale": "System design is a constraint-and-bottleneck exercise. Start with the resource or dependency that will saturate first, then choose the smallest change that removes that bottleneck.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-slo-sla-sli-2",
+      "payload": {
+        "shape": "mcq",
+        "question": "Which statement is the safest engineering habit when using SLO / SLA / SLI?",
+        "options": [
+          "Choose it because it is popular",
+          "Add it before measuring the problem",
+          "State the workload, failure mode and trade-off it is solving",
+          "Use the most distributed design possible"
+        ],
+        "answer_index": 2,
+        "rationale": "Good architecture starts from requirements, workload and failure assumptions. The component is the consequence of that reasoning, not the starting point.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "scenario",
+      "id": "upgrade-scenario-slo-sla-sli",
+      "payload": {
+        "prompt": "Production scenario: your system uses SLO / SLA / SLI, traffic suddenly spikes, and p99 latency doubles. What is your first move?",
+        "context": "You have dashboards for traffic, latency, errors and saturation. You can change the architecture, but every change has operational cost.",
+        "options": [
+          {
+            "id": "a",
+            "text": "Add more instances immediately",
+            "outcome": "This may help, but only if compute saturation is the bottleneck.",
+            "correct": false
+          },
+          {
+            "id": "b",
+            "text": "Inspect the bottleneck and its saturation signal first",
+            "outcome": "Correct: diagnose before scaling or introducing a new pattern.",
+            "correct": true
+          },
+          {
+            "id": "c",
+            "text": "Disable monitoring to reduce overhead",
+            "outcome": "This removes the evidence you need to diagnose the incident.",
+            "correct": false
+          }
+        ],
+        "rationale": "Measure the limiting resource or dependency first. A bottleneck can be compute, database I/O, network, cache misses, lock contention, downstream latency, or queue backlog.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-slo-sla-sli-interview",
+      "payload": {
+        "text": "Interview drill",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-slo-sla-sli-interview",
+      "payload": {
+        "text": "**Answer this without notes:** When would you choose SLO / SLA / SLI, and when would you intentionally avoid it? Mention at least one bottleneck it addresses, one failure mode it introduces, and one alternative. Then quantify the workload you are designing for."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "field-guide-slo-sla-sli",
+      "payload": {
+        "title": "Engineering lens",
+        "body": "A useful engineering lens for SLO / SLA / SLI: define the problem it solves, the simpler design that fails first, the constraint that forces you to introduce this concept, and the new failure modes the concept creates.",
+        "kind": "tip"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "numerical-lens-slo-sla-sli",
+      "payload": {
+        "text": "### Numerical sanity check\n\nBack-of-the-envelope reasoning beats fake precision. State your traffic, payload, concurrency and growth assumptions explicitly, then calculate enough to know whether the current architecture is orders of magnitude away from the target."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "field-question-slo-sla-sli",
+      "payload": {
+        "shape": "prediction",
+        "question": "Imagine the simplest version of a system using SLO / SLA / SLI. What breaks first as traffic grows by 10×, and what would you change before reaching 100×?",
+        "context": "Do not optimize for a memorized definition. Reason from the workload and failure mode.",
+        "options": [
+          "Scale the same component immediately.",
+          "Measure the current bottleneck and state the assumption that changed.",
+          "Add more technologies until throughput improves.",
+          "Choose the most popular architecture."
+        ],
+        "answer_index": 1,
+        "rationale": "Good system design starts with the bottleneck and the changed constraint. The most popular or complex choice is not automatically correct.",
+        "difficulty": "interview"
+      }
+    }
+  ],
+  "trade_offs": {
+    "pros": [
+      "Quantifies reliability — \"is the service up?\" becomes a number.",
+      "Error budget gives engineers permission to take risks when it's healthy.",
+      "Drives prioritization: budget red → freeze features, focus reliability.",
+      "SLAs create contractual consequences that fund reliability work."
+    ],
+    "cons": [
+      "Each additional nine roughly doubles operational cost.",
+      "SLOs without enforcement are decoration.",
+      "Bad SLIs (e.g., averages) give false confidence.",
+      "Picking an SLO you can't meet destroys trust and trains teams to ignore alerts."
+    ]
+  },
+  "failure_modes": [
+    "SLO set too high (e.g., 100%) — unattainable, always burning budget, no value.",
+    "SLO set too low — gives false confidence, real user unhappiness not captured.",
+    "SLI is wrong metric (e.g., CPU usage instead of user-visible latency).",
+    "Error budget policy not enforced — SLOs ignored when inconvenient."
+  ],
+  "common_mistakes": [
+    "Using average latency instead of percentiles for SLOs.",
+    "Setting the SLA equal to the SLO (no safety margin).",
+    "Picking SLOs based on vanity rather than user happiness.",
+    "Not having an error budget policy — SLOs become passive measurements."
+  ],
+  "where_you_see_it": [
+    "Google SRE book — formalized SLI/SLO/SLA and error budgets.",
+    "AWS, GCP, Azure publish SLAs per service with refund terms.",
+    "Internal platform teams publish SLOs to set expectations with product teams."
+  ],
+  "interview_prompts": [
+    "Define SLI, SLO, and SLA with examples.",
+    "What is an error budget, and how is it used to balance reliability vs velocity?",
+    "How do you choose an SLO target for a new service?",
+    "Why is the SLA usually lower than the SLO?"
+  ],
+  "real_system_mappings": [
+    {
+      "system": "Google SRE",
+      "how": "Pioneered SLI/SLO/SLA discipline and error budgets. SRE teams have explicit error budget policies: green → ship features; red → freeze and stabilize."
+    },
+    {
+      "system": "AWS SLAs",
+      "how": "Publish contractual SLAs per service (e.g., S3 99.9%, DynamoDB 99.99%) with service credit terms. Internally target much higher (e.g., 99.99% SLO for a 99.9% SLA service)."
+    }
+  ],
+  "status": "published",
+  "sources": [
+    {
+      "title": "System Design Primer",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Open source"
+    },
+    {
+      "title": "ByteByteGo — Scale from zero to millions",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "ByteByteGo"
+    },
+    {
+      "title": "System Design Tutorial",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "GeeksforGeeks"
+    },
+    {
+      "title": "System Design Roadmap",
+      "url": "https://roadmap.sh/system-design",
+      "publisher": "roadmap.sh"
+    },
+    {
+      "title": "Observability reference",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Observability reference",
+      "url": "https://opentelemetry.io/docs/",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Observability reference",
+      "url": "https://sre.google/sre-book/monitoring-distributed-systems/",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Google SRE Book",
+      "url": "https://sre.google/sre-book/table-of-contents/",
+      "publisher": "Google"
+    }
+  ]
+}

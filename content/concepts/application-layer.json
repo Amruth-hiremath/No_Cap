@@ -1,0 +1,426 @@
+{
+  "slug": "application-layer",
+  "version": 3,
+  "title": "Application Layer",
+  "phase": "architecture-infrastructure",
+  "area": "Architecture & Infrastructure",
+  "estimated_minutes": 7,
+  "difficulty": "core",
+  "summary": "The application layer is the part of your system that executes business logic: it receives a request, validates input, orchestrates calls to databases and downstream services, applies the rules that make your product meaningful, and returns a response. In a well-designed service, application servers are stateless — they hold logic and orchestration, while state lives in dedicated stores (databases, caches, object storage).",
+  "why_it_matters": "The boundary between 'logic' and 'state' is the most important architectural decision in any backend. Stateless application servers can be horizontally scaled, replaced, and rolled out without coordination. Once a server owns in-memory state (sessions, in-flight uploads, caches), it becomes sticky — you need session affinity, you lose easy scaling, and a single crash loses user data. Understanding where state lives, and keeping it out of the application process, unlocks almost every other scalability pattern.",
+  "prerequisites": [
+    "load-balancers"
+  ],
+  "related": [
+    "microservices"
+  ],
+  "used_in": [
+    "Every web application — the API server that handles HTTP requests is the application layer.",
+    "Backend-for-frontend (BFF) services that aggregate data from multiple downstream APIs.",
+    "Service-oriented architectures where each service is an independently deployed application layer."
+  ],
+  "blocks": [
+    {
+      "type": "prose",
+      "id": "what-it-is",
+      "payload": {
+        "text": "When a client sends an HTTP request to your service, it travels through DNS, a load balancer, maybe a reverse proxy, and finally arrives at the application layer. There, a handler decides what to do: parse the request, authorize the caller, run business rules, talk to a database or cache, and shape a response.\n\nThe application layer is the **logic-and-orchestration** tier. It does not own the data (the database does). It does not own delivery (the load balancer and CDN do). It owns the rules: 'a user may not transfer more than their balance', 'an order in `shipped` state cannot be cancelled', 'a premium subscriber gets 1 TB of storage instead of 5 GB'. Those rules are the product, expressed as code.\n\nTwo properties define a well-built application layer: it is **stateless** (no per-request state survives the response), and it is **ephemeral** (any instance can be killed and replaced at any time without losing data)."
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "stateless-tier",
+      "payload": {
+        "code": "flowchart TD\n    N0[\"Client\"]\n    N1[\"Load Balancer\"]\n    N2[\"[Load\"]\n    N3[\"Balancer]\"]\n    N4[\"App\"]\n    N5[\"[App]\"]\n    N6[\"stateless\"]\n    N7[\"application\"]\n    N8[\"layer\"]\n    N9[\"logic + orchestration, no session state\"]\n    N10[\"(logic\"]\n    N11[\"orchestration,\"]\n    N12[\"session\"]\n    N13[\"state)\"]\n    N14[\"Postgres\"]\n    N15[\"Redis\"]\n    N16[\"S3\"]\n    N17[\"Stripe API\"]\n    N18[\"[Postgres]\"]\n    N19[\"[Redis]\"]\n    N20[\"[S3]\"]\n    N21[\"[Stripe\"]\n    N22[\"API]\"]\n    N23[\"^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\"]\n    N24[\"State\"]\n    N25[\"lives\"]\n    N26[\"HERE,\"]\n    N27[\"not\"]\n    N28[\"the\"]\n    N29[\"app\"]\n    N30[\"tier.\"]\n    N31[\"Any\"]\n    N32[\"instance\"]\n    N33[\"can\"]\n    N34[\"serve\"]\n    N35[\"any\"]\n    N36[\"request.\"]\n    N37[\"dies,\"]\n    N38[\"routes\"]\n    N39[\"elsewhere\"]\n    N40[\"data\"]\n    N41[\"lost.\"]\n    N42[\"scale:\"]\n    N43[\"add\"]\n    N44[\"more\"]\n    N45[\"instances,\"]\n    N46[\"nothing\"]\n    N47[\"else\"]\n    N48[\"changes.\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44\n    N44 --> N45\n    N45 --> N46\n    N46 --> N47\n    N47 --> N48",
+        "caption": "Stateless application tier in front of stateful backing stores. Any instance can handle any request.",
+        "alt_text": "A diagram showing clients hitting a load balancer, which distributes requests across three stateless application servers. The application servers all share the same backing stores: Postgres for relational data, Redis for cache and sessions, S3 for files, and a Stripe API for payments. State lives in the backing stores, not in the app tier. Any application instance can serve any request, and if one dies, the load balancer routes elsewhere with no data lost."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "state-vs-logic",
+      "payload": {
+        "text": "**Where state lives vs where logic lives**\n\nA reliable rule: if a process restart would lose information that the user cares about, that information is in the wrong place. Push it into a store.\n\n| Kind of state | Wrong place | Right place |\n|----------------|------------|-------------|\n| User session | In-memory `req.session` on app server | Redis or signed JWT |\n| In-progress file upload | `/tmp` on app server | Object storage (S3) with multipart upload |\n| Recently-viewed items | Local LRU cache | Redis with a TTL |\n| Computed report | Local file | Object storage or shared filesystem |\n| Counter / rate limiter | Process-local int | Redis with INCR + expiry |\n| Workflow state | In-process variable | Database row or workflow engine (Temporal) |\n\nApplication-layer logic that *needs* state always asks a backing store. The app tier can cache aggressively (to reduce load on the store), but the cache is never the source of truth. If the cache is lost, the next request simply re-reads from the store."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "statelessness-enables",
+      "payload": {
+        "text": "**What statelessness buys you:**\n\n1. **Horizontal scaling** — add more instances; the load balancer fans traffic out. No need to migrate or shard sessions.\n2. **Rolling deploys** — drain one instance (stop sending new requests), let in-flight ones finish, deploy, re-add. Repeat. Zero downtime.\n3. **Auto-scaling** — if CPU exceeds 70%, autoscaler adds instances. They become useful immediately because they have no warmup state to acquire.\n4. **Failure tolerance** — an instance crash loses nothing the user cares about. The LB routes around it.\n5. **A/B testing and gradual rollouts** — a different code version on 5% of instances routes 5% of traffic.\n\nStateful app servers break all of these. Sticky sessions (the 'fix' for in-memory state) pin a user to one instance; if that instance dies, the user is logged out. Worse, you cannot freely scale because new instances have no sessions."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "stateful-exceptions",
+      "payload": {
+        "title": "When state in the app tier is actually correct",
+        "body": "A few cases legitimately keep state in the application process: WebSocket connections (long-lived, tied to one process — must be coordinated via pub/sub for horizontal scaling), in-process caches that are explicitly expendable (a CDN-like LRU in front of Redis), and local state for a single request (parsed JWT, request-scoped context). The test is: if this process died, would the user notice anything other than a brief retry? If yes, the state is in the wrong place.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "layers-within-the-app",
+      "payload": {
+        "text": "**Inside the application layer:**\n\nEven a 'monolithic' application server benefits from internal layering. A common split:\n\n- **Transport / handler** — receives HTTP, parses request, returns response. Should contain no business logic. Examples: Express routes, Django views, Spring `@RestController`.\n- **Service / use-case** — the actual business rules. 'CreateOrder', 'ChargeCard', 'SendWelcomeEmail'. Pure functions of input + state, no HTTP awareness.\n- **Repository / data access** — talks to the database. Translates between domain objects and storage rows.\n- **Domain model** — entities and value objects that capture the rules of the business (an `Order` knows its valid transitions).\n\nThis is sometimes called **hexagonal** or **ports-and-adapters** architecture. The payoff: the business rules are testable without HTTP, and you can swap the database or framework without rewriting logic. Most production codebases drift away from this ideal, but the direction matters — keep transport concerns out of the service layer."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q1",
+      "payload": {
+        "question": "Your team stores user sessions in process-local memory. After deploying behind a round-robin load balancer, users report being logged out constantly. What is the correct fix?",
+        "options": [
+          "Switch the load balancer to IP-hash (sticky sessions) so each user always hits the same instance.",
+          "Move sessions to Redis (or any shared store), making application instances stateless.",
+          "Increase the number of application instances so the chance of hitting the same one is higher.",
+          "Disable the load balancer and serve all traffic from one instance."
+        ],
+        "answer_index": 1,
+        "rationale": "Sticky sessions (option a) are a band-aid — they defeat failover (if the sticky instance dies, the user is logged out) and complicate scaling and rolling deploys. Moving sessions to Redis (option b) keeps instances stateless, so any instance can serve any request. This is the durable fix and unlocks horizontal scaling, auto-scaling, and rolling deploys. Option (c) is statistically naive — at scale, round-robin still spreads a user across instances. Option (d) reintroduces a single point of failure.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q2",
+      "payload": {
+        "question": "Which of the following is a sign that state is leaking into the wrong layer?",
+        "options": [
+          "Adding a new application instance requires copying a local data directory from an existing one.",
+          "Restarting an instance causes users in the middle of an upload to lose progress.",
+          "An instance crash logs out users who were pinned to it.",
+          "All of the above."
+        ],
+        "answer_index": 3,
+        "rationale": "All three symptoms indicate state living in the application process that should live in a shared store. Copying a data directory (a) means the instance owns files it shouldn't. Lost upload progress (b) means uploads are buffered on the instance instead of streamed directly to object storage. Logged-out users after a crash (c) means sessions live in-process. The fix in each case is to push the state out: file uploads to S3, sessions to Redis, shared files to a network filesystem or object storage.",
+        "difficulty": "core"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q3",
+      "payload": {
+        "question": "Why is the boundary between transport/handler code and service/use-case code worth maintaining, even in a small application?",
+        "options": [
+          "It improves performance because services are faster than handlers.",
+          "It makes business logic testable without HTTP and lets you change the delivery mechanism (REST, gRPC, CLI) without rewriting rules.",
+          "It is required by HTTP.",
+          "It automatically scales better."
+        ],
+        "answer_index": 1,
+        "rationale": "Separating transport from logic means the rule 'a premium subscriber gets 1 TB of storage' can be unit-tested with a mock repository, no HTTP server required. You can later expose the same rule via REST today, gRPC tomorrow, and a CLI tool next week, without touching it. Performance (a) is unaffected, HTTP (c) imposes no such rule, and scaling (d) comes from statelessness, not layering — but layering makes statelessness easier to enforce.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-application-layer-mental",
+      "payload": {
+        "text": "Engineering mental model",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-application-layer-mental",
+      "payload": {
+        "text": "**Mental model.** Think of Application Layer as a deliberate boundary in a system. The boundary exists because something becomes harder to manage when everything is done in one place: latency, scale, failure isolation, consistency, cost, or team ownership. The useful question is not “what does Application Layer mean?” but “what pressure makes this boundary worth introducing, and what new failure mode does it create?”"
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-application-layer-decision",
+      "payload": {
+        "title": "Design lens",
+        "body": "Before choosing Application Layer, name the workload, the critical user path, the dominant bottleneck, the failure you are trying to absorb, and the trade-off you are willing to accept. If you cannot name those five things, the design is probably premature.",
+        "kind": "info"
+      }
+    },
+    {
+      "type": "image",
+      "id": "upgrade-image-application-layer",
+      "payload": {
+        "src": "/learning-visuals/application-layer.svg",
+        "alt": "Original NO CAP systems visual for Application Layer.",
+        "caption": "Application Layer: a compact system-thinking visual.",
+        "credit": "Original NO CAP visual.",
+        "source_url": "https://github.com/donnemartin/system-design-primer"
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "upgrade-mermaid-application-layer",
+      "payload": {
+        "code": "flowchart LR\n  A[Client] --> B[Gateway] --> C[Service] --> D[State] --> E[Outcome]",
+        "caption": "Application Layer: a simplified system view showing the primary flow and the main state boundaries.",
+        "alt_text": "Application Layer: a simplified system view showing the primary flow and the main state boundaries."
+      }
+    },
+    {
+      "type": "code",
+      "id": "upgrade-code-application-layer",
+      "payload": {
+        "language": "text",
+        "code": "// Pseudocode\nrequest = receive()\nresult = application_layer(request)\nreturn result\n\n// Production questions:\n// 1. What happens on timeout?\n// 2. Can this operation be retried safely?\n// 3. What is the bottleneck?",
+        "caption": "A minimal engineering sketch for reasoning about Application Layer."
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-application-layer-numbers",
+      "payload": {
+        "text": "Back-of-the-envelope reasoning",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-application-layer-numbers",
+      "payload": {
+        "text": "Numerical lens: write down traffic, payload size, read/write ratio, peak multiplier and durability target before choosing a component. The numbers should justify the architecture."
+      }
+    },
+    {
+      "type": "simulation",
+      "id": "upgrade-sim-application-layer",
+      "payload": {
+        "title": "Interactive thought experiment: Application Layer",
+        "description": "Change the variables below and predict what breaks first in Application Layer. The production lab can later reuse these same inputs.",
+        "variables": [
+          {
+            "name": "traffic",
+            "description": "Requests/events per second",
+            "default": "1000"
+          },
+          {
+            "name": "latency",
+            "description": "Dependency latency",
+            "default": "50ms"
+          },
+          {
+            "name": "failure_rate",
+            "description": "Injected failure rate",
+            "default": "0%"
+          }
+        ],
+        "placeholder_note": "Interactive controls are deterministic; use the linked Labs section when a dedicated lab exists."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-application-layer-hint",
+      "payload": {
+        "title": "Hint",
+        "body": "If you are stuck on Application Layer, start by drawing the request path and marking every network hop, stateful component, queue, cache and failure boundary. Then estimate where the system will saturate.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-application-layer-1",
+      "payload": {
+        "shape": "prediction",
+        "question": "You increase traffic by 10× in a system using Application Layer. What should you inspect first?",
+        "options": [
+          "The newest framework version",
+          "The dominant bottleneck and its saturation signal",
+          "Only the UI",
+          "Nothing; the architecture should absorb any traffic automatically"
+        ],
+        "answer_index": 1,
+        "rationale": "System design is a constraint-and-bottleneck exercise. Start with the resource or dependency that will saturate first, then choose the smallest change that removes that bottleneck.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-application-layer-2",
+      "payload": {
+        "shape": "mcq",
+        "question": "Which statement is the safest engineering habit when using Application Layer?",
+        "options": [
+          "Choose it because it is popular",
+          "Add it before measuring the problem",
+          "State the workload, failure mode and trade-off it is solving",
+          "Use the most distributed design possible"
+        ],
+        "answer_index": 2,
+        "rationale": "Good architecture starts from requirements, workload and failure assumptions. The component is the consequence of that reasoning, not the starting point.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "scenario",
+      "id": "upgrade-scenario-application-layer",
+      "payload": {
+        "prompt": "Production scenario: your system uses Application Layer, traffic suddenly spikes, and p99 latency doubles. What is your first move?",
+        "context": "You have dashboards for traffic, latency, errors and saturation. You can change the architecture, but every change has operational cost.",
+        "options": [
+          {
+            "id": "a",
+            "text": "Add more instances immediately",
+            "outcome": "This may help, but only if compute saturation is the bottleneck.",
+            "correct": false
+          },
+          {
+            "id": "b",
+            "text": "Inspect the bottleneck and its saturation signal first",
+            "outcome": "Correct: diagnose before scaling or introducing a new pattern.",
+            "correct": true
+          },
+          {
+            "id": "c",
+            "text": "Disable monitoring to reduce overhead",
+            "outcome": "This removes the evidence you need to diagnose the incident.",
+            "correct": false
+          }
+        ],
+        "rationale": "Measure the limiting resource or dependency first. A bottleneck can be compute, database I/O, network, cache misses, lock contention, downstream latency, or queue backlog.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-application-layer-interview",
+      "payload": {
+        "text": "Interview drill",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-application-layer-interview",
+      "payload": {
+        "text": "**Answer this without notes:** When would you choose Application Layer, and when would you intentionally avoid it? Mention at least one bottleneck it addresses, one failure mode it introduces, and one alternative. Then quantify the workload you are designing for."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "field-guide-application-layer",
+      "payload": {
+        "title": "Engineering lens",
+        "body": "A useful engineering lens for Application Layer: define the problem it solves, the simpler design that fails first, the constraint that forces you to introduce this concept, and the new failure modes the concept creates.",
+        "kind": "tip"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "numerical-lens-application-layer",
+      "payload": {
+        "text": "### Numerical sanity check\n\nBack-of-the-envelope reasoning beats fake precision. State your traffic, payload, concurrency and growth assumptions explicitly, then calculate enough to know whether the current architecture is orders of magnitude away from the target."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "field-question-application-layer",
+      "payload": {
+        "shape": "prediction",
+        "question": "Imagine the simplest version of a system using Application Layer. What breaks first as traffic grows by 10×, and what would you change before reaching 100×?",
+        "context": "Do not optimize for a memorized definition. Reason from the workload and failure mode.",
+        "options": [
+          "Scale the same component immediately.",
+          "Measure the current bottleneck and state the assumption that changed.",
+          "Add more technologies until throughput improves.",
+          "Choose the most popular architecture."
+        ],
+        "answer_index": 1,
+        "rationale": "Good system design starts with the bottleneck and the changed constraint. The most popular or complex choice is not automatically correct.",
+        "difficulty": "interview"
+      }
+    }
+  ],
+  "trade_offs": {
+    "pros": [
+      "Stateless app servers enable horizontal scaling, rolling deploys, and auto-scaling.",
+      "Clear separation of logic and state makes systems testable and reasoning about failures simpler.",
+      "Any instance can serve any request — no sticky sessions, no affinity headaches.",
+      "Internal layering (handler / service / repository) keeps business rules independent of delivery mechanism."
+    ],
+    "cons": [
+      "Pushing state to a shared store adds a network hop and a dependency on that store's availability.",
+      "Strict layering requires discipline; shortcuts (e.g., DB queries inside a controller) are always tempting.",
+      "Pure statelessness is sometimes impossible (WebSockets, long polling) and requires careful coordination.",
+      "More moving parts: caches, queues, and session stores that would not exist if the app held state."
+    ]
+  },
+  "failure_modes": [
+    "In-memory session state that pins users to instances and breaks failover.",
+    "Local file uploads lost when an instance crashes before being streamed to object storage.",
+    "Local-only caches that silently diverge across instances, causing inconsistent behavior.",
+    "Business logic scattered across handlers, services, and even SQL — making rule changes risky.",
+    "Instance 'warmup' dependencies (e.g., preloaded config) that cause new instances to be briefly broken."
+  ],
+  "common_mistakes": [
+    "Treating the app server as a safe place to keep state. It is not — it is the most volatile tier.",
+    "Using sticky sessions as a fix for in-memory sessions instead of moving sessions to Redis.",
+    "Putting business rules inside HTTP handlers, coupling them to the transport.",
+    "Caching in-process and forgetting it is not shared — different instances see different data.",
+    "Mixing orchestration (calling downstream services) with business rules, so unit tests must mock HTTP."
+  ],
+  "where_you_see_it": [
+    "Every web framework's request/response cycle is the application layer: Express, Django, Rails, Spring, Gin.",
+    "Backend-for-frontend (BFF) services that aggregate downstream APIs into a tailored response for a UI.",
+    "Serverless functions (Lambda, Cloudflare Workers) — stateless by force, since instances are ephemeral."
+  ],
+  "interview_prompts": [
+    "Why should application servers be stateless? What breaks if they are not?",
+    "Where does each of these belong: user sessions, file uploads, recently-viewed items, in-flight workflow state?",
+    "Your service uses WebSockets for real-time updates. How do you keep the application tier stateless while still serving long-lived connections?",
+    "Walk me through the layers inside a well-structured application server. Why separate handler, service, and repository?",
+    "What are the operational benefits of statelessness — specifically for deploys, scaling, and failure?"
+  ],
+  "real_system_mappings": [
+    {
+      "system": "Stripe API",
+      "how": "Stripe's API servers are stateless and horizontally scaled; every charge, customer, and refund lives in durable stores (databases and event logs). Any instance can serve any request, which is why rolling deploys and rapid feature shipping are possible without downtime."
+    },
+    {
+      "system": "Netflix API (BFF pattern)",
+      "how": "Netflix runs device-specific Backend-for-Frontend services — each BFF is a stateless application layer that aggregates calls to dozens of downstream microservices and shapes the response for one client (TV, mobile, web). The BFF holds logic and orchestration; state lives in the downstream services."
+    },
+    {
+      "system": "AWS Lambda",
+      "how": "Lambda forces statelessness: function instances are ephemeral and may be killed between invocations. Any state must live in S3, DynamoDB, or other managed stores — a design constraint that has trained a generation of developers to keep logic and state apart."
+    }
+  ],
+  "status": "published",
+  "sources": [
+    {
+      "title": "System Design Primer",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Open source"
+    },
+    {
+      "title": "ByteByteGo — Scale from zero to millions",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "ByteByteGo"
+    },
+    {
+      "title": "System Design Tutorial",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "GeeksforGeeks"
+    },
+    {
+      "title": "System Design Roadmap",
+      "url": "https://roadmap.sh/system-design",
+      "publisher": "roadmap.sh"
+    },
+    {
+      "title": "Architecture & Infrastructure reference",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Architecture & Infrastructure reference",
+      "url": "https://www.cloudflare.com/learning/cdn/what-is-a-cdn/",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Architecture & Infrastructure reference",
+      "url": "https://aws.amazon.com/architecture/",
+      "publisher": "Reference"
+    }
+  ]
+}

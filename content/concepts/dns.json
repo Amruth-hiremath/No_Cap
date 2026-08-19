@@ -1,16 +1,16 @@
 {
   "slug": "dns",
-  "version": 1,
-  "title": "DNS \u2014 Domain Name System",
-  "phase": "Fundamentals",
-  "area": "Fundamentals",
-  "estimated_minutes": 12,
+  "version": 3,
+  "title": "DNS — Domain Name System",
+  "phase": "architecture-infrastructure",
+  "area": "Architecture & Infrastructure",
+  "estimated_minutes": 7,
   "difficulty": "core",
   "prerequisites": [
     "how-the-internet-works"
   ],
   "related": [
-    "load-balancing"
+    "load-balancers"
   ],
   "used_in": [
     "Every domain lookup on the planet.",
@@ -21,7 +21,7 @@
       "type": "prose",
       "id": "why",
       "payload": {
-        "text": "DNS is the phonebook of the internet. Humans remember example.com; routers need 93.184.216.34. DNS bridges this gap with a hierarchical, distributed, eventually-consistent database. It is also one of the most common single points of failure in real outages \u2014 if your DNS is down, no one can find you, no matter how healthy your servers are."
+        "text": "DNS is the phonebook of the internet. Humans remember example.com; routers need 93.184.216.34. DNS bridges this gap with a hierarchical, distributed, eventually-consistent database. It is also one of the most common single points of failure in real outages — if your DNS is down, no one can find you, no matter how healthy your servers are."
       }
     },
     {
@@ -32,12 +32,12 @@
       }
     },
     {
-      "type": "diagram",
+      "type": "mermaid",
       "id": "flow-1",
       "payload": {
-        "ascii": "  [Browser]\n      |  (asks for example.com)\n      v\n  [Stub Resolver] (in OS)\n      |\n      v\n  [Recursive Resolver] (1.1.1.1, 8.8.8.8, or ISP)\n      |\n      +---> [Root Nameserver]   (.)\n      |         |\n      |         v\n      +---> [TLD Nameserver]    (.com)\n      |         |\n      |         v\n      +---> [Authoritative NS]  (example.com)\n                |\n                v\n            A record: 93.184.216.34\n                |\n                v\n      (cached at every layer by TTL)",
+        "code": "flowchart TD\n    N0[\"Browser\"]\n    N1[\"[Browser]\"]\n    N2[\"asks for example.com\"]\n    N3[\"(asks\"]\n    N4[\"for\"]\n    N5[\"example.com)\"]\n    N6[\"Stub Resolver\"]\n    N7[\"in OS\"]\n    N8[\"[Stub\"]\n    N9[\"Resolver]\"]\n    N10[\"(in\"]\n    N11[\"OS)\"]\n    N12[\"Recursive Resolver\"]\n    N13[\"1.1.1.1, 8.8.8.8, or ISP\"]\n    N14[\"[Recursive\"]\n    N15[\"(1.1.1.1,\"]\n    N16[\"8.8.8.8,\"]\n    N17[\"ISP)\"]\n    N18[\"Root Nameserver\"]\n    N19[\".\"]\n    N20[\"[Root\"]\n    N21[\"Nameserver]\"]\n    N22[\"(.)\"]\n    N23[\"TLD Nameserver\"]\n    N24[\".com\"]\n    N25[\"[TLD\"]\n    N26[\"(.com)\"]\n    N27[\"Authoritative NS\"]\n    N28[\"example.com\"]\n    N29[\"[Authoritative\"]\n    N30[\"NS]\"]\n    N31[\"(example.com)\"]\n    N32[\"record:\"]\n    N33[\"93.184.216.34\"]\n    N34[\"cached at every layer by TTL\"]\n    N35[\"(cached\"]\n    N36[\"every\"]\n    N37[\"layer\"]\n    N38[\"TTL)\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38",
         "caption": "Recursive DNS resolution: each layer caches the answer.",
-        "voice_alt_text": "A diagram of DNS resolution. The browser asks the OS stub resolver, which asks a recursive resolver. The recursive resolver walks from root, to TLD, to the authoritative nameserver for example.com, which returns the A record. Every layer caches the answer based on its TTL."
+        "alt_text": "A diagram of DNS resolution. The browser asks the OS stub resolver, which asks a recursive resolver. The recursive resolver walks from root, to TLD, to the authoritative nameserver for example.com, which returns the A record. Every layer caches the answer based on its TTL."
       }
     },
     {
@@ -53,7 +53,7 @@
       "type": "prose",
       "id": "record-types",
       "payload": {
-        "text": "Common record types: A (IPv4 address), AAAA (IPv6), CNAME (alias to another domain), MX (mail server), TXT (arbitrary text \u2014 used for verification, SPF, DKIM), NS (delegation to another nameserver), SOA (start of authority \u2014 zone metadata). CNAMEs cannot coexist with other records on the same name, which is why root domains (the apex example.com) often use ALIAS or ANAME records instead."
+        "text": "Common record types: A (IPv4 address), AAAA (IPv6), CNAME (alias to another domain), MX (mail server), TXT (arbitrary text — used for verification, SPF, DKIM), NS (delegation to another nameserver), SOA (start of authority — zone metadata). CNAMEs cannot coexist with other records on the same name, which is why root domains (the apex example.com) often use ALIAS or ANAME records instead."
       }
     },
     {
@@ -71,24 +71,362 @@
         "rationale": "Lowering the TTL to 60s a few days before the migration ensures every recursive resolver has cached the short TTL by migration day. When you flip the A record, the new IP propagates within 60s globally. Leaving it at 24h means some users will hit the old IP for up to a day. Setting TTL to 0 is not honored by all resolvers and dramatically increases query load.",
         "difficulty": "solid"
       }
+    },
+    {
+      "type": "quiz",
+      "id": "q2",
+      "payload": {
+        "question": "Your DNS change has not propagated for some users 12 hours later. What could be wrong?",
+        "shape": "mcq",
+        "options": [
+          "DNS propagation is always instant.",
+          "The old TTL was long (e.g., 24h) and some resolvers still have the old record cached.",
+          "The new IP is wrong.",
+          "The recursive resolver is down."
+        ],
+        "answer_index": 1,
+        "rationale": "DNS propagation is governed by TTL. If the old record had a 24h TTL, resolvers that fetched it before your change will keep serving the old IP for up to 24 hours.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "recursive-resolution-deep",
+      "payload": {
+        "text": "**The full recursive walk, annotated.** When your browser asks for `www.example.com`, the actual sequence is richer than 'ask root, ask TLD, ask authoritative.' A real lookup typically takes only one network round trip thanks to aggressive caching at every layer — but on a cold cache it walks the entire hierarchy.\n\nThe first query goes to the configured recursive resolver (e.g., 1.1.1.1 or 8.8.8.8). The resolver is a server run by your ISP, Cloudflare, Google, or your enterprise. It then walks: root nameservers (13 logical names, hundreds of anycast instances globally) → TLD nameserver for `.com` (operated by Verisign) → authoritative nameserver for `example.com` (operated by whoever you delegated to — Cloudflare, Route 53, etc.). The authoritative server returns the A record, and the resolver caches it for the duration of the TTL.\n\nThe recursive resolver does the entire walk so your laptop doesn't have to. This is a key scaling decision: caching is pushed as close to the user as possible (browser cache, OS stub resolver cache, recursive resolver cache, authoritative nameserver cache), with each layer serving cached answers until TTL expires."
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "recursive-resolution-seq",
+      "payload": {
+        "code": "sequenceDiagram\n    participant B as Browser\n    participant OS as OS Stub\n    participant R as Recursive Resolver\n    participant Root as Root NS\n    participant TLD as .com TLD NS\n    participant Auth as example.com Auth NS\n    B->>OS: getaddrinfo('www.example.com')\n    OS->>R: A? www.example.com (cached here?)\n    alt cache hit at R\n        R-->>OS: 93.184.216.34 (from cache)\n    else cache miss - cold walk\n        R->>Root: ? www.example.com\n        Root-->>R: refer to .com TLD\n        R->>TLD: ? www.example.com\n        TLD-->>R: refer to example.com auth\n        R->>Auth: ? www.example.com\n        Auth-->>R: A 93.184.216.34 (TTL=3600s)\n        R-->>OS: 93.184.216.34 (cached for TTL)\n    end\n    OS-->>B: 93.184.216.34",
+        "caption": "Recursive DNS resolution with cache. On a cold cache the resolver walks root → TLD → authoritative. On a warm cache, every layer serves cached answers without network I/O.",
+        "alt_text": "A sequence diagram of DNS resolution. The browser asks the OS stub resolver, which asks the recursive resolver. If the resolver has a cached answer, it returns immediately. Otherwise it walks: root nameserver (refer to .com TLD), TLD nameserver (refer to example.com authoritative), authoritative nameserver (returns A record with TTL). Each layer caches the answer for the TTL duration."
+      }
+    },
+    {
+      "type": "video",
+      "id": "upgrade-video-dns",
+      "payload": {
+        "provider": "youtube",
+        "video_id": "Z6QEDisuGoU",
+        "title": "DNS, TCP and HTTP explained",
+        "description": "Supplementary explanation. The NO CAP lesson remains self-contained.",
+        "source_url": "https://www.youtube.com/watch?v=Z6QEDisuGoU"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "ttl-tradeoff-comparison",
+      "payload": {
+        "text": "**TTL is a two-sided knob.** The TTL you set on a record is a contract with every recursive resolver on the planet: 'you may cache this answer for N seconds.' Lower is not always better, and higher is not always better — the right value depends on what you're optimizing for.\n\n| TTL | Failover speed | Query load on auth NS | Use case |\n|-----|----------------|------------------------|----------|\n| 60s | sub-minute | very high (millions/sec globally) | active failover, blue-green deploys |\n| 300s (5m) | 5 minutes | moderate | typical web app default |\n| 3600s (1h) | 1 hour | low | stable records (MX, TXT for SPF) |\n| 86400s (1d) | 1 day | minimal | apex A records that never change |\n\nA common production pattern: keep your default TTL at 300s, then proactively lower it to 60s **3× your current TTL before** any planned IP change. So if you're at 3600s today, drop to 600s a day before, then to 60s an hour before, then flip the record. This guarantees every resolver on the planet has the short TTL cached when you cut over."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "dyn-ddos-2016",
+      "payload": {
+        "title": "Real failure: Dyn DDoS, October 21 2016",
+        "body": "A massive Mirai-botnet DDoS attack hit Dyn (a major DNS-as-a-service provider used by Twitter, Reddit, GitHub, Spotify, Netflix, and others). The attack flooded Dyn's authoritative nameservers with tens of millions of DNS queries per second from compromised IoT devices. Recursive resolvers couldn't reach Dyn, so they couldn't resolve domains like twitter.com — and the entire East Coast of the US effectively lost access to those services for several hours. The origin servers were healthy. The application servers were healthy. The CDN was healthy. Only DNS was down — and that was enough to take half the internet offline for users in the affected region. Lesson: DNS is a single point of failure for your domain. Use two DNS providers (e.g., Route 53 + Cloudflare) so an outage at one doesn't take you down.",
+        "kind": "warning"
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "dns-capacity-estimation",
+      "payload": {
+        "code": "flowchart TD\n    Q[Assume 1B users<br/>10 lookups/user/day] --> T[10B queries/day<br/>~115K QPS average]\n    T --> P[5x peak: ~580K QPS]\n    P --> A[Anycast spreads across<br/>~50 PoPs globally]\n    A --> PP[~12K QPS per PoP<br/>per nameserver]\n    PP --> S[A single modern NS<br/>handles ~100K+ QPS]\n    S --> R[Headroom: ~8x over peak<br/>per node]\n    R --> F[Failure tolerance:<br/>lose 1 of 4 nodes - still OK]\n    classDef calc fill:#e8f0fe,stroke:#1967d2,color:#174ea6\n    classDef result fill:#e6f4ea,stroke:#188038,color:#0d652d\n    class Q,T,P,A,PP,S,calc\n    class R,F,result",
+        "caption": "Back-of-envelope capacity estimation for a global authoritative DNS service at 1B-user scale. A single modern nameserver handles ~100K QPS; anycast + horizontal scaling gives enormous headroom.",
+        "alt_text": "A flowchart showing capacity estimation. 1 billion users times 10 lookups per user per day equals 10 billion queries per day, about 115K QPS average. Peak is 5x, around 580K QPS. Anycast spreads this across 50 PoPs, so each PoP sees about 12K QPS per nameserver. A single modern nameserver handles 100K+ QPS. Headroom: 8x over peak per node. Failure tolerance: lose one of four nodes and still be OK."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q-dyn-failure",
+      "payload": {
+        "question": "On October 21, 2016, Twitter, Spotify, and GitHub were unreachable for several hours for many US users, even though their origin servers and CDNs were healthy. What was the failure mode?",
+        "shape": "mcq",
+        "options": [
+          "A BGP route leak black-holed traffic to their origin IPs.",
+          "Their shared DNS provider (Dyn) was hit by a Mirai-botnet DDoS, so recursive resolvers couldn't resolve twitter.com to an IP — the origin was fine, but users couldn't find it.",
+          "TLS certificate misissuance caused browsers to refuse connections.",
+          "Their load balancers ran out of ephemeral ports."
+        ],
+        "answer_index": 1,
+        "rationale": "This was the Dyn DDoS. Dyn was the authoritative DNS provider for many major SaaS companies. When the Mirai botnet flooded Dyn's authoritative nameservers with tens of millions of queries per second, recursive resolvers couldn't reach Dyn to resolve twitter.com (and others). Without a resolved IP, browsers couldn't even open a connection — the failure happened before TCP/TLS/HTTP entered the picture. The origins were fine, the CDNs were fine, but DNS being down meant the domain didn't resolve to an IP. The mitigation pattern: use two DNS providers in an active-active or primary-secondary setup, so a DDoS against one doesn't take your domain offline. BGP route leaks (option A) are a routing-layer problem; certificate misissuance (option C) would cause TLS errors, not resolution failures; port exhaustion (option D) is a server-side issue and would not affect DNS resolution.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "scenario",
+      "id": "scenario-dns-failover",
+      "payload": {
+        "prompt": "Your primary data center in us-east-1 goes down hard. You have a warm standby in eu-west-1. Your DNS A record points to 203.0.113.10 (us-east-1) with a 1-hour TTL. How do you fail over with minimal user-visible downtime?",
+        "context": "You cannot change physics: recursive resolvers that have already cached 203.0.113.10 will keep serving it for up to TTL. The question is how to minimize the window.",
+        "options": [
+          {
+            "id": "a",
+            "text": "Immediately update the A record to the eu-west-1 IP. Users will switch within seconds.",
+            "outcome": "Wrong — the 1-hour TTL means resolvers that already cached the old IP will keep serving it for up to 60 minutes.",
+            "correct": false
+          },
+          {
+            "id": "b",
+            "text": "Use DNS health checks with a low TTL (60s) from day one, plus a weighted/failover routing policy. On failure, the auth NS automatically stops serving the us-east-1 IP.",
+            "outcome": "Correct — with 60s TTL, stale IPs are gone within ~60s of the failure being detected. The weighted routing policy makes the cutover automatic.",
+            "correct": true
+          },
+          {
+            "id": "c",
+            "text": "Send a push notification to all users' browsers to flush their DNS cache.",
+            "outcome": "Not possible — browsers and OS DNS caches are not remotely flushable. Also ignores the recursive resolver cache.",
+            "correct": false
+          },
+          {
+            "id": "d",
+            "text": "Keep serving the old IP and let the load balancer in us-east-1 proxy to eu-west-1.",
+            "outcome": "The entire us-east-1 data center is down — there's no load balancer to proxy through.",
+            "correct": false
+          }
+        ],
+        "rationale": "DNS TTL is a contract, not a suggestion: every recursive resolver on the planet will serve the cached answer for up to TTL seconds, regardless of what you change at the authoritative NS. To fail over quickly, you must (1) keep the TTL low (60s) from the start so the maximum staleness window is bounded, (2) use a DNS provider that supports health-checked failover routing (Route 53, Cloudflare, NS1), so the auth NS automatically stops advertising the dead IP, and (3) optionally use a TTL of 60s on the apex but a longer TTL on stable subdomains. The 'just update the A record' approach (option A) only works if your TTL was already short — and even then, ~60s of degraded experience is the floor. The broader lesson: design for failover before you need it. By the time you're down, it's too late to lower the TTL.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-dns-mental",
+      "payload": {
+        "text": "Engineering mental model",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-dns-mental",
+      "payload": {
+        "text": "**Mental model.** Think of DNS — Domain Name System as a deliberate boundary in a system. The boundary exists because something becomes harder to manage when everything is done in one place: latency, scale, failure isolation, consistency, cost, or team ownership. The useful question is not “what does DNS — Domain Name System mean?” but “what pressure makes this boundary worth introducing, and what new failure mode does it create?”"
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-dns-decision",
+      "payload": {
+        "title": "Design lens",
+        "body": "Before choosing DNS — Domain Name System, name the workload, the critical user path, the dominant bottleneck, the failure you are trying to absorb, and the trade-off you are willing to accept. If you cannot name those five things, the design is probably premature.",
+        "kind": "info"
+      }
+    },
+    {
+      "type": "image",
+      "id": "upgrade-image-dns",
+      "payload": {
+        "src": "/learning-visuals/dns.svg",
+        "alt": "Original NO CAP systems visual for DNS — Domain Name System.",
+        "caption": "DNS — Domain Name System: a compact system-thinking visual.",
+        "credit": "Original NO CAP visual.",
+        "source_url": "https://github.com/donnemartin/system-design-primer"
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "upgrade-mermaid-dns",
+      "payload": {
+        "code": "flowchart LR\n B[Browser] --> O[OS cache]\n O --> R[Recursive resolver]\n R -->|cache miss| RT[Root] --> TLD[.com TLD] --> A[Authoritative DNS]\n A --> R --> O --> B",
+        "caption": "DNS resolution moves from the client cache to the recursive resolver and only on a miss walks the DNS hierarchy.",
+        "alt_text": "DNS resolution moves from the client cache to the recursive resolver and only on a miss walks the DNS hierarchy."
+      }
+    },
+    {
+      "type": "code",
+      "id": "upgrade-code-dns",
+      "payload": {
+        "language": "text",
+        "code": "// Pseudocode\nrequest = receive()\nresult = dns(request)\nreturn result\n\n// Production questions:\n// 1. What happens on timeout?\n// 2. Can this operation be retried safely?\n// 3. What is the bottleneck?",
+        "caption": "A minimal engineering sketch for reasoning about DNS — Domain Name System."
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-dns-numbers",
+      "payload": {
+        "text": "Back-of-the-envelope reasoning",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-dns-numbers",
+      "payload": {
+        "text": "Numerical lens: write down traffic, payload size, read/write ratio, peak multiplier and durability target before choosing a component. The numbers should justify the architecture."
+      }
+    },
+    {
+      "type": "simulation",
+      "id": "upgrade-sim-dns",
+      "payload": {
+        "title": "Interactive thought experiment: DNS — Domain Name System",
+        "description": "Change the variables below and predict what breaks first in DNS — Domain Name System. The production lab can later reuse these same inputs.",
+        "variables": [
+          {
+            "name": "traffic",
+            "description": "Requests/events per second",
+            "default": "1000"
+          },
+          {
+            "name": "latency",
+            "description": "Dependency latency",
+            "default": "50ms"
+          },
+          {
+            "name": "failure_rate",
+            "description": "Injected failure rate",
+            "default": "0%"
+          }
+        ],
+        "placeholder_note": "Interactive controls are deterministic; use the linked Labs section when a dedicated lab exists."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-dns-hint",
+      "payload": {
+        "title": "Hint",
+        "body": "If you are stuck on DNS — Domain Name System, start by drawing the request path and marking every network hop, stateful component, queue, cache and failure boundary. Then estimate where the system will saturate.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-dns-1",
+      "payload": {
+        "shape": "prediction",
+        "question": "You increase traffic by 10× in a system using DNS — Domain Name System. What should you inspect first?",
+        "options": [
+          "The newest framework version",
+          "The dominant bottleneck and its saturation signal",
+          "Only the UI",
+          "Nothing; the architecture should absorb any traffic automatically"
+        ],
+        "answer_index": 1,
+        "rationale": "System design is a constraint-and-bottleneck exercise. Start with the resource or dependency that will saturate first, then choose the smallest change that removes that bottleneck.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-dns-2",
+      "payload": {
+        "shape": "mcq",
+        "question": "Which statement is the safest engineering habit when using DNS — Domain Name System?",
+        "options": [
+          "Choose it because it is popular",
+          "Add it before measuring the problem",
+          "State the workload, failure mode and trade-off it is solving",
+          "Use the most distributed design possible"
+        ],
+        "answer_index": 2,
+        "rationale": "Good architecture starts from requirements, workload and failure assumptions. The component is the consequence of that reasoning, not the starting point.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "scenario",
+      "id": "upgrade-scenario-dns",
+      "payload": {
+        "prompt": "Production scenario: your system uses DNS — Domain Name System, traffic suddenly spikes, and p99 latency doubles. What is your first move?",
+        "context": "You have dashboards for traffic, latency, errors and saturation. You can change the architecture, but every change has operational cost.",
+        "options": [
+          {
+            "id": "a",
+            "text": "Add more instances immediately",
+            "outcome": "This may help, but only if compute saturation is the bottleneck.",
+            "correct": false
+          },
+          {
+            "id": "b",
+            "text": "Inspect the bottleneck and its saturation signal first",
+            "outcome": "Correct: diagnose before scaling or introducing a new pattern.",
+            "correct": true
+          },
+          {
+            "id": "c",
+            "text": "Disable monitoring to reduce overhead",
+            "outcome": "This removes the evidence you need to diagnose the incident.",
+            "correct": false
+          }
+        ],
+        "rationale": "Measure the limiting resource or dependency first. A bottleneck can be compute, database I/O, network, cache misses, lock contention, downstream latency, or queue backlog.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-dns-interview",
+      "payload": {
+        "text": "Interview drill",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-dns-interview",
+      "payload": {
+        "text": "**Answer this without notes:** When would you choose DNS — Domain Name System, and when would you intentionally avoid it? Mention at least one bottleneck it addresses, one failure mode it introduces, and one alternative. Then quantify the workload you are designing for."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "field-guide-dns",
+      "payload": {
+        "title": "Engineering lens",
+        "body": "A useful engineering lens for DNS - Domain Name System: define the problem it solves, the simpler design that fails first, the constraint that forces you to introduce this concept, and the new failure modes the concept creates.",
+        "kind": "tip"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "numerical-lens-dns",
+      "payload": {
+        "text": "### Numerical sanity check\n\nBack-of-the-envelope reasoning beats fake precision. State your traffic, payload, concurrency and growth assumptions explicitly, then calculate enough to know whether the current architecture is orders of magnitude away from the target."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "field-question-dns",
+      "payload": {
+        "shape": "prediction",
+        "question": "Imagine the simplest version of a system using DNS - Domain Name System. What breaks first as traffic grows by 10×, and what would you change before reaching 100×?",
+        "context": "Do not optimize for a memorized definition. Reason from the workload and failure mode.",
+        "options": [
+          "Scale the same component immediately.",
+          "Measure the current bottleneck and state the assumption that changed.",
+          "Add more technologies until throughput improves.",
+          "Choose the most popular architecture."
+        ],
+        "answer_index": 1,
+        "rationale": "Good system design starts with the bottleneck and the changed constraint. The most popular or complex choice is not automatically correct.",
+        "difficulty": "interview"
+      }
     }
   ],
   "trade_offs": {
     "pros": [
-      "Hierarchical and distributed \u2014 no single server holds the entire database.",
+      "Hierarchical and distributed — no single server holds the entire database.",
       "Aggressive caching keeps query latency low (usually <10ms after first lookup).",
       "TTL-based caching gives operators explicit control over propagation speed."
     ],
     "cons": [
       "DNS is a single point of failure for your domain. If your authoritative NS is down, you are unreachable.",
       "Propagation is eventual, not instant. A misconfigured record can take hours to undo.",
-      "Originally unencrypted \u2014 ISPs and middlemen can snoop and hijack. DNS-over-HTTPS (DoH) and DNS-over-TLS (DoT) fix this."
+      "Originally unencrypted — ISPs and middlemen can snoop and hijack. DNS-over-HTTPS (DoH) and DNS-over-TLS (DoT) fix this."
     ]
   },
   "common_mistakes": [
     "Treating DNS as 'always works'. DNS outages are real and take down even the biggest companies.",
     "Forgetting to lower TTL before a planned migration, then waiting hours for propagation.",
-    "CNAME at the apex domain. This is invalid in RFC 1033 \u2014 use ALIAS/ANAME or a redirect.",
+    "CNAME at the apex domain. This is invalid in RFC 1033 — use ALIAS/ANAME or a redirect.",
     "Single authoritative nameserver provider. Use two providers for redundancy."
   ],
   "where_you_see_it": [
@@ -105,9 +443,9 @@
   "summary": "DNS is the phonebook of the internet. Humans remember example.com; routers need 93.184.216.34. DNS bridges this gap with a hierarchical, distributed, eventually-consistent database.",
   "why_it_matters": "DNS is one of the most common single points of failure in real outages. If your DNS is down, no one can find you, no matter how healthy your servers are.",
   "failure_modes": [
-    "Authoritative nameserver outage \u2014 your domain becomes unreachable globally.",
-    "DNS cache poisoning \u2014 users redirected to malicious IPs.",
-    "TTL too long \u2014 a misconfigured record takes hours to undo globally."
+    "Authoritative nameserver outage — your domain becomes unreachable globally.",
+    "DNS cache poisoning — users redirected to malicious IPs.",
+    "TTL too long — a misconfigured record takes hours to undo globally."
   ],
   "real_system_mappings": [
     {
@@ -117,6 +455,43 @@
     {
       "system": "AWS Route 53",
       "how": "Managed DNS with weighted routing, health checks, and failover policies."
+    }
+  ],
+  "sources": [
+    {
+      "title": "System Design Primer",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Open source"
+    },
+    {
+      "title": "ByteByteGo — Scale from zero to millions",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "ByteByteGo"
+    },
+    {
+      "title": "System Design Tutorial",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "GeeksforGeeks"
+    },
+    {
+      "title": "System Design Roadmap",
+      "url": "https://roadmap.sh/system-design",
+      "publisher": "roadmap.sh"
+    },
+    {
+      "title": "Architecture & Infrastructure reference",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Architecture & Infrastructure reference",
+      "url": "https://www.cloudflare.com/learning/cdn/what-is-a-cdn/",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Architecture & Infrastructure reference",
+      "url": "https://aws.amazon.com/architecture/",
+      "publisher": "Reference"
     }
   ]
 }

@@ -1,0 +1,413 @@
+{
+  "slug": "index-table",
+  "version": 3,
+  "title": "Index Table",
+  "phase": "cloud-architecture",
+  "area": "Cloud Architecture",
+  "estimated_minutes": 7,
+  "difficulty": "advanced",
+  "summary": "The Index Table pattern creates secondary lookup tables for NoSQL stores that don't natively support secondary indexes. The primary store is keyed by one access pattern (e.g., user_id), but queries often need to look up by other attributes (e.g., email, username, last_login_date). The index table is a separate, smaller table that maps the secondary attribute back to the primary key, maintained on every write. The result: O(1) lookup-by-email on a NoSQL store that would otherwise require a full scan.",
+  "why_it_matters": "NoSQL stores optimize for one access pattern: lookup by primary key. DynamoDB, Cassandra, and many document stores don't have built-in secondary indexes (or charge heavily for them). Without an index table, querying by anything other than the primary key requires a full table scan — infeasible at scale. The Index Table pattern is how teams build multi-access-pattern queries on top of NoSQL stores: maintain as many index tables as you have access patterns. It's the NoSQL equivalent of a database's secondary index, but you own the maintenance and consistency.",
+  "prerequisites": [
+    "sql-tuning"
+  ],
+  "related": [
+    "materialized-view",
+    "cqrs"
+  ],
+  "used_in": [
+    "DynamoDB applications with multiple lookup patterns (by email, by username, by phone).",
+    "Cassandra / wide-column stores without native secondary indexes.",
+    "Document stores (MongoDB pre-4.0, Cosmos DB) where indexes are expensive or limited.",
+    "Any NoSQL store where you need to query by attributes other than the primary key."
+  ],
+  "blocks": [
+    {
+      "type": "prose",
+      "id": "intro",
+      "payload": {
+        "text": "NoSQL stores are optimized for primary-key access: `get(user_id) → user record`. But real applications have many access patterns:\n\n- `get by email` — login flow looks up users by email.\n- `get by username` — profile pages.\n- `get by phone` — password reset.\n- `get by tenant_id` — admin views all users in a tenant.\n- `get by created_at range` — ‘users who signed up this week’.\n\nWithout secondary indexes, each of these requires a full table scan — which on a 100M-row table is unacceptable. The Index Table pattern solves this: for each access pattern, maintain a separate table that maps the secondary attribute to the primary key.\n\nExample: a DynamoDB `users` table keyed by `user_id`. To support `get by email`:\n\n```\nusers table:\n  PK: user_id=42\n  data: { email: 'alice@example.com', name: 'Alice', ... }\n\nusers_by_email index table:\n  PK: email='alice@example.com'\n  SK: user_id=42\n```\n\nTo look up a user by email: query the index table by email → get user_id → query the users table by user_id. Two O(1) lookups instead of a full scan.\n\nThe index table can store just the primary key (a sparse index) or a denormalized copy of the full record (a covering index that avoids the second lookup). The trade-off is storage cost vs read latency.\n\nMaintenance: every write to the primary table must also update every index table. If the user changes their email, you must delete the old email-index row and write the new one. This is where it gets tricky in NoSQL — there's usually no transaction across tables, so the updates are eventually consistent."
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "topology",
+      "payload": {
+        "code": "flowchart TD\n    N0[\"users\"]\n    N1[\"maintained on every write\"]\n    N2[\"Primary\"]\n    N3[\"table\"]\n    N4[\"(users):\"]\n    N5[\"Index\"]\n    N6[\"tables\"]\n    N7[\"(maintained\"]\n    N8[\"every\"]\n    N9[\"write):\"]\n    N10[\"PK:\"]\n    N11[\"user_id\"]\n    N12[\"users_by_email\"]\n    N13[\"data:\"]\n    N14[\"email\"]\n    N15[\"'alice@example'\"]\n    N16[\"email:\"]\n    N17[\"'alice@example.com'\"]\n    N18[\"SK:\"]\n    N19[\"username:\"]\n    N20[\"'alice'\"]\n    N21[\"phone:\"]\n    N22[\"555\"]\n    N23[\"0100'\"]\n    N24[\"tenant_id:\"]\n    N25[\"'acme'\"]\n    N26[\"users_by_username\"]\n    N27[\"created_at:\"]\n    N28[\"2024\"]\n    N29[\"username\"]\n    N30[\"users_by_tenant\"]\n    N31[\"tenant_id\"]\n    N32[\"created_at\"]\n    N33[\"user_id:\"]\n    N34[\"Lookup\"]\n    N35[\"query\"]\n    N36[\"get\"]\n    N37[\"users[user_id]\"]\n    N38[\"1\"]\n    N39[\"N\"]\n    N40[\"Two\"]\n    N41[\"O(1)\"]\n    N42[\"lookups\"]\n    N43[\"instead\"]\n    N44[\"O(N)\"]\n    N45[\"full\"]\n    N46[\"scan.\"]\n    N47[\"Every\"]\n    N48[\"write\"]\n    N49[\"must\"]\n    N50[\"also\"]\n    N51[\"update\"]\n    N52[\"all\"]\n    N53[\"index\"]\n    N54[\"amplification.\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44\n    N44 --> N45\n    N45 --> N46\n    N46 --> N47\n    N47 --> N48\n    N48 --> N49\n    N49 --> N50\n    N50 --> N51\n    N51 --> N52\n    N52 --> N53\n    N53 --> N54",
+        "caption": "Primary table with three index tables, one per access pattern. Each write updates the primary table and every index — write amplification is the cost.",
+        "alt_text": "A diagram showing a primary users table with primary key user_id equals 42 and data including email, username, phone, tenant_id, and created_at. To the right are three index tables: users_by_email with primary key email and sort key user_id; users_by_username with primary key username and sort key user_id; users_by_tenant with primary key tenant_id, sort key created_at, and user_id attribute. The lookup flow is described as: query users_by_email to get user_id, then get users by user_id — two O(1) lookups instead of O(N) full scan. The trade-off is that every write to users must also update all three index tables, causing write amplification."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "consistency",
+      "payload": {
+        "text": "The hard problem with index tables is consistency. Most NoSQL stores don't support multi-table transactions, so updating the primary table and the index tables in one atomic operation is impossible. Options:\n\n**1. Best-effort dual writes** — the application writes to the primary table, then to each index table. If any write fails, the index is out of sync. Recovery: a reconciliation job that scans and repairs. Simple but unreliable.\n\n**2. Change data capture (CDC)** — write only to the primary table; a CDC stream (DynamoDB Streams, Kafka, Debezium) emits the change; consumers update the index tables. Eventually consistent, decoupled from the write path, more reliable.\n\n**3. Native secondary indexes** — some stores (DynamoDB Global Secondary Indexes, Cassandra materialized views) provide built-in secondary indexes. You pay for them (storage, eventual consistency, update lag), but the store maintains them — no application logic. Often the right answer if your store supports it.\n\n**4. Synchronous in-transaction update** — if the store supports multi-row transactions (e.g., DynamoDB transactions, FoundationDB), update the primary and index tables in one transaction. Strongly consistent, but slower writes and limited transaction throughput.\n\nThe consistency model matters for correctness: if a user updates their email and then immediately logs in with the new email, will the index find them? With eventual consistency (CDC, GSI), the answer is ‘eventually but not immediately.’ For login flows, this usually means falling back to a strongly consistent scan or accepting brief login failure after email change.\n\nA common pattern: use the primary table as the source of truth for writes; use index tables for lookups; accept eventual consistency for most queries; fall back to the primary table for read-your-writes scenarios."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "vs-gsi",
+      "payload": {
+        "title": "Index Table vs DynamoDB GSI",
+        "body": "DynamoDB Global Secondary Indexes (GSIs) are the cloud-managed version of the Index Table pattern. You define a GSI on a table; AWS maintains it asynchronously, eventually consistent. You pay for storage and for the GSI's read/write capacity. The trade-off vs a hand-rolled Index Table: GSI is operationally simpler (no application code to maintain) but less flexible (you can't customize the consistency model or the projection attributes as finely). Most teams should use GSIs when available; hand-roll Index Tables only when the native option is too limited or too expensive.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "design",
+      "payload": {
+        "text": "Design considerations for index tables:\n\n- **Which attributes to index?** Index attributes that you actually query by. Each index costs storage and write amplification. Don't index attributes you never query.\n- **Sparse vs covering index?** Sparse: just the secondary key → primary key mapping. Cheaper storage, but requires a second lookup to get the full record. Covering: denormalize the full record into the index. More storage, but one lookup serves the read.\n- **Sort key / clustering?** For range queries (users created this week in a tenant), use a composite key: PK=tenant_id, SK=created_at. This allows range scans within a partition.\n- **Cardinality matters.** Indexing a low-cardinality attribute (e.g., gender) gives huge partitions and limited benefit. Indexing a high-cardinality attribute (e.g., email) gives precise lookups.\n- **Hot keys.** If one index key maps to many records (e.g., one tenant with millions of users), that partition becomes a hotspot. Consider sharding the sort key.\n- **TTL / cleanup.** Index tables can accumulate stale rows. Use TTLs or scheduled cleanup to remove index rows whose primary record no longer exists.\n- **Rebuilding.** If an index drifts (bug, failed writes), you need a way to rebuild it from scratch — typically a batch job that scans the primary table and writes the index.\n\nThe discipline is the same as for relational indexes: index for your actual query patterns, not for theoretical completeness. Every index has a cost; only pay it where it earns its keep."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q1",
+      "payload": {
+        "question": "You have a DynamoDB `users` table keyed by `user_id`. You need to look up users by email for login. Without an index table, what's the cost, and how does an index table change it?",
+        "shape": "mcq",
+        "options": [
+          "Without an index: a full table scan, O(N) in the number of users. With an index table `users_by_email`: two O(1) lookups (index → user_id, then user_id → user record).",
+          "Without an index: an O(log N) binary search. With an index: still O(log N) but with less data scanned.",
+          "Without an index: an O(1) lookup, because DynamoDB supports secondary indexes natively.",
+          "Without an index: the query fails. With an index: it succeeds."
+        ],
+        "answer_index": 0,
+        "rationale": "DynamoDB without an index only supports lookups by primary key. To find a user by email, you'd have to scan the entire table — O(N) in the number of users, which is infeasible at scale. An index table `users_by_email` with PK=email, SK=user_id lets you query by email to get the user_id in O(1) (a single partition lookup), then query the primary table by user_id in O(1). Two O(1) lookups vs O(N) scan is the entire value of the pattern. Option (b) is wrong because DynamoDB doesn't binary-search — it hashes the partition key. Option (c) is wrong because DynamoDB doesn't auto-create secondary indexes — you must explicitly define GSIs or build the index table yourself. Option (d) is wrong because the query doesn't fail; it just scans, slowly.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q2",
+      "payload": {
+        "question": "What is the main consistency challenge when maintaining index tables in a NoSQL store that doesn't support multi-table transactions?",
+        "shape": "mcq",
+        "options": [
+          "The index tables grow too large to fit on disk.",
+          "The primary table and index tables can become temporarily or permanently out of sync if a write to one succeeds but the corresponding write to another fails. Mitigations include CDC-based updates and reconciliation jobs.",
+          "The index tables cannot be queried at all — they're write-only.",
+          "The primary table must be rebuilt every time an index is updated."
+        ],
+        "answer_index": 1,
+        "rationale": "Without multi-table transactions, updates to the primary table and each index table are independent operations. If the primary write succeeds but the index write fails (network blip, throttling, partial failure), the index is now out of sync — stale or missing entries. This is the central consistency challenge. Mitigations: (1) CDC — write only to the primary, emit changes via stream, consumers update indexes asynchronously (more reliable, eventually consistent); (2) reconciliation jobs that periodically scan and repair drift; (3) DynamoDB transactions for small numbers of writes per transaction (limited throughput). The other options are wrong: (a) the storage growth is a cost but not the consistency challenge; (c) is wrong because index tables are queried for lookups; (d) is wrong because index updates don't require rebuilding the primary.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-index-table-mental",
+      "payload": {
+        "text": "Engineering mental model",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-index-table-mental",
+      "payload": {
+        "text": "**Mental model.** Think of Index Table as a deliberate boundary in a system. The boundary exists because something becomes harder to manage when everything is done in one place: latency, scale, failure isolation, consistency, cost, or team ownership. The useful question is not “what does Index Table mean?” but “what pressure makes this boundary worth introducing, and what new failure mode does it create?”"
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-index-table-decision",
+      "payload": {
+        "title": "Design lens",
+        "body": "Before choosing Index Table, name the workload, the critical user path, the dominant bottleneck, the failure you are trying to absorb, and the trade-off you are willing to accept. If you cannot name those five things, the design is probably premature.",
+        "kind": "info"
+      }
+    },
+    {
+      "type": "image",
+      "id": "upgrade-image-index-table",
+      "payload": {
+        "src": "/learning-visuals/index-table.svg",
+        "alt": "Original NO CAP systems visual for Index Table.",
+        "caption": "Index Table: a compact system-thinking visual.",
+        "credit": "Original NO CAP visual.",
+        "source_url": "https://github.com/donnemartin/system-design-primer"
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "upgrade-mermaid-index-table",
+      "payload": {
+        "code": "flowchart LR\n  A[Client] --> B[Service] --> C[Data layer] --> D[Replication] --> E[Durability]",
+        "caption": "Index Table: a simplified system view showing the primary flow and the main state boundaries.",
+        "alt_text": "Index Table: a simplified system view showing the primary flow and the main state boundaries."
+      }
+    },
+    {
+      "type": "code",
+      "id": "upgrade-code-index-table",
+      "payload": {
+        "language": "sql",
+        "code": "SELECT id, created_at\nFROM records\nWHERE tenant_id = ?\nORDER BY created_at DESC\nLIMIT 50;\n\n-- Ask: which index makes this query predictable at scale?",
+        "caption": "A minimal engineering sketch for reasoning about Index Table."
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-index-table-numbers",
+      "payload": {
+        "text": "Back-of-the-envelope reasoning",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-index-table-numbers",
+      "payload": {
+        "text": "Numerical lens: write down traffic, payload size, read/write ratio, peak multiplier and durability target before choosing a component. The numbers should justify the architecture."
+      }
+    },
+    {
+      "type": "simulation",
+      "id": "upgrade-sim-index-table",
+      "payload": {
+        "title": "Interactive thought experiment: Index Table",
+        "description": "Change the variables below and predict what breaks first in Index Table. The production lab can later reuse these same inputs.",
+        "variables": [
+          {
+            "name": "traffic",
+            "description": "Requests/events per second",
+            "default": "1000"
+          },
+          {
+            "name": "latency",
+            "description": "Dependency latency",
+            "default": "50ms"
+          },
+          {
+            "name": "failure_rate",
+            "description": "Injected failure rate",
+            "default": "0%"
+          }
+        ],
+        "placeholder_note": "Interactive controls are deterministic; use the linked Labs section when a dedicated lab exists."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-index-table-hint",
+      "payload": {
+        "title": "Hint",
+        "body": "If you are stuck on Index Table, start by drawing the request path and marking every network hop, stateful component, queue, cache and failure boundary. Then estimate where the system will saturate.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-index-table-1",
+      "payload": {
+        "shape": "prediction",
+        "question": "You increase traffic by 10× in a system using Index Table. What should you inspect first?",
+        "options": [
+          "The newest framework version",
+          "The dominant bottleneck and its saturation signal",
+          "Only the UI",
+          "Nothing; the architecture should absorb any traffic automatically"
+        ],
+        "answer_index": 1,
+        "rationale": "System design is a constraint-and-bottleneck exercise. Start with the resource or dependency that will saturate first, then choose the smallest change that removes that bottleneck.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-index-table-2",
+      "payload": {
+        "shape": "mcq",
+        "question": "Which statement is the safest engineering habit when using Index Table?",
+        "options": [
+          "Choose it because it is popular",
+          "Add it before measuring the problem",
+          "State the workload, failure mode and trade-off it is solving",
+          "Use the most distributed design possible"
+        ],
+        "answer_index": 2,
+        "rationale": "Good architecture starts from requirements, workload and failure assumptions. The component is the consequence of that reasoning, not the starting point.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "scenario",
+      "id": "upgrade-scenario-index-table",
+      "payload": {
+        "prompt": "Production scenario: your system uses Index Table, traffic suddenly spikes, and p99 latency doubles. What is your first move?",
+        "context": "You have dashboards for traffic, latency, errors and saturation. You can change the architecture, but every change has operational cost.",
+        "options": [
+          {
+            "id": "a",
+            "text": "Add more instances immediately",
+            "outcome": "This may help, but only if compute saturation is the bottleneck.",
+            "correct": false
+          },
+          {
+            "id": "b",
+            "text": "Inspect the bottleneck and its saturation signal first",
+            "outcome": "Correct: diagnose before scaling or introducing a new pattern.",
+            "correct": true
+          },
+          {
+            "id": "c",
+            "text": "Disable monitoring to reduce overhead",
+            "outcome": "This removes the evidence you need to diagnose the incident.",
+            "correct": false
+          }
+        ],
+        "rationale": "Measure the limiting resource or dependency first. A bottleneck can be compute, database I/O, network, cache misses, lock contention, downstream latency, or queue backlog.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-index-table-interview",
+      "payload": {
+        "text": "Interview drill",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-index-table-interview",
+      "payload": {
+        "text": "**Answer this without notes:** When would you choose Index Table, and when would you intentionally avoid it? Mention at least one bottleneck it addresses, one failure mode it introduces, and one alternative. Then quantify the workload you are designing for."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "field-guide-index-table",
+      "payload": {
+        "title": "Engineering lens",
+        "body": "For Index Table, start with access patterns rather than brand names. Identify the dominant reads/writes, data relationships, consistency requirements, partition key, hot keys and failure behavior before choosing a storage strategy.",
+        "kind": "tip"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "numerical-lens-index-table",
+      "payload": {
+        "text": "### Numerical sanity check\n\nA rough capacity check: required write throughput ≈ peak writes/s × average record size. At 5,000 writes/s and 2 KB average payloads, the raw incoming data stream is about 10 MB/s before indexes, replication and overhead."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "field-question-index-table",
+      "payload": {
+        "shape": "prediction",
+        "question": "A team proposes Index Table because it 'scales'. What workload characteristic would make that choice a poor fit?",
+        "context": "Do not optimize for a memorized definition. Reason from the workload and failure mode.",
+        "options": [
+          "Scale the same component immediately.",
+          "Measure the current bottleneck and state the assumption that changed.",
+          "Add more technologies until throughput improves.",
+          "Choose the most popular architecture."
+        ],
+        "answer_index": 1,
+        "rationale": "Good system design starts with the bottleneck and the changed constraint. The most popular or complex choice is not automatically correct.",
+        "difficulty": "interview"
+      }
+    }
+  ],
+  "trade_offs": {
+    "pros": [
+      "Enables O(1) lookups by attributes other than the primary key on NoSQL stores.",
+      "Avoids full table scans for non-primary-key queries.",
+      "Multiple index tables support multiple access patterns from one primary store.",
+      "Index tables can be denormalized (covering indexes) to avoid the second lookup.",
+      "Decouples read optimization from the primary store's design."
+    ],
+    "cons": [
+      "Write amplification — every write updates the primary table plus N index tables.",
+      "Consistency challenges — without multi-table transactions, indexes can drift from the primary.",
+      "Storage cost — index tables duplicate data.",
+      "Operational complexity — you own the maintenance, reconciliation, and rebuild logic.",
+      "Schema evolution is harder — index changes require rebuilding."
+    ]
+  },
+  "failure_modes": [
+    "Index drift — a failed write leaves the index out of sync; reads return wrong or stale data.",
+    "Hot partition in an index — one index key (e.g., a huge tenant) becomes a hotspot.",
+    "Orphaned index rows — index points to a primary key that no longer exists.",
+    "Index rebuild takes too long — large indexes can take hours to rebuild from scratch.",
+    "Schema mismatch — primary table's schema evolved; index wasn't updated.",
+    "Throttling under high write volume — index writes consume the primary table's capacity."
+  ],
+  "common_mistakes": [
+    "Indexing attributes you never query by — pay the cost, get no benefit.",
+    "Forgetting reconciliation — without periodic scans, drift accumulates silently.",
+    "Using best-effort dual writes without a recovery plan — failures leave indexes inconsistent.",
+    "Not having a rebuild strategy — when an index drifts, you must be able to rebuild from scratch.",
+    "Treating index tables as strongly consistent — they're eventually consistent unless using transactions.",
+    "Ignoring hot keys — a single high-cardinality index key (one tenant) can become a hotspot."
+  ],
+  "where_you_see_it": [
+    "DynamoDB applications with GSIs or hand-rolled index tables for email/username/phone lookups.",
+    "Cassandra applications with materialized views for secondary access patterns.",
+    "Cosmos DB applications with change-feed-driven index tables.",
+    "Wide-column stores without native secondary indexes.",
+    "Any NoSQL system where multiple access patterns must be supported."
+  ],
+  "interview_prompts": [
+    "What is the Index Table pattern, and why is it needed for NoSQL stores?",
+    "You have a DynamoDB table keyed by user_id. Login needs to look up by email. How do you design this?",
+    "What are the consistency challenges of maintaining index tables, and how do you mitigate them?",
+    "When should you use a native secondary index (e.g., DynamoDB GSI) vs a hand-rolled index table?",
+    "What happens if a write to the primary table succeeds but the corresponding index write fails? How do you detect and fix this?"
+  ],
+  "real_system_mappings": [
+    {
+      "system": "AWS DynamoDB Global Secondary Indexes (GSIs)",
+      "how": "DynamoDB's cloud-managed implementation of the Index Table pattern. You define a GSI with an alternate partition/sort key; AWS maintains it asynchronously, eventually consistent, with its own read/write capacity. Most teams use GSIs instead of hand-rolling."
+    },
+    {
+      "system": "Cassandra Materialized Views",
+      "how": "Cassandra's built-in secondary-index implementation. The coordinator maintains the view on every write to the base table. Has known limitations around consistency and hot partitions, but for many use cases is simpler than hand-rolled index tables."
+    },
+    {
+      "system": "Cosmos DB Change Feed → Azure Search",
+      "how": "A common pattern: Cosmos DB emits changes via its change feed; a consumer updates an Azure Search index, which acts as an Index Table for full-text and complex queries. The change feed provides reliable, eventually-consistent index maintenance."
+    }
+  ],
+  "status": "published",
+  "sources": [
+    {
+      "title": "System Design Primer",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Open source"
+    },
+    {
+      "title": "ByteByteGo — Scale from zero to millions",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "ByteByteGo"
+    },
+    {
+      "title": "System Design Tutorial",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "GeeksforGeeks"
+    },
+    {
+      "title": "System Design Roadmap",
+      "url": "https://roadmap.sh/system-design",
+      "publisher": "roadmap.sh"
+    },
+    {
+      "title": "Cloud Architecture reference",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Cloud Architecture reference",
+      "url": "https://learn.microsoft.com/en-us/azure/architecture/",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Cloud Architecture reference",
+      "url": "https://aws.amazon.com/architecture/",
+      "publisher": "Reference"
+    }
+  ]
+}

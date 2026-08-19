@@ -1,0 +1,417 @@
+{
+  "slug": "single-points-of-failure",
+  "version": 3,
+  "title": "Single Points of Failure",
+  "phase": "interview-preparation",
+  "area": "Interview Preparation",
+  "estimated_minutes": 7,
+  "difficulty": "core",
+  "summary": "A Single Point of Failure (SPOF) is any component whose failure takes down the whole system. Identifying SPOFs means walking every request path and asking 'if this one thing dies, does the system die with it?' Elimination is achieved through redundancy (N+1, active-active), graceful degradation, and failover design — but every redundancy has a cost, so you eliminate the SPOFs that matter and consciously accept the rest.",
+  "why_it_matters": "Every system has finite resources, so you cannot make everything redundant. The skill is finding the components whose failure cascades into a user-visible outage — a single database with no replica, a single load balancer with no standby, a single AZ deployment, a single TLS certificate authority — and either eliminating them or making their failure survivable. In interviews, candidates who walk a diagram and name every SPOF win over those who hand-wave 'we'll add redundancy.'",
+  "prerequisites": [
+    "replication",
+    "load-balancers"
+  ],
+  "related": [
+    "failure-analysis",
+    "bottleneck-identification",
+    "circuit-breaker"
+  ],
+  "used_in": [
+    "Every system design interview — 'what if X fails?'",
+    "Production readiness reviews (PRR) before launch.",
+    "Incident postmortems that root-caused outages to an unredundant component."
+  ],
+  "blocks": [
+    {
+      "type": "prose",
+      "id": "intro",
+      "payload": {
+        "text": "A Single Point of Failure (SPOF) is any component in a system whose failure causes the entire system (or a critical user journey) to fail. The textbook metaphor is a chain: a chain is only as strong as its weakest link, and a system is only as available as its least-redundant component.\n\nTo find SPOFs you walk every request path from client to database and back, asking at each hop: 'If this dies, does the request fail? And does it fail for everyone, or only for some users?' Components with no fallback, no replica, and no failover are SPOFs.\n\nCommon SPOFs to look for:\n\n- **Single database instance** (no read replica, no standby) — the database dies, the system dies.\n- **Single load balancer** (no failover VIP, no DNS failover).\n- **Single availability zone** deployment — an AZ outage takes you fully offline.\n- **Single Redis cache** with no cluster/failover — cache dies, every request hits the database.\n- **Single region** for a global service — a region outage is a global outage.\n- **A required downstream service with no circuit breaker** — its failure cascades.\n- **A shared dependency like a TLS certificate authority, DNS provider, or identity provider.**\n- **A single hot shard** — the customer whose data lives on shard 7 takes an outage if shard 7 dies.\n- **A single on-call engineer** — bus factor of one is a human SPOF."
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "spof-tree",
+      "payload": {
+        "code": "flowchart TD\n    N0[\"Clients\"]\n    N1[\"single DNS provider\"]\n    N2[\"DNS\"]\n    N3[\"GSLB\"]\n    N4[\"SPOF?\"]\n    N5[\"(single\"]\n    N6[\"provider)\"]\n    N7[\"single LB, no failover\"]\n    N8[\"VIP\"]\n    N9[\"LB,\"]\n    N10[\"failover)\"]\n    N11[\"3 replicas — good\"]\n    N12[\"API\"]\n    N13[\"replicas\"]\n    N14[\"good)\"]\n    N15[\"single Redis, no failover\"]\n    N16[\"Cache\"]\n    N17[\"Redis,\"]\n    N18[\"single primary, no replica\"]\n    N19[\"primary,\"]\n    N20[\"replica)\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20",
+        "caption": "Request path with annotated SPOF candidates. Walk every hop and ask: 'if this one thing dies, does the system die?'",
+        "alt_text": "A vertical request-path diagram starting at clients at the top, going through DNS, a load balancer VIP, three API replicas in parallel, a cache, and a database at the bottom. Each hop is annotated with a question: 'SPOF?' — single DNS provider, single load balancer with no failover, single Redis cache with no failover, single database primary with no replica. The three API replicas in the middle are the one component that is NOT a single point of failure, illustrating that redundancy in some layers does not protect unredundant layers."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "elimination",
+      "payload": {
+        "text": "Eliminating a SPOF means introducing redundancy, failover, or graceful degradation. The techniques stack:\n\n- **N+1 redundancy** — run N instances to handle load, plus 1 (or more) to survive one dying. For stateful components (databases, caches), this means active-passive or active-active replication with automatic failover.\n- **Multi-AZ deployment** — every tier runs in at least two AZs. AZ outages become a non-event.\n- **Multi-region deployment** — for global services, run active-active in two regions behind a global load balancer (Route 53, Cloudflare, GSLB). One region's failure just shifts traffic.\n- **Read replicas** — read traffic can survive primary failure by failing over to a replica (with brief write unavailability, or via promotion).\n- **Circuit breakers and fallbacks** — if you cannot make a dependency redundant, make its failure survivable: serve stale cache, return a default, or degrade gracefully.\n- **Health checks + auto-replacement** — if a component dies, replace it automatically (k8s restarts, autoscaling groups).\n- **Decoupling with queues** — if a downstream is slow, a queue between producer and consumer keeps the producer alive.\n\nThe discipline is to *not stop at the first layer*. People add three API replicas and feel safe, but if all three talk to one database, the database is still a SPOF. Walk every hop, every time."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "blast-radius",
+      "payload": {
+        "title": "Blast Radius > SPOF",
+        "body": "A SPOF is the extreme case of large blast radius: the blast radius is the whole system. The general principle is to *minimize blast radius* — partition by tenant, by region, by shard — so that any single failure affects only a small slice of users. Sharded databases, cell-based architectures, and per-tenant deployments are all 'shrink the SPOF' moves. A failure that affects 1% of users for 5 minutes is far cheaper than one that affects 100% for 1 minute.",
+        "kind": "key"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "shared-dependencies",
+      "payload": {
+        "text": "The sneakiest SPOFs are shared dependencies — services you don't own but rely on. Examples:\n\n- **DNS provider**: if your DNS goes down, nobody can find you. Use a secondary DNS provider or multi-vendor DNS.\n- **TLS certificate authority / OCSP responder**: if cert validation fails, every browser refuses to connect. Pin a backup CA.\n- **Identity provider (Okta, Auth0)**: if SSO is down, nobody can log in. Have a break-glass local account or cached tokens.\n- **Cloud provider itself**: a single cloud is a SPOF. Multi-cloud is rarely worth it for normal services, but regulated or hyperscale services do it.\n- **A shared internal library**: if every service uses one auth library and that library has a bug, every service is down.\n- **A shared on-call rotation**: bus factor of one is a human SPOF.\n\nIn interviews, candidates who mention shared dependencies and break-glass procedures demonstrate production maturity. 'Multi-AZ' is the floor; 'what if AWS us-east-1 dies?' is the next level."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q1",
+      "payload": {
+        "question": "A service runs 10 stateless API replicas across 3 AZs, behind a multi-AZ load balancer, talking to a single PostgreSQL primary with no read replicas. Which is the strongest true statement?",
+        "shape": "mcq",
+        "options": [
+          "There are no SPOFs — the API and LB are both redundant.",
+          "The PostgreSQL primary is a SPOF; if it dies, all writes fail and likely all reads too.",
+          "The 10 API replicas are a SPOF because they share a load balancer.",
+          "Multi-AZ makes SPOFs impossible."
+        ],
+        "answer_index": 1,
+        "rationale": "Redundancy in one tier does not protect unredundant tiers. The 10 API replicas and multi-AZ LB handle the API/LB layer fine, but a single PostgreSQL primary with no replica means that if the primary dies, writes fail immediately (no failover target) and reads often fail too once connection pools drain. The database is the SPOF. The fix is at minimum: read replicas + automatic failover (e.g., RDS Multi-AZ, Patroni, Aurora failover) — and ideally multi-AZ deployment of the database tier.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q2",
+      "payload": {
+        "question": "Your global service runs only in us-east-1. After an AWS us-east-1 outage takes you fully offline for 4 hours, what is the most important SPOF to address first?",
+        "shape": "mcq",
+        "options": [
+          "Add a second API replica in us-east-1.",
+          "Deploy an active-active stack in a second region with DNS-level failover.",
+          "Upgrade the single Redis cache to Redis Cluster.",
+          "Increase the database connection pool size."
+        ],
+        "answer_index": 1,
+        "rationale": "The largest SPOF here is the region itself — a single-region deployment means any region-wide AWS outage is a global outage. The fix is multi-region active-active (or active-passive with automated DNS failover). Adding replicas in the same region, scaling the cache, or growing the connection pool do not help when the entire region is unreachable. Multi-region is expensive and operationally complex, but it's the only true fix for region-level SPOF. For most services, multi-AZ is enough; for global, latency-sensitive, or SLA-critical services, multi-region is required.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-single-points-of-failure-mental",
+      "payload": {
+        "text": "Engineering mental model",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-single-points-of-failure-mental",
+      "payload": {
+        "text": "**Mental model.** Think of Single Points of Failure as a deliberate boundary in a system. The boundary exists because something becomes harder to manage when everything is done in one place: latency, scale, failure isolation, consistency, cost, or team ownership. The useful question is not “what does Single Points of Failure mean?” but “what pressure makes this boundary worth introducing, and what new failure mode does it create?”"
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-single-points-of-failure-decision",
+      "payload": {
+        "title": "Design lens",
+        "body": "Before choosing Single Points of Failure, name the workload, the critical user path, the dominant bottleneck, the failure you are trying to absorb, and the trade-off you are willing to accept. If you cannot name those five things, the design is probably premature.",
+        "kind": "info"
+      }
+    },
+    {
+      "type": "image",
+      "id": "upgrade-image-single-points-of-failure",
+      "payload": {
+        "src": "/learning-visuals/single-points-of-failure.svg",
+        "alt": "Original NO CAP systems visual for Single Points of Failure.",
+        "caption": "Single Points of Failure: a compact system-thinking visual.",
+        "credit": "Original NO CAP visual.",
+        "source_url": "https://github.com/donnemartin/system-design-primer"
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "upgrade-mermaid-single-points-of-failure",
+      "payload": {
+        "code": "flowchart LR\n  A[Client] --> B[Gateway] --> C[Service] --> D[State] --> E[Outcome]",
+        "caption": "Single Points of Failure: a simplified system view showing the primary flow and the main state boundaries.",
+        "alt_text": "Single Points of Failure: a simplified system view showing the primary flow and the main state boundaries."
+      }
+    },
+    {
+      "type": "code",
+      "id": "upgrade-code-single-points-of-failure",
+      "payload": {
+        "language": "text",
+        "code": "// Pseudocode\nrequest = receive()\nresult = single_points_of_failure(request)\nreturn result\n\n// Production questions:\n// 1. What happens on timeout?\n// 2. Can this operation be retried safely?\n// 3. What is the bottleneck?",
+        "caption": "A minimal engineering sketch for reasoning about Single Points of Failure."
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-single-points-of-failure-numbers",
+      "payload": {
+        "text": "Back-of-the-envelope reasoning",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-single-points-of-failure-numbers",
+      "payload": {
+        "text": "Numerical lens: write down traffic, payload size, read/write ratio, peak multiplier and durability target before choosing a component. The numbers should justify the architecture."
+      }
+    },
+    {
+      "type": "simulation",
+      "id": "upgrade-sim-single-points-of-failure",
+      "payload": {
+        "title": "Interactive thought experiment: Single Points of Failure",
+        "description": "Change the variables below and predict what breaks first in Single Points of Failure. The production lab can later reuse these same inputs.",
+        "variables": [
+          {
+            "name": "traffic",
+            "description": "Requests/events per second",
+            "default": "1000"
+          },
+          {
+            "name": "latency",
+            "description": "Dependency latency",
+            "default": "50ms"
+          },
+          {
+            "name": "failure_rate",
+            "description": "Injected failure rate",
+            "default": "0%"
+          }
+        ],
+        "placeholder_note": "Interactive controls are deterministic; use the linked Labs section when a dedicated lab exists."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-single-points-of-failure-hint",
+      "payload": {
+        "title": "Hint",
+        "body": "If you are stuck on Single Points of Failure, start by drawing the request path and marking every network hop, stateful component, queue, cache and failure boundary. Then estimate where the system will saturate.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-single-points-of-failure-1",
+      "payload": {
+        "shape": "prediction",
+        "question": "You increase traffic by 10× in a system using Single Points of Failure. What should you inspect first?",
+        "options": [
+          "The newest framework version",
+          "The dominant bottleneck and its saturation signal",
+          "Only the UI",
+          "Nothing; the architecture should absorb any traffic automatically"
+        ],
+        "answer_index": 1,
+        "rationale": "System design is a constraint-and-bottleneck exercise. Start with the resource or dependency that will saturate first, then choose the smallest change that removes that bottleneck.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-single-points-of-failure-2",
+      "payload": {
+        "shape": "mcq",
+        "question": "Which statement is the safest engineering habit when using Single Points of Failure?",
+        "options": [
+          "Choose it because it is popular",
+          "Add it before measuring the problem",
+          "State the workload, failure mode and trade-off it is solving",
+          "Use the most distributed design possible"
+        ],
+        "answer_index": 2,
+        "rationale": "Good architecture starts from requirements, workload and failure assumptions. The component is the consequence of that reasoning, not the starting point.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "scenario",
+      "id": "upgrade-scenario-single-points-of-failure",
+      "payload": {
+        "prompt": "Production scenario: your system uses Single Points of Failure, traffic suddenly spikes, and p99 latency doubles. What is your first move?",
+        "context": "You have dashboards for traffic, latency, errors and saturation. You can change the architecture, but every change has operational cost.",
+        "options": [
+          {
+            "id": "a",
+            "text": "Add more instances immediately",
+            "outcome": "This may help, but only if compute saturation is the bottleneck.",
+            "correct": false
+          },
+          {
+            "id": "b",
+            "text": "Inspect the bottleneck and its saturation signal first",
+            "outcome": "Correct: diagnose before scaling or introducing a new pattern.",
+            "correct": true
+          },
+          {
+            "id": "c",
+            "text": "Disable monitoring to reduce overhead",
+            "outcome": "This removes the evidence you need to diagnose the incident.",
+            "correct": false
+          }
+        ],
+        "rationale": "Measure the limiting resource or dependency first. A bottleneck can be compute, database I/O, network, cache misses, lock contention, downstream latency, or queue backlog.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-single-points-of-failure-interview",
+      "payload": {
+        "text": "Interview drill",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-single-points-of-failure-interview",
+      "payload": {
+        "text": "**Answer this without notes:** When would you choose Single Points of Failure, and when would you intentionally avoid it? Mention at least one bottleneck it addresses, one failure mode it introduces, and one alternative. Then quantify the workload you are designing for."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "field-guide-single-points-of-failure",
+      "payload": {
+        "title": "Engineering lens",
+        "body": "A useful engineering lens for Single Points of Failure: define the problem it solves, the simpler design that fails first, the constraint that forces you to introduce this concept, and the new failure modes the concept creates.",
+        "kind": "tip"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "numerical-lens-single-points-of-failure",
+      "payload": {
+        "text": "### Numerical sanity check\n\nBack-of-the-envelope reasoning beats fake precision. State your traffic, payload, concurrency and growth assumptions explicitly, then calculate enough to know whether the current architecture is orders of magnitude away from the target."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "field-question-single-points-of-failure",
+      "payload": {
+        "shape": "prediction",
+        "question": "Imagine the simplest version of a system using Single Points of Failure. What breaks first as traffic grows by 10×, and what would you change before reaching 100×?",
+        "context": "Do not optimize for a memorized definition. Reason from the workload and failure mode.",
+        "options": [
+          "Scale the same component immediately.",
+          "Measure the current bottleneck and state the assumption that changed.",
+          "Add more technologies until throughput improves.",
+          "Choose the most popular architecture."
+        ],
+        "answer_index": 1,
+        "rationale": "Good system design starts with the bottleneck and the changed constraint. The most popular or complex choice is not automatically correct.",
+        "difficulty": "interview"
+      }
+    }
+  ],
+  "trade_offs": {
+    "pros": [
+      "Eliminating SPOFs directly increases availability — every SPOF you remove raises the ceiling on uptime.",
+      "Forces you to understand every request path, which improves overall system understanding.",
+      "Redundancy often comes with scalability as a bonus (read replicas offload reads, multi-AZ adds capacity).",
+      "Smaller blast radius means incidents are less severe and easier to recover from."
+    ],
+    "cons": [
+      "Redundancy costs money — every additional replica, AZ, or region multiplies the bill.",
+      "Redundancy adds operational complexity — failover logic, replication lag, split-brain scenarios.",
+      "Active-active multi-region is hard: data consistency, conflict resolution, write routing.",
+      "You can never eliminate all SPOFs — at some point you accept residual risk (e.g., single cloud, single planet)."
+    ]
+  },
+  "failure_modes": [
+    "Replica exists but failover doesn't work — a 'redundant' database with no tested failover procedure is a SPOF you falsely believe is safe.",
+    "Replica exists but is too far behind — failover to a stale replica loses committed data.",
+    "Multi-AZ but shared control plane — all replicas die together when the control plane dies (e.g., shared k8s control plane, shared DNS).",
+    "Split-brain — both nodes think they're primary, causing data divergence.",
+    "Failover storm — primary flaps, failover triggers repeatedly, replicas can't catch up.",
+    "Hidden shared dependency — three 'independent' services all depend on the same Redis cluster, so it's actually a SPOF for all three."
+  ],
+  "common_mistakes": [
+    "Stopping at the obvious layer — 'we have 3 replicas' is meaningless if they all depend on one database.",
+    "Treating 'multi-AZ' as a guarantee — multi-AZ protects against AZ failure, not against region or control-plane failure.",
+    "Not testing failover — untested failover is no failover. Chaos engineering (GameDays, fault injection) exists for this reason.",
+    "Forgetting about stateless vs stateful — stateless services are trivially redundant; stateful ones (databases, caches) require careful replication.",
+    "Confusing N replicas with N+1 redundancy — N replicas handling N×load has zero redundancy; you need capacity for N+1.",
+    "Ignoring human SPOFs — single on-call, single maintainer, runbook only in someone's head."
+  ],
+  "where_you_see_it": [
+    "Production readiness reviews (PRRs) before launching any user-facing service.",
+    "Architecture review meetings — 'walk me through what happens if X dies' for every component.",
+    "Cloud provider well-architected reviews — AWS Well-Architected Tool's Reliability pillar.",
+    "Incident postmortems — 'Why was the database a SPOF?' is a common root-cause finding.",
+    "System design interviews — 'what if this fails?' is asked in almost every loop."
+  ],
+  "interview_prompts": [
+    "Walk me through a system you designed and identify every single point of failure. What would you do to eliminate each one?",
+    "Your service is deployed in a single region with multi-AZ. What outages can still take you fully offline, and what would you do about them?",
+    "How do you decide when to go from single-AZ to multi-AZ, and from multi-AZ to multi-region? What's the cost-benefit?",
+    "What's the difference between a SPOF and a bottleneck? Give an example of each.",
+    "Your service depends on a third-party API (e.g., Stripe). They have an outage. What can you do to not be a SPOF victim?"
+  ],
+  "real_system_mappings": [
+    {
+      "system": "AWS Multi-AZ RDS",
+      "how": "Amazon RDS Multi-AZ maintains a synchronous standby in another AZ and automatically fails over to it if the primary dies — eliminating the database as a SPOF for the most common failure mode."
+    },
+    {
+      "system": "Netflix Chaos Monkey / Simian Army",
+      "how": "Netflix engineers random instance termination in production to verify that no single instance is a SPOF. If termination causes user impact, the SPOF is real and must be fixed."
+    },
+    {
+      "system": "Cloudflare's multi-vendor DNS",
+      "how": "Cloudflare uses multiple DNS providers and anycast routing so that no single DNS provider's outage takes them offline — an explicit defense against DNS-as-SPOF."
+    }
+  ],
+  "status": "published",
+  "sources": [
+    {
+      "title": "System Design Primer",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Open source"
+    },
+    {
+      "title": "ByteByteGo — Scale from zero to millions",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "ByteByteGo"
+    },
+    {
+      "title": "System Design Tutorial",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "GeeksforGeeks"
+    },
+    {
+      "title": "System Design Roadmap",
+      "url": "https://roadmap.sh/system-design",
+      "publisher": "roadmap.sh"
+    },
+    {
+      "title": "Interview Preparation reference",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Interview Preparation reference",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Interview Preparation reference",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "Reference"
+    },
+    {
+      "title": "ByteByteGo — Scaling Websites",
+      "url": "https://bytebytego.com/guides/how-to-scale-a-website-to-support-millions-of-users/",
+      "publisher": "ByteByteGo"
+    }
+  ]
+}

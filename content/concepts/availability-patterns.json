@@ -1,0 +1,437 @@
+{
+  "slug": "availability-patterns",
+  "version": 3,
+  "title": "Availability Patterns — Failover, Replication, Redundancy",
+  "phase": "foundations",
+  "area": "Foundations",
+  "estimated_minutes": 7,
+  "difficulty": "advanced",
+  "summary": "Availability patterns are the architectural moves you make so that the failure of any single component does not take down the system. The core ideas are redundancy (multiple copies of everything), replication (kept in sync), failover (automatic switch when one copy dies), and graceful degradation (serving partial results when dependencies degrade). High availability is not a property you add at the end — it is a property you design in from the first box.",
+  "why_it_matters": "Every production outage is a story about a single point of failure meeting an unanticipated event. The patterns in this lesson — active-passive, active-active, N+1 redundancy, multi-AZ deployment, multi-region failover — are the toolkit for turning '99%' uptime into '99.99%' or '99.999%'. Understanding them is the difference between a system that survives a rack failure, a zone failure, or a region failure, and one that goes viral on Hacker News for the wrong reason.",
+  "prerequisites": [
+    "cap-theorem"
+  ],
+  "related": [
+    "consistency-patterns",
+    "replication",
+    "failover",
+    "multi-region",
+    "load-balancers"
+  ],
+  "used_in": [
+    "Every system that promises more than 99% uptime.",
+    "Multi-AZ and multi-region deployments on AWS, GCP, Azure.",
+    "Database replication topologies, CDN failover, DNS-based traffic steering."
+  ],
+  "blocks": [
+    {
+      "type": "prose",
+      "id": "intro",
+      "payload": {
+        "text": "Availability is the probability a request succeeds. It is measured in 'nines': 99% uptime (two nines) allows 7.2 hours of downtime per month; 99.99% (four nines) allows 4.3 minutes; 99.999% (five nines) allows 26 seconds. Each additional nine is exponentially harder to earn because you have to eliminate every plausible failure mode, including ones that happen simultaneously.\n\nThe patterns that get you there are built on three primitives:\n\n- **Redundancy**: deploy multiple copies of every component (servers, AZs, regions, network paths, power feeds).\n- **Replication**: keep the stateful copies synchronized (sync for strong consistency, async for low latency).\n- **Failover**: automatically detect a failed component and reroute traffic to a healthy one.\n\nLayered on top are two deployment topologies: **active-passive** (one serves, the other waits) and **active-active** (both serve, doubling capacity and removing the failover step). The choice is the single biggest architectural decision after the consistency model."
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "topologies",
+      "payload": {
+        "code": "flowchart TD\n    N0[\"failover\"]\n    N1[\"load-balanced\"]\n    N2[\"ACTIVE\"]\n    N3[\"PASSIVE\"]\n    N4[\"(failover)\"]\n    N5[\"(load\"]\n    N6[\"balanced)\"]\n    N7[\"Primary\"]\n    N8[\"Standby\"]\n    N9[\"Region A\"]\n    N10[\"Region B\"]\n    N11[\"[Primary]\"]\n    N12[\"[Standby]\"]\n    N13[\"[Region\"]\n    N14[\"sync\"]\n    N15[\"replication\"]\n    N16[\"async\"]\n    N17[\"repl\"]\n    N18[\"idle\"]\n    N19[\"WRITES\"]\n    N20[\"(idle)\"]\n    N21[\"(both\"]\n    N22[\"accept\"]\n    N23[\"writes,\"]\n    N24[\"via\"]\n    N25[\"consensus\"]\n    N26[\"LB\"]\n    N27[\"[LB]\"]\n    N28[\"health\"]\n    N29[\"check\"]\n    N30[\"reconcile\"]\n    N31[\"later)\"]\n    N32[\"Global LB\"]\n    N33[\"primary\"]\n    N34[\"fails,\"]\n    N35[\"[Global\"]\n    N36[\"LB]\"]\n    N37[\"promote\"]\n    N38[\"standby.\"]\n    N39[\"routes\"]\n    N40[\"latency\"]\n    N41[\"geo\"]\n    N42[\"Availability:\"]\n    N43[\"step.\"]\n    N44[\"failover,\"]\n    N45[\"already serving\"]\n    N46[\"RTO:\"]\n    N47[\"seconds\"]\n    N48[\"minutes.\"]\n    N49[\"zero\"]\n    N50[\"(already\"]\n    N51[\"serving).\"]\n    N52[\"standby unused\"]\n    N53[\"Capacity:\"]\n    N54[\"(standby\"]\n    N55[\"unused).\"]\n    N56[\"2x.\"]\n    N57[\"Complexity:\"]\n    N58[\"lower.\"]\n    N59[\"split\"]\n    N60[\"brain\"]\n    N61[\"risk.\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44\n    N44 --> N45\n    N45 --> N46\n    N46 --> N47\n    N47 --> N48\n    N48 --> N49\n    N49 --> N50\n    N50 --> N51\n    N51 --> N52\n    N52 --> N53\n    N53 --> N54\n    N54 --> N55\n    N55 --> N56\n    N56 --> N57\n    N57 --> N58\n    N58 --> N59\n    N59 --> N60\n    N60 --> N61",
+        "caption": "Two topologies for high availability. Active-passive trades capacity for simplicity; active-active doubles capacity but needs conflict handling.",
+        "alt_text": "A side-by-side comparison. On the left, active-passive has a primary taking writes and a standby receiving replication. A load balancer health-checks the primary and promotes the standby if it fails; recovery time is seconds to minutes, capacity is one times since the standby is idle. On the right, active-active has two regions both accepting writes, with asynchronous replication between them and a global load balancer routing by latency and geography. Recovery time is zero because both are already serving, capacity is two times, but split-brain is a risk."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "failover",
+      "payload": {
+        "text": "**Failover** is the act of switching traffic from a failed component to a healthy one. The simplest case is a single load balancer in front of N app servers; if one server fails its health check, the LB stops sending it traffic and the system keeps running. This is N+1 redundancy — you can lose one server and still serve full load.\n\nStateful failover is harder. For a database, you need a clear promotion path: the primary dies, a replica is promoted, the load balancer points clients at the new primary. The four things that can go wrong:\n\n1. **Split-brain**: the network partition is partial; the old primary is still alive but unreachable from the new one. Two primaries accept writes; data diverges; on heal, one side loses writes. Mitigation: a fencing mechanism (STONITH — shoot the other node in the head) or quorum-based leader election (Raft, Paxos).\n2. **Data loss**: if replication was asynchronous, the replica may not have the latest writes. Promoting it loses them. Mitigation: synchronous replication for the data that matters (at the cost of write latency).\n3. **Failover storm**: a flapping primary causes repeated failovers. Mitigation: hysteresis — require N consecutive failed health checks before failing over, and a cooldown before failing back.\n4. **Failover that nobody tested**: the failover configuration works in theory but has never been run. Mitigation: chaos engineering — kill a primary in production regularly (Netflix's Chaos Monkey).\n\nThe metrics that matter for failover are RTO (Recovery Time Objective — how long until service is restored) and RPO (Recovery Point Objective — how much data you can lose). Active-passive synchronous replication gets you RTO seconds, RPO zero. Asynchronous replication gets you RTO seconds, RPO minutes-to-hours. Active-active gets you RTO zero, RPO zero — if you can solve the conflict problem."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "replication",
+      "payload": {
+        "text": "**Replication** is how you keep redundant copies in sync. Three topologies cover most production systems:\n\n- **Single-leader (primary-secondary)**: one node accepts writes, replicates to followers. Reads can hit followers. Failover promotes a follower. Simple, predictable, but the leader is a write bottleneck and a single point of write failure. Used by PostgreSQL streaming replication, MySQL, MongoDB replica sets.\n\n- **Multi-leader**: multiple nodes accept writes and replicate to each other. Removes the bottleneck, allows writes during partitions, but requires conflict resolution (last-write-wins, vector clocks, application merge). Risk of split-brain and write conflicts. Used by CouchDB, DynamoDB global tables, Cassandra.\n\n- **Quorum-based**: no single leader; writes go to a quorum of N nodes. Reads can use a quorum too. Linearizable if R + W > N. Used by Dynamo-style systems and consensus systems (etcd, Spanner).\n\nReplication synchronicity is the second axis. **Synchronous** replication waits for the replica to ack before returning success — zero data loss on failover, but write latency = slowest replica. **Asynchronous** replication returns success after the local write — low latency, but the replica may lag, and a failover loses unreplicated writes. Most production databases (Postgres, MySQL) use a hybrid: synchronous to one local replica for durability, asynchronous to remote replicas for disaster recovery.\n\nThe realistic pattern for high availability is: synchronous replication within a region (multi-AZ, RPO zero, RTO seconds), asynchronous replication across regions (multi-region, RPO minutes-to-hours, RTO near-zero by promoting the remote). This is what AWS Multi-AZ RDS does, what Cloudflare does for its data plane, and what most SaaS databases do."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "layers-of-redundancy",
+      "payload": {
+        "title": "Redundancy at every layer",
+        "body": "High availability is multiplicative: if any single layer has only one copy, the whole system has one copy. Production HA designs add redundancy at every layer — multiple load balancers (with VRRP/keepalived), multiple AZs for app servers, multi-AZ synchronous database replicas, multiple DNS providers, multiple ISPs for the datacenter, dual power feeds, generator backup. The weakest layer determines your real availability.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "patterns-table",
+      "payload": {
+        "text": "The named patterns you should be able to identify in an interview:\n\n- **Hot standby**: a replica is running and up-to-date, takes over in seconds. Cost: the standby is mostly idle.\n- **Warm standby**: a replica is running but lagging; takes over in seconds-to-minutes after catching up. Used for disaster recovery.\n- **Cold standby**: a replica is configured but not running; takes minutes-to-hours to start. Cheapest, slowest.\n- **Active-active**: both replicas serve traffic. Highest availability, hardest to make consistent.\n- **Multi-AZ**: deploy in multiple availability zones of one cloud region. Survives a zone failure (the most common failure). Latency cost: minimal (single-digit ms between AZs).\n- **Multi-region**: deploy in multiple regions. Survives a region failure (the catastrophic case). Latency cost: significant for synchronous replication (cross-region is 30-100ms+); usually asynchronous.\n- **Pilot light**: a minimal version runs in the second region; scale up on failover. Middle ground between warm standby and full multi-region.\n- **Graceful degradation**: when a dependency fails, the system returns partial results (e.g., hide recommendations if the rec service is down, but still serve the page). Better than a hard error.\n\nThe realistic answer is almost always: multi-AZ active-passive for the database (sync within region), multi-AZ active-active for the stateless app tier (just deploy N copies), and async multi-region replication for disaster recovery. Reserve full multi-region active-active for systems that genuinely need it — global write-anywhere products like Notion or Google Docs — because the conflict resolution complexity is high."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q1",
+      "payload": {
+        "question": "Your database uses synchronous replication to one local replica in another AZ. You need to survive a full region outage without losing data. What is the smallest change that gets you there?",
+        "shape": "mcq",
+        "options": [
+          "Add another synchronous replica in the same region — more redundancy is always better.",
+          "Add an asynchronous replica in a second region; on region failure, promote it. Accept RPO of seconds-to-minutes.",
+          "Move the primary to a different region — cross-region latency will protect you.",
+          "Add a daily snapshot to object storage — cheap and good enough for HA."
+        ],
+        "answer_index": 1,
+        "rationale": "Synchronous replication within one region protects you from AZ failure but not region failure — if the region dies, both replicas die. Adding an asynchronous replica in a second region gives you a copy that survives. On region failure, you promote the remote replica; RPO is the replication lag (seconds to minutes), which is acceptable for most workloads. Adding more same-region replicas does not help with region failure. Moving the primary cross-region would make every write pay cross-region latency — too expensive. Daily snapshots have an RPO of up to 24 hours, far from HA.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q2",
+      "payload": {
+        "question": "What is the primary risk of an active-active multi-region database using last-write-wins conflict resolution?",
+        "shape": "mcq",
+        "options": [
+          "Higher write latency — each write must reach both regions.",
+          "Silent data loss when clocks differ between regions or concurrent writes conflict.",
+          "Split-brain when one region loses network connectivity to the other.",
+          "Both regions must use the same database engine."
+        ],
+        "answer_index": 1,
+        "rationale": "Last-write-wins uses timestamps to pick the surviving version when two regions wrote the same key. If clocks are skewed (and they always are, across regions, by tens of milliseconds), the older write can win and the newer one is silently discarded. Concurrent writes to the same key produce the same problem even with perfect clocks. The fix is to use vector clocks or hybrid clocks to detect concurrent writes and surface them as conflicts to the application, or design the data model to avoid concurrent writes to the same key (e.g., per-user writes, not per-global-counter).",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q3",
+      "payload": {
+        "question": "You want 99.99% availability (four nines, ~4.3 minutes downtime per month). Which combination is necessary but not sufficient?",
+        "shape": "mcq",
+        "options": [
+          "A single server with automated backups — quick restore is enough.",
+          "Multi-AZ deployment with automated failover and a tested runbook — single region is fine.",
+          "Multi-AZ plus multi-region with health-checked DNS failover, regularly drilled.",
+          "Active-active multi-region with synchronous cross-region replication."
+        ],
+        "answer_index": 2,
+        "rationale": "Four nines means you can only lose a few minutes per month. A single server is hopeless (any reboot breaks it). Multi-AZ in one region handles the common failures but a region outage blows your monthly budget in one event. Multi-AZ plus multi-region with health-checked DNS failover gives you a path to survive both — and 'regularly drilled' matters because failover that has never been tested will fail the first time you need it. Active-active multi-region with sync replication is overkill for most apps — the latency cost is high, and most systems do not need it. The phrase 'necessary but not sufficient' is the key — these patterns are required, but you also need good release process, monitoring, and capacity headroom.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-availability-patterns-mental",
+      "payload": {
+        "text": "Engineering mental model",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-availability-patterns-mental",
+      "payload": {
+        "text": "**Mental model.** Think of Availability Patterns — Failover, Replication, Redundancy as a deliberate boundary in a system. The boundary exists because something becomes harder to manage when everything is done in one place: latency, scale, failure isolation, consistency, cost, or team ownership. The useful question is not “what does Availability Patterns — Failover, Replication, Redundancy mean?” but “what pressure makes this boundary worth introducing, and what new failure mode does it create?”"
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-availability-patterns-decision",
+      "payload": {
+        "title": "Design lens",
+        "body": "Before choosing Availability Patterns — Failover, Replication, Redundancy, name the workload, the critical user path, the dominant bottleneck, the failure you are trying to absorb, and the trade-off you are willing to accept. If you cannot name those five things, the design is probably premature.",
+        "kind": "info"
+      }
+    },
+    {
+      "type": "image",
+      "id": "upgrade-image-availability-patterns",
+      "payload": {
+        "src": "/learning-visuals/availability-patterns.svg",
+        "alt": "Original NO CAP systems visual for Availability Patterns — Failover, Replication, Redundancy.",
+        "caption": "Availability Patterns — Failover, Replication, Redundancy: a compact system-thinking visual.",
+        "credit": "Original NO CAP visual.",
+        "source_url": "https://github.com/donnemartin/system-design-primer"
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "upgrade-mermaid-availability-patterns",
+      "payload": {
+        "code": "flowchart LR\n  A[Client] --> B[Gateway] --> C[Service] --> D[State] --> E[Outcome]",
+        "caption": "Availability Patterns — Failover, Replication, Redundancy: a simplified system view showing the primary flow and the main state boundaries.",
+        "alt_text": "Availability Patterns — Failover, Replication, Redundancy: a simplified system view showing the primary flow and the main state boundaries."
+      }
+    },
+    {
+      "type": "code",
+      "id": "upgrade-code-availability-patterns",
+      "payload": {
+        "language": "text",
+        "code": "// Pseudocode\nrequest = receive()\nresult = availability_patterns(request)\nreturn result\n\n// Production questions:\n// 1. What happens on timeout?\n// 2. Can this operation be retried safely?\n// 3. What is the bottleneck?",
+        "caption": "A minimal engineering sketch for reasoning about Availability Patterns — Failover, Replication, Redundancy."
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-availability-patterns-numbers",
+      "payload": {
+        "text": "Back-of-the-envelope reasoning",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-availability-patterns-numbers",
+      "payload": {
+        "text": "Example: with 5 replicas, a majority quorum is 3. Losing 2 replicas still leaves a majority available for a quorum-based protocol."
+      }
+    },
+    {
+      "type": "simulation",
+      "id": "upgrade-sim-availability-patterns",
+      "payload": {
+        "title": "Interactive thought experiment: Availability Patterns — Failover, Replication, Redundancy",
+        "description": "Change the variables below and predict what breaks first in Availability Patterns — Failover, Replication, Redundancy. The production lab can later reuse these same inputs.",
+        "variables": [
+          {
+            "name": "replicas",
+            "description": "Replica count",
+            "default": "5"
+          },
+          {
+            "name": "read_ratio",
+            "description": "Fraction of reads",
+            "default": "80%"
+          },
+          {
+            "name": "lag",
+            "description": "Replication lag",
+            "default": "50ms"
+          }
+        ],
+        "placeholder_note": "Interactive controls are deterministic; use the linked Labs section when a dedicated lab exists."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-availability-patterns-hint",
+      "payload": {
+        "title": "Hint",
+        "body": "If you are stuck on Availability Patterns — Failover, Replication, Redundancy, start by drawing the request path and marking every network hop, stateful component, queue, cache and failure boundary. Then estimate where the system will saturate.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-availability-patterns-1",
+      "payload": {
+        "shape": "prediction",
+        "question": "You increase traffic by 10× in a system using Availability Patterns — Failover, Replication, Redundancy. What should you inspect first?",
+        "options": [
+          "The newest framework version",
+          "The dominant bottleneck and its saturation signal",
+          "Only the UI",
+          "Nothing; the architecture should absorb any traffic automatically"
+        ],
+        "answer_index": 1,
+        "rationale": "System design is a constraint-and-bottleneck exercise. Start with the resource or dependency that will saturate first, then choose the smallest change that removes that bottleneck.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-availability-patterns-2",
+      "payload": {
+        "shape": "mcq",
+        "question": "Which statement is the safest engineering habit when using Availability Patterns — Failover, Replication, Redundancy?",
+        "options": [
+          "Choose it because it is popular",
+          "Add it before measuring the problem",
+          "State the workload, failure mode and trade-off it is solving",
+          "Use the most distributed design possible"
+        ],
+        "answer_index": 2,
+        "rationale": "Good architecture starts from requirements, workload and failure assumptions. The component is the consequence of that reasoning, not the starting point.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "scenario",
+      "id": "upgrade-scenario-availability-patterns",
+      "payload": {
+        "prompt": "Production scenario: your system uses Availability Patterns — Failover, Replication, Redundancy, traffic suddenly spikes, and p99 latency doubles. What is your first move?",
+        "context": "You have dashboards for traffic, latency, errors and saturation. You can change the architecture, but every change has operational cost.",
+        "options": [
+          {
+            "id": "a",
+            "text": "Add more instances immediately",
+            "outcome": "This may help, but only if compute saturation is the bottleneck.",
+            "correct": false
+          },
+          {
+            "id": "b",
+            "text": "Inspect the bottleneck and its saturation signal first",
+            "outcome": "Correct: diagnose before scaling or introducing a new pattern.",
+            "correct": true
+          },
+          {
+            "id": "c",
+            "text": "Disable monitoring to reduce overhead",
+            "outcome": "This removes the evidence you need to diagnose the incident.",
+            "correct": false
+          }
+        ],
+        "rationale": "Measure the limiting resource or dependency first. A bottleneck can be compute, database I/O, network, cache misses, lock contention, downstream latency, or queue backlog.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-availability-patterns-interview",
+      "payload": {
+        "text": "Interview drill",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-availability-patterns-interview",
+      "payload": {
+        "text": "**Answer this without notes:** When would you choose Availability Patterns — Failover, Replication, Redundancy, and when would you intentionally avoid it? Mention at least one bottleneck it addresses, one failure mode it introduces, and one alternative. Then quantify the workload you are designing for."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "field-guide-availability-patterns",
+      "payload": {
+        "title": "Engineering lens",
+        "body": "For Availability Patterns - Failover, Replication, Redundancy, start with access patterns rather than brand names. Identify the dominant reads/writes, data relationships, consistency requirements, partition key, hot keys and failure behavior before choosing a storage strategy.",
+        "kind": "tip"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "numerical-lens-availability-patterns",
+      "payload": {
+        "text": "### Numerical sanity check\n\nA rough capacity check: required write throughput ≈ peak writes/s × average record size. At 5,000 writes/s and 2 KB average payloads, the raw incoming data stream is about 10 MB/s before indexes, replication and overhead."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "field-question-availability-patterns",
+      "payload": {
+        "shape": "prediction",
+        "question": "A team proposes Availability Patterns - Failover, Replication, Redundancy because it 'scales'. What workload characteristic would make that choice a poor fit?",
+        "context": "Do not optimize for a memorized definition. Reason from the workload and failure mode.",
+        "options": [
+          "Scale the same component immediately.",
+          "Measure the current bottleneck and state the assumption that changed.",
+          "Add more technologies until throughput improves.",
+          "Choose the most popular architecture."
+        ],
+        "answer_index": 1,
+        "rationale": "Good system design starts with the bottleneck and the changed constraint. The most popular or complex choice is not automatically correct.",
+        "difficulty": "interview"
+      }
+    }
+  ],
+  "trade_offs": {
+    "pros": [
+      "Redundancy eliminates single points of failure — the most common cause of outages.",
+      "Active-active topologies double capacity while improving availability.",
+      "Multi-AZ replication is cheap insurance for the most common (zone) failures.",
+      "Tested failover lets you recover from incidents in seconds instead of hours."
+    ],
+    "cons": [
+      "Every redundant copy costs money; HA is not free.",
+      "Synchronous replication adds write latency proportional to the slowest replica.",
+      "Active-active requires conflict resolution, which is hard to get right and hard to debug.",
+      "More components = more failure modes; the system that 'never fails' often fails in novel ways."
+    ]
+  },
+  "failure_modes": [
+    "Split-brain during a network partition — two primaries accept writes, diverge, and lose data on heal.",
+    "Failover to a stale replica — asynchronous replication lag causes data loss on promotion.",
+    "Failover storm — a flapping primary triggers repeated promotions, each losing in-flight writes.",
+    "Correlated failure — 'redundant' AZs share a power feed or network spine; one event takes both.",
+    "Untested failover — the failover config has rotted; the first real incident is when you discover it.",
+    "DNS propagation delay — failover succeeds but clients keep hitting the old IP for the TTL window."
+  ],
+  "common_mistakes": [
+    "Counting 'redundant' components that share a hidden dependency (power, network, DNS provider, vendor).",
+    "Treating the load balancer itself as infallible — LBs need redundancy too.",
+    "Running active-passive but never failing over to the passive — it accumulates rot and breaks when needed.",
+    "Asynchronous replication without monitoring lag — you do not know your RPO until you measure it.",
+    "Synchronous replication across regions for everything — kills write latency for no HA benefit.",
+    "Forgetting the data plane (stateless app tier) is easy HA, but the control plane (DNS, IAM, secrets) also needs redundancy."
+  ],
+  "where_you_see_it": [
+    "AWS Multi-AZ RDS, Aurora — synchronous standby in a second AZ, automated failover.",
+    "Cloudflare's anycast network — every PoP serves traffic, no failover needed for the data plane.",
+    "Netflix's Chaos Monkey — kills production instances regularly to force failover to be tested.",
+    "CockroachDB and Spanner — multi-active replication with consensus, surviving node/AZ/region failures.",
+    "DNS-based failover (Route 53 health checks) — the outermost layer of multi-region failover."
+  ],
+  "interview_prompts": [
+    "Design a web service that survives an AWS region failure. What is the RTO and RPO you can promise?",
+    "Active-active vs active-passive — when would you choose each? What are the trade-offs?",
+    "Your database uses asynchronous replication to a standby in another region. Replication lag is currently 30 seconds. What is your actual RPO, and what happens if you fail over right now?",
+    "How do you prevent split-brain in a multi-leader database?",
+    "What does 'N+1 redundancy' mean, and what is the hidden assumption that can break it?"
+  ],
+  "real_system_mappings": [
+    {
+      "system": "AWS Aurora",
+      "how": "Multi-AZ synchronous storage replication with automated failover to a standby instance in under 30 seconds. Survives AZ failure with RPO zero."
+    },
+    {
+      "system": "Cloudflare",
+      "how": "Anycast network of 300+ PoPs; every PoP serves traffic, so a PoP failure means traffic is automatically routed to the nearest healthy one with no failover step."
+    },
+    {
+      "system": "Netflix Chaos Monkey",
+      "how": "Production fault injection that randomly kills instances during business hours, forcing teams to ensure their failover paths actually work."
+    }
+  ],
+  "status": "published",
+  "sources": [
+    {
+      "title": "System Design Primer",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Open source"
+    },
+    {
+      "title": "ByteByteGo — Scale from zero to millions",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "ByteByteGo"
+    },
+    {
+      "title": "System Design Tutorial",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "GeeksforGeeks"
+    },
+    {
+      "title": "System Design Roadmap",
+      "url": "https://roadmap.sh/system-design",
+      "publisher": "roadmap.sh"
+    },
+    {
+      "title": "Foundations reference",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Foundations reference",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Foundations reference",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "Reference"
+    }
+  ]
+}

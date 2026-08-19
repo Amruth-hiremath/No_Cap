@@ -1,0 +1,431 @@
+{
+  "slug": "performance-monitoring",
+  "version": 4,
+  "title": "Performance Monitoring",
+  "phase": "observability",
+  "area": "Observability",
+  "estimated_minutes": 7,
+  "difficulty": "core",
+  "summary": "Performance monitoring tracks how fast your system is: latency (how long requests take), throughput (how many you handle), and error rate (how many fail). The three golden signals (plus saturation) make up the USE/RED method. The key tool is the latency histogram and its percentiles — p50 (median), p95 (95th percentile), p99 — because averages hide the long tail that affects real users.",
+  "why_it_matters": "\"The site feels slow\" is a usability problem, a churn problem, and a revenue problem. Amazon famously estimated that every 100ms of latency cost 1% of sales. Performance monitoring turns \"feels slow\" into numbers: p99 latency is 800ms (target 300ms), throughput dropped 40% at 14:00 UTC, error rate is 0.5% (target 0.1%). These numbers make performance measurable, alertable, and improvable. Without monitoring, you optimize blindly — and almost always optimize the wrong thing. With monitoring, you find the actual bottleneck and know when you've fixed it.",
+  "prerequisites": [
+    "metrics-logs-traces",
+    "latency-vs-throughput"
+  ],
+  "related": [
+    "metrics-logs-traces",
+    "alerts-visualization",
+    "latency-vs-throughput",
+    "bottleneck-identification"
+  ],
+  "used_in": [
+    "Every production service with a latency SLO.",
+    "Every APM tool (Datadog, New Relic, Dynatrace).",
+    "Every performance investigation."
+  ],
+  "blocks": [
+    {
+      "type": "prose",
+      "id": "intro",
+      "payload": {
+        "text": "Performance monitoring tracks four golden signals (Google SRE):\n\n1. **Latency**: time to serve a request. Tracked as percentiles (p50, p95, p99), not averages.\n2. **Traffic**: how much demand the service is handling (requests/sec, transactions/sec).\n3. **Errors**: the rate of failed requests (5xx, application errors).\n4. **Saturation**: how \"full\" the service is (CPU, memory, disk, queue depth, connection pool).\n\nTogether these tell you whether the system is healthy, fast, and within capacity. Two methodologies distill them:\n\n- **RED method** (for services): Rate, Errors, Duration (latency). One chart per service.\n- **USE method** (for resources): Utilization, Saturation, Errors. One chart per resource (CPU, disk, network).\n\nA complete dashboard covers both: RED for each service, USE for each resource dependency."
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "percentiles",
+      "payload": {
+        "code": "flowchart TD\n    N0[\"WHY\"]\n    N1[\"PERCENTILES,\"]\n    N2[\"NOT\"]\n    N3[\"AVERAGES\"]\n    N4[\"100\"]\n    N5[\"requests:\"]\n    N6[\"finish\"]\n    N7[\"50ms\"]\n    N8[\"300ms\"]\n    N9[\"avg\"]\n    N10[\"67ms\"]\n    N11[\"finishes\"]\n    N12[\"5,000ms\"]\n    N13[\"p99\"]\n    N14[\"5,000ms!\"]\n    N15[\"Average\"]\n    N16[\"hides\"]\n    N17[\"the\"]\n    N18[\"outlier.\"]\n    N19[\"surfaces\"]\n    N20[\"it.\"]\n    N21[\"Real\"]\n    N22[\"users\"]\n    N23[\"see\"]\n    N24[\"they\"]\n    N25[\"don't\"]\n    N26[\"average.\"]\n    N27[\"what APMs store\"]\n    N28[\"LATENCY\"]\n    N29[\"HISTOGRAM\"]\n    N30[\"(what\"]\n    N31[\"APMs\"]\n    N32[\"store)\"]\n    N33[\"0-50, 50-100, 100-300, 300-1k, 1k-10k\"]\n    N34[\"buckets:\"]\n    N35[\"50,\"]\n    N36[\"100,\"]\n    N37[\"300,\"]\n    N38[\"300\"]\n    N39[\"1k,\"]\n    N40[\"10k]\"]\n    N41[\"counts:\"]\n    N42[\"p50\"]\n    N43[\"p95\"]\n    N44[\"Multiple\"]\n    N45[\"percentiles\"]\n    N46[\"tell\"]\n    N47[\"shape\"]\n    N48[\"distribution.\"]\n    N49[\"alone\"]\n    N50[\"tail.\"]\n    N51[\"median.\"]\n    N52[\"Track\"]\n    N53[\"both\"]\n    N54[\"and\"]\n    N55[\"watch\"]\n    N56[\"move\"]\n    N57[\"independently\"]\n    N58[\"p50.\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44\n    N44 --> N45\n    N45 --> N46\n    N46 --> N47\n    N47 --> N48\n    N48 --> N49\n    N49 --> N50\n    N50 --> N51\n    N51 --> N52\n    N52 --> N53\n    N53 --> N54\n    N54 --> N55\n    N55 --> N56\n    N56 --> N57\n    N57 --> N58",
+        "caption": "Averages hide outliers; percentiles expose them. p50, p95, p99 together describe the latency distribution.",
+        "alt_text": "Two diagrams. Why percentiles, not averages: a hundred requests where 95 finish in 50ms, 4 finish in 300ms, and 1 finishes in 5,000ms. The average is 67ms — but p99 is 5,000ms. The average hides the 5-second outlier that real users see; p99 surfaces it. Latency histogram: buckets from 0 to 50ms up to 1 to 10 seconds, with counts of 95, 3, 1, 1, and 0. p50 is 50ms, p95 is 50ms, p99 is 300ms. Multiple percentiles describe the shape of the distribution: p50 alone hides the tail; p99 alone hides the median. Track both and watch p99 move independently of p50."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "percentiles-deep",
+      "payload": {
+        "text": "Percentiles describe the distribution of latencies:\n\n- **p50 (median)**: half of requests are faster, half slower. The \"typical\" experience.\n- **p95**: 95% of requests are faster than this. Captures the slow tail.\n- **p99**: 99% of requests are faster. Captures the worst experience 1% of users see.\n- **p99.9**: 1 in 1000 requests. Useful for large-volume services where 1% is still many users.\n\nWhy percentile, not average? Averages are skewed by outliers. If 1% of requests take 5 seconds and 99% take 50ms, the average is 100ms — looks fine, but 1% of users see 5 seconds. p99 = 5s reveals the problem.\n\nDifferent percentiles capture different issues. p50 is affected by general slowness (DB load, code path length). p99 is affected by outliers (GC pauses, cold caches, retries, contention). A regression that affects only the tail shows up in p99 but not p50.\n\nTrack multiple percentiles. SLOs are usually set on p99 or p99.9 — \"99% of requests complete within 300ms.\""
+      }
+    },
+    {
+      "type": "prose",
+      "id": "apm-tools",
+      "payload": {
+        "text": "APM (Application Performance Monitoring) tools automate performance monitoring. They instrument your code (via agent or SDK) to capture:\n\n- Per-request latency (with histograms).\n- Per-service dependency latency (DB, cache, RPC).\n- Error rates.\n- Distributed traces on sampled requests.\n- Host metrics (CPU, memory, GC).\n\nExamples: Datadog, New Relic, Dynatrace (commercial); Jaeger, Zipkin, Prometheus+Grafana (open source).\n\nThe value of APM is correlation: when p99 spikes, you can drill into a slow trace, see which span was slow (e.g., a particular DB query), then look at the DB metrics to see if it was a query plan regression or saturation. Manual instrumentation can do this too, but APM does it out of the box.\n\nThe cost is real — APM agents add overhead (1-5% CPU) and the tools are priced by host or by request volume. Many teams use them anyway because the productivity gain dwarfs the cost."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "alerting",
+      "payload": {
+        "title": "Alert on SLOs, not raw thresholds",
+        "body": "Naive alerting (\"page if p99 > 1s\") fires constantly because latency has natural variance. Better: alert when the SLO burn rate is high — i.e., when you're consuming error budget faster than allowed. \"SLO burn rate of 14x over 1 hour\" means you'll exhaust the 30-day budget in ~2 hours if not fixed. This is the Google SRE multi-window multi-burn-rate approach: short-window fast-burn (page) catches acute outages; long-window slow-burn (ticket) catches chronic regressions. It dramatically reduces alert fatigue compared to raw thresholds.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "saturation",
+      "payload": {
+        "text": "Saturation tells you how close the system is to its limits. Useful saturation metrics:\n\n- **CPU utilization**: high CPU = potential bottleneck. But CPU at 90% isn't always bad — if it's steady and the queue isn't growing.\n- **Memory utilization**: high = OOM risk. Watch the trend, not just the level.\n- **Queue depth**: request queue, DB connection pool, message queue lag. Growing queues are an early warning sign of overload.\n- **Connection pool utilization**: at 80%+ you're near saturation; new connections may queue.\n- **Disk I/O wait**: high = disk is the bottleneck.\n\nSaturation is a leading indicator. Latency rises sharply near 100% utilization (queueing theory: at 80% utilization, average queue length is 4; at 90%, it's 9; at 99%, it's 99). Track utilization and alert before saturation, not after."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q1",
+      "payload": {
+        "question": "Your average request latency is 100ms. The p99 is 2 seconds. Which one should you investigate?",
+        "shape": "mcq",
+        "options": [
+          "Neither — the average looks fine.",
+          "The p99. Averages hide the tail; 1% of users are seeing 2-second responses, which is a real problem the average masks.",
+          "Both equally — they describe the same thing.",
+          "Only the average matters for alerting."
+        ],
+        "answer_index": 1,
+        "rationale": "Averages mask outliers. A p99 of 2s with an average of 100ms means a small fraction of users (1%) are seeing 2-second responses — likely due to GC pauses, cache misses, contention, or retry cascades. These users experience a broken-feeling product. The average hides this because the fast 99% dominate the calculation. The p99 surfaces it, and that's why percentiles are the standard for latency monitoring. Always track p50 (the typical experience) and p99 (the worst experience most users see) — both matter.",
+        "difficulty": "core"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q2",
+      "payload": {
+        "question": "Latency is rising and CPU is at 95%. Your throughput (requests/sec) is steady. What's likely happening?",
+        "shape": "mcq",
+        "options": [
+          "Nothing — high CPU is normal under load.",
+          "The system is saturated: requests are queuing for CPU, so each one takes longer. Throughput is steady because new requests can't enter until old ones finish — you're at the throughput ceiling.",
+          "The CPU metric is broken.",
+          "Throughput should be rising — there's a bug."
+        ],
+        "answer_index": 1,
+        "rationale": "This is the signature of saturation. At high utilization (95% CPU), queueing theory says latency rises sharply — each request waits in a queue for CPU. Throughput stays steady because the system can't process more — it's at capacity. Adding more requests would just grow the queue and increase latency further. The fix is to scale out (add capacity) or reduce per-request CPU (optimize hot paths). This is exactly why saturation is one of the four golden signals — it predicts latency problems before they manifest as errors.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q3",
+      "payload": {
+        "question": "What's the difference between the RED and USE methods?",
+        "shape": "mcq",
+        "options": [
+          "RED is for services; USE is for resources.",
+          "RED is for resources; USE is for services.",
+          "They're the same method with different names.",
+          "RED measures latency; USE measures errors."
+        ],
+        "answer_index": 0,
+        "rationale": "RED (Rate, Errors, Duration) is the request-centric method — applied to services to track how they handle traffic. USE (Utilization, Saturation, Errors) is the resource-centric method — applied to infrastructure like CPU, disk, network to track how full they are. A complete monitoring setup uses both: RED for each service, USE for each resource. RED tells you \"the service is slow\"; USE tells you \"the CPU is saturated.\" Together they let you connect the symptom (slow service) to the cause (saturated CPU).",
+        "difficulty": "core"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-performance-monitoring-mental",
+      "payload": {
+        "text": "Engineering mental model",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-performance-monitoring-mental",
+      "payload": {
+        "text": "**Mental model.** Think of Performance Monitoring as a deliberate boundary in a system. The boundary exists because something becomes harder to manage when everything is done in one place: latency, scale, failure isolation, consistency, cost, or team ownership. The useful question is not “what does Performance Monitoring mean?” but “what pressure makes this boundary worth introducing, and what new failure mode does it create?”"
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-performance-monitoring-decision",
+      "payload": {
+        "title": "Design lens",
+        "body": "Before choosing Performance Monitoring, name the workload, the critical user path, the dominant bottleneck, the failure you are trying to absorb, and the trade-off you are willing to accept. If you cannot name those five things, the design is probably premature.",
+        "kind": "info"
+      }
+    },
+    {
+      "type": "image",
+      "id": "upgrade-image-performance-monitoring",
+      "payload": {
+        "src": "/learning-visuals/performance-monitoring.svg",
+        "alt": "Original NO CAP systems visual for Performance Monitoring.",
+        "caption": "Performance Monitoring: a compact system-thinking visual.",
+        "credit": "Original NO CAP visual.",
+        "source_url": "https://github.com/donnemartin/system-design-primer"
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "upgrade-mermaid-performance-monitoring",
+      "payload": {
+        "code": "flowchart LR\n  A[Signal] --> B[Collector] --> C[Store] --> D[Rule] --> E[Alert]",
+        "caption": "Performance Monitoring: a simplified system view showing the primary flow and the main state boundaries.",
+        "alt_text": "Performance Monitoring: a simplified system view showing the primary flow and the main state boundaries."
+      }
+    },
+    {
+      "type": "code",
+      "id": "upgrade-code-performance-monitoring",
+      "payload": {
+        "language": "text",
+        "code": "// Pseudocode\nrequest = receive()\nresult = performance_monitoring(request)\nreturn result\n\n// Production questions:\n// 1. What happens on timeout?\n// 2. Can this operation be retried safely?\n// 3. What is the bottleneck?",
+        "caption": "A minimal engineering sketch for reasoning about Performance Monitoring."
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-performance-monitoring-numbers",
+      "payload": {
+        "text": "Back-of-the-envelope reasoning",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-performance-monitoring-numbers",
+      "payload": {
+        "text": "Numerical lens: write down traffic, payload size, read/write ratio, peak multiplier and durability target before choosing a component. The numbers should justify the architecture."
+      }
+    },
+    {
+      "type": "simulation",
+      "id": "upgrade-sim-performance-monitoring",
+      "payload": {
+        "title": "Interactive thought experiment: Performance Monitoring",
+        "description": "Change the variables below and predict what breaks first in Performance Monitoring. The production lab can later reuse these same inputs.",
+        "variables": [
+          {
+            "name": "traffic",
+            "description": "Requests/events per second",
+            "default": "1000"
+          },
+          {
+            "name": "latency",
+            "description": "Dependency latency",
+            "default": "50ms"
+          },
+          {
+            "name": "failure_rate",
+            "description": "Injected failure rate",
+            "default": "0%"
+          }
+        ],
+        "placeholder_note": "Interactive controls are deterministic; use the linked Labs section when a dedicated lab exists."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-performance-monitoring-hint",
+      "payload": {
+        "title": "Hint",
+        "body": "If you are stuck on Performance Monitoring, start by drawing the request path and marking every network hop, stateful component, queue, cache and failure boundary. Then estimate where the system will saturate.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-performance-monitoring-1",
+      "payload": {
+        "shape": "prediction",
+        "question": "You increase traffic by 10× in a system using Performance Monitoring. What should you inspect first?",
+        "options": [
+          "The newest framework version",
+          "The dominant bottleneck and its saturation signal",
+          "Only the UI",
+          "Nothing; the architecture should absorb any traffic automatically"
+        ],
+        "answer_index": 1,
+        "rationale": "System design is a constraint-and-bottleneck exercise. Start with the resource or dependency that will saturate first, then choose the smallest change that removes that bottleneck.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-performance-monitoring-2",
+      "payload": {
+        "shape": "mcq",
+        "question": "Which statement is the safest engineering habit when using Performance Monitoring?",
+        "options": [
+          "Choose it because it is popular",
+          "Add it before measuring the problem",
+          "State the workload, failure mode and trade-off it is solving",
+          "Use the most distributed design possible"
+        ],
+        "answer_index": 2,
+        "rationale": "Good architecture starts from requirements, workload and failure assumptions. The component is the consequence of that reasoning, not the starting point.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "scenario",
+      "id": "upgrade-scenario-performance-monitoring",
+      "payload": {
+        "prompt": "Production scenario: your system uses Performance Monitoring, traffic suddenly spikes, and p99 latency doubles. What is your first move?",
+        "context": "You have dashboards for traffic, latency, errors and saturation. You can change the architecture, but every change has operational cost.",
+        "options": [
+          {
+            "id": "a",
+            "text": "Add more instances immediately",
+            "outcome": "This may help, but only if compute saturation is the bottleneck.",
+            "correct": false
+          },
+          {
+            "id": "b",
+            "text": "Inspect the bottleneck and its saturation signal first",
+            "outcome": "Correct: diagnose before scaling or introducing a new pattern.",
+            "correct": true
+          },
+          {
+            "id": "c",
+            "text": "Disable monitoring to reduce overhead",
+            "outcome": "This removes the evidence you need to diagnose the incident.",
+            "correct": false
+          }
+        ],
+        "rationale": "Measure the limiting resource or dependency first. A bottleneck can be compute, database I/O, network, cache misses, lock contention, downstream latency, or queue backlog.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-performance-monitoring-interview",
+      "payload": {
+        "text": "Interview drill",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-performance-monitoring-interview",
+      "payload": {
+        "text": "**Answer this without notes:** When would you choose Performance Monitoring, and when would you intentionally avoid it? Mention at least one bottleneck it addresses, one failure mode it introduces, and one alternative. Then quantify the workload you are designing for."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "field-guide-performance-monitoring",
+      "payload": {
+        "title": "Engineering lens",
+        "body": "A useful engineering lens for Performance Monitoring: define the problem it solves, the simpler design that fails first, the constraint that forces you to introduce this concept, and the new failure modes the concept creates.",
+        "kind": "tip"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "numerical-lens-performance-monitoring",
+      "payload": {
+        "text": "### Numerical sanity check\n\nBack-of-the-envelope reasoning beats fake precision. State your traffic, payload, concurrency and growth assumptions explicitly, then calculate enough to know whether the current architecture is orders of magnitude away from the target."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "field-question-performance-monitoring",
+      "payload": {
+        "shape": "prediction",
+        "question": "Imagine the simplest version of a system using Performance Monitoring. What breaks first as traffic grows by 10×, and what would you change before reaching 100×?",
+        "context": "Do not optimize for a memorized definition. Reason from the workload and failure mode.",
+        "options": [
+          "Scale the same component immediately.",
+          "Measure the current bottleneck and state the assumption that changed.",
+          "Add more technologies until throughput improves.",
+          "Choose the most popular architecture."
+        ],
+        "answer_index": 1,
+        "rationale": "Good system design starts with the bottleneck and the changed constraint. The most popular or complex choice is not automatically correct.",
+        "difficulty": "interview"
+      }
+    }
+  ],
+  "trade_offs": {
+    "pros": [
+      "Quantifies \"feels slow\" into measurable numbers (p50, p95, p99).",
+      "Percentiles expose the tail that averages hide.",
+      "Saturation is a leading indicator — predicts latency before users feel it.",
+      "APM tools correlate latency, traces, and resource metrics for fast diagnosis."
+    ],
+    "cons": [
+      "APM agents add 1-5% overhead and cost.",
+      "Histograms are lossy — buckets aggregate away fine detail.",
+      "Naive threshold-based alerting causes fatigue.",
+      "p99 has high variance at low traffic volumes — needs smoothing."
+    ]
+  },
+  "failure_modes": [
+    "Alerting on averages instead of percentiles — outliers hidden until users complain.",
+    "Alerting on raw thresholds instead of SLO burn rates — fatigue from natural variance.",
+    "Missing saturation metrics — surprised by latency spikes when utilization crosses 90%.",
+    "Tracking only p99 — misses general slowness that affects p50."
+  ],
+  "common_mistakes": [
+    "Using average latency instead of percentiles.",
+    "Alerting on every p99 spike (natural variance causes noise).",
+    "Not correlating latency with saturation — symptom without cause.",
+    "Skipping APM to save cost — the productivity loss is greater."
+  ],
+  "where_you_see_it": [
+    "Datadog, New Relic, Dynatrace (commercial APM).",
+    "Prometheus + Grafana (open-source metrics + dashboards).",
+    "Google SRE's four golden signals framework."
+  ],
+  "interview_prompts": [
+    "Why are percentiles better than averages for latency? What's the difference between p50, p95, and p99?",
+    "What are the four golden signals of monitoring?",
+    "Explain the RED and USE methods. When do you use each?",
+    "How would you alert on latency without causing alert fatigue?"
+  ],
+  "real_system_mappings": [
+    {
+      "system": "Google SRE Four Golden Signals",
+      "how": "Latency, traffic, errors, saturation — the canonical set of metrics for any production service. Formalized in the Google SRE book and adopted across the industry."
+    },
+    {
+      "system": "Datadog APM",
+      "how": "Auto-instruments code via agent; captures per-service RED metrics, distributed traces, and resource USE metrics in one correlated view. Industry-standard commercial APM."
+    }
+  ],
+  "status": "published",
+  "sources": [
+    {
+      "title": "System Design Primer",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Open source"
+    },
+    {
+      "title": "ByteByteGo — Scale from zero to millions",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "ByteByteGo"
+    },
+    {
+      "title": "System Design Tutorial",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "GeeksforGeeks"
+    },
+    {
+      "title": "System Design Roadmap",
+      "url": "https://roadmap.sh/system-design",
+      "publisher": "roadmap.sh"
+    },
+    {
+      "title": "Observability reference",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Observability reference",
+      "url": "https://opentelemetry.io/docs/",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Observability reference",
+      "url": "https://sre.google/sre-book/monitoring-distributed-systems/",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Google SRE Book",
+      "url": "https://sre.google/sre-book/table-of-contents/",
+      "publisher": "Google"
+    }
+  ]
+}

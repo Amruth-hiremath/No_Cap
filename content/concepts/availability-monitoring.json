@@ -1,0 +1,413 @@
+{
+  "slug": "availability-monitoring",
+  "version": 4,
+  "title": "Availability Monitoring",
+  "phase": "observability",
+  "area": "Observability",
+  "estimated_minutes": 7,
+  "difficulty": "core",
+  "summary": "Availability monitoring measures whether users can actually reach and use your service — from outside the data center, not just from inside. It uses synthetic probes (Periodic HTTP requests from global locations) to detect outages that internal health checks miss: DNS failures, load balancer misconfigurations, region routing issues, TLS expiry. The output is uptime (e.g., 99.95% over 30 days) and the alerting is paged when availability drops below the SLO.",
+  "why_it_matters": "Internal health checks say \"the service is healthy\" — but if DNS is broken, the load balancer is misconfigured, or the TLS cert expired, users can't reach it. Internal checks give false confidence. Availability monitoring, run from outside your infrastructure, catches the network path issues that take down production: the cert that expired at 3am, the BGP route that got hijacked, the CDN that's serving 5xxs. Without external monitoring, your team finds out about outages from Twitter. With it, you find out in seconds, before users notice.",
+  "prerequisites": [
+    "health-monitoring",
+    "slo-sla-sli"
+  ],
+  "related": [
+    "health-monitoring",
+    "alerts-visualization",
+    "slo-sla-sli"
+  ],
+  "used_in": [
+    "Every public-facing service.",
+    "Every status page (status.amazonaws.com, status.github.com).",
+    "Every SLA-measured commercial product."
+  ],
+  "blocks": [
+    {
+      "type": "prose",
+      "id": "intro",
+      "payload": {
+        "text": "Availability monitoring answers a simple question: \"can a user, somewhere on the internet, reach my service right now?\" It's the most fundamental metric — and one that's surprisingly easy to get wrong, because internal checks can all be green while the service is unreachable.\n\nThe technique is **synthetic monitoring**: a service (Pingdom, UptimeRobot, Datadog Synthetics, Catchpoint) makes periodic HTTP requests to your endpoint from multiple geographic locations, simulating a real user. If the request fails or is too slow, it counts against availability. The probes run every 1-5 minutes from ~10 global locations.\n\nAvailability is reported as a percentage over a window (e.g., 99.95% over 30 days). 99.95% means about 22 minutes of downtime per month — the SLA target for many cloud services."
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "synthetic-vs-internal",
+      "payload": {
+        "code": "flowchart TD\n    N0[\"inside the VPC\"]\n    N1[\"INTERNAL\"]\n    N2[\"HEALTH\"]\n    N3[\"CHECK\"]\n    N4[\"(inside\"]\n    N5[\"the\"]\n    N6[\"VPC)\"]\n    N7[\"Kubelet\"]\n    N8[\"GET\"]\n    N9[\"health\"]\n    N10[\"200\"]\n    N11[\"'Container\"]\n    N12[\"healthy.'\"]\n    N13[\"But:\"]\n    N14[\"DNS\"]\n    N15[\"broken\"]\n    N16[\"externally?\"]\n    N17[\"Load\"]\n    N18[\"balancer\"]\n    N19[\"misconfigured?\"]\n    N20[\"TLS\"]\n    N21[\"cert\"]\n    N22[\"expired?\"]\n    N23[\"Region\"]\n    N24[\"route\"]\n    N25[\"flapping?\"]\n    N26[\"Internal\"]\n    N27[\"check\"]\n    N28[\"still\"]\n    N29[\"says\"]\n    N30[\"200.\"]\n    N31[\"False\"]\n    N32[\"positive.\"]\n    N33[\"from global probes\"]\n    N34[\"EXTERNAL\"]\n    N35[\"SYNTHETIC\"]\n    N36[\"(from\"]\n    N37[\"global\"]\n    N38[\"probes)\"]\n    N39[\"45ms\"]\n    N40[\"Probe\"]\n    N41[\"Tokyo\"]\n    N42[\"https:\"]\n    N43[\"api.x.com\"]\n    N44[\"(45ms)\"]\n    N45[\"35ms\"]\n    N46[\"(35ms)\"]\n    N47[\"timeout!\"]\n    N48[\"Ireland\"]\n    N49[\"504\"]\n    N50[\"(timeout!)\"]\n    N51[\"Detects\"]\n    N52[\"problem\"]\n    N53[\"users\"]\n    N54[\"see,\"]\n    N55[\"region.\"]\n    N56[\"Pages\"]\n    N57[\"call\"]\n    N58[\"immediately.\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44\n    N44 --> N45\n    N45 --> N46\n    N46 --> N47\n    N47 --> N48\n    N48 --> N49\n    N49 --> N50\n    N50 --> N51\n    N51 --> N52\n    N52 --> N53\n    N53 --> N54\n    N54 --> N55\n    N55 --> N56\n    N56 --> N57\n    N57 --> N58",
+        "caption": "Internal health checks miss the network path. External synthetics probe the full path the user takes.",
+        "alt_text": "Two diagrams. Internal health check: the kubelet calls GET slash health and gets 200 OK, saying the container is healthy. But this misses external problems: DNS broken externally, load balancer misconfigured, TLS cert expired, or region route flapping. The internal check still returns 200 — a false positive. External synthetic monitoring: probes in Tokyo, Northern Virginia, and Ireland call the public URL. Tokyo and Northern Virginia return 200 with low latency; Ireland returns 504 with a timeout. This detects the problem users actually see, by region, and pages on-call immediately."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "what-to-monitor",
+      "payload": {
+        "text": "What endpoints should synthetic probes check? The principle is to monitor the **user-visible critical paths**:\n\n- **Homepage / login page**: is the most-visited page reachable? Is the TLS cert valid?\n- **Login flow**: can users actually log in? (A simple GET isn't enough — you need a scripted probe that submits credentials and checks the response.)\n- **Critical API endpoint**: e.g., GET /api/v1/health on the public API.\n- **A representative business action**: e.g., \"add an item to cart\" — confirms the whole stack works end-to-end.\n\nFor each, set thresholds: response must be 200 within 2 seconds from each region. Slower or non-200 responses count as downtime.\n\nDon't monitor only the load balancer's health check endpoint — that confirms the LB is up, not that users can reach it. Probe the real URL."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "alerting",
+      "payload": {
+        "text": "Availability monitoring drives alerting. The standard pattern:\n\n- **Single probe failure**: don't page. Probes flake, networks are lossy, single-region outages happen. Wait.\n- **Multiple regions failing for >1 minute**: page. This is real.\n- **Sustained failures affecting SLO**: page. If availability drops below the SLO target for the rolling window, page.\n\nAlert fatigue is the enemy. A probe that pages on every transient blip trains the team to ignore pages. Configure probes with sensible thresholds (1-2 minute sustained failures across multiple regions) and a clear runbook attached to the page.\n\nThe status page (status.yourcompany.com) is the user-facing output of availability monitoring. When probes detect an outage, the status page shows degraded. This is the contract with users: we'll tell you when something's broken."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "multi-region",
+      "payload": {
+        "title": "Probe from multiple regions",
+        "body": "A probe from one location can't distinguish a global outage from a regional network issue. Probe from at least 3 geographically distributed locations. If only one region fails, it's probably a network path issue affecting users in that region — investigate, but it's not a global outage. If all regions fail, the service is down. This also catches region-specific issues: a CDN misconfiguration in Europe, a misrouted DNS in Asia, a regional TLS problem.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "uptime-calculation",
+      "payload": {
+        "text": "Uptime is calculated as `successful_probes / total_probes` over a window. Subtleties:\n\n- **Probe frequency matters**: a probe every 5 minutes can miss a 4-minute outage. Probe every 1 minute for critical paths.\n- **Window choice**: a 30-day rolling window smooths blips but lags. A 24-hour window is responsive but noisy. Most teams report both.\n- **Downtime attribution**: was it really downtime, or was it a probe failure? Probes can fail due to network issues between the probe and your service that aren't your service's fault. Investigate each outage.\n- **Planned maintenance**: scheduled downtime is usually excluded from SLA calculations but still appears on the status page.\n\nThe SLA itself is a contractual version of uptime: \"if we miss 99.95% in a month, you get 10% service credit.\" This makes availability real to the business — missing it costs money."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q1",
+      "payload": {
+        "question": "Your internal health checks all show green, but users are reporting they can't reach the service. What's the most likely failure mode that internal checks missed?",
+        "shape": "mcq",
+        "options": [
+          "The container is using too much memory.",
+          "An external issue: TLS cert expired, DNS misconfigured, or load balancer routing broken. Internal checks can't see the network path users take.",
+          "The database is slow.",
+          "The probes are too aggressive."
+        ],
+        "answer_index": 1,
+        "rationale": "Internal health checks confirm the container is healthy and the local network is fine, but they don't traverse the full network path users take: DNS resolution, BGP routing, the load balancer, TLS handshake, CDN. Any of these can break while internal checks stay green. The classic example is the TLS certificate that expires at 3am — the container is perfectly healthy, but every browser shows a security error. External synthetic probes from global locations traverse the same path as users, so they catch what internal checks miss.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q2",
+      "payload": {
+        "question": "You set up an availability probe from a single location in us-east-1. It pages at 3am because the probe couldn't reach your service. What's wrong with this setup?",
+        "shape": "mcq",
+        "options": [
+          "Nothing — the probe is doing its job.",
+          "Single-location probes can't distinguish a real outage from a regional network issue affecting only the probe. Probe from multiple regions and only page if multiple fail.",
+          "The probe should be inside the VPC.",
+          "Probes should only run during business hours."
+        ],
+        "answer_index": 1,
+        "rationale": "A single-location probe pages on every regional network issue affecting that probe — even if your service is perfectly healthy for everyone else. This causes alert fatigue: pages fire at 3am, the on-call investigates, finds nothing wrong, and learns to ignore the alert. The fix is multi-region probes with a threshold like \"page if 2+ regions fail for >1 minute.\" Single-region failures are investigated but don't wake people up. Multi-region failures are real outages.",
+        "difficulty": "core"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-availability-monitoring-mental",
+      "payload": {
+        "text": "Engineering mental model",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-availability-monitoring-mental",
+      "payload": {
+        "text": "**Mental model.** Think of Availability Monitoring as a deliberate boundary in a system. The boundary exists because something becomes harder to manage when everything is done in one place: latency, scale, failure isolation, consistency, cost, or team ownership. The useful question is not “what does Availability Monitoring mean?” but “what pressure makes this boundary worth introducing, and what new failure mode does it create?”"
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-availability-monitoring-decision",
+      "payload": {
+        "title": "Design lens",
+        "body": "Before choosing Availability Monitoring, name the workload, the critical user path, the dominant bottleneck, the failure you are trying to absorb, and the trade-off you are willing to accept. If you cannot name those five things, the design is probably premature.",
+        "kind": "info"
+      }
+    },
+    {
+      "type": "image",
+      "id": "upgrade-image-availability-monitoring",
+      "payload": {
+        "src": "/learning-visuals/availability-monitoring.svg",
+        "alt": "Original NO CAP systems visual for Availability Monitoring.",
+        "caption": "Availability Monitoring: a compact system-thinking visual.",
+        "credit": "Original NO CAP visual.",
+        "source_url": "https://github.com/donnemartin/system-design-primer"
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "upgrade-mermaid-availability-monitoring",
+      "payload": {
+        "code": "flowchart LR\n  A[Signal] --> B[Collector] --> C[Store] --> D[Rule] --> E[Alert]",
+        "caption": "Availability Monitoring: a simplified system view showing the primary flow and the main state boundaries.",
+        "alt_text": "Availability Monitoring: a simplified system view showing the primary flow and the main state boundaries."
+      }
+    },
+    {
+      "type": "code",
+      "id": "upgrade-code-availability-monitoring",
+      "payload": {
+        "language": "text",
+        "code": "// Pseudocode\nrequest = receive()\nresult = availability_monitoring(request)\nreturn result\n\n// Production questions:\n// 1. What happens on timeout?\n// 2. Can this operation be retried safely?\n// 3. What is the bottleneck?",
+        "caption": "A minimal engineering sketch for reasoning about Availability Monitoring."
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-availability-monitoring-numbers",
+      "payload": {
+        "text": "Back-of-the-envelope reasoning",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-availability-monitoring-numbers",
+      "payload": {
+        "text": "Numerical lens: write down traffic, payload size, read/write ratio, peak multiplier and durability target before choosing a component. The numbers should justify the architecture."
+      }
+    },
+    {
+      "type": "simulation",
+      "id": "upgrade-sim-availability-monitoring",
+      "payload": {
+        "title": "Interactive thought experiment: Availability Monitoring",
+        "description": "Change the variables below and predict what breaks first in Availability Monitoring. The production lab can later reuse these same inputs.",
+        "variables": [
+          {
+            "name": "traffic",
+            "description": "Requests/events per second",
+            "default": "1000"
+          },
+          {
+            "name": "latency",
+            "description": "Dependency latency",
+            "default": "50ms"
+          },
+          {
+            "name": "failure_rate",
+            "description": "Injected failure rate",
+            "default": "0%"
+          }
+        ],
+        "placeholder_note": "Interactive controls are deterministic; use the linked Labs section when a dedicated lab exists."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-availability-monitoring-hint",
+      "payload": {
+        "title": "Hint",
+        "body": "If you are stuck on Availability Monitoring, start by drawing the request path and marking every network hop, stateful component, queue, cache and failure boundary. Then estimate where the system will saturate.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-availability-monitoring-1",
+      "payload": {
+        "shape": "prediction",
+        "question": "You increase traffic by 10× in a system using Availability Monitoring. What should you inspect first?",
+        "options": [
+          "The newest framework version",
+          "The dominant bottleneck and its saturation signal",
+          "Only the UI",
+          "Nothing; the architecture should absorb any traffic automatically"
+        ],
+        "answer_index": 1,
+        "rationale": "System design is a constraint-and-bottleneck exercise. Start with the resource or dependency that will saturate first, then choose the smallest change that removes that bottleneck.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-availability-monitoring-2",
+      "payload": {
+        "shape": "mcq",
+        "question": "Which statement is the safest engineering habit when using Availability Monitoring?",
+        "options": [
+          "Choose it because it is popular",
+          "Add it before measuring the problem",
+          "State the workload, failure mode and trade-off it is solving",
+          "Use the most distributed design possible"
+        ],
+        "answer_index": 2,
+        "rationale": "Good architecture starts from requirements, workload and failure assumptions. The component is the consequence of that reasoning, not the starting point.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "scenario",
+      "id": "upgrade-scenario-availability-monitoring",
+      "payload": {
+        "prompt": "Production scenario: your system uses Availability Monitoring, traffic suddenly spikes, and p99 latency doubles. What is your first move?",
+        "context": "You have dashboards for traffic, latency, errors and saturation. You can change the architecture, but every change has operational cost.",
+        "options": [
+          {
+            "id": "a",
+            "text": "Add more instances immediately",
+            "outcome": "This may help, but only if compute saturation is the bottleneck.",
+            "correct": false
+          },
+          {
+            "id": "b",
+            "text": "Inspect the bottleneck and its saturation signal first",
+            "outcome": "Correct: diagnose before scaling or introducing a new pattern.",
+            "correct": true
+          },
+          {
+            "id": "c",
+            "text": "Disable monitoring to reduce overhead",
+            "outcome": "This removes the evidence you need to diagnose the incident.",
+            "correct": false
+          }
+        ],
+        "rationale": "Measure the limiting resource or dependency first. A bottleneck can be compute, database I/O, network, cache misses, lock contention, downstream latency, or queue backlog.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-availability-monitoring-interview",
+      "payload": {
+        "text": "Interview drill",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-availability-monitoring-interview",
+      "payload": {
+        "text": "**Answer this without notes:** When would you choose Availability Monitoring, and when would you intentionally avoid it? Mention at least one bottleneck it addresses, one failure mode it introduces, and one alternative. Then quantify the workload you are designing for."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "field-guide-availability-monitoring",
+      "payload": {
+        "title": "Engineering lens",
+        "body": "A useful engineering lens for Availability Monitoring: define the problem it solves, the simpler design that fails first, the constraint that forces you to introduce this concept, and the new failure modes the concept creates.",
+        "kind": "tip"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "numerical-lens-availability-monitoring",
+      "payload": {
+        "text": "### Numerical sanity check\n\nBack-of-the-envelope reasoning beats fake precision. State your traffic, payload, concurrency and growth assumptions explicitly, then calculate enough to know whether the current architecture is orders of magnitude away from the target."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "field-question-availability-monitoring",
+      "payload": {
+        "shape": "prediction",
+        "question": "Imagine the simplest version of a system using Availability Monitoring. What breaks first as traffic grows by 10×, and what would you change before reaching 100×?",
+        "context": "Do not optimize for a memorized definition. Reason from the workload and failure mode.",
+        "options": [
+          "Scale the same component immediately.",
+          "Measure the current bottleneck and state the assumption that changed.",
+          "Add more technologies until throughput improves.",
+          "Choose the most popular architecture."
+        ],
+        "answer_index": 1,
+        "rationale": "Good system design starts with the bottleneck and the changed constraint. The most popular or complex choice is not automatically correct.",
+        "difficulty": "interview"
+      }
+    }
+  ],
+  "trade_offs": {
+    "pros": [
+      "Catches external issues that internal health checks miss (DNS, TLS, routing).",
+      "Measures the actual user experience, not just container health.",
+      "Drives the SLA — availability is the user-visible metric.",
+      "Powers status pages, giving users transparency during incidents."
+    ],
+    "cons": [
+      "Probes can fail for reasons unrelated to your service (probe-side network issues).",
+      "Probe frequency limits detection — a 1-min probe can miss a 30s outage.",
+      "Alert fatigue if thresholds are too sensitive.",
+      "Doesn't tell you what's broken — only that something is. Needs correlated logs/traces."
+    ]
+  },
+  "failure_modes": [
+    "Single-region probe pages on every regional network blip.",
+    "Probe frequency too low — misses short outages.",
+    "Probe checks only the LB health endpoint, not user-visible paths.",
+    "Alert fatigue from over-sensitive thresholds teaches teams to ignore pages."
+  ],
+  "common_mistakes": [
+    "Relying only on internal health checks (miss external path failures).",
+    "Probing from a single location.",
+    "Probing only the load balancer health endpoint, not user-visible URLs.",
+    "Not excluding planned maintenance from uptime calculations."
+  ],
+  "where_you_see_it": [
+    "Pingdom, UptimeRobot, Datadog Synthetics, Catchpoint.",
+    "Status pages (status.github.com, status.aws.amazon.com).",
+    "Cloud provider uptime guarantees (AWS SLA pages)."
+  ],
+  "interview_prompts": [
+    "What's the difference between internal health checks and availability monitoring?",
+    "Why probe from multiple geographic locations?",
+    "How do you avoid alert fatigue with availability probes?",
+    "How is uptime calculated, and what are its subtleties?"
+  ],
+  "real_system_mappings": [
+    {
+      "system": "Pingdom",
+      "how": "Synthetic probes from ~30 global locations checking user-visible URLs every 1-5 minutes. Pages on-call when multiple regions fail. Powers many public status pages."
+    },
+    {
+      "system": "GitHub Status Page",
+      "how": "Reports availability of major GitHub services based on synthetic checks. Degraded status is shown when probes detect issues, providing transparency to users."
+    }
+  ],
+  "status": "published",
+  "sources": [
+    {
+      "title": "System Design Primer",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Open source"
+    },
+    {
+      "title": "ByteByteGo — Scale from zero to millions",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "ByteByteGo"
+    },
+    {
+      "title": "System Design Tutorial",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "GeeksforGeeks"
+    },
+    {
+      "title": "System Design Roadmap",
+      "url": "https://roadmap.sh/system-design",
+      "publisher": "roadmap.sh"
+    },
+    {
+      "title": "Observability reference",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Observability reference",
+      "url": "https://opentelemetry.io/docs/",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Observability reference",
+      "url": "https://sre.google/sre-book/monitoring-distributed-systems/",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Google SRE Book",
+      "url": "https://sre.google/sre-book/table-of-contents/",
+      "publisher": "Google"
+    }
+  ]
+}

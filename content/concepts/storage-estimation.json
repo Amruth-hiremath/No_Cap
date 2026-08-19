@@ -1,0 +1,446 @@
+{
+  "slug": "storage-estimation",
+  "version": 4,
+  "title": "Storage Estimation",
+  "phase": "interview-preparation",
+  "area": "Interview Preparation",
+  "estimated_minutes": 7,
+  "difficulty": "core",
+  "summary": "Storage estimation computes how much disk the system will consume over a retention period. The base formula: writes/day × payload size × retention × replication factor = total storage. Text and structured data are small (KB-MB per record); media dominates (MB-GB per object). The estimate determines whether the data fits in a database, requires object storage, or requires sharding — and how much it will cost. Storage estimation is the second of the four capacity-estimation skills.",
+  "why_it_matters": "Storage estimation decides where data lives. Text-heavy systems (Twitter, WhatsApp messages) fit easily in a relational database even at billion-user scale. Media-heavy systems (YouTube, Instagram, Netflix) require object storage (S3) and a CDN, because media dominates by 1000-10000x. Forgetting to separate text and media in the estimate is the most common storage-estimation mistake. Storage also drives cost — at AWS prices, 1 PB of S3 is ~$23k/month, and most media-heavy systems have multiple PB. Knowing how to estimate storage separates the candidate who says \"use S3\" from the one who can defend it with numbers.",
+  "prerequisites": [
+    "capacity-estimation"
+  ],
+  "related": [
+    "bandwidth-estimation",
+    "capacity-estimation",
+    "qps-estimation"
+  ],
+  "used_in": [
+    "Every system design interview (Twitter, YouTube, WhatsApp, Instagram, Dropbox).",
+    "Production capacity planning (sizing DB instances, S3 buckets).",
+    "Cost estimation (storage is the largest cloud cost for media-heavy systems).",
+    "Retention policy design (when to delete or archive old data)."
+  ],
+  "blocks": [
+    {
+      "type": "prose",
+      "id": "intro",
+      "payload": {
+        "text": "**Storage estimation** computes the total disk the system will consume, derived from the write rate, the payload size, the retention period, and the replication factor. The base formula:\n\n```\nStorage = writes/day × payload_size × retention_days × replication_factor\n```\n\nThe replication factor (typically 3 for durable storage) accounts for replicas, indexes, and backups. The retention period determines whether you store data for 30 days, 1 year, 5 years, or forever — this dominates the total.\n\nThe single most important refinement: **separate text and media.** Text records are small (a tweet is ~500 B, a WhatsApp message is ~200 B, a database row is ~1 KB). Media objects are enormous (a photo is ~1-5 MB, a video is ~50 MB-1 GB). At the same DAU and write rate, a media-heavy system uses 1000-10000x more storage than a text-heavy system. Estimating them together produces wildly wrong numbers.\n\nExample (Twitter):\n- Text: 1B tweets/day × 500 B = 500 GB/day → 1.8 PB over 5 years (× 3 replicas = 5.5 PB)\n- Media: 1B tweets × 20% have media × 1 MB avg = 200 TB/day → 730 PB over 5 years (× 3 replicas = 2.2 EB)\n- Text fits in a database; media requires object storage. Media dominates by 400x.\n\nThis separation is also the architecture decision: text → relational DB or KV store; media → object storage (S3) with CDN delivery. The estimate tells you which components you need."
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "flow",
+      "payload": {
+        "code": "flowchart TD\n    N0[\"YouTube-like, 5-year retention\"]\n    N1[\"STORAGE\"]\n    N2[\"ESTIMATION\"]\n    N3[\"(YouTube\"]\n    N4[\"like,\"]\n    N5[\"year\"]\n    N6[\"retention)\"]\n    N7[\"Inputs:\"]\n    N8[\"users\"]\n    N9[\"video\"]\n    N10[\"upload\"]\n    N11[\"per\"]\n    N12[\"user\"]\n    N13[\"week\"]\n    N14[\"~140M\"]\n    N15[\"uploads\"]\n    N16[\"day\"]\n    N17[\"compressed\"]\n    N18[\"Average\"]\n    N19[\"size\"]\n    N20[\"(compressed)\"]\n    N21[\"thumbnail\"]\n    N22[\"metadata\"]\n    N23[\"record\"]\n    N24[\"Retention\"]\n    N25[\"years\"]\n    N26[\"durable\"]\n    N27[\"Replication\"]\n    N28[\"factor\"]\n    N29[\"(durable)\"]\n    N30[\"PER\"]\n    N31[\"DAY\"]\n    N32[\"Videos\"]\n    N33[\"140M\"]\n    N34[\"Thumbnails\"]\n    N35[\"Metadata\"]\n    N36[\"140\"]\n    N37[\"× 365 × 5 × 3 replicas\"]\n    N38[\"YEAR\"]\n    N39[\"365\"]\n    N40[\"replicas)\"]\n    N41[\"5yr\"]\n    N42[\"1825\"]\n    N43[\"750\"]\n    N44[\"S3-like\"]\n    N45[\"dominate\"]\n    N46[\"1000x.\"]\n    N47[\"Use\"]\n    N48[\"object\"]\n    N49[\"storage\"]\n    N50[\"(S3\"]\n    N51[\"like)\"]\n    N52[\"for\"]\n    N53[\"videos\"]\n    N54[\"and\"]\n    N55[\"thumbnails;\"]\n    N56[\"small\"]\n    N57[\"enough\"]\n    N58[\"relational\"]\n    N59[\"DB.\"]\n    N60[\"AWS S3 standard pricing ~$0.023/GB-month\"]\n    N61[\"COST\"]\n    N62[\"ESTIMATE\"]\n    N63[\"(AWS\"]\n    N64[\"standard\"]\n    N65[\"pricing\"]\n    N66[\"~$0.023\"]\n    N67[\"month)\"]\n    N68[\"months\"]\n    N69[\"$0.023\"]\n    N70[\"$10.5\"]\n    N71[\"BILLION\"]\n    N72[\"alone.\"]\n    N73[\"S3 IA, Glacier\"]\n    N74[\"Tiered\"]\n    N75[\"IA,\"]\n    N76[\"Glacier)\"]\n    N77[\"CDN\"]\n    N78[\"caching\"]\n    N79[\"are\"]\n    N80[\"mandatory.\"]\n    N81[\"COMPARISON:\"]\n    N82[\"TEXT\"]\n    N83[\"MEDIA\"]\n    N84[\"SYSTEMS\"]\n    N85[\"1B tweets/day, 5yr\"]\n    N86[\"fits in distributed DB\"]\n    N87[\"Twitter\"]\n    N88[\"text\"]\n    N89[\"(1B\"]\n    N90[\"tweets\"]\n    N91[\"day,\"]\n    N92[\"5yr):\"]\n    N93[\"~5.5\"]\n    N94[\"(fits\"]\n    N95[\"distributed\"]\n    N96[\"DB)\"]\n    N97[\"50B msgs/day, 1yr\"]\n    N98[\"WhatsApp\"]\n    N99[\"(50B\"]\n    N100[\"msgs\"]\n    N101[\"1yr):\"]\n    N102[\"140M/day, 5yr\"]\n    N103[\"object storage + CDN\"]\n    N104[\"YouTube\"]\n    N105[\"(140M\"]\n    N106[\"~38\"]\n    N107[\"(object\"]\n    N108[\"CDN)\"]\n    N109[\"≈200k hrs video\"]\n    N110[\"Netflix\"]\n    N111[\"catalog\"]\n    N112[\"(≈200k\"]\n    N113[\"hrs\"]\n    N114[\"video):\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44\n    N44 --> N45\n    N45 --> N46\n    N46 --> N47\n    N47 --> N48\n    N48 --> N49\n    N49 --> N50\n    N50 --> N51\n    N51 --> N52\n    N52 --> N53\n    N53 --> N54\n    N54 --> N55\n    N55 --> N56\n    N56 --> N57\n    N57 --> N58\n    N58 --> N59\n    N59 --> N60\n    N60 --> N61\n    N61 --> N62\n    N62 --> N63\n    N63 --> N64\n    N64 --> N65\n    N65 --> N66\n    N66 --> N67\n    N67 --> N68\n    N68 --> N69\n    N69 --> N70\n    N70 --> N71\n    N71 --> N72\n    N72 --> N73\n    N73 --> N74\n    N74 --> N75\n    N75 --> N76\n    N76 --> N77\n    N77 --> N78\n    N78 --> N79\n    N79 --> N80\n    N80 --> N81\n    N81 --> N82\n    N82 --> N83\n    N83 --> N84\n    N84 --> N85\n    N85 --> N86\n    N86 --> N87\n    N87 --> N88\n    N88 --> N89\n    N89 --> N90\n    N90 --> N91\n    N91 --> N92\n    N92 --> N93\n    N93 --> N94\n    N94 --> N95\n    N95 --> N96\n    N96 --> N97\n    N97 --> N98\n    N98 --> N99\n    N99 --> N100\n    N100 --> N101\n    N101 --> N102\n    N102 --> N103\n    N103 --> N104\n    N104 --> N105\n    N105 --> N106\n    N106 --> N107\n    N107 --> N108\n    N108 --> N109\n    N109 --> N110\n    N110 --> N111\n    N111 --> N112\n    N112 --> N113\n    N113 --> N114",
+        "caption": "Storage estimation: separate text (small, fits in DB) from media (huge, requires object storage).",
+        "alt_text": "Storage estimation for a YouTube-like system with 5-year retention. Inputs: 1 billion users, 1 video upload per user per week equals about 140 million uploads per day, average video size 50 megabytes compressed, average thumbnail 50 kilobytes, average metadata record 1 kilobyte, retention 5 years, replication factor 3 for durability. Per-day storage: videos 7 PB per day, thumbnails 7 TB per day, metadata 140 GB per day. 5-year storage with replicas: videos 38 exabytes, thumbnails 38 petabytes, metadata 750 terabytes. Videos dominate by 1000x — use object storage like S3 for videos and thumbnails; metadata is small enough for a relational DB. Cost estimate using AWS S3 standard pricing at about 2.3 cents per GB-month: 38 EB for 12 months is about 10.5 billion dollars per year for video storage alone — tiered storage like S3 IA and Glacier and CDN caching are mandatory. Comparison of text versus media systems: Twitter text 5.5 PB fits in a distributed DB; WhatsApp text 5 PB fits in a distributed DB; YouTube videos 38 EB requires object storage plus CDN; Netflix catalog about 2 PB requires object storage plus CDN."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "where-data-lives",
+      "payload": {
+        "text": "**Where data lives — the architecture decision.**\n\nStorage estimation tells you which storage layer each piece of data requires:\n\n- **In-memory (Redis/Memcached):** the hot working set. Bounded by RAM (GB-TB). Sub-ms latency. Expensive (~$5/GB-month). Use for: hot cache, sessions, rate-limit counters.\n\n- **NVMe SSD on a DB instance:** structured data, indexes, transactions. Bounded by instance size (GB-TB). 1-5 ms latency. ~$0.10-0.50/GB-month. Use for: relational data, indexes, anything requiring queries.\n\n- **Block storage (EBS, Persistent Disk):** attached to a VM. GB-TB scale. ~$0.10/GB-month. Use for: database data files, application state.\n\n- **Object storage (S3, GCS, Azure Blob):** unstructured blobs, virtually unlimited scale. ~$0.023/GB-month (standard). 10-100 ms latency. Use for: media, backups, logs, large blobs.\n\n- **Archive storage (S3 Glacier, Coldline):** long-term retention, rare access. ~$0.004/GB-month. Hours to retrieve. Use for: compliance archives, old backups.\n\nThe decision rule: hot structured data → DB on SSD; hot unstructured data → object storage; cold data → archive. The estimate drives this directly:\n\n- Total storage < 1 TB → fits on one DB instance, no sharding.\n- Total storage 1-10 TB → DB with read replicas, or sharded.\n- Total storage > 10 TB → object storage for unstructured; sharded DB for structured.\n- Total storage > 1 PB → definitely object storage + CDN; probably multi-region.\n\n**Cost is the killer constraint.** At 1 PB, S3 standard is ~$23k/month; at 100 PB, $2.3M/month. Storage tiers (Infrequent Access, Glacier) reduce this by 5-10x for cold data — that is why every media-heavy system tiers aggressively."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "replication",
+      "payload": {
+        "title": "Always multiply by replication factor",
+        "body": "Production storage is rarely stored once. Durability requires replication: typically 3x for object storage (S3 stores 3 copies across facilities), 2-3x for database replicas (primary + 1-2 replicas for HA), plus backups (often another 1-2x). Indexes add ~30% overhead on top of raw data. A naive estimate of \"1 PB of user data\" becomes 3-5 PB once you account for replication, indexes, and backups. Always state your replication factor explicitly and multiply by it. The standard assumption for estimation: × 3 for replicas + × 1.3 for indexes/backups = ~4x the raw data.",
+        "kind": "warning"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "retention",
+      "payload": {
+        "text": "**Retention period — the storage amplifier.**\n\nThe retention period has the largest single effect on total storage. The same per-day storage, retained for different periods, gives vastly different totals:\n\n- 30 days: × 30\n- 1 year: × 365\n- 5 years: × 1825\n- Forever: unbounded (grows linearly with time)\n\nThis is why retention policies matter operationally. Storing every tweet forever is 100x more storage than storing them for 2 weeks. Most real systems tier aggressively: hot data in SSD/object storage, warm data in infrequent-access tiers, cold data in archive tiers.\n\nExample lifecycle (typical for a media system):\n- 0-30 days: hot tier (S3 Standard) — fast access, higher cost.\n- 30-90 days: warm tier (S3 IA) — 50% cheaper, slightly slower.\n- 90 days+: cold tier (Glacier) — 80% cheaper, hours to retrieve.\n\nA 5-year retention policy that tiers this way might cost 1/5th of putting everything in standard storage. The estimate tells you the upper bound; tiering tells you the achievable cost.\n\nThe interview version: state your retention period explicitly (\"assume 5 years\"), compute the upper bound, then mention tiering as a cost optimization. Interviewers love seeing the tiered lifecycle awareness — it shows operational maturity."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "interview-flow",
+      "payload": {
+        "text": "**The storage estimation interview step-by-step.**\n\n1. **State your inputs.** DAU, writes/user/day, average payload size (split text vs media), retention period, replication factor.\n2. **Compute per-day storage.** Writes/day × payload size, separately for text and media.\n3. **Compute total over retention.** Per-day × retention days × replication factor.\n4. **Identify the dominant component.** Usually media; sometimes text (rare).\n5. **Translate to storage architecture.** Text → DB; media → object storage; cold → archive.\n6. **Estimate cost.** Total GB × $/GB-month, possibly tiered.\n\nFor Twitter:\n- Text: 1B tweets/day × 500 B × 1825 × 3 ≈ 2.7 PB\n- Media: 200 TB/day × 1825 × 3 ≈ 1.1 EB\n- Text → relational DB with replicas; media → S3 with CDN.\n- Cost: ~$25k/month for text (DB storage), ~$2.5M/month for media (S3 standard). Tiering reduces media cost 5x.\n\nThe whole exercise takes 1-2 minutes. The numbers do not need to be exact; they need to drive the architecture decisions: \"media requires object storage + CDN; text fits in a DB.\" The interviewer is testing whether you recognize that media and text have very different storage requirements and that media dominates."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q1",
+      "payload": {
+        "question": "You estimate a Twitter-like system: 1B tweets/day, 500 B per tweet, 20% with 1 MB media, 5-year retention, 3x replication. What is the total storage, and what is the architecture implication?",
+        "shape": "mcq",
+        "options": [
+          "~1 PB total — fits in one big database.",
+          "Text ~2.7 PB; media ~1.1 EB. Media dominates by ~400x. Architecture: relational DB for text (with replicas); object storage (S3) for media with a CDN for delivery.",
+          "~100 TB total — fits on a single NVMe disk.",
+          "~10 PB total — needs a sharded database."
+        ],
+        "answer_index": 1,
+        "rationale": "Compute: text per day = 1B × 500 B = 500 GB. Text 5yr × 3 replicas = 500 GB × 1825 × 3 ≈ 2.7 PB. Media per day = 1B × 20% × 1 MB = 200 TB. Media 5yr × 3 replicas = 200 TB × 1825 × 3 ≈ 1.1 EB. Media dominates by ~400x. The architecture implication is the key point: text (2.7 PB) fits in a distributed relational DB (like Twitter's actual MySQL + Manhattan store); media (1.1 EB) requires object storage (S3) with a CDN. A relational database cannot store 1.1 EB — that is object-storage territory. The interviewer is testing whether you separate text and media, and whether you recognize that media dominates the total.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q2",
+      "payload": {
+        "question": "Why does almost every media-heavy production system use storage tiering (S3 Standard → S3 IA → Glacier)?",
+        "shape": "mcq",
+        "options": [
+          "Because older data is less important.",
+          "Because access patterns are highly skewed: a small fraction of content is hot (recent uploads, trending), and the vast majority is cold (rarely accessed). Tiering puts cold data on 5-10x cheaper storage, dramatically reducing total cost.",
+          "Because Glacier is faster than S3 Standard.",
+          "Because AWS requires it."
+        ],
+        "answer_index": 1,
+        "rationale": "Access patterns in media systems are extremely skewed. Recent uploads, trending content, and viral videos are hot — accessed frequently, served from CDN. The vast majority of content (last year's uploads, rarely-viewed videos) is cold — accessed rarely, but must still be retained. Putting cold data on Glacier (~$0.004/GB-month) instead of S3 Standard (~$0.023/GB-month) saves 5-6x on the cold portion. For a system with 1 EB total where 90% is cold, tiering reduces cost from $23M/month to ~$7M/month — a 3x reduction. Tiering is the standard cost optimization for media-heavy systems. The deeper lesson: capacity estimation gives you the upper bound; tiering gives you the achievable cost.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q3",
+      "payload": {
+        "question": "You estimate 100 GB of total storage for an internal HR application with 10k users. What architecture do you propose?",
+        "shape": "mcq",
+        "options": [
+          "Multi-region sharded database with object storage for documents.",
+          "A single database instance with daily backups — 100 GB is small enough for one machine with headroom.",
+          "A distributed file system across 10 nodes.",
+          "Object storage only, no database."
+        ],
+        "answer_index": 1,
+        "rationale": "100 GB is small — a single database instance (e.g., a medium AWS RDS instance with 200 GB SSD) handles this with significant headroom. Multi-region sharding is massive over-engineering for this scale; a distributed file system is unnecessary; object storage alone would not support the relational queries an HR application needs. The right answer is a single DB instance with daily backups and a replica for HA. The deeper lesson: not every system needs distributed infrastructure. Capacity estimation tells you when to keep it simple (single instance) versus when to scale out (sharding, object storage). For 100 GB, simple is correct.",
+        "difficulty": "core"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-storage-estimation-mental",
+      "payload": {
+        "text": "Engineering mental model",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-storage-estimation-mental",
+      "payload": {
+        "text": "**Mental model.** Think of Storage Estimation as a deliberate boundary in a system. The boundary exists because something becomes harder to manage when everything is done in one place: latency, scale, failure isolation, consistency, cost, or team ownership. The useful question is not “what does Storage Estimation mean?” but “what pressure makes this boundary worth introducing, and what new failure mode does it create?”"
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-storage-estimation-decision",
+      "payload": {
+        "title": "Design lens",
+        "body": "Before choosing Storage Estimation, name the workload, the critical user path, the dominant bottleneck, the failure you are trying to absorb, and the trade-off you are willing to accept. If you cannot name those five things, the design is probably premature.",
+        "kind": "info"
+      }
+    },
+    {
+      "type": "image",
+      "id": "upgrade-image-storage-estimation",
+      "payload": {
+        "src": "/learning-visuals/storage-estimation.svg",
+        "alt": "Original NO CAP systems visual for Storage Estimation.",
+        "caption": "Storage Estimation: a compact system-thinking visual.",
+        "credit": "Original NO CAP visual.",
+        "source_url": "https://github.com/donnemartin/system-design-primer"
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "upgrade-mermaid-storage-estimation",
+      "payload": {
+        "code": "flowchart LR\n  C[Client] --> S[Service] --> D[(Data layer)]\n  D --> R[Replication] --> F[Durability]",
+        "caption": "Storage Estimation: a simplified system view showing the primary flow and the main state boundaries.",
+        "alt_text": "Storage Estimation: a simplified system view showing the primary flow and the main state boundaries."
+      }
+    },
+    {
+      "type": "code",
+      "id": "upgrade-code-storage-estimation",
+      "payload": {
+        "language": "text",
+        "code": "// Pseudocode\nrequest = receive()\nresult = storage_estimation(request)\nreturn result\n\n// Production questions:\n// 1. What happens on timeout?\n// 2. Can this operation be retried safely?\n// 3. What is the bottleneck?",
+        "caption": "A minimal engineering sketch for reasoning about Storage Estimation."
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-storage-estimation-numbers",
+      "payload": {
+        "text": "Back-of-the-envelope reasoning",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-storage-estimation-numbers",
+      "payload": {
+        "text": "Example: 5M writes/day × 1 KB/row ≈ 5 GB/day of logical data. Add indexes, replication, backups and growth headroom before sizing a real store."
+      }
+    },
+    {
+      "type": "simulation",
+      "id": "upgrade-sim-storage-estimation",
+      "payload": {
+        "title": "Interactive thought experiment: Storage Estimation",
+        "description": "Change the variables below and predict what breaks first in Storage Estimation. The production lab can later reuse these same inputs.",
+        "variables": [
+          {
+            "name": "traffic",
+            "description": "Requests/events per second",
+            "default": "1000"
+          },
+          {
+            "name": "latency",
+            "description": "Dependency latency",
+            "default": "50ms"
+          },
+          {
+            "name": "failure_rate",
+            "description": "Injected failure rate",
+            "default": "0%"
+          }
+        ],
+        "placeholder_note": "Interactive controls are deterministic; use the linked Labs section when a dedicated lab exists."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-storage-estimation-hint",
+      "payload": {
+        "title": "Hint",
+        "body": "If you are stuck on Storage Estimation, start by drawing the request path and marking every network hop, stateful component, queue, cache and failure boundary. Then estimate where the system will saturate.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-storage-estimation-1",
+      "payload": {
+        "shape": "prediction",
+        "question": "You increase traffic by 10× in a system using Storage Estimation. What should you inspect first?",
+        "options": [
+          "The newest framework version",
+          "The dominant bottleneck and its saturation signal",
+          "Only the UI",
+          "Nothing; the architecture should absorb any traffic automatically"
+        ],
+        "answer_index": 1,
+        "rationale": "System design is a constraint-and-bottleneck exercise. Start with the resource or dependency that will saturate first, then choose the smallest change that removes that bottleneck.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-storage-estimation-2",
+      "payload": {
+        "shape": "mcq",
+        "question": "Which statement is the safest engineering habit when using Storage Estimation?",
+        "options": [
+          "Choose it because it is popular",
+          "Add it before measuring the problem",
+          "State the workload, failure mode and trade-off it is solving",
+          "Use the most distributed design possible"
+        ],
+        "answer_index": 2,
+        "rationale": "Good architecture starts from requirements, workload and failure assumptions. The component is the consequence of that reasoning, not the starting point.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "scenario",
+      "id": "upgrade-scenario-storage-estimation",
+      "payload": {
+        "prompt": "Production scenario: your system uses Storage Estimation, traffic suddenly spikes, and p99 latency doubles. What is your first move?",
+        "context": "You have dashboards for traffic, latency, errors and saturation. You can change the architecture, but every change has operational cost.",
+        "options": [
+          {
+            "id": "a",
+            "text": "Add more instances immediately",
+            "outcome": "This may help, but only if compute saturation is the bottleneck.",
+            "correct": false
+          },
+          {
+            "id": "b",
+            "text": "Inspect the bottleneck and its saturation signal first",
+            "outcome": "Correct: diagnose before scaling or introducing a new pattern.",
+            "correct": true
+          },
+          {
+            "id": "c",
+            "text": "Disable monitoring to reduce overhead",
+            "outcome": "This removes the evidence you need to diagnose the incident.",
+            "correct": false
+          }
+        ],
+        "rationale": "Measure the limiting resource or dependency first. A bottleneck can be compute, database I/O, network, cache misses, lock contention, downstream latency, or queue backlog.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-storage-estimation-interview",
+      "payload": {
+        "text": "Interview drill",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-storage-estimation-interview",
+      "payload": {
+        "text": "**Answer this without notes:** When would you choose Storage Estimation, and when would you intentionally avoid it? Mention at least one bottleneck it addresses, one failure mode it introduces, and one alternative. Then quantify the workload you are designing for."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "field-guide-storage-estimation",
+      "payload": {
+        "title": "Engineering lens",
+        "body": "A useful engineering lens for Storage Estimation: define the problem it solves, the simpler design that fails first, the constraint that forces you to introduce this concept, and the new failure modes the concept creates.",
+        "kind": "tip"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "numerical-lens-storage-estimation",
+      "payload": {
+        "text": "### Numerical sanity check\n\nBack-of-the-envelope reasoning beats fake precision. State your traffic, payload, concurrency and growth assumptions explicitly, then calculate enough to know whether the current architecture is orders of magnitude away from the target."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "field-question-storage-estimation",
+      "payload": {
+        "shape": "prediction",
+        "question": "Imagine the simplest version of a system using Storage Estimation. What breaks first as traffic grows by 10×, and what would you change before reaching 100×?",
+        "context": "Do not optimize for a memorized definition. Reason from the workload and failure mode.",
+        "options": [
+          "Scale the same component immediately.",
+          "Measure the current bottleneck and state the assumption that changed.",
+          "Add more technologies until throughput improves.",
+          "Choose the most popular architecture."
+        ],
+        "answer_index": 1,
+        "rationale": "Good system design starts with the bottleneck and the changed constraint. The most popular or complex choice is not automatically correct.",
+        "difficulty": "interview"
+      }
+    }
+  ],
+  "trade_offs": {
+    "pros": [
+      "Tells you whether data fits in a database, requires object storage, or requires sharding.",
+      "Drives the storage architecture decision (DB vs object storage vs archive).",
+      "Enables cost estimation — storage is the largest cloud cost for media-heavy systems.",
+      "Separates text (small) from media (huge), making the architecture clean.",
+      "Forces explicit retention policy — what gets stored for how long."
+    ],
+    "cons": [
+      "Requires estimating payload sizes, which vary by 10-1000x depending on assumptions.",
+      "Forgetting the replication factor underestimates by 3-5x.",
+      "Mixing text and media produces wildly wrong numbers — they differ by 1000x.",
+      "Cost estimates are sensitive to storage tier choices — must model tiering.",
+      "Captures steady-state, not growth — must project over time."
+    ]
+  },
+  "failure_modes": [
+    "Mixing text and media — off by 1000x.",
+    "Forgetting replication factor — off by 3-5x.",
+    "Forgetting indexes and backups — off by 30-100%.",
+    "Sizing storage without considering cost — design is unaffordable.",
+    "Not modeling storage tiers — overpays 5-10x for cold data.",
+    "Assuming infinite retention — total storage grows unboundedly."
+  ],
+  "common_mistakes": [
+    "Treating all data as the same size — media dominates by 1000x.",
+    "Forgetting to multiply by replication factor (×3) and indexes (×1.3).",
+    "Sizing a relational database to hold media — they are object-storage workloads.",
+    "Not modeling storage tiering for cold data.",
+    "Estimating storage without retention period — \"how much for 1 day\" is useless.",
+    "Forgetting cost entirely — at 1 PB+, storage is the dominant cloud bill."
+  ],
+  "where_you_see_it": [
+    "Every system design interview (Twitter, YouTube, WhatsApp, Instagram, Dropbox).",
+    "Production capacity planning (sizing DB instances, S3 buckets, archive tiers).",
+    "Cost estimation and budgeting — storage is often the largest cloud cost.",
+    "Retention policy design (GDPR compliance, log retention, backup archives)."
+  ],
+  "interview_prompts": [
+    "Estimate the storage required for 5 years of YouTube uploads.",
+    "Estimate the storage for WhatsApp messages (text-only) over 1 year. What architecture?",
+    "Twitter with 200M DAU — what is the total storage over 5 years, split text and media?",
+    "A log retention system stores 1 TB/day of logs. How much storage for 7-year compliance? What tiers?",
+    "Your storage estimate gives 100 PB. What architecture and what approximate monthly cost?"
+  ],
+  "real_system_mappings": [
+    {
+      "system": "Netflix Open Connect content library",
+      "how": "Netflix stores ~2 PB of video content in object storage, distributed to ISP-embedded Open Connect Appliances (OCAs). Storage tiering is essential: recent popular content on OCAs at ISPs, older content in regional S3, very old content in Glacier."
+    },
+    {
+      "system": "AWS S3 storage classes",
+      "how": "S3 offers Standard (~$0.023/GB-mo), Infrequent Access (~$0.0125), Glacier (~$0.004), Glacier Deep Archive (~$0.00099). Tiering across these is the canonical cost-optimization pattern for storage-heavy systems."
+    },
+    {
+      "system": "Twitter / X storage architecture",
+      "how": "Twitter stores tweet text in Manhattan (their internal KV store, sharded). Media (photos, videos) is in S3 with a CDN. The separation is exactly what the storage-estimation exercise prescribes."
+    },
+    {
+      "system": "Dropbox storage architecture",
+      "how": "Dropbox stores user files (largely media) in S3 and their own Magic Pocket infrastructure. Files are deduplicated and chunked — only changed chunks are stored. The estimate tells you the upper bound; dedup reduces the actual storage by ~30%."
+    }
+  ],
+  "status": "published",
+  "sources": [
+    {
+      "title": "System Design Primer",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Open source"
+    },
+    {
+      "title": "ByteByteGo — Scale from zero to millions",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "ByteByteGo"
+    },
+    {
+      "title": "System Design Tutorial",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "GeeksforGeeks"
+    },
+    {
+      "title": "System Design Roadmap",
+      "url": "https://roadmap.sh/system-design",
+      "publisher": "roadmap.sh"
+    },
+    {
+      "title": "Interview Preparation reference",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Interview Preparation reference",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Interview Preparation reference",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "Reference"
+    },
+    {
+      "title": "ByteByteGo — Scaling Websites",
+      "url": "https://bytebytego.com/guides/how-to-scale-a-website-to-support-millions-of-users/",
+      "publisher": "ByteByteGo"
+    }
+  ]
+}

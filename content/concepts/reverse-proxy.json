@@ -1,0 +1,547 @@
+{
+  "slug": "reverse-proxy",
+  "version": 3,
+  "title": "Reverse Proxy",
+  "phase": "design-patterns",
+  "area": "Design Patterns",
+  "estimated_minutes": 9,
+  "difficulty": "core",
+  "summary": "A reverse proxy is a server that sits in front of one or more backend servers and forwards client requests to them. To the client it looks like the proxy is the server; to the backend it looks like the proxy is the client. Reverse proxies terminate TLS, load-balance, cache, rewrite URLs, throttle, and shield backends from direct exposure. NGINX, HAProxy, Envoy, and Caddy are the household names; most production web services have at least one.",
+  "why_it_matters": "Directly exposing your application server to the internet is almost always wrong. The server is optimized for application logic, not for connection management, TLS, static files, or hostile traffic. A reverse proxy offloads those concerns to a piece of software built for them. It also gives you a single, well-defined place to do TLS, routing, and observability — concerns every backend has, repeated in every language, that you would otherwise reinvent a hundred times.",
+  "prerequisites": [
+    "load-balancers"
+  ],
+  "related": [
+    "api-gateway"
+  ],
+  "used_in": [
+    "Almost every production web service — NGINX or Envoy in front of application servers.",
+    "TLS termination: holding certificates so backend services don't have to.",
+    "Static asset serving, caching, and basic request routing."
+  ],
+  "blocks": [
+    {
+      "type": "prose",
+      "id": "what-it-is",
+      "payload": {
+        "text": "A reverse proxy receives HTTP(S) requests from clients and forwards them to backend servers, then returns the backend's response to the client. The client never talks to the backend directly — the proxy is the public face.\n\nThis is the opposite of a **forward proxy**. A forward proxy sits in front of clients (think corporate web filter, or Tor): it accepts requests from internal clients and forwards them to external servers. A reverse proxy sits in front of servers: it accepts requests from external clients and forwards them to internal servers. Same mechanism, opposite direction, very different use cases.\n\nThe defining property is that the proxy impersonates the origin. The client addresses `https://example.com/`, the DNS points at the proxy, and the proxy decides which backend to forward to. The client has no idea how many backends exist, where they live, or what language they are written in."
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "reverse-vs-forward",
+      "payload": {
+        "code": "flowchart TD\n    N0[\"sits in front of CLIENTS\"]\n    N1[\"sits in front of SERVERS\"]\n    N2[\"FORWARD\"]\n    N3[\"PROXY\"]\n    N4[\"(sits\"]\n    N5[\"front\"]\n    N6[\"CLIENTS)\"]\n    N7[\"REVERSE\"]\n    N8[\"SERVERS)\"]\n    N9[\"Client A\"]\n    N10[\"[Client\"]\n    N11[\"Client\"]\n    N12[\"Client B\"]\n    N13[\"Forward Proxy\"]\n    N14[\"[Forward\"]\n    N15[\"Proxy]\"]\n    N16[\"Internet\"]\n    N17[\"Client C\"]\n    N18[\"(corporate\"]\n    N19[\"filter,\"]\n    N20[\"HTTPS\"]\n    N21[\"Tor\"]\n    N22[\"exit\"]\n    N23[\"node)\"]\n    N24[\"Reverse Proxy\"]\n    N25[\"[Reverse\"]\n    N26[\"S1\"]\n    N27[\"S2\"]\n    N28[\"S3\"]\n    N29[\"[S1]\"]\n    N30[\"[S2]\"]\n    N31[\"[S3]\"]\n    N32[\"Use\"]\n    N33[\"cases:\"]\n    N34[\"Hide\"]\n    N35[\"client\"]\n    N36[\"identity\"]\n    N37[\"from\"]\n    N38[\"servers\"]\n    N39[\"server\"]\n    N40[\"clients\"]\n    N41[\"Filter\"]\n    N42[\"log\"]\n    N43[\"traffic\"]\n    N44[\"TLS\"]\n    N45[\"termination,\"]\n    N46[\"load\"]\n    N47[\"balancing\"]\n    N48[\"VPN-style\"]\n    N49[\"Bypass\"]\n    N50[\"geo\"]\n    N51[\"restrictions\"]\n    N52[\"(VPN\"]\n    N53[\"style)\"]\n    N54[\"Cache,\"]\n    N55[\"rewrite,\"]\n    N56[\"throttle\"]\n    N57[\"requests\"]\n    N58[\"Egress\"]\n    N59[\"control\"]\n    N60[\"corporate\"]\n    N61[\"network\"]\n    N62[\"Shield\"]\n    N63[\"backends\"]\n    N64[\"direct\"]\n    N65[\"internet\"]\n    N66[\"The\"]\n    N67[\"forward\"]\n    N68[\"proxy\"]\n    N69[\"represents\"]\n    N70[\"the\"]\n    N71[\"CLIENT.\"]\n    N72[\"reverse\"]\n    N73[\"SERVER.\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44\n    N44 --> N45\n    N45 --> N46\n    N46 --> N47\n    N47 --> N48\n    N48 --> N49\n    N49 --> N50\n    N50 --> N51\n    N51 --> N52\n    N52 --> N53\n    N53 --> N54\n    N54 --> N55\n    N55 --> N56\n    N56 --> N57\n    N57 --> N58\n    N58 --> N59\n    N59 --> N60\n    N60 --> N61\n    N61 --> N62\n    N62 --> N63\n    N63 --> N64\n    N64 --> N65\n    N65 --> N66\n    N66 --> N67\n    N67 --> N68\n    N68 --> N69\n    N69 --> N70\n    N70 --> N71\n    N71 --> N72\n    N72 --> N73",
+        "caption": "Forward proxy represents clients to servers. Reverse proxy represents servers to clients.",
+        "alt_text": "A side-by-side comparison of forward and reverse proxies. On the left, a forward proxy sits in front of clients A, B, and C, forwarding their requests to the internet. It represents the client to the server — used for filtering, logging, geo-bypass, and corporate egress control. On the right, a reverse proxy sits in front of servers S1, S2, and S3, receiving client requests and distributing them across the backends. It represents the server to the client — used for TLS termination, load balancing, caching, rewriting, and shielding backends from the internet."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "what-it-does",
+      "payload": {
+        "text": "**What a reverse proxy does for you:**\n\n- **TLS termination** — the proxy holds the TLS certificate, decrypts HTTPS, and forwards plain HTTP to backends on a private network. Backends don't need certificates, don't need TLS libraries configured, and don't pay the CPU cost of cryptography. This alone justifies the proxy for most teams.\n- **Load balancing** — distribute traffic across multiple backend instances. NGINX, HAProxy, and Envoy all do this natively. (A reverse proxy with LB is essentially the same software; the line is conceptual, not technical.)\n- **Routing** — `/api/*` to the API servers, `/static/*` to a file server or CDN, `/admin/*` to a restricted backend. Path-based and host-based routing in one place.\n- **Caching** — cache responses in the proxy. A second request for the same URL is served from the proxy without touching the backend. NGINX's `proxy_cache`, Varnish (purpose-built reverse proxy cache).\n- **Static file serving** — serve static files (images, JS, CSS) directly from the proxy, faster than the application server can.\n- **Rate limiting & throttling** — block abusive clients before they reach backends.\n- **Request/response rewriting** — add headers, rewrite paths, compress responses, modify redirects.\n- **Observability** — every request flows through the proxy, so it's a natural place for access logs, metrics, and distributed tracing.\n- **Backend shielding** — backends live on a private network and never accept direct internet traffic. The proxy is the only public-facing component.\n- **Connection pooling** — the proxy maintains keep-alive connections to backends, so each client request doesn't pay the TCP handshake cost to the backend.\n- **Zero-downtime deploys** — drain a backend (stop sending new requests) for a rolling deploy, all configured in the proxy."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "popular-tools",
+      "payload": {
+        "text": "**Popular reverse proxies:**\n\n- **NGINX** — the workhorse. Fast, stable, ubiquitous. Handles ~30% of the web. Configuration is declarative (nginx.conf); learning curve is real but the docs are excellent.\n- **HAProxy** — older, deeply respected, especially for L4 TCP load balancing. Excellent observability stats page. Often paired with NGINX (HAProxy for raw TCP, NGINX for HTTP).\n- **Envoy** — modern, designed for service meshes and dynamic configuration (xDS APIs). Programmable via API rather than config file reloads. The data plane for Istio and many API gateways.\n- **Caddy** — newer, famous for automatic HTTPS (fetches and renews Let's Encrypt certificates by default). Easy configuration in Caddyfile. Popular for small-to-medium sites.\n- **Varnish** — purpose-built reverse caching proxy. Aggressive caching with VCL (Varnish Configuration Language). Common in front of NGINX for high-traffic content sites.\n- **Traefik** — designed for containers and dynamic environments. Auto-discovers services from Docker/Kubernetes labels. Popular in modern cloud-native setups.\n\nWhich one? For most teams: NGINX or Caddy. For service meshes: Envoy. For pure TCP L4: HAProxy. For aggressive edge caching: Varnish in front of NGINX. There is no wrong answer as long as you understand what each is good at."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "lb-vs-rp",
+      "payload": {
+        "title": "Reverse proxy vs load balancer — same thing?",
+        "body": "In practice, the line is blurry. NGINX is called both a reverse proxy and a load balancer depending on which feature you're using. The useful distinction: a load balancer's job is to *distribute* traffic across backends (it may or may not parse HTTP); a reverse proxy's job is to *mediate* the request (terminate TLS, cache, rewrite, route) and it usually parses HTTP. In modern production stacks, the same software often does both: NGINX as reverse proxy with the upstream load-balancing module enabled, Envoy as data plane with L4 + L7 capabilities. Don't get caught up in the labels — focus on the responsibilities.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "spof-and-redundancy",
+      "payload": {
+        "text": "**The reverse proxy as a single point of failure:**\n\nBecause every request flows through the proxy, a proxy outage takes down the whole site. This is the single most important operational concern. Mitigations:\n\n- Run **multiple proxy instances** behind a load balancer (yes, you can load balance your load balancer / proxy — typically with a layer-4 LB or anycast IP).\n- Distribute proxies across **availability zones** so an AZ outage doesn't kill all of them.\n- Keep proxy instances **stateless** — no in-process sessions, no local-only state — so any instance can serve any request and failed instances can be replaced.\n- Use **health checks** so dead proxies are removed from the LB rotation.\n- Use **graceful shutdown** — when a proxy is being replaced, drain active connections before killing it.\n\nCloud providers often front NGINX/Envoy with a managed L4 load balancer (AWS NLB, GCP TCP LB) that handles the high-availability piece. The pattern: clients → managed L4 LB (HA across AZs) → NGINX fleet (stateless, scalable) → backends."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q1",
+      "payload": {
+        "question": "Which of the following best describes the difference between a forward proxy and a reverse proxy?",
+        "options": [
+          "A forward proxy is faster; a reverse proxy is more secure.",
+          "A forward proxy sits in front of clients and represents them to servers; a reverse proxy sits in front of servers and represents them to clients.",
+          "A forward proxy uses HTTP; a reverse proxy uses TCP.",
+          "A forward proxy is for inbound traffic; a reverse proxy is for outbound traffic."
+        ],
+        "answer_index": 1,
+        "rationale": "The defining difference is direction. A forward proxy represents clients: it accepts their requests and forwards to servers (e.g., corporate egress filter, Tor, anonymizing proxy). A reverse proxy represents servers: it accepts client requests and forwards to backends (e.g., NGINX in front of an app server). The protocol and speed claims (a, c) are wrong; the direction-of-traffic claim (d) is inverted — forward proxies handle outbound (client-to-internet) traffic, reverse proxies handle inbound (internet-to-server) traffic.",
+        "difficulty": "core"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q2",
+      "payload": {
+        "question": "Why is it common to terminate TLS at the reverse proxy rather than at the backend application server?",
+        "options": [
+          "Because the proxy is faster at TLS than the backend.",
+          "Because it centralizes certificate management and lets backends speak plain HTTP on a private network, removing the need to deploy and rotate certificates on every backend.",
+          "Because TLS is insecure when terminated at backends.",
+          "Because the proxy can then decrypt and modify the traffic for caching."
+        ],
+        "answer_index": 1,
+        "rationale": "Centralizing TLS at the proxy means certificates are managed in one place (the proxy config or a secret store), not duplicated across every backend instance. Backends speak plain HTTP on a trusted private network, which simplifies their configuration and removes the per-instance CPU cost of cryptography. (Some teams re-encrypt from proxy to backend — 'TLS everywhere' — for defense in depth in regulated environments, but the default is plain HTTP on the private network.) Option (a) may be true but is not the primary reason. Option (c) is wrong — TLS is secure anywhere. Option (d) is a side benefit, not the main reason.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q3",
+      "payload": {
+        "question": "Your reverse proxy is the only public-facing component of your service. It crashes. What happens, and how should this be designed against?",
+        "options": [
+          "Backends automatically take over on port 443 — no impact.",
+          "The site goes down entirely — every request flows through the proxy. Mitigate by running multiple stateless proxy instances behind a managed load balancer, distributed across availability zones, with health checks and automated failover.",
+          "The site goes down — the only mitigation is to expose backends directly as a fallback.",
+          "Nothing — clients can retry until the proxy comes back."
+        ],
+        "answer_index": 1,
+        "rationale": "Because the proxy is the only public entry point, its failure takes down the site regardless of backend health. The standard mitigation: run multiple proxy instances (stateless) behind a highly-available layer-4 load balancer (AWS NLB, GCP TCP LB), distributed across availability zones, with health checks that remove dead proxies from rotation. The managed L4 LB provides cross-AZ failover; the proxy fleet provides horizontal capacity. Option (a) is wrong — backends are on a private network and cannot serve direct traffic. Option (c) is dangerous — exposing backends bypasses all the protections the proxy provides. Option (d) gives users errors during the outage.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "table",
+      "id": "forward-reverse-table-b2",
+      "payload": {
+        "headers": [
+          "Dimension",
+          "Forward Proxy",
+          "Reverse Proxy"
+        ],
+        "rows": [
+          [
+            "Position in topology",
+            "In front of clients (egress)",
+            "In front of servers (ingress)"
+          ],
+          [
+            "Represents",
+            "The client to the server",
+            "The server to the client"
+          ],
+          [
+            "Server's view",
+            "Sees the proxy IP, not the client's",
+            "Sees the proxy IP as the source"
+          ],
+          [
+            "Client's view",
+            "Knows it's using a proxy",
+            "Doesn't know a proxy exists"
+          ],
+          [
+            "Typical use",
+            "Corporate egress filter, anonymizing (Tor), geo-bypass (VPN)",
+            "TLS termination, load balancing, caching, WAF"
+          ],
+          [
+            "Caching",
+            "Caches responses for the client (saves bandwidth)",
+            "Caches responses for many clients (saves backend load)"
+          ],
+          [
+            "Auth",
+            "Often authenticates users (corporate LDAP/SSO)",
+            "Often terminates TLS, rate-limits, applies WAF"
+          ],
+          [
+            "Examples",
+            "Squid, Dante, corporate HTTPS proxy, Tor exit node",
+            "NGINX, Envoy, HAProxy, Caddy, Cloudflare edge"
+          ],
+          [
+            "Failure mode",
+            "Client can't reach the internet if proxy is down",
+            "Site is down for everyone if proxy is down"
+          ]
+        ],
+        "caption": "Forward proxy vs reverse proxy across the dimensions that distinguish them in practice."
+      }
+    },
+    {
+      "type": "code",
+      "id": "nginx-config-b2",
+      "payload": {
+        "language": "nginx",
+        "code": "# /etc/nginx/conf.d/api.example.com.conf\n# Reverse proxy: terminates TLS, caches GETs, load-balances upstream.\n\nupstream api_backend {\n    least_conn;                          # least-connections algorithm\n    server 10.0.1.10:8080 max_fails=3 fail_timeout=30s;\n    server 10.0.1.11:8080 max_fails=3 fail_timeout=30s;\n    server 10.0.1.12:8080 max_fails=3 fail_timeout=30s;\n    keepalive 32;                         # pool of keepalive conns to upstream\n}\n\nproxy_cache_path /var/cache/nginx/api levels=1:2 keys_zone=api_cache:10m\n                 max_size=1g inactive=10m use_temp_path=off;\n\nserver {\n    listen 443 ssl http2;\n    server_name api.example.com;\n\n    ssl_certificate     /etc/letsencrypt/live/api.example.com/fullchain.pem;\n    ssl_certificate_key /etc/letsencrypt/live/api.example.com/privkey.pem;\n    ssl_protocols       TLSv1.2 TLSv1.3;\n\n    # /api/public/* — cache aggressively\n    location /api/public/ {\n        proxy_cache api_cache;\n        proxy_cache_valid 200 10m;\n        proxy_cache_key $scheme$host$request_uri;\n        add_header X-Cache-Status $upstream_cache_status;   # HIT / MISS / BYPASS\n        proxy_pass http://api_backend;\n    }\n\n    # /api/auth/* — never cache, always forward\n    location /api/auth/ {\n        proxy_cache off;\n        proxy_set_header Authorization $http_authorization;   # pass through\n        proxy_pass http://api_backend;\n    }\n\n    # Common headers sent to upstream\n    proxy_set_header Host              $host;\n    proxy_set_header X-Real-IP         $remote_addr;\n    proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;\n    proxy_set_header X-Forwarded-Proto $scheme;\n\n    # Health endpoint — used by external LB health-check\n    location = /health { return 200 'ok'; add_header Content-Type text/plain; }\n}\n\n# Validation: nginx -t        (validate config without applying)\n# Reload:      nginx -s reload (zero-downtime config swap)",
+        "caption": "A realistic NGINX reverse-proxy config: TLS termination, path-based routing, conditional caching, and health endpoint."
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "caching-diagram-b2",
+      "payload": {
+        "code": "flowchart LR\n    Client -->|HTTPS| RP[Reverse Proxy<br/>NGINX / Envoy]\n    RP --> Cache{Cache<br/>lookup}\n    Cache -->|HIT<br/>fresh| Client2[Return cached response<br/>~1ms]\n    Cache -->|MISS| Upstream[Backend server]\n    Upstream --> DB[(Database)]\n    DB --> Upstream\n    Upstream --> RP2[Set cache<br/>key+TTL]\n    RP2 --> Client3[Return fresh response<br/>~50ms]\n\n    Cache -.stale TTL<br/>expired.-> Revalidate[Conditional GET<br/>If-None-Match / ETag]\n    Revalidate -->|304 Not Modified| Cache\n    Revalidate -->|200 new body| Upstream\n\n    classDef hit fill:#1e3a5f,stroke:#3b82f6,color:#e0e7ff\n    classDef miss fill:#3a2e1e,stroke:#f59e0b,color:#fef3c7\n    classDef data fill:#1e3a1e,stroke:#22c55e,color:#dcfce7\n    class Client2 hit\n    class Client3,Upstream,RP2 miss\n    class DB data",
+        "caption": "Reverse-proxy cache: HIT returns in ~1ms, MISS fetches from backend and populates cache, stale entries are revalidated with conditional GETs.",
+        "alt_text": "Client makes HTTPS request to the reverse proxy. The proxy looks up its cache. On HIT, returns cached response in ~1ms. On MISS, forwards to backend server, which queries the database, returns the response, and the proxy stores it in cache with a key and TTL. Stale cache entries (TTL expired) trigger a conditional GET with If-None-Match; the backend either returns 304 Not Modified (use cached body) or a fresh 200 response."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "cloudflare-example-b2",
+      "payload": {
+        "text": "**Real example: Cloudflare as a global reverse proxy.**\n\nWhen you point your domain at Cloudflare, you don't change your origin server — you change the DNS so that your domain resolves to Cloudflare's anycast IP ranges. Every HTTP request to your domain terminates at a Cloudflare POP (point of presence) in 300+ cities worldwide. The POP is the reverse proxy.\n\nWhat the POP does on each request:\n1. **DNS + anycast routing** — the user's nearest POP answers in 1 RTT.\n2. **TLS termination** — Cloudflare holds your cert (or its own universal cert for SSL-for-free).\n3. **WAF + DDoS rules** — every request passes through rule engines that block SQLi, XSS, known-bad IPs, and volumetric attacks.\n4. **Rate limiting** — per-IP and per-path limits applied at the edge.\n5. **Cache lookup** — static assets served from POP RAM/disk; the origin never sees them.\n6. **Image resizing / Workers** — request can be transformed by edge compute (resize image, A/B test, rewrite URL) without touching origin.\n7. **Origin forward** — on MISS or non-cacheable, the POP opens a connection to your origin (possibly via Cloudflare's Argo smart routing for latency optimization).\n8. **Response caching** — the POP caches the response for the next user.\n\nFrom the origin's perspective, every incoming request appears to come from a Cloudflare IP range. Cloudflare injects `CF-Connecting-IP` and `X-Forwarded-For` headers so the origin can identify the real client. This is exactly the reverse-proxy pattern — the client thinks it's talking to your server, your server thinks it's talking to Cloudflare, and Cloudflare does TLS, caching, security, and edge compute in between. The same pattern applies to Fastly, AWS CloudFront, and Akamai."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "vary-header-b2",
+      "payload": {
+        "title": "Caching personalized responses — the Vary header trap",
+        "body": "If your response depends on a header (e.g., `Accept-Language: fr` returns French, en returns English), the cache key MUST include that header. The HTTP mechanism is the `Vary` response header: `Vary: Accept-Language, Accept-Encoding`. Without it, the proxy caches the French response for the German user — a real bug seen on countless sites. Worse: caching an authenticated `/me` response and serving it to a different user is a security incident. Rule: any response that varies by request header must declare it via Vary; any response that varies by auth must NOT be cached (or must be keyed by user id). Test this with two different users — if they ever see each other's data, you have a cache-key bug.",
+        "kind": "danger"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q-cache-leak-b2",
+      "payload": {
+        "question": "Users of your SaaS app report seeing other users' account data intermittently — user A logs in, sometimes sees user B's dashboard. Your architecture is: NGINX (reverse proxy with caching) → stateless Node.js app → PostgreSQL. Sessions are stored in cookies. What is the most likely root cause?",
+        "shape": "mcq",
+        "options": [
+          "PostgreSQL is returning the wrong data due to a query bug.",
+          "NGINX is caching the authenticated /dashboard response without a Vary header keyed on the session cookie — so user B's request hits the cache entry that user A's response populated.",
+          "The Node.js app has a race condition in its session lookup.",
+          "Cookies are leaking between browsers."
+        ],
+        "answer_index": 1,
+        "rationale": "The pattern — intermittent, cross-user data exposure — is the signature of a cache-key bug at the proxy layer. The /dashboard response is user-specific (depends on the session cookie), but if NGINX caches it with a key based only on URL (the default), user A's response gets cached and served to user B. The fix is one of: (a) set `Vary: Cookie` so the cache key includes the cookie; (b) add `Cache-Control: private, no-cache` to authenticated responses — this tells shared caches (NGINX, CDN) not to cache them at all, while still allowing the browser to cache for the user; (c) explicitly include the session id in the cache key (`proxy_cache_key $scheme$host$request_uri$cookie_session`). Option (a) alone is risky because session cookies rotate. Option (b) is the safe default for any authenticated response. Option (c) is the most precise but most fragile. Options 1, 3, 4 are possible but the intermittent cross-user pattern is overwhelmingly a cache bug. The broader lesson: any cache shared across users must be very explicit about what makes responses differ — and the safest default for authenticated content is 'don't cache'.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "tls-defense-in-depth-b2",
+      "payload": {
+        "text": "**When NOT to terminate TLS at the proxy — defense in depth.**\n\nThe default pattern (terminate TLS at the reverse proxy, speak plain HTTP to backends on a private network) is right for ~95% of services. But for the remaining 5% — healthcare (HIPAA), payments (PCI-DSS), government, defense — plain HTTP on the private network is unacceptable. The standard is **TLS everywhere**: terminate TLS at the proxy AND re-encrypt from proxy to backend.\n\nWhy? Defense in depth. The 'private network' between proxy and backend is not as private as you think: it shares physical infrastructure with other tenants in the cloud, it's accessible to anyone with a compromised admin account, and it's traversed by debug packet captures during incidents. If the proxy-to-backend traffic is plain HTTP, anyone with that access can read PII, card numbers, or credentials.\n\nThe cost of TLS-everywhere: more CPU on the proxy (it terminates AND re-encrypts), certificate management on backends (or mTLS with a CA), and operational complexity (cert rotation). For most teams this cost is not justified; for regulated industries it's required. Modern service meshes (Istio, Linkerd) make this transparent: mTLS between every service is automatic, with certs rotated by the control plane.\n\nThe pattern matters because it's the textbook example of a security vs complexity trade-off that depends on context. The same architecture choice (terminate at proxy) is correct for a blog and wrong for a banking API. System design is full of these context-dependent choices; the skill is recognizing which context you're in."
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-reverse-proxy-mental",
+      "payload": {
+        "text": "Engineering mental model",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-reverse-proxy-mental",
+      "payload": {
+        "text": "**Mental model.** Think of Reverse Proxy as a deliberate boundary in a system. The boundary exists because something becomes harder to manage when everything is done in one place: latency, scale, failure isolation, consistency, cost, or team ownership. The useful question is not “what does Reverse Proxy mean?” but “what pressure makes this boundary worth introducing, and what new failure mode does it create?”"
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-reverse-proxy-decision",
+      "payload": {
+        "title": "Design lens",
+        "body": "Before choosing Reverse Proxy, name the workload, the critical user path, the dominant bottleneck, the failure you are trying to absorb, and the trade-off you are willing to accept. If you cannot name those five things, the design is probably premature.",
+        "kind": "info"
+      }
+    },
+    {
+      "type": "image",
+      "id": "upgrade-image-reverse-proxy",
+      "payload": {
+        "src": "/learning-visuals/reverse-proxy.svg",
+        "alt": "Original NO CAP systems visual for Reverse Proxy.",
+        "caption": "Reverse Proxy: a compact system-thinking visual.",
+        "credit": "Original NO CAP visual.",
+        "source_url": "https://github.com/donnemartin/system-design-primer"
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "upgrade-mermaid-reverse-proxy",
+      "payload": {
+        "code": "flowchart LR\n  A[Client] --> B[Gateway] --> C[Service] --> D[State] --> E[Outcome]",
+        "caption": "Reverse Proxy: a simplified system view showing the primary flow and the main state boundaries.",
+        "alt_text": "Reverse Proxy: a simplified system view showing the primary flow and the main state boundaries."
+      }
+    },
+    {
+      "type": "code",
+      "id": "upgrade-code-reverse-proxy",
+      "payload": {
+        "language": "text",
+        "code": "// Pseudocode\nrequest = receive()\nresult = reverse_proxy(request)\nreturn result\n\n// Production questions:\n// 1. What happens on timeout?\n// 2. Can this operation be retried safely?\n// 3. What is the bottleneck?",
+        "caption": "A minimal engineering sketch for reasoning about Reverse Proxy."
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-reverse-proxy-numbers",
+      "payload": {
+        "text": "Back-of-the-envelope reasoning",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-reverse-proxy-numbers",
+      "payload": {
+        "text": "Numerical lens: write down traffic, payload size, read/write ratio, peak multiplier and durability target before choosing a component. The numbers should justify the architecture."
+      }
+    },
+    {
+      "type": "simulation",
+      "id": "upgrade-sim-reverse-proxy",
+      "payload": {
+        "title": "Interactive thought experiment: Reverse Proxy",
+        "description": "Change the variables below and predict what breaks first in Reverse Proxy. The production lab can later reuse these same inputs.",
+        "variables": [
+          {
+            "name": "traffic",
+            "description": "Requests/events per second",
+            "default": "1000"
+          },
+          {
+            "name": "latency",
+            "description": "Dependency latency",
+            "default": "50ms"
+          },
+          {
+            "name": "failure_rate",
+            "description": "Injected failure rate",
+            "default": "0%"
+          }
+        ],
+        "placeholder_note": "Interactive controls are deterministic; use the linked Labs section when a dedicated lab exists."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-reverse-proxy-hint",
+      "payload": {
+        "title": "Hint",
+        "body": "If you are stuck on Reverse Proxy, start by drawing the request path and marking every network hop, stateful component, queue, cache and failure boundary. Then estimate where the system will saturate.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-reverse-proxy-1",
+      "payload": {
+        "shape": "prediction",
+        "question": "You increase traffic by 10× in a system using Reverse Proxy. What should you inspect first?",
+        "options": [
+          "The newest framework version",
+          "The dominant bottleneck and its saturation signal",
+          "Only the UI",
+          "Nothing; the architecture should absorb any traffic automatically"
+        ],
+        "answer_index": 1,
+        "rationale": "System design is a constraint-and-bottleneck exercise. Start with the resource or dependency that will saturate first, then choose the smallest change that removes that bottleneck.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-reverse-proxy-2",
+      "payload": {
+        "shape": "mcq",
+        "question": "Which statement is the safest engineering habit when using Reverse Proxy?",
+        "options": [
+          "Choose it because it is popular",
+          "Add it before measuring the problem",
+          "State the workload, failure mode and trade-off it is solving",
+          "Use the most distributed design possible"
+        ],
+        "answer_index": 2,
+        "rationale": "Good architecture starts from requirements, workload and failure assumptions. The component is the consequence of that reasoning, not the starting point.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "scenario",
+      "id": "upgrade-scenario-reverse-proxy",
+      "payload": {
+        "prompt": "Production scenario: your system uses Reverse Proxy, traffic suddenly spikes, and p99 latency doubles. What is your first move?",
+        "context": "You have dashboards for traffic, latency, errors and saturation. You can change the architecture, but every change has operational cost.",
+        "options": [
+          {
+            "id": "a",
+            "text": "Add more instances immediately",
+            "outcome": "This may help, but only if compute saturation is the bottleneck.",
+            "correct": false
+          },
+          {
+            "id": "b",
+            "text": "Inspect the bottleneck and its saturation signal first",
+            "outcome": "Correct: diagnose before scaling or introducing a new pattern.",
+            "correct": true
+          },
+          {
+            "id": "c",
+            "text": "Disable monitoring to reduce overhead",
+            "outcome": "This removes the evidence you need to diagnose the incident.",
+            "correct": false
+          }
+        ],
+        "rationale": "Measure the limiting resource or dependency first. A bottleneck can be compute, database I/O, network, cache misses, lock contention, downstream latency, or queue backlog.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-reverse-proxy-interview",
+      "payload": {
+        "text": "Interview drill",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-reverse-proxy-interview",
+      "payload": {
+        "text": "**Answer this without notes:** When would you choose Reverse Proxy, and when would you intentionally avoid it? Mention at least one bottleneck it addresses, one failure mode it introduces, and one alternative. Then quantify the workload you are designing for."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "field-guide-reverse-proxy",
+      "payload": {
+        "title": "Engineering lens",
+        "body": "A useful engineering lens for Reverse Proxy: define the problem it solves, the simpler design that fails first, the constraint that forces you to introduce this concept, and the new failure modes the concept creates.",
+        "kind": "tip"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "numerical-lens-reverse-proxy",
+      "payload": {
+        "text": "### Numerical sanity check\n\nBack-of-the-envelope reasoning beats fake precision. State your traffic, payload, concurrency and growth assumptions explicitly, then calculate enough to know whether the current architecture is orders of magnitude away from the target."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "field-question-reverse-proxy",
+      "payload": {
+        "shape": "prediction",
+        "question": "Imagine the simplest version of a system using Reverse Proxy. What breaks first as traffic grows by 10×, and what would you change before reaching 100×?",
+        "context": "Do not optimize for a memorized definition. Reason from the workload and failure mode.",
+        "options": [
+          "Scale the same component immediately.",
+          "Measure the current bottleneck and state the assumption that changed.",
+          "Add more technologies until throughput improves.",
+          "Choose the most popular architecture."
+        ],
+        "answer_index": 1,
+        "rationale": "Good system design starts with the bottleneck and the changed constraint. The most popular or complex choice is not automatically correct.",
+        "difficulty": "interview"
+      }
+    }
+  ],
+  "trade_offs": {
+    "pros": [
+      "Centralizes TLS, routing, caching, observability, and rate limiting in one place.",
+      "Shields backends from direct internet exposure and hostile traffic.",
+      "Backends can speak plain HTTP on a private network — no certificate management per instance.",
+      "Connection pooling to backends reduces per-request TCP overhead.",
+      "Enables zero-downtime deploys via backend draining.",
+      "Language-agnostic — same proxy in front of Node, Python, Go, Java backends."
+    ],
+    "cons": [
+      "Adds a network hop and a small amount of latency (~1ms typical).",
+      "The proxy is a single point of failure unless explicitly engineered for redundancy.",
+      "Configuration complexity — getting TLS, routing, and caching right is non-trivial.",
+      "Another component to monitor, deploy, and operate.",
+      "Buffering full request/response bodies for transformation can cause memory pressure."
+    ]
+  },
+  "failure_modes": [
+    "Single proxy instance crashes — site goes down (mitigate with multi-instance + LB).",
+    "Misconfigured TLS — certificate expired, SNI wrong, weak ciphers enabled.",
+    "Routing misconfiguration — `/api/*` accidentally routes to the wrong backend after a config change.",
+    "Buffering a large request body exhausts proxy memory and causes 502/504 errors.",
+    "Cache misconfiguration caching personalized responses — users see each other's data."
+  ],
+  "common_mistakes": [
+    "Running a single reverse proxy instance with no redundancy — single point of failure.",
+    "Exposing backends directly to the internet 'temporarily' and forgetting to remove it.",
+    "Terminating TLS at the backend instead of the proxy — duplicating certificate management across every instance.",
+    "Caching responses without careful attention to the `Vary` header or auth — leaking user data.",
+    "Forgetting to validate the proxy's configuration before reload — taking the site down with a typo.",
+    "Mixing too many proxies ('proxy in front of proxy in front of proxy') — over-engineering that adds latency and debugging pain."
+  ],
+  "where_you_see_it": [
+    "Almost every production web service — NGINX or Envoy in front of application servers.",
+    "CDN edge POPs (Cloudflare, Fastly) are reverse proxies with caching at global scale.",
+    "Service mesh sidecars (Istio's Envoy) — a reverse proxy running next to every service."
+  ],
+  "interview_prompts": [
+    "What is the difference between a forward proxy and a reverse proxy? Give a use case for each.",
+    "Why terminate TLS at the reverse proxy rather than at the backend?",
+    "Your reverse proxy is the only public entry point. How do you keep it highly available?",
+    "How does a reverse proxy differ from a load balancer? When do you need both?",
+    "What cross-cutting concerns would you centralize in a reverse proxy, and what would you leave to the backend?"
+  ],
+  "real_system_mappings": [
+    {
+      "system": "NGINX",
+      "how": "The most widely deployed reverse proxy. Handles TLS termination, path-based routing, caching, static file serving, and load balancing. Often deployed as a fleet of stateless instances behind a managed L4 LB, with configuration managed via tools like Helm, Ansible, or Kubernetes ConfigMaps."
+    },
+    {
+      "system": "Cloudflare edge",
+      "how": "Cloudflare's global POPs are reverse proxies at internet scale. Each POP terminates TLS, caches static assets, applies WAF rules, and forwards misses to the customer's origin. The customer's origin sees only Cloudflare's IP ranges — the actual internet-facing IPs are Cloudflare's."
+    },
+    {
+      "system": "Envoy (Istio data plane)",
+      "how": "Envoy runs as a sidecar reverse proxy next to every service in an Istio service mesh. It intercepts all inbound and outbound traffic, terminates mTLS, applies retry and circuit-breaker policies, and emits observability data — without the application knowing it's there."
+    }
+  ],
+  "status": "published",
+  "sources": [
+    {
+      "title": "System Design Primer",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Open source"
+    },
+    {
+      "title": "ByteByteGo — Scale from zero to millions",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "ByteByteGo"
+    },
+    {
+      "title": "System Design Tutorial",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "GeeksforGeeks"
+    },
+    {
+      "title": "System Design Roadmap",
+      "url": "https://roadmap.sh/system-design",
+      "publisher": "roadmap.sh"
+    },
+    {
+      "title": "Design Patterns reference",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Design Patterns reference",
+      "url": "https://learn.microsoft.com/en-us/azure/architecture/patterns/",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Design Patterns reference",
+      "url": "https://martinfowler.com/",
+      "publisher": "Reference"
+    }
+  ]
+}

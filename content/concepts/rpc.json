@@ -1,0 +1,435 @@
+{
+  "slug": "rpc",
+  "version": 3,
+  "title": "RPC — Remote Procedure Call",
+  "phase": "networking-communication",
+  "area": "Networking & Communication",
+  "estimated_minutes": 7,
+  "difficulty": "advanced",
+  "summary": "RPC is the idea that calling a function on a remote machine should look and feel like calling a function in your own process. The RPC framework hides marshalling, the network, and the protocol behind a generated stub that mimics a local function. It is the natural fit for service-to-service communication where both ends are owned by the same team and the API is action-oriented rather than resource-oriented.",
+  "why_it_matters": "RPC is the foundation of how most internal microservices actually talk — gRPC, Apache Thrift, Cap'n Proto, and modern frameworks all descend from this idea. Understanding RPC is understanding why service-to-service calls often prefer it over REST: typed, efficient, action-natural, and generated from a single interface definition. Knowing RPC's historical failure modes (the 'distributed computing fallacies') is what separates a senior engineer from one who treats the network as reliable.",
+  "prerequisites": [
+    "rest"
+  ],
+  "related": [
+    "grpc",
+    "rest",
+    "graphql",
+    "api-design"
+  ],
+  "used_in": [
+    "Internal microservice communication at almost every large company.",
+    "gRPC, Apache Thrift, Cap'n Proto, JSON-RPC, SOAP."
+  ],
+  "blocks": [
+    {
+      "type": "prose",
+      "id": "intro",
+      "payload": {
+        "text": "RPC was first described by Birrell and Nelson in 1984. The premise: a remote call should look identical to a local call. You write `result = server.getUser(42)` and the framework figures out how to ship the argument `42` across the network, invoke the function on the server, and return the result. The programmer does not think about sockets, serialization, or protocols.\n\nTo make this work, RPC introduces four pieces:\n\n- **IDL (Interface Definition Language)**: a language-neutral declaration of the function signatures and types. Each side generates code from it.\n- **Stubs**: on the client, a generated class that looks like the local function but actually serializes arguments and sends them. On the server, a generated skeleton that deserializes arguments and dispatches to the implementation.\n- **Marshalling**: serializing the call's arguments into bytes (and the result back). Binary formats (Protobuf, Thrift, FlatBuffers) are typical; JSON-RPC uses JSON.\n- **Transport**: usually TCP (or HTTP for compatibility). The framework manages the connection, retries, timeouts.\n\nThe programmer sees: a function. The framework does: IDL → code generation → serialization → transport → dispatch → serialization → return."
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "flow",
+      "payload": {
+        "code": "flowchart TD\n    N0[\"CLIENT\"]\n    N1[\"SERVER\"]\n    N2[\"42\"]\n    N3[\"result\"]\n    N4[\"stub.getUser(42)\"]\n    N5[\"looks\"]\n    N6[\"local\"]\n    N7[\"Client Stub\"]\n    N8[\"[Client\"]\n    N9[\"Stub]\"]\n    N10[\"marshal\"]\n    N11[\"args\"]\n    N12[\"(42)\"]\n    N13[\"Server Skeleton\"]\n    N14[\"send\"]\n    N15[\"request\"]\n    N16[\"over\"]\n    N17[\"transport\"]\n    N18[\"[Server\"]\n    N19[\"Skeleton]\"]\n    N20[\"wait\"]\n    N21[\"for\"]\n    N22[\"response\"]\n    N23[\"unmarshal\"]\n    N24[\"call\"]\n    N25[\"getUser(42)\"]\n    N26[\"impl\"]\n    N27[\"return\"]\n    N28[\"now\"]\n    N29[\"scope\"]\n    N30[\"i32 id\"]\n    N31[\"User\"]\n    N32[\" rpc GetUser(i32 id) returns (User); \"]\n    N33[\"IDL:\"]\n    N34[\"service\"]\n    N35[\"UserService\"]\n    N36[\"rpc\"]\n    N37[\"GetUser(i32\"]\n    N38[\"id)\"]\n    N39[\"returns\"]\n    N40[\"(User);\"]\n    N41[\"Codegen\"]\n    N42[\"from\"]\n    N43[\"IDL\"]\n    N44[\"produces\"]\n    N45[\"both\"]\n    N46[\"stubs.\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44\n    N44 --> N45\n    N45 --> N46",
+        "caption": "RPC hides marshalling and transport behind generated stubs that look like local function calls.",
+        "alt_text": "A flow diagram of an RPC call. The client calls result equals stub dot get user of 42, which looks like a local function. The client stub marshals the argument 42 and sends it over the transport. The server skeleton unmarshals 42, calls the get user implementation, marshals the result, and sends it back. The client stub unmarshals the result and returns it, so result is in scope locally. The interface definition language declares the service, and code generation produces both stubs."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "vs-rest",
+      "payload": {
+        "text": "RPC vs REST is one of the most over-debated questions, and the answer is usually: it depends on what you are optimizing.\n\n**REST** thinks in **resources** — nouns identified by URLs, acted on by HTTP verbs. REST is great for public APIs (third-party integrators want predictable URLs and HTTP semantics), for caching (HTTP caching works), and for evolvability (add fields, version URLs). REST is verbose (JSON over text), and it is awkward for operations that do not map cleanly to CRUD (`/refundPayment`? `/users/42/transfer`?).\n\n**RPC** thinks in **actions** — verbs as function names, arguments as typed structures. RPC is great for internal service-to-service calls (typed, efficient, codegen-friendly), for operations that are not CRUD (`ChargeCard`, `EnrichRecommendations`, `TranslateDocument`), and for performance (binary protocols are 5-10x smaller than JSON). RPC is awkward when the consumer is unknown (typed stubs require code generation), for caching (no HTTP verbs to lean on), and for browser/mobile clients (gRPC's HTTP/2 framing is not natively fetchable from browsers without gRPC-Web).\n\nThe rule of thumb: **public API to unknown clients → REST. Internal API to your own services → RPC.** Most companies run both — REST at the edge, RPC (often gRPC) between internal services. GraphQL is a third option when you have many clients with different data needs."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "failure-modes",
+      "payload": {
+        "text": "RPC's original sin is what Waldo et al. pointed out in 1994: **a local call and a remote call are not the same thing, and pretending they are leads to bugs.** Local calls are fast, never fail (modulo crashes), and have predictable latency. Remote calls can take milliseconds or hours, can fail in partial ways (the server got your request but you never got the response), and can fail in surprising ways (network partition, server restart, timeout while the work is still running).\n\nThe eight fallacies of distributed computing (Peter Deutsch, Sun Microsystems):\n1. The network is reliable.\n2. Latency is zero.\n3. Bandwidth is infinite.\n4. The network is secure.\n5. Topology doesn't change.\n6. There is one administrator.\n7. Transport cost is zero.\n8. The network is homogeneous.\n\nAn RPC framework that pretends these are true (synchronous calls with no timeouts, no idempotency, no retries) will fail in production. The fixes that production RPC frameworks bake in:\n\n- **Timeouts**: every call has a deadline; the framework aborts if the deadline passes.\n- **Retries with idempotency keys**: retries are safe only if the operation is idempotent or carries an idempotency key.\n- **Circuit breakers**: stop calling a failing service to let it recover.\n- **Backpressure**: a slow server tells the client to slow down (gRPC trailers, Reactive Streams).\n- **At-most-once vs at-least-once semantics**: documented per method, so callers know whether retries are safe.\n\nThe mature mental model: an RPC call is not 'a function that returns a value'. It is 'a request that may or may not arrive at the server, may or may not be processed, and may or may not return a response — and you must handle each case'. This is the difference between RPC as a protocol and RPC as a discipline."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "modern-rpc",
+      "payload": {
+        "title": "Modern RPC = gRPC",
+        "body": "When people say 'RPC' today in a microservices context, they usually mean gRPC: Google's framework using HTTP/2 and Protocol Buffers, with code generation for a dozen languages, streaming support, and built-in deadlines/cancelation. The next concept covers gRPC specifically. Other modern RPC frameworks include Apache Thrift (Facebook), Cap'n Proto (zero-copy), and Twirp (gRPC over HTTP/1.1 for browser compatibility).",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "async-and-streaming",
+      "payload": {
+        "text": "Classic RPC is synchronous request-response, but modern systems often need more. Three patterns extend the model.\n\n**Async RPC (fire-and-forget)**: the caller sends a request and does not wait for a response. Used for events, notifications, telemetry — anything where the caller does not need the result. Often implemented via message queues (Kafka, NATS, RabbitMQ) rather than direct RPC, because the queue provides the durability and the natural decoupling. The RPC framing becomes 'publish to topic' rather than 'call function', but the conceptual model is the same.\n\n**Async request-reply**: the caller sends a request, immediately gets a correlation ID, and polls or subscribes for the result. Used when a request takes seconds-to-minutes (video transcoding, report generation, ML inference). The RPC returns 202 Accepted with a job ID; the caller later GETs `/jobs/{id}` for the result, or subscribes to a webhook/SSE. This avoids holding a TCP connection open for the duration of the work and survives client disconnects.\n\n**Streaming RPC**: the caller opens a long-lived call and the server (or client, or both) send a sequence of messages over it. gRPC's server-streaming, client-streaming, and bidirectional-streaming modes formalize this. Used for live data (logs, metrics, market data), large result sets (pagination over a stream instead of multiple round trips), and interactive sessions (chat, collaborative editing).\n\nThe point: 'RPC' is not just one pattern. It is a family of remote-invocation styles. The unifying property is that the application thinks in terms of typed procedure calls, not resources or documents. The wire protocol — sync, async, streaming, fire-and-forget — is the framework's problem, not the application's."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q1",
+      "payload": {
+        "question": "Why is treating a remote call like a local call dangerous, even when the RPC framework makes it syntactically identical?",
+        "shape": "mcq",
+        "options": [
+          "Remote calls are slower; the framework should hide that, but if it does not, code becomes slow.",
+          "Local calls have predictable latency, never fail partially, and always either complete or crash the process; remote calls can take arbitrary time, fail in network-only ways, and leave the server in an unknown state.",
+          "Local calls are typed; remote calls are untyped.",
+          "Local calls are secure; remote calls are not."
+        ],
+        "answer_index": 1,
+        "rationale": "This is Waldo et al.'s 1994 argument: a local call and a remote call have fundamentally different failure modes, and hiding the difference behind syntax causes bugs. A local call either returns or crashes the process; a remote call can take seconds, can fail because the network partitioned, can succeed on the server but never return to the client, can be retried by the framework causing duplicate execution. Code written for local semantics (no timeouts, no retry handling, no idempotency) breaks on remote calls. Mature RPC frameworks force the caller to deal with deadlines, retries, and idempotency — not because the protocol requires it, but because pretending the network is reliable always fails in production.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q2",
+      "payload": {
+        "question": "Your team is building both a public API for third-party integrators and an internal service-to-service API. Which combination is most appropriate?",
+        "shape": "mcq",
+        "options": [
+          "gRPC for both — typed stubs are universal.",
+          "REST for both — it is the most widely understood.",
+          "REST for the public API (unknown clients, caching, evolvability); gRPC for internal (typed, efficient, action-oriented).",
+          "GraphQL for both — one schema to rule them all."
+        ],
+        "answer_index": 2,
+        "rationale": "Public APIs serve unknown clients who want predictable URLs, HTTP semantics, caching, and curl-ability — REST wins. Internal APIs serve known clients (your own services) where typed stubs, code generation, binary efficiency, and action-natural verbs matter — gRPC wins. This split is the standard pattern at most companies that operate at scale. Using gRPC for the public API requires browser workarounds (gRPC-Web) and exposes IDL churn to integrators. Using REST for internal calls pays JSON's verbosity on every call. Using GraphQL for both is possible but operationally heavier than the team usually needs.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q3",
+      "payload": {
+        "question": "Which is NOT one of the eight fallacies of distributed computing?",
+        "shape": "mcq",
+        "options": [
+          "The network is reliable.",
+          "Latency is zero.",
+          "The framework will auto-generate all the code.",
+          "The network is secure."
+        ],
+        "answer_index": 2,
+        "rationale": "The eight fallacies (Peter Deutsch, Sun Microsystems) are: the network is reliable, latency is zero, bandwidth is infinite, the network is secure, topology doesn't change, there is one administrator, transport cost is zero, and the network is homogeneous. 'The framework will auto-generate all the code' is not on the list — it is a feature of RPC frameworks, not a fallacy. The fallacies are assumptions engineers make about the network that turn out to be false in production. Memorizing the fallacies is less important than internalizing the pattern: every assumption about the network that you treat as 'just works' will eventually bite you.",
+        "difficulty": "core"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-rpc-mental",
+      "payload": {
+        "text": "Engineering mental model",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-rpc-mental",
+      "payload": {
+        "text": "**Mental model.** Think of RPC — Remote Procedure Call as a deliberate boundary in a system. The boundary exists because something becomes harder to manage when everything is done in one place: latency, scale, failure isolation, consistency, cost, or team ownership. The useful question is not “what does RPC — Remote Procedure Call mean?” but “what pressure makes this boundary worth introducing, and what new failure mode does it create?”"
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-rpc-decision",
+      "payload": {
+        "title": "Design lens",
+        "body": "Before choosing RPC — Remote Procedure Call, name the workload, the critical user path, the dominant bottleneck, the failure you are trying to absorb, and the trade-off you are willing to accept. If you cannot name those five things, the design is probably premature.",
+        "kind": "info"
+      }
+    },
+    {
+      "type": "image",
+      "id": "upgrade-image-rpc",
+      "payload": {
+        "src": "/learning-visuals/rpc.svg",
+        "alt": "Original NO CAP systems visual for RPC — Remote Procedure Call.",
+        "caption": "RPC — Remote Procedure Call: a compact system-thinking visual.",
+        "credit": "Original NO CAP visual.",
+        "source_url": "https://github.com/donnemartin/system-design-primer"
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "upgrade-mermaid-rpc",
+      "payload": {
+        "code": "flowchart LR\n  A[Client] --> B[Gateway] --> C[Service] --> D[State] --> E[Outcome]",
+        "caption": "RPC — Remote Procedure Call: a simplified system view showing the primary flow and the main state boundaries.",
+        "alt_text": "RPC — Remote Procedure Call: a simplified system view showing the primary flow and the main state boundaries."
+      }
+    },
+    {
+      "type": "code",
+      "id": "upgrade-code-rpc",
+      "payload": {
+        "language": "bash",
+        "code": "curl -i https://api.example.com/v1/rpc\n\n# Look for:\n# - status code\n# - latency\n# - retryability\n# - response size",
+        "caption": "A minimal engineering sketch for reasoning about RPC — Remote Procedure Call."
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-rpc-numbers",
+      "payload": {
+        "text": "Back-of-the-envelope reasoning",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-rpc-numbers",
+      "payload": {
+        "text": "Numerical lens: write down traffic, payload size, read/write ratio, peak multiplier and durability target before choosing a component. The numbers should justify the architecture."
+      }
+    },
+    {
+      "type": "simulation",
+      "id": "upgrade-sim-rpc",
+      "payload": {
+        "title": "Interactive thought experiment: RPC — Remote Procedure Call",
+        "description": "Change the variables below and predict what breaks first in RPC — Remote Procedure Call. The production lab can later reuse these same inputs.",
+        "variables": [
+          {
+            "name": "traffic",
+            "description": "Requests/events per second",
+            "default": "1000"
+          },
+          {
+            "name": "latency",
+            "description": "Dependency latency",
+            "default": "50ms"
+          },
+          {
+            "name": "failure_rate",
+            "description": "Injected failure rate",
+            "default": "0%"
+          }
+        ],
+        "placeholder_note": "Interactive controls are deterministic; use the linked Labs section when a dedicated lab exists."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-rpc-hint",
+      "payload": {
+        "title": "Hint",
+        "body": "If you are stuck on RPC — Remote Procedure Call, start by drawing the request path and marking every network hop, stateful component, queue, cache and failure boundary. Then estimate where the system will saturate.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-rpc-1",
+      "payload": {
+        "shape": "prediction",
+        "question": "You increase traffic by 10× in a system using RPC — Remote Procedure Call. What should you inspect first?",
+        "options": [
+          "The newest framework version",
+          "The dominant bottleneck and its saturation signal",
+          "Only the UI",
+          "Nothing; the architecture should absorb any traffic automatically"
+        ],
+        "answer_index": 1,
+        "rationale": "System design is a constraint-and-bottleneck exercise. Start with the resource or dependency that will saturate first, then choose the smallest change that removes that bottleneck.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-rpc-2",
+      "payload": {
+        "shape": "mcq",
+        "question": "Which statement is the safest engineering habit when using RPC — Remote Procedure Call?",
+        "options": [
+          "Choose it because it is popular",
+          "Add it before measuring the problem",
+          "State the workload, failure mode and trade-off it is solving",
+          "Use the most distributed design possible"
+        ],
+        "answer_index": 2,
+        "rationale": "Good architecture starts from requirements, workload and failure assumptions. The component is the consequence of that reasoning, not the starting point.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "scenario",
+      "id": "upgrade-scenario-rpc",
+      "payload": {
+        "prompt": "Production scenario: your system uses RPC — Remote Procedure Call, traffic suddenly spikes, and p99 latency doubles. What is your first move?",
+        "context": "You have dashboards for traffic, latency, errors and saturation. You can change the architecture, but every change has operational cost.",
+        "options": [
+          {
+            "id": "a",
+            "text": "Add more instances immediately",
+            "outcome": "This may help, but only if compute saturation is the bottleneck.",
+            "correct": false
+          },
+          {
+            "id": "b",
+            "text": "Inspect the bottleneck and its saturation signal first",
+            "outcome": "Correct: diagnose before scaling or introducing a new pattern.",
+            "correct": true
+          },
+          {
+            "id": "c",
+            "text": "Disable monitoring to reduce overhead",
+            "outcome": "This removes the evidence you need to diagnose the incident.",
+            "correct": false
+          }
+        ],
+        "rationale": "Measure the limiting resource or dependency first. A bottleneck can be compute, database I/O, network, cache misses, lock contention, downstream latency, or queue backlog.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-rpc-interview",
+      "payload": {
+        "text": "Interview drill",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-rpc-interview",
+      "payload": {
+        "text": "**Answer this without notes:** When would you choose RPC — Remote Procedure Call, and when would you intentionally avoid it? Mention at least one bottleneck it addresses, one failure mode it introduces, and one alternative. Then quantify the workload you are designing for."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "field-guide-rpc",
+      "payload": {
+        "title": "Engineering lens",
+        "body": "A useful engineering lens for RPC - Remote Procedure Call: define the problem it solves, the simpler design that fails first, the constraint that forces you to introduce this concept, and the new failure modes the concept creates.",
+        "kind": "tip"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "numerical-lens-rpc",
+      "payload": {
+        "text": "### Numerical sanity check\n\nBack-of-the-envelope reasoning beats fake precision. State your traffic, payload, concurrency and growth assumptions explicitly, then calculate enough to know whether the current architecture is orders of magnitude away from the target."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "field-question-rpc",
+      "payload": {
+        "shape": "prediction",
+        "question": "Imagine the simplest version of a system using RPC - Remote Procedure Call. What breaks first as traffic grows by 10×, and what would you change before reaching 100×?",
+        "context": "Do not optimize for a memorized definition. Reason from the workload and failure mode.",
+        "options": [
+          "Scale the same component immediately.",
+          "Measure the current bottleneck and state the assumption that changed.",
+          "Add more technologies until throughput improves.",
+          "Choose the most popular architecture."
+        ],
+        "answer_index": 1,
+        "rationale": "Good system design starts with the bottleneck and the changed constraint. The most popular or complex choice is not automatically correct.",
+        "difficulty": "interview"
+      }
+    }
+  ],
+  "trade_offs": {
+    "pros": [
+      "Typed, code-generated stubs catch interface errors at compile time.",
+      "Binary protocols (Protobuf, Thrift) are 5-10x smaller and faster than JSON.",
+      "Action-natural for operations that are not CRUD (ChargeCard, TranslateDocument).",
+      "Streaming support (in modern frameworks like gRPC) for bidirectional data flow."
+    ],
+    "cons": [
+      "Hides network failure behind local-looking syntax — a known footgun.",
+      "Requires code generation and an IDL toolchain — operational complexity.",
+      "Hard to consume from browsers without gRPC-Web or similar proxies.",
+      "Less cacheable than REST (no HTTP verb semantics, no URL-keyed caching).",
+      "Schema evolution requires IDL discipline (field numbers, optional/required, deprecated)."
+    ]
+  },
+  "failure_modes": [
+    "Treating remote calls like local calls — no timeouts, no retries, no idempotency.",
+    "Synchronous call chains: A → B → C, where C's slowness stalls B stalls A. Cascade failure.",
+    "Infinite retries without backoff — take down the already-struggling server.",
+    "Non-idempotent operations retried on timeout — duplicate side effects (double charges).",
+    "IDL drift between client and server — silent corruption when fields do not match."
+  ],
+  "common_mistakes": [
+    "Defaulting to no timeout or a 30s timeout — deadlines should be tight and propagated.",
+    "Forgetting idempotency keys on mutations — retries cause double execution.",
+    "Chaining synchronous RPCs without a circuit breaker — cascade failures take down services.",
+    "Not versioning the IDL — a breaking change rolls out as a deployed bug.",
+    "Using RPC for a public API to unknown clients — forces them to use your IDL toolchain.",
+    "Ignoring backpressure — a slow server gets faster clients hammering it."
+  ],
+  "where_you_see_it": [
+    "gRPC — the dominant modern RPC framework, used internally at Google, Netflix, Square, Dropbox.",
+    "Apache Thrift — Facebook's RPC framework, used at many companies pre-gRPC.",
+    "JSON-RPC — simple RPC over JSON, popular in crypto and blockchain APIs.",
+    "SOAP — the verbose XML RPC of the 2000s enterprise; still alive in banking and telecom."
+  ],
+  "interview_prompts": [
+    "What is the difference between RPC and REST? When would you choose each?",
+    "Explain why 'treating a remote call like a local call' is dangerous. What are the failure modes?",
+    "Name three of the eight fallacies of distributed computing. How does each one bite you in production?",
+    "Your internal service calls another service that is suddenly slow. What patterns do you apply?",
+    "Why do modern microservices often use gRPC internally and REST externally?"
+  ],
+  "real_system_mappings": [
+    {
+      "system": "Google internal services",
+      "how": "Nearly all internal Google service-to-service traffic uses Stubby (gRPC's predecessor) — typed, binary, deadline-aware. Billions of calls per second across tens of thousands of services."
+    },
+    {
+      "system": "Netflix",
+      "how": "Uses gRPC for many internal microservice calls after migrating from REST/HTTP. The typed contracts and streaming support were the main drivers."
+    }
+  ],
+  "status": "published",
+  "sources": [
+    {
+      "title": "System Design Primer",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Open source"
+    },
+    {
+      "title": "ByteByteGo — Scale from zero to millions",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "ByteByteGo"
+    },
+    {
+      "title": "System Design Tutorial",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "GeeksforGeeks"
+    },
+    {
+      "title": "System Design Roadmap",
+      "url": "https://roadmap.sh/system-design",
+      "publisher": "roadmap.sh"
+    },
+    {
+      "title": "Networking & Communication reference",
+      "url": "https://www.rfc-editor.org/",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Networking & Communication reference",
+      "url": "https://developer.mozilla.org/en-US/docs/Web/HTTP",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Networking & Communication reference",
+      "url": "https://www.cloudflare.com/learning/network-layer/what-is-a-protocol/",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Cloudflare Learning Center",
+      "url": "https://www.cloudflare.com/learning/",
+      "publisher": "Cloudflare"
+    }
+  ]
+}

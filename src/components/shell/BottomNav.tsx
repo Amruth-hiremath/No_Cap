@@ -6,7 +6,7 @@ import { Home, Map, BookOpen, RotateCcw, MoreHorizontal } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useStore } from '@/lib/store';
 import { useState } from 'react';
-import { X, TrendingUp, BookText, Dumbbell, Settings } from 'lucide-react';
+import { X, TrendingUp, Bookmark, BookText, Dumbbell, Settings, FlaskConical, UserRound } from 'lucide-react';
 
 const primary = [
   { href: '/', label: 'Today', icon: Home },
@@ -17,8 +17,11 @@ const primary = [
 ];
 
 const secondary = [
+  { href: '/labs', label: 'Labs', icon: FlaskConical },
   { href: '/progress', label: 'Progress', icon: TrendingUp },
+  { href: '/library', label: 'Library', icon: Bookmark },
   { href: '/glossary', label: 'Glossary', icon: BookText },
+  { href: '/account', label: 'Account', icon: UserRound },
   { href: '/settings', label: 'Settings', icon: Settings },
 ];
 
@@ -91,10 +94,12 @@ export function BottomNav() {
                 <X className="h-4 w-4" />
               </button>
             </div>
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-2 gap-2">
               {secondary.map((item) => {
                 const Icon = item.icon;
-                const active = pathname === item.href;
+                const active =
+                  pathname === item.href ||
+                  (item.href !== '/' && pathname.startsWith(item.href + '/'));
                 return (
                   <Link
                     key={item.href}

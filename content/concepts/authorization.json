@@ -1,0 +1,424 @@
+{
+  "slug": "authorization",
+  "version": 4,
+  "title": "Authorization",
+  "phase": "security",
+  "area": "Security",
+  "estimated_minutes": 7,
+  "difficulty": "core",
+  "summary": "Authorization (AuthZ) decides what an authenticated user is allowed to do. Two dominant models: RBAC (role-based — \"users with the admin role can delete\") and ABAC (attribute-based — \"users in the finance dept can view invoices over $10k from their region\"). AuthN establishes identity; AuthZ uses it. Every request must be authorized, not just authenticated, or authenticated users can act as each other.",
+  "why_it_matters": "Authorization bugs are the most common class of web vulnerability after authentication failures. The classic mistakes: trusting client-side authorization (\"hide the button\"), checking authorization on read but not write, missing per-resource checks (\"user can edit their own profile\" becomes \"user can edit anyone's profile\"). The 2021 LinkedIn scrape and countless IDOR (Insecure Direct Object Reference) bugs are all authorization failures. AuthZ must be enforced server-side, on every request, with per-resource checks. There are no shortcuts.",
+  "prerequisites": [
+    "authentication"
+  ],
+  "related": [
+    "authentication",
+    "oauth",
+    "gatekeeper"
+  ],
+  "used_in": [
+    "Every multi-user application.",
+    "Every API with per-user permissions.",
+    "Every enterprise system with role hierarchies."
+  ],
+  "blocks": [
+    {
+      "type": "prose",
+      "id": "intro",
+      "payload": {
+        "text": "Authorization answers: \"given this authenticated identity, what can they do?\" It runs after authentication on every request.\n\nTwo models dominate:\n\n- **RBAC (Role-Based Access Control)**: users have roles (admin, editor, viewer); roles have permissions (delete_post, edit_post, view_post). Authorization = check the user's role has the required permission. Simple, common, sufficient for most apps.\n\n- **ABAC (Attribute-Based Access Control)**: rules combine attributes of the user, the resource, the action, and the environment. \"A user in the finance department can view invoices under $10k from their region during business hours.\" More expressive, more complex.\n\nRBAC is the right starting point; ABAC when RBAC isn't expressive enough. Most systems use RBAC for coarse permissions and add per-resource checks for fine-grained control."
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "rbac-abac",
+      "payload": {
+        "code": "flowchart TD\n    N0[\"role-based\"]\n    N1[\"RBAC\"]\n    N2[\"(role\"]\n    N3[\"based)\"]\n    N4[\"User\"]\n    N5[\"Role\"]\n    N6[\"Permissions\"]\n    N7[\"edit_post, view_post\"]\n    N8[\"alice\"]\n    N9[\"editor\"]\n    N10[\"[edit_post,\"]\n    N11[\"view_post]\"]\n    N12[\"edit_post, view_post, delete_post\"]\n    N13[\"bob\"]\n    N14[\"admin\"]\n    N15[\"view_post,\"]\n    N16[\"delete_post]\"]\n    N17[\"view_post\"]\n    N18[\"carol\"]\n    N19[\"viewer\"]\n    N20[\"[view_post]\"]\n    N21[\"Check:\"]\n    N22[\"does\"]\n    N23[\"user.role.permissions\"]\n    N24[\"include\"]\n    N25[\"required?\"]\n    N26[\"Simple,\"]\n    N27[\"fast,\"]\n    N28[\"easy\"]\n    N29[\"audit.\"]\n    N30[\"Limited:\"]\n    N31[\"'editor\"]\n    N32[\"which\"]\n    N33[\"posts?'\"]\n    N34[\"attribute-based\"]\n    N35[\"ABAC\"]\n    N36[\"(attribute\"]\n    N37[\"Rule:\"]\n    N38[\"'user.dept\"]\n    N39[\"resource.dept\"]\n    N40[\"AND\"]\n    N41[\"action\"]\n    N42[\"'view'\"]\n    N43[\"resource.amount\"]\n    N44[\"user.approval_limit\"]\n    N45[\"time.is_business_hours'\"]\n    N46[\"More\"]\n    N47[\"expressive.\"]\n    N48[\"Combinable.\"]\n    N49[\"Slower\"]\n    N50[\"evaluate,\"]\n    N51[\"harder\"]\n    N52[\"healthcare, finance\"]\n    N53[\"Used\"]\n    N54[\"regulated\"]\n    N55[\"industries\"]\n    N56[\"(healthcare,\"]\n    N57[\"finance).\"]\n    N58[\"always required\"]\n    N59[\"PER\"]\n    N60[\"RESOURCE\"]\n    N61[\"CHECK\"]\n    N62[\"(always\"]\n    N63[\"required)\"]\n    N64[\"POST\"]\n    N65[\"posts\"]\n    N66[\"edit\"]\n    N67[\"user\"]\n    N68[\"must\"]\n    N69[\"OWN\"]\n    N70[\"post\"]\n    N71[\"not\"]\n    N72[\"just\"]\n    N73[\"have\"]\n    N74[\"edit_post\"]\n    N75[\"permission.\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44\n    N44 --> N45\n    N45 --> N46\n    N46 --> N47\n    N47 --> N48\n    N48 --> N49\n    N49 --> N50\n    N50 --> N51\n    N51 --> N52\n    N52 --> N53\n    N53 --> N54\n    N54 --> N55\n    N55 --> N56\n    N56 --> N57\n    N57 --> N58\n    N58 --> N59\n    N59 --> N60\n    N60 --> N61\n    N61 --> N62\n    N62 --> N63\n    N63 --> N64\n    N64 --> N65\n    N65 --> N66\n    N66 --> N67\n    N67 --> N68\n    N68 --> N69\n    N69 --> N70\n    N70 --> N71\n    N71 --> N72\n    N72 --> N73\n    N73 --> N74\n    N74 --> N75",
+        "caption": "RBAC for coarse roles; ABAC for fine-grained rules. Both still need per-resource checks (\"can this user edit THIS post?\").",
+        "alt_text": "Three panels. RBAC: user to role to permissions. Alice is editor with edit and view post permissions. Bob is admin with edit, view, and delete post permissions. Carol is viewer with view post permission. The check asks whether the user's role permissions include the required one. RBAC is simple, fast, easy to audit, but limited in expressiveness such as which posts an editor can edit. ABAC: rules combine attributes of the user, the resource, the action, and the environment, such as a rule that a user in the finance department can view an invoice if its amount is below their approval limit and the time is business hours. ABAC is more expressive and combinable but slower to evaluate and harder to audit. It's used in regulated industries like healthcare and finance. Per-resource check: a request to edit post 42 must verify that the user owns post 42, not just that they have the edit-post permission."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "per-resource",
+      "payload": {
+        "text": "The most common authorization bug is missing per-resource checks. Consider:\n\n- A user has `edit_post` permission.\n- They send `POST /posts/999/edit`.\n- Does the user own post 999? If you didn't check, they just edited someone else's post.\n\nThis is an IDOR (Insecure Direct Object Reference) vulnerability, and it's everywhere. The fix is mandatory per-resource authorization: every request that touches a specific resource checks not just \"can the user do this action\" but \"can the user do this action to THIS resource.\"\n\nImplementation: in the controller, fetch the resource first, then check `user.id == resource.owner_id` (or a more complex policy) before performing the action. If the check fails, return 404 (not 403, to avoid leaking the resource's existence).\n\nThe pattern of \"hide the edit button if not owner\" is necessary for UX but never sufficient for security — the user can craft the request manually. Server-side enforcement is the only check that matters."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "centralized-authz",
+      "payload": {
+        "text": "Authorization logic spread across controllers rots. The pattern that scales:\n\n- **Centralize policy**: a single authorization layer (a policy engine or middleware) that all requests pass through. It consults the user's roles, the resource's owner, and the action being performed.\n- **Declarative policy**: define policies as data, not code. Tools like OPA (Open Policy Agent), AWS IAM, and Casbin express policies in a DSL that's auditable and version-controlled.\n- **Deny by default**: if no policy explicitly permits an action, deny it. This prevents \"I forgot to check\" bugs from becoming security holes.\n- **Audit log**: every authorization decision is logged. \"alice viewed post 42 at 10:42:03.\" Essential for incident response and compliance.\n\nFor microservices, a service mesh or API gateway can enforce coarse authorization (\"is the user authenticated? does their token have the required scope?\") centrally, with fine-grained per-resource checks in the service. This splits the work: the gateway handles cross-cutting concerns; the service handles business logic."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "client-side",
+      "payload": {
+        "title": "Client-side authorization is decoration, not security",
+        "body": "Hiding the admin button when the user isn't an admin is good UX — it prevents confusion. But it's not security. The user can always craft the HTTP request manually. Authorization must be enforced server-side on every request, regardless of what the UI shows. The same applies to mobile apps, SPAs, and any client. The client is untrusted; the server is the only place authorization can be enforced. Treat every client as potentially malicious.",
+        "kind": "warning"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "scopes",
+      "payload": {
+        "text": "In API and OAuth contexts, authorization often uses **scopes** — strings that grant specific permissions. A token might have scopes `read:posts write:posts` but not `delete:posts`. The API checks the token's scopes before performing each action.\n\nScopes are a middle ground between RBAC and ABAC:\n- Like RBAC: a fixed set of named permissions.\n- Like ABAC: scoped to a specific resource or action.\n\nThe principle of **least privilege**: grant only the scopes needed for the task. An app that reads your GitHub repos should request `read:user public_repo`, not `repo` (which would grant write to all repos). Most OAuth flows let the user see and approve the requested scopes.\n\nScopes must be enforced server-side, just like RBAC — checking the scope on read but not write is a common bug."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q1",
+      "payload": {
+        "question": "Your web app hides the \"Delete\" button when the user isn't an admin. Is the system secure?",
+        "shape": "mcq",
+        "options": [
+          "Yes — non-admins can't see the button so they can't delete.",
+          "No — client-side checks are decoration. The user can craft the HTTP DELETE request manually. Authorization must be enforced server-side on every request.",
+          "Only if the button uses CSS to hide, not JavaScript.",
+          "Yes, as long as the API uses HTTPS."
+        ],
+        "answer_index": 1,
+        "rationale": "Hiding the button is good UX (prevents confusion) but provides no security. A user can open dev tools and craft the DELETE request directly, or use curl. The server must check authorization on every request, regardless of what the UI shows. This is one of the most common web vulnerabilities: trusting the client. The same applies to mobile apps and SPAs — the client is untrusted, the server is the only enforcement point. The principle is to treat every client as potentially malicious.",
+        "difficulty": "core"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q2",
+      "payload": {
+        "question": "A user with `edit_post` permission sends `POST /posts/999/edit`. Post 999 belongs to another user. What went wrong if the edit succeeds?",
+        "shape": "mcq",
+        "options": [
+          "The user shouldn't have `edit_post` permission at all.",
+          "Missing per-resource authorization: the server checked the user's role has `edit_post` permission but didn't check that the user owns post 999 specifically. This is an IDOR vulnerability.",
+          "HTTPS wasn't used.",
+          "Nothing — the user has edit_post permission, so they can edit any post."
+        ],
+        "answer_index": 1,
+        "rationale": "This is the classic IDOR (Insecure Direct Object Reference) vulnerability. The user has the general permission (edit_post), but they're trying to edit a specific resource (post 999) that they don't own. The server must check both: (1) does the user have the action's permission, AND (2) does the user own (or have access to) this specific resource? Missing the second check is one of the most common authorization bugs and a top OWASP vulnerability. The fix: fetch the resource, verify ownership, return 404 (not 403, to avoid leaking existence) if the check fails.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q3",
+      "payload": {
+        "question": "When would you choose ABAC over RBAC?",
+        "shape": "mcq",
+        "options": [
+          "Always — ABAC is more modern.",
+          "When the access rules depend on attributes of the user, resource, action, or environment (e.g., department, region, time of day, resource amount). RBAC can't express these.",
+          "When you want simpler audits.",
+          "Never — RBAC is always sufficient."
+        ],
+        "answer_index": 1,
+        "rationale": "ABAC is for cases where access depends on attributes beyond a fixed role: \"a finance user in region X can approve invoices under $10k during business hours.\" RBAC can express \"finance role can approve invoices\" but not the amount, region, or time constraints. ABAC is more expressive but slower to evaluate and harder to audit (rules instead of role mappings). Most systems start with RBAC (simpler, sufficient for most apps) and add ABAC for the cases RBAC can't express — typically in regulated industries like healthcare (HIPAA) or finance (SOX).",
+        "difficulty": "advanced"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-authorization-mental",
+      "payload": {
+        "text": "Engineering mental model",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-authorization-mental",
+      "payload": {
+        "text": "**Mental model.** Think of Authorization as a deliberate boundary in a system. The boundary exists because something becomes harder to manage when everything is done in one place: latency, scale, failure isolation, consistency, cost, or team ownership. The useful question is not “what does Authorization mean?” but “what pressure makes this boundary worth introducing, and what new failure mode does it create?”"
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-authorization-decision",
+      "payload": {
+        "title": "Design lens",
+        "body": "Before choosing Authorization, name the workload, the critical user path, the dominant bottleneck, the failure you are trying to absorb, and the trade-off you are willing to accept. If you cannot name those five things, the design is probably premature.",
+        "kind": "info"
+      }
+    },
+    {
+      "type": "image",
+      "id": "upgrade-image-authorization",
+      "payload": {
+        "src": "/learning-visuals/authorization.svg",
+        "alt": "Original NO CAP systems visual for Authorization.",
+        "caption": "Authorization: a compact system-thinking visual.",
+        "credit": "Original NO CAP visual.",
+        "source_url": "https://github.com/donnemartin/system-design-primer"
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "upgrade-mermaid-authorization",
+      "payload": {
+        "code": "flowchart LR\n  A[User] --> B[Identity] --> C[Token] --> D[Policy] --> E[Resource]",
+        "caption": "Authorization: a simplified system view showing the primary flow and the main state boundaries.",
+        "alt_text": "Authorization: a simplified system view showing the primary flow and the main state boundaries."
+      }
+    },
+    {
+      "type": "code",
+      "id": "upgrade-code-authorization",
+      "payload": {
+        "language": "http",
+        "code": "Authorization: Bearer <access-token>\n\nGET /v1/authorization\nHost: api.example.com",
+        "caption": "A minimal engineering sketch for reasoning about Authorization."
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-authorization-numbers",
+      "payload": {
+        "text": "Back-of-the-envelope reasoning",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-authorization-numbers",
+      "payload": {
+        "text": "Numerical lens: write down traffic, payload size, read/write ratio, peak multiplier and durability target before choosing a component. The numbers should justify the architecture."
+      }
+    },
+    {
+      "type": "simulation",
+      "id": "upgrade-sim-authorization",
+      "payload": {
+        "title": "Interactive thought experiment: Authorization",
+        "description": "Change the variables below and predict what breaks first in Authorization. The production lab can later reuse these same inputs.",
+        "variables": [
+          {
+            "name": "traffic",
+            "description": "Requests/events per second",
+            "default": "1000"
+          },
+          {
+            "name": "latency",
+            "description": "Dependency latency",
+            "default": "50ms"
+          },
+          {
+            "name": "failure_rate",
+            "description": "Injected failure rate",
+            "default": "0%"
+          }
+        ],
+        "placeholder_note": "Interactive controls are deterministic; use the linked Labs section when a dedicated lab exists."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-authorization-hint",
+      "payload": {
+        "title": "Hint",
+        "body": "If you are stuck on Authorization, start by drawing the request path and marking every network hop, stateful component, queue, cache and failure boundary. Then estimate where the system will saturate.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-authorization-1",
+      "payload": {
+        "shape": "prediction",
+        "question": "You increase traffic by 10× in a system using Authorization. What should you inspect first?",
+        "options": [
+          "The newest framework version",
+          "The dominant bottleneck and its saturation signal",
+          "Only the UI",
+          "Nothing; the architecture should absorb any traffic automatically"
+        ],
+        "answer_index": 1,
+        "rationale": "System design is a constraint-and-bottleneck exercise. Start with the resource or dependency that will saturate first, then choose the smallest change that removes that bottleneck.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-authorization-2",
+      "payload": {
+        "shape": "mcq",
+        "question": "Which statement is the safest engineering habit when using Authorization?",
+        "options": [
+          "Choose it because it is popular",
+          "Add it before measuring the problem",
+          "State the workload, failure mode and trade-off it is solving",
+          "Use the most distributed design possible"
+        ],
+        "answer_index": 2,
+        "rationale": "Good architecture starts from requirements, workload and failure assumptions. The component is the consequence of that reasoning, not the starting point.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "scenario",
+      "id": "upgrade-scenario-authorization",
+      "payload": {
+        "prompt": "Production scenario: your system uses Authorization, traffic suddenly spikes, and p99 latency doubles. What is your first move?",
+        "context": "You have dashboards for traffic, latency, errors and saturation. You can change the architecture, but every change has operational cost.",
+        "options": [
+          {
+            "id": "a",
+            "text": "Add more instances immediately",
+            "outcome": "This may help, but only if compute saturation is the bottleneck.",
+            "correct": false
+          },
+          {
+            "id": "b",
+            "text": "Inspect the bottleneck and its saturation signal first",
+            "outcome": "Correct: diagnose before scaling or introducing a new pattern.",
+            "correct": true
+          },
+          {
+            "id": "c",
+            "text": "Disable monitoring to reduce overhead",
+            "outcome": "This removes the evidence you need to diagnose the incident.",
+            "correct": false
+          }
+        ],
+        "rationale": "Measure the limiting resource or dependency first. A bottleneck can be compute, database I/O, network, cache misses, lock contention, downstream latency, or queue backlog.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-authorization-interview",
+      "payload": {
+        "text": "Interview drill",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-authorization-interview",
+      "payload": {
+        "text": "**Answer this without notes:** When would you choose Authorization, and when would you intentionally avoid it? Mention at least one bottleneck it addresses, one failure mode it introduces, and one alternative. Then quantify the workload you are designing for."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "field-guide-authorization",
+      "payload": {
+        "title": "Engineering lens",
+        "body": "For Authorization, define the trust boundary first. Identify who is allowed to perform each action, where credentials live, how they expire, and what a compromised credential can reach.",
+        "kind": "tip"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "numerical-lens-authorization",
+      "payload": {
+        "text": "### Numerical sanity check\n\nA practical blast-radius question: if one credential is compromised, how many users, services, records or regions could it affect? Prefer designs where that number is deliberately bounded."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "field-question-authorization",
+      "payload": {
+        "shape": "prediction",
+        "question": "What is the smallest trust boundary you would enforce for Authorization, and what would you log so a suspicious action can be investigated later?",
+        "context": "Do not optimize for a memorized definition. Reason from the workload and failure mode.",
+        "options": [
+          "Scale the same component immediately.",
+          "Measure the current bottleneck and state the assumption that changed.",
+          "Add more technologies until throughput improves.",
+          "Choose the most popular architecture."
+        ],
+        "answer_index": 1,
+        "rationale": "Good system design starts with the bottleneck and the changed constraint. The most popular or complex choice is not automatically correct.",
+        "difficulty": "interview"
+      }
+    }
+  ],
+  "trade_offs": {
+    "pros": [
+      "Server-side enforcement is the only real security control.",
+      "RBAC is simple, fast, easy to audit.",
+      "ABAC is expressive enough for complex, regulated environments.",
+      "Centralized policy (OPA, IAM) makes authorization auditable."
+    ],
+    "cons": [
+      "Missing per-resource checks create IDOR vulnerabilities.",
+      "ABAC is harder to audit and slower to evaluate.",
+      "Distributed authz logic across controllers rots quickly.",
+      "Deny-by-default can break features if policies are incomplete."
+    ]
+  },
+  "failure_modes": [
+    "Missing per-resource authorization (IDOR).",
+    "Trusting client-side checks (hide-the-button).",
+    "Checking authorization on read but not write.",
+    "Broad scopes granted \"just in case\" — violates least privilege."
+  ],
+  "common_mistakes": [
+    "Hiding UI elements instead of enforcing server-side.",
+    "Forgetting per-resource checks beyond role checks.",
+    "Spreading authorization logic across controllers instead of centralizing.",
+    "Granting broader scopes than needed (violating least privilege)."
+  ],
+  "where_you_see_it": [
+    "AWS IAM (policies as data, evaluated per request).",
+    "Open Policy Agent (OPA) for service authorization.",
+    "OAuth scopes for API permissions."
+  ],
+  "interview_prompts": [
+    "What's the difference between authentication and authorization?",
+    "What is an IDOR vulnerability, and how do you prevent it?",
+    "Compare RBAC and ABAC. When would you use each?",
+    "Why must authorization be enforced server-side, not in the client?"
+  ],
+  "real_system_mappings": [
+    {
+      "system": "AWS IAM",
+      "how": "Policy-based authorization. Policies are JSON documents expressing allow/deny rules over resources and actions. Evaluated on every API call. Deny by default."
+    },
+    {
+      "system": "Open Policy Agent (OPA)",
+      "how": "General-purpose policy engine with the Rego DSL. Used to centralize authorization across microservices. Policies are versioned, auditable data — not code scattered through controllers."
+    }
+  ],
+  "status": "published",
+  "sources": [
+    {
+      "title": "System Design Primer",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Open source"
+    },
+    {
+      "title": "ByteByteGo — Scale from zero to millions",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "ByteByteGo"
+    },
+    {
+      "title": "System Design Tutorial",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "GeeksforGeeks"
+    },
+    {
+      "title": "System Design Roadmap",
+      "url": "https://roadmap.sh/system-design",
+      "publisher": "roadmap.sh"
+    },
+    {
+      "title": "Security reference",
+      "url": "https://www.rfc-editor.org/",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Security reference",
+      "url": "https://owasp.org/www-project-top-ten/",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Security reference",
+      "url": "https://oauth.net/2/",
+      "publisher": "Reference"
+    }
+  ]
+}

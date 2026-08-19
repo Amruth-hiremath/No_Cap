@@ -1,0 +1,434 @@
+{
+  "slug": "design-url-shortener",
+  "version": 3,
+  "title": "Design URL Shortener",
+  "phase": "case-studies",
+  "area": "Case Studies",
+  "estimated_minutes": 12,
+  "difficulty": "interview",
+  "summary": "Design a bit.ly-style URL shortener that turns long URLs into short codes, serves millions of redirects per second with single-digit-millisecond latency, and tracks click analytics. The case study walks through hash-based short codes, 301 vs 302 redirects, a Redis read-through cache for hot URLs, and the trade-offs between base-62 encoding, counter-based IDs, and collision handling.",
+  "why_it_matters": "URL shorteners are the 'Hello World' of system design interviews because they compress a surprising number of real concerns into a tiny surface area: a read-heavy workload (typically 100:1 read:write), a globally unique ID generator, hot-key caching, eventual consistency for analytics, and a CDN-friendly redirect path. Mastering it gives you a template for every other key-value-shaped system.",
+  "prerequisites": [
+    "consistent-hashing",
+    "cache-aside",
+    "load-balancers"
+  ],
+  "related": [
+    "design-key-value-store"
+  ],
+  "used_in": [
+    "bit.ly, TinyURL, Rebrandly.",
+    "Twitter's t.co wrapper for all outbound links.",
+    "Marketing campaign link tracking (Mailchimp, Hubspot).",
+    "SMS short links for delivery reports (Twilio, MessageBird)."
+  ],
+  "blocks": [
+    {
+      "type": "prose",
+      "id": "problem",
+      "payload": {
+        "text": "**What are we designing?** A service that takes a long URL like `https://www.example.com/very/long/path?with=query&params=here` and returns a short alias such as `https://bit.ly/aB3x9`. When anyone visits the short URL, the service redirects them to the original long URL. Alongside the redirect, the service records click analytics (referrer, geolocation, timestamp, user-agent) so marketers can measure campaign performance.\n\nTwo functional primitives define the system: a **shorten** endpoint (write path) and a **redirect** endpoint (read path). The interesting design tension comes from three facts: reads dwarf writes by roughly 100:1, every short code must be globally unique forever, and the redirect latency budget is brutal because a redirect adds a round trip to the user's actual destination."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "requirements",
+      "payload": {
+        "text": "**Functional requirements.**\n- A user submits a long URL and receives a short code (e.g. `aB3x9`) that maps back to the original.\n- Visiting `https://short.io/<code>` returns an HTTP redirect to the long URL.\n- Users may optionally pick a custom alias (e.g. `short.io/my-summit-2024`).\n- The service records click events: timestamp, IP, referrer, user-agent.\n- Links can be expired or deleted by their owner.\n\n**Non-functional requirements.**\n- **Read latency**: p99 < 30 ms for redirects (the redirect is on the critical path of the user's browser).\n- **Availability**: 99.99% for reads (a dead short link breaks every SMS / email that embeds it).\n- **Durability**: shortened URLs must keep resolving for years; we cannot lose a mapping.\n- **Write latency**: < 200 ms is fine — shortening is not latency-critical.\n- **Analytics freshness**: clicks visible in dashboards within ~1 minute (eventual).\n- **Scale**: 100M new URLs/month, 10B redirects/day at peak (read-heavy, 100:1).\n\n**Non-goals (v1).** No A/B redirect variants, no password-protected links, no per-link rate limiting. These can be layered on later without changing the core."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "capacity",
+      "payload": {
+        "text": "**Capacity estimation.** Assume 100M new short links/month and a 100:1 read:write ratio.\n\n*Writes.* 100M / 30 days / 86400 s = ~40 shortens/sec average, peak ~200/sec. Trivial — a single database node could handle this.\n\n*Reads.* 100M x 100 = 10B redirects/month = ~3,850 redirects/sec average, peak ~20,000/sec (3-5x for marketing bursts, US-east daytime). At 20K QPS a single Redis shard is borderline; we will need a small cache cluster.\n\n*Storage.* Each mapping is ~500 bytes (short code, long URL, owner, created_at, expires_at, metadata). 100M/month x 500 B = 50 GB/month = ~600 GB/year. Five years = 3 TB. Fits in a sharded PostgreSQL cluster or a DynamoDB-style KV store; no need for Hadoop-class storage.\n\n*Bandwidth.* Redirect response is ~1 KB (HTTP headers + 302 + cache headers). 20,000 QPS x 1 KB = 20 MB/s = ~160 Mbps peak egress. Add CDN caching for hot links and origin egress drops 10x.\n\n*Analytics writes.* 10B clicks/day, each event ~200 bytes -> 2 TB/day of click logs. These go to a streaming pipeline (Kafka -> S3/warehouse), not the redirect path.\n\n*Short-code keyspace.* With 7-character base-62 codes (a-z, A-Z, 0-9 = 62 chars), the keyspace is 62^7 = 3.5 trillion. Plenty for years of growth; 6 chars (62^6 = 56 billion) would also suffice but leaves less collision margin."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "apis",
+      "payload": {
+        "text": "**APIs.**\n\n```\nPOST /v1/shorten\n  body: { long_url, custom_alias?, expires_at?, owner_id? }\n  resp: { short_code, short_url, long_url, created_at }\n\nGET  /<short_code>           -> 301/302 redirect to long_url\n\nDELETE /v1/links/<short_code>   -> mark deleted (returns 410 on redirect)\n\nGET  /v1/links/<short_code>/stats?from=&to=   -> click counts, top referrers\n```\n\nTwo design choices worth flagging. First, **301 vs 302**: a `301 Moved Permanently` is browser-cached, which is great for latency but means we lose the click event (the browser never hits us again). `302 Found` is not cached, so every click traverses our service — required for analytics. bit.ly uses 301 with a separate `+` suffix (e.g. `bit.ly/aB3x9+`) for the stats page. We will use **302 with `Cache-Control: private, max-age=30`** so clicks are counted but a single user's repeat clicks within 30s don't double-hit origin.\n\nSecond, the redirect endpoint is unauthenticated and on the hot path; it must not touch the database on every request. A Redis cache-aside in front of the mapping table absorbs >95% of reads."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "data-model",
+      "payload": {
+        "text": "**Data model.**\n\n*Link mappings* (sharded SQL, primary store):\n```\nlinks (\n  short_code   VARCHAR(7)  PRIMARY KEY,\n  long_url     TEXT        NOT NULL,\n  owner_id     BIGINT,\n  created_at   TIMESTAMP,\n  expires_at   TIMESTAMP NULL,\n  deleted      BOOLEAN     DEFAULT false\n)\n```\nIndex `(owner_id, created_at)` for the user dashboard.\n\n*ID generator.* Two options:\n1. **MD5(long_url) then base-62 encode the first 7 chars** — deterministic, idempotent (same long URL -> same short code), but collision-prone and you cannot choose the length.\n2. **Counter-based**: a global auto-increment (Ticket Server pattern, like Flickr's ticket servers) produces a 64-bit ID, then base-62 encode it. Deterministic, collision-free, sortable by creation time.\n\nWe pick the **counter-based** approach with two independent ticket-server DBs (odd/even IDs) for HA, then base-62 encode. 7 chars of base-62 supports 3.5 trillion URLs.\n\n*Click events* (analytics path, separate pipeline):\n```\nclick_events (\n  event_id   BIGINT,\n  short_code VARCHAR(7),\n  ts         TIMESTAMP,\n  ip         INET,\n  referrer   TEXT,\n  ua         TEXT\n)\n```\nSharded into Kafka -> S3 / ClickHouse for analytics."
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "arch",
+      "payload": {
+        "code": "flowchart TD\n    N0[\"Browser / App\"]\n    N1[\"[Browser\"]\n    N2[\"App]\"]\n    N3[\"1\"]\n    N4[\"(1)\"]\n    N5[\"GET\"]\n    N6[\"short.io\"]\n    N7[\"aB3x9\"]\n    N8[\"Global CDN / Edge\"]\n    N9[\"[Global\"]\n    N10[\"CDN\"]\n    N11[\"Edge]\"]\n    N12[\"(cache\"]\n    N13[\"302s\"]\n    N14[\"for\"]\n    N15[\"30s\"]\n    N16[\"very\"]\n    N17[\"hot\"]\n    N18[\"links)\"]\n    N19[\"Load Balancer\"]\n    N20[\"2\"]\n    N21[\"(2)\"]\n    N22[\"miss\"]\n    N23[\"[Load\"]\n    N24[\"Balancer]\"]\n    N25[\"Redirect Service\"]\n    N26[\"[Redirect\"]\n    N27[\"Service]\"]\n    N28[\"stateless, autoscaled\"]\n    N29[\"(stateless,\"]\n    N30[\"autoscaled)\"]\n    N31[\"3\"]\n    N32[\"(3)\"]\n    N33[\"Redis\"]\n    N34[\"cache\"]\n    N35[\"aside\"]\n    N36[\"lookup\"]\n    N37[\"hit\"]\n    N38[\"(hit)\"]\n    N39[\"(miss)\"]\n    N40[\"Links DB\"]\n    N41[\"[Redis]\"]\n    N42[\"[Links\"]\n    N43[\"DB]\"]\n    N44[\"(hot\"]\n    N45[\"links,\"]\n    N46[\"(sharded\"]\n    N47[\"SQL\"]\n    N48[\"LRU\"]\n    N49[\"~50GB)\"]\n    N50[\"short_code)\"]\n    N51[\"4\"]\n    N52[\"(4)\"]\n    N53[\"302\"]\n    N54[\"Location:\"]\n    N55[\"long_url\"]\n    N56[\"Long URL origin\"]\n    N57[\"[Long\"]\n    N58[\"URL\"]\n    N59[\"origin]\"]\n    N60[\"analytics\"]\n    N61[\"side\"]\n    N62[\"channel\"]\n    N63[\"Kafka\"]\n    N64[\"Stream\"]\n    N65[\"async fire\"]\n    N66[\"Redirect\"]\n    N67[\"Service\"]\n    N68[\"(async\"]\n    N69[\"fire)\"]\n    N70[\"[Kafka]\"]\n    N71[\"[Stream]\"]\n    N72[\"ClickHouse / S3\"]\n    N73[\"[ClickHouse\"]\n    N74[\"S3]\"]\n    N75[\"Stats API\"]\n    N76[\"[Stats\"]\n    N77[\"API]\"]\n    N78[\"write\"]\n    N79[\"path\"]\n    N80[\"new ID\"]\n    N81[\"Client\"]\n    N82[\"Shorten\"]\n    N83[\"Ticket\"]\n    N84[\"Server\"]\n    N85[\"(new\"]\n    N86[\"ID)\"]\n    N87[\"insert\"]\n    N88[\"Links\"]\n    N89[\"(insert)\"]\n    N90[\"warm cache\"]\n    N91[\"(warm\"]\n    N92[\"cache)\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44\n    N44 --> N45\n    N45 --> N46\n    N46 --> N47\n    N47 --> N48\n    N48 --> N49\n    N49 --> N50\n    N50 --> N51\n    N51 --> N52\n    N52 --> N53\n    N53 --> N54\n    N54 --> N55\n    N55 --> N56\n    N56 --> N57\n    N57 --> N58\n    N58 --> N59\n    N59 --> N60\n    N60 --> N61\n    N61 --> N62\n    N62 --> N63\n    N63 --> N64\n    N64 --> N65\n    N65 --> N66\n    N66 --> N67\n    N67 --> N68\n    N68 --> N69\n    N69 --> N70\n    N70 --> N71\n    N71 --> N72\n    N72 --> N73\n    N73 --> N74\n    N74 --> N75\n    N75 --> N76\n    N76 --> N77\n    N77 --> N78\n    N78 --> N79\n    N79 --> N80\n    N80 --> N81\n    N81 --> N82\n    N82 --> N83\n    N83 --> N84\n    N84 --> N85\n    N85 --> N86\n    N86 --> N87\n    N87 --> N88\n    N88 --> N89\n    N89 --> N90\n    N90 --> N91\n    N91 --> N92",
+        "caption": "URL shortener read path with CDN, cache-aside, and sharded DB. Analytics go async to avoid blocking the redirect.",
+        "alt_text": "A diagram of the URL shortener architecture. The browser hits a global CDN; on a cache miss the request goes through a load balancer to a stateless redirect service. The service does a cache-aside lookup against Redis for hot links and falls back to a sharded links database on a miss. The 302 response is returned to the browser. Separately, the redirect service fires click events asynchronously into Kafka, which feeds a stream processor that writes to ClickHouse and an S3-backed warehouse, powering a stats API. The write path is separate: client to load balancer to a shorten service that calls a ticket server for a new ID, inserts into the links DB, and warms the Redis cache."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "deep-dive",
+      "payload": {
+        "text": "**Deep dive: short-code generation and collision handling.** The single hardest design decision is how to mint short codes that are unique, short, and unguessable enough to discourage enumeration. Three families of approach:\n\n1. **Hash-and-truncate** (MD5(long_url)[:7]). Pros: deterministic, idempotent, no coordinator. Cons: collisions grow quadratically (birthday paradox — 62^7 keyspace means ~50% collision probability around 70M codes); also reveals that two users shortened the same URL.\n\n2. **Counter + base-62 encode** (our choice). A 64-bit monotonic counter from a ticket server is encoded as `[0-9a-zA-Z]`. Pros: globally unique by construction, lexicographically sortable, no collisions ever, 7 chars cover 3.5T URLs. Cons: requires a coordination service (the ticket server), and **codes are enumerable** — an attacker can scan `bit.ly/aaa`, `bit.ly/aab`, ... and harvest every link. Mitigation: either accept this (most public shorteners do, and add abuse detection) or XOR the counter with a per-service secret to obfuscate ordering.\n\n3. **Random 7-char codes with retry on collision.** Pick uniformly from 62^7, check the DB, retry if exists. Pros: no coordinator, codes unguessable. Cons: as the keyspace fills, collision retries explode (birthday paradox again); also requires a unique-index check on every write.\n\n**Ticket server HA.** Flickr's pattern: two MySQL masters, one hands out even IDs, the other odd. Either can fail and the system keeps minting IDs. The ticket server is the one true write-bottleneck — at 200 writes/sec it is nowhere near saturation, but we still want redundancy.\n\n**Cache-aside specifics.** On a redirect: (1) `GET short_code` from Redis. (2) On miss, `SELECT long_url FROM links WHERE short_code=?`; if found, `SET` into Redis with TTL of 1 hour (so stale-then-deleted links clear themselves). (3) Return 302. We pre-warm the cache for any code that trends; the hot set is small (Pareto: top 1% of links = 80% of traffic).\n\n**Anti-abuse.** A shortener is a phisher's best friend. We add a Google-Safe-Browsing-style blocklist check on shorten, and on redirect we check a bloom filter of known-bad codes. Reports of malicious links are pushed to the blocklist within seconds."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "bottlenecks",
+      "payload": {
+        "text": "**Bottlenecks and failure modes.**\n\n- **Hot short code.** A celebrity tweets a bit.ly link -> 100K redirects in 60 seconds, all to one Redis key. The shard owning that key becomes a hotspot. *Mitigation*: detect hot keys (top-K window) and replicate them to a pool of read-only 'shadow' keys (`aB3x9__1`, `aB3x9__2`); the redirect service picks one at random. CDN also absorbs most of this if the link owner opted into longer cache TTLs.\n\n- **Ticket server failure.** If both ticket DBs are down, no new links can be created (but redirects still work). *Mitigation*: each ticket server pre-allocates a block of 10K IDs into an in-memory counter on the shorten service, so the service can mint IDs for several minutes even with the ticket server gone.\n\n- **Redis cache failure.** If Redis dies, all reads fall through to the DB. At 20K QPS this will probably crush the DB. *Mitigation*: Redis cluster with replicas + client-side circuit breaker that, on Redis failure, returns `302` to a *stale* cached long URL from a local LRU (better to redirect to the right place than to 5xx). If no local cache, return `503` with `Retry-After` and degrade.\n\n- **CDN misconfiguration caching a 404.** If we cache `404 Not Found` for a code that doesn't exist yet (eventually consistent propagation), a later shorten of that code will return 404 for the CDN TTL. *Mitigation*: never cache 4xx/5xx at the CDN; only cache 302s.\n\n- **Analytics pipeline backpressure.** If Kafka backs up, the redirect service must not block. *Mitigation*: fire-and-forget analytics writes via an async client with a tiny in-memory buffer; drop events rather than stall a redirect.\n\n- **Link rot.** A long URL 404s years later. We can periodically crawl long URLs in the background and flag dead links."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "scaling",
+      "payload": {
+        "text": "**Scaling strategy and trade-offs.**\n\n*Read path scaling.* The cache hierarchy is CDN -> Redis cluster -> DB. Each layer absorbs roughly 10x of the previous: CDN catches 60% (repeat-clicks by the same user within TTL), Redis catches 35% of what's left, the DB only sees 5%. At 20K QPS this means ~1K QPS hits the DB — comfortable for a 3-shard PostgreSQL cluster.\n\n*Write path scaling.* The bottleneck is the ticket server. We can shard ticket servers by geography (US-east mints IDs 0..N, EU mints N+1..2N) but then IDs are no longer globally sortable. Alternative: use Snowflake-style IDs (timestamp + worker_id + sequence) — no coordinator, sortable, fits in 64 bits.\n\n*Database sharding.* Shard `links` by `short_code` hash with consistent hashing so adding a shard doesn't rehash everything. Each shard is a primary + 2 replicas. Cross-shard queries (e.g. 'all links owned by user X') require a secondary index shard keyed by `owner_id`.\n\n*Multi-region.* Reads must be fast globally. We deploy the redirect service + Redis cache in 5+ regions (us-east, us-west, eu-west, ap-south, ap-northeast). The links DB is replicated asynchronously to read replicas in each region. Writes (shorten) go to a single primary region to keep ID assignment simple; this is fine because writes are not latency-sensitive.\n\n*Trade-offs made explicit.*\n- We chose 302 over 301 — **gained** accurate click analytics, **lost** free browser caching (mitigated by `Cache-Control: max-age=30`).\n- We chose counter-based codes over hash-based — **gained** no collisions and sortability, **lost** idempotency (the same long URL shortened twice yields two codes) and accepted enumerability.\n- We chose Redis cache-aside over read-through — **gained** simplicity, **lost** automatic freshness (a deleted link can be served stale for up to Redis TTL). We mitigate by issuing `DEL` on delete.\n- We chose single-region writes — **gained** simple ID assignment, **lost** write availability if the primary region fails (acceptable: writes are <1% of traffic and not on the user's critical path)."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q1",
+      "payload": {
+        "question": "You discover that one short code is generating 80% of your redirect traffic after a celebrity tweet. The Redis shard owning that key is at 100% CPU. What is the best mitigation?",
+        "shape": "mcq",
+        "options": [
+          "Add more replicas to the Redis cluster and let the client load-balance reads.",
+          "Increase the Redis shard count so the hot key lands on a different shard.",
+          "Replicate the hot key to multiple shadow keys and have clients randomly pick one.",
+          "Move the hot key to a separate standalone Redis instance."
+        ],
+        "answer_index": 2,
+        "rationale": "Redis clustering shards by key, so a single hot key always lives on exactly one shard — adding replicas does not help because the *key* (not the shard) is the bottleneck, and adding shards doesn't relocate an existing key. Replicating the hot key under N alias keys (aB3x9__1, __2, ...) distributes reads across shards and is the standard pattern (used at Twitter, Instagram). Moving the key to a standalone instance helps temporarily but is operationally awkward and doesn't scale to the next hot key.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q2",
+      "payload": {
+        "question": "Why does bit.ly return a 301 redirect while we chose 302? What trade-off is being made?",
+        "shape": "mcq",
+        "options": [
+          "301 is faster because browsers cache it; bit.ly sacrifices click analytics for latency.",
+          "301 is more correct semantically; 302 is a hack. We chose 302 to keep analytics fresh.",
+          "301 caches the redirect, so bit.ly loses click data on repeat visits but saves origin load; we trade origin load for accurate per-click analytics using 302 with a short Cache-Control.",
+          "There is no meaningful difference; both are interchangeable."
+        ],
+        "answer_index": 2,
+        "rationale": "A 301 is permanently cached by browsers, so subsequent visits skip the shortener entirely — great for latency and origin cost, but you lose the click event. A 302 is not cached, so every click hits origin and is counted. We compromise with 302 plus `Cache-Control: private, max-age=30` so a single user's repeat clicks within 30 seconds don't double-count, but cross-user clicks still register. bit.ly instead uses 301 and exposes stats via a `+` suffix URL. Both are defensible; the trade-off is analytics fidelity vs origin load.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-design-url-shortener-mental",
+      "payload": {
+        "text": "Engineering mental model",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-design-url-shortener-mental",
+      "payload": {
+        "text": "**Mental model.** Think of Design URL Shortener as a deliberate boundary in a system. The boundary exists because something becomes harder to manage when everything is done in one place: latency, scale, failure isolation, consistency, cost, or team ownership. The useful question is not “what does Design URL Shortener mean?” but “what pressure makes this boundary worth introducing, and what new failure mode does it create?”"
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-design-url-shortener-decision",
+      "payload": {
+        "title": "Design lens",
+        "body": "Before choosing Design URL Shortener, name the workload, the critical user path, the dominant bottleneck, the failure you are trying to absorb, and the trade-off you are willing to accept. If you cannot name those five things, the design is probably premature.",
+        "kind": "info"
+      }
+    },
+    {
+      "type": "image",
+      "id": "upgrade-image-design-url-shortener",
+      "payload": {
+        "src": "/learning-visuals/design-url-shortener.svg",
+        "alt": "Original NO CAP systems visual for Design URL Shortener.",
+        "caption": "Design URL Shortener: a compact system-thinking visual.",
+        "credit": "Original NO CAP visual.",
+        "source_url": "https://github.com/donnemartin/system-design-primer"
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "upgrade-mermaid-design-url-shortener",
+      "payload": {
+        "code": "flowchart LR\n  A[Client] --> B[Gateway] --> C[Services] --> D[Data] --> E[Delivery]",
+        "caption": "Design URL Shortener: a simplified system view showing the primary flow and the main state boundaries.",
+        "alt_text": "Design URL Shortener: a simplified system view showing the primary flow and the main state boundaries."
+      }
+    },
+    {
+      "type": "code",
+      "id": "upgrade-code-design-url-shortener",
+      "payload": {
+        "language": "text",
+        "code": "// Pseudocode\nrequest = receive()\nresult = design_url_shortener(request)\nreturn result\n\n// Production questions:\n// 1. What happens on timeout?\n// 2. Can this operation be retried safely?\n// 3. What is the bottleneck?",
+        "caption": "A minimal engineering sketch for reasoning about Design URL Shortener."
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-design-url-shortener-numbers",
+      "payload": {
+        "text": "Back-of-the-envelope reasoning",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-design-url-shortener-numbers",
+      "payload": {
+        "text": "Numerical lens: write down traffic, payload size, read/write ratio, peak multiplier and durability target before choosing a component. The numbers should justify the architecture."
+      }
+    },
+    {
+      "type": "simulation",
+      "id": "upgrade-sim-design-url-shortener",
+      "payload": {
+        "title": "Interactive thought experiment: Design URL Shortener",
+        "description": "Change the variables below and predict what breaks first in Design URL Shortener. The production lab can later reuse these same inputs.",
+        "variables": [
+          {
+            "name": "traffic",
+            "description": "Requests/events per second",
+            "default": "1000"
+          },
+          {
+            "name": "latency",
+            "description": "Dependency latency",
+            "default": "50ms"
+          },
+          {
+            "name": "failure_rate",
+            "description": "Injected failure rate",
+            "default": "0%"
+          }
+        ],
+        "placeholder_note": "Interactive controls are deterministic; use the linked Labs section when a dedicated lab exists."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-design-url-shortener-hint",
+      "payload": {
+        "title": "Hint",
+        "body": "If you are stuck on Design URL Shortener, start by drawing the request path and marking every network hop, stateful component, queue, cache and failure boundary. Then estimate where the system will saturate.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-design-url-shortener-1",
+      "payload": {
+        "shape": "prediction",
+        "question": "You increase traffic by 10× in a system using Design URL Shortener. What should you inspect first?",
+        "options": [
+          "The newest framework version",
+          "The dominant bottleneck and its saturation signal",
+          "Only the UI",
+          "Nothing; the architecture should absorb any traffic automatically"
+        ],
+        "answer_index": 1,
+        "rationale": "System design is a constraint-and-bottleneck exercise. Start with the resource or dependency that will saturate first, then choose the smallest change that removes that bottleneck.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-design-url-shortener-2",
+      "payload": {
+        "shape": "mcq",
+        "question": "Which statement is the safest engineering habit when using Design URL Shortener?",
+        "options": [
+          "Choose it because it is popular",
+          "Add it before measuring the problem",
+          "State the workload, failure mode and trade-off it is solving",
+          "Use the most distributed design possible"
+        ],
+        "answer_index": 2,
+        "rationale": "Good architecture starts from requirements, workload and failure assumptions. The component is the consequence of that reasoning, not the starting point.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "scenario",
+      "id": "upgrade-scenario-design-url-shortener",
+      "payload": {
+        "prompt": "Production scenario: your system uses Design URL Shortener, traffic suddenly spikes, and p99 latency doubles. What is your first move?",
+        "context": "You have dashboards for traffic, latency, errors and saturation. You can change the architecture, but every change has operational cost.",
+        "options": [
+          {
+            "id": "a",
+            "text": "Add more instances immediately",
+            "outcome": "This may help, but only if compute saturation is the bottleneck.",
+            "correct": false
+          },
+          {
+            "id": "b",
+            "text": "Inspect the bottleneck and its saturation signal first",
+            "outcome": "Correct: diagnose before scaling or introducing a new pattern.",
+            "correct": true
+          },
+          {
+            "id": "c",
+            "text": "Disable monitoring to reduce overhead",
+            "outcome": "This removes the evidence you need to diagnose the incident.",
+            "correct": false
+          }
+        ],
+        "rationale": "Measure the limiting resource or dependency first. A bottleneck can be compute, database I/O, network, cache misses, lock contention, downstream latency, or queue backlog.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-design-url-shortener-interview",
+      "payload": {
+        "text": "Interview drill",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-design-url-shortener-interview",
+      "payload": {
+        "text": "**Answer this without notes:** When would you choose Design URL Shortener, and when would you intentionally avoid it? Mention at least one bottleneck it addresses, one failure mode it introduces, and one alternative. Then quantify the workload you are designing for."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "field-guide-design-url-shortener",
+      "payload": {
+        "title": "Engineering lens",
+        "body": "A useful engineering lens for Design URL Shortener: define the problem it solves, the simpler design that fails first, the constraint that forces you to introduce this concept, and the new failure modes the concept creates.",
+        "kind": "tip"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "numerical-lens-design-url-shortener",
+      "payload": {
+        "text": "### Numerical sanity check\n\nBack-of-the-envelope reasoning beats fake precision. State your traffic, payload, concurrency and growth assumptions explicitly, then calculate enough to know whether the current architecture is orders of magnitude away from the target."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "field-question-design-url-shortener",
+      "payload": {
+        "shape": "prediction",
+        "question": "Imagine the simplest version of a system using Design URL Shortener. What breaks first as traffic grows by 10×, and what would you change before reaching 100×?",
+        "context": "Do not optimize for a memorized definition. Reason from the workload and failure mode.",
+        "options": [
+          "Scale the same component immediately.",
+          "Measure the current bottleneck and state the assumption that changed.",
+          "Add more technologies until throughput improves.",
+          "Choose the most popular architecture."
+        ],
+        "answer_index": 1,
+        "rationale": "Good system design starts with the bottleneck and the changed constraint. The most popular or complex choice is not automatically correct.",
+        "difficulty": "interview"
+      }
+    }
+  ],
+  "trade_offs": {
+    "pros": [
+      "Counter-based short codes are collision-free, sortable, and fit in 7 chars for trillions of URLs.",
+      "Cache-aside with CDN fronting absorbs >95% of reads off the database.",
+      "Async analytics side-channel keeps the redirect path latency at single-digit ms.",
+      "Stateless redirect service autoscales cleanly with traffic."
+    ],
+    "cons": [
+      "Counter-based codes are enumerable; abuse detection is mandatory.",
+      "Same long URL shortened twice yields two different codes (no idempotency).",
+      "Ticket server is a write bottleneck and a single point of failure without HA setup.",
+      "302 redirects cost more origin load than 301s and require careful cache headers."
+    ]
+  },
+  "failure_modes": [
+    "Hot short code saturates one Redis shard — needs shadow-key replication.",
+    "Ticket server failure stops new link creation — needs HA pair + ID pre-allocation.",
+    "Redis failure collapses traffic onto DB — needs circuit breaker + local LRU fallback.",
+    "CDN caching a 404 for a not-yet-created code — never cache 4xx/5xx at CDN.",
+    "Analytics pipeline backpressure stalls redirects — must be fire-and-forget."
+  ],
+  "common_mistakes": [
+    "Using MD5(long_url)[:7] without collision handling — birthday paradox hits around 70M codes.",
+    "Forgetting that Redis cluster shards by key, so hot keys don't redistribute automatically.",
+    "Caching 4xx responses at the CDN — propagates transient errors for the cache TTL.",
+    "Blocking the redirect on the analytics write — Kafka must be async.",
+    "Single-region writes without HA on the ticket server."
+  ],
+  "where_you_see_it": [
+    "bit.ly, TinyURL, Rebrandly.",
+    "Twitter's t.co wrapper for all outbound links.",
+    "Marketing campaign link tracking (Mailchimp, Hubspot).",
+    "SMS short links for delivery reports (Twilio, MessageBird)."
+  ],
+  "interview_prompts": [
+    "Design a URL shortener like bit.ly. How do you generate the short codes?",
+    "How would you handle a single short link that suddenly gets 1M clicks/second?",
+    "How do you make sure a deleted short link stops resolving everywhere immediately?",
+    "Walk me through the read path latency budget for a redirect."
+  ],
+  "real_system_mappings": [
+    {
+      "system": "bit.ly",
+      "how": "Counter-based 6-7 char codes, 301 redirects with a `+` suffix for stats, Redis fronted Cassandra cluster for mappings."
+    },
+    {
+      "system": "Flickr ticket servers",
+      "how": "Two MySQL masters with auto-increment-offset and auto-increment-increment to mint globally unique 64-bit IDs without a coordinator."
+    },
+    {
+      "system": "Twitter t.co",
+      "how": "Wraps every outbound URL in a t.co short link for abuse screening and click analytics; uses Snowflake-style IDs."
+    }
+  ],
+  "status": "published",
+  "sources": [
+    {
+      "title": "System Design Primer",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Open source"
+    },
+    {
+      "title": "ByteByteGo — Scale from zero to millions",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "ByteByteGo"
+    },
+    {
+      "title": "System Design Tutorial",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "GeeksforGeeks"
+    },
+    {
+      "title": "System Design Roadmap",
+      "url": "https://roadmap.sh/system-design",
+      "publisher": "roadmap.sh"
+    },
+    {
+      "title": "Case Studies reference",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Case Studies reference",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Case Studies reference",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "Reference"
+    }
+  ]
+}

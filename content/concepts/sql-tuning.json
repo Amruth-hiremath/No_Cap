@@ -1,0 +1,462 @@
+{
+  "slug": "sql-tuning",
+  "version": 4,
+  "title": "SQL Tuning",
+  "phase": "databases-data-systems",
+  "area": "Databases & Data Systems",
+  "estimated_minutes": 7,
+  "difficulty": "advanced",
+  "summary": "SQL tuning is the discipline of making slow queries fast. The toolkit is small and durable: indexes (B-tree, partial, composite), the query planner, EXPLAIN ANALYZE, connection pooling, and eliminating N+1 queries. Mastering it means thinking in sets, understanding what the planner sees, and never trusting intuition without measurement.",
+  "why_it_matters": "The difference between a 50ms query and a 5000ms query is rarely the database engine — it's almost always the query, the indexes, or the access pattern. Production outages from a missing index or an N+1 loop are some of the most common and most embarrassing database incidents. SQL tuning is also the area where 'I think it should be fast' fails most often — the planner does what it sees, not what you intend. Measuring with EXPLAIN is the only reliable guide.",
+  "prerequisites": [
+    "sql-vs-nosql"
+  ],
+  "related": [
+    "index-table",
+    "denormalization",
+    "sharding"
+  ],
+  "used_in": [
+    "Every production SQL database at scale.",
+    "On-call debugging of slow endpoints.",
+    "Capacity planning before a launch or migration.",
+    "Schema reviews and migration planning."
+  ],
+  "blocks": [
+    {
+      "type": "prose",
+      "id": "intro",
+      "payload": {
+        "text": "SQL tuning is fundamentally about two things: giving the database the data structures it needs to answer your query without scanning the whole table, and writing queries the planner can understand. The planner is smart but not psychic — it works from statistics, indexes, and the literal shape of your SQL.\n\nThe core toolkit, in order of leverage:\n\n1. **Indexes** — B-tree (default), composite, partial, expression. The single biggest performance lever. A sequential scan becomes an index lookup: O(N) → O(log N).\n2. **EXPLAIN and EXPLAIN ANALYZE** — read the query plan the planner generates. Without this, you're tuning blind.\n3. **Query rewriting** — think in sets, not loops. Replace correlated subqueries with JOINs; replace N+1 patterns with single queries.\n4. **Connection pooling** — PgBouncer, Pgpool, or pool inside your app. Eliminates connection setup cost.\n5. **Schema and statistics** — `ANALYZE` keeps planner statistics fresh; partitioning large tables limits scan scope.\n6. **Configuration** — `work_mem`, `shared_buffers`, `effective_cache_size` matter, but only after the above are right.\n\nMost SQL tuning 'secrets' are the first two: have the right index, and read EXPLAIN."
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "explain-anatomy",
+      "payload": {
+        "code": "flowchart TD\n    N0[\"PostgreSQL\"]\n    N1[\"EXPLAIN\"]\n    N2[\"ANALYZE\"]\n    N3[\"anatomy\"]\n    N4[\"(PostgreSQL)\"]\n    N5[\"o.id\"]\n    N6[\"SELECT\"]\n    N7[\"u.name,\"]\n    N8[\"COUNT(o.id)\"]\n    N9[\"FROM\"]\n    N10[\"users\"]\n    N11[\"LEFT\"]\n    N12[\"JOIN\"]\n    N13[\"orders\"]\n    N14[\"o.user_id\"]\n    N15[\"u.id\"]\n    N16[\"WHERE\"]\n    N17[\"u.country\"]\n    N18[\"'US'\"]\n    N19[\"GROUP\"]\n    N20[\"u.name;\"]\n    N21[\"HashAggregate\"]\n    N22[\"Group\"]\n    N23[\"Key:\"]\n    N24[\"u.name\"]\n    N25[\"Rows:\"]\n    N26[\"12,453\"]\n    N27[\"actual\"]\n    N28[\"time\"]\n    N29[\"45ms\"]\n    N30[\"Hash\"]\n    N31[\"Join\"]\n    N32[\"o.user_id = u.id\"]\n    N33[\"Cond:\"]\n    N34[\"(o.user_id\"]\n    N35[\"u.id)\"]\n    N36[\"12ms\"]\n    N37[\"Seq\"]\n    N38[\"Scan\"]\n    N39[\"8.4M\"]\n    N40[\"1.2s\"]\n    N41[\"BOTTLENECK\"]\n    N42[\"NO INDEX USED\"]\n    N43[\"(NO\"]\n    N44[\"INDEX\"]\n    N45[\"USED)\"]\n    N46[\"Index\"]\n    N47[\"idx_users_country\"]\n    N48[\"12k\"]\n    N49[\"3ms\"]\n    N50[\"Read\"]\n    N51[\"from\"]\n    N52[\"inside\"]\n    N53[\"out:\"]\n    N54[\"bottom\"]\n    N55[\"execution.\"]\n    N56[\"8.4M rows, 1.2s\"]\n    N57[\"(8.4M\"]\n    N58[\"rows,\"]\n    N59[\"1.2s)\"]\n    N60[\"the\"]\n    N61[\"problem.\"]\n    N62[\"user_id\"]\n    N63[\"Fix:\"]\n    N64[\"CREATE\"]\n    N65[\"idx_orders_user_id\"]\n    N66[\"orders(user_id);\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44\n    N44 --> N45\n    N45 --> N46\n    N46 --> N47\n    N47 --> N48\n    N48 --> N49\n    N49 --> N50\n    N50 --> N51\n    N51 --> N52\n    N52 --> N53\n    N53 --> N54\n    N54 --> N55\n    N55 --> N56\n    N56 --> N57\n    N57 --> N58\n    N58 --> N59\n    N59 --> N60\n    N60 --> N61\n    N61 --> N62\n    N62 --> N63\n    N63 --> N64\n    N64 --> N65\n    N65 --> N66",
+        "caption": "Read EXPLAIN from the inside out; find the Seq Scan over millions of rows — that's the bottleneck.",
+        "alt_text": "A PostgreSQL EXPLAIN ANALYZE tree for a query joining users and orders, grouped by user name, filtered by country equals US. The plan reads bottom-up. The bottleneck is a sequential scan on the orders table scanning 8.4 million rows in 1.2 seconds because no index covers user_id. The users table uses an index scan on idx_users_country returning 12,000 rows in 3 milliseconds. The Hash Join combines them and HashAggregate groups by name. The fix is to create an index on orders(user_id)."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "indexes",
+      "payload": {
+        "text": "**Indexes** are the dominant SQL performance lever. PostgreSQL (and most databases) support several flavors:\n\n- **B-tree** (default) — equality and range lookups. `WHERE id = 42`, `WHERE created_at > '2025-01-01'`.\n- **Composite** — multi-column. Order matters: `INDEX(a, b)` serves `WHERE a=? AND b=?` and `WHERE a=?` but not `WHERE b=?` alone. Put the most selective column first OR the one used in equality first, depending on the planner.\n- **Partial** — index only matching rows. `CREATE INDEX … WHERE deleted_at IS NULL` — smaller index, faster scans, automatic in queries that match the predicate.\n- **Expression** — index on a function. `CREATE INDEX ON users(lower(email))` makes case-insensitive email lookups fast.\n- **GIN/GIST** — for full-text search, JSONB containment, geospatial.\n- **Covering (INCLUDE)** — `CREATE INDEX … INCLUDE (col1, col2)` lets the query be answered from the index alone (an 'index-only scan').\n\nThe cost of indexes: writes get slower (every INSERT/UPDATE must update every index), disk usage grows, and the planner can choose the wrong index if statistics are stale. Indexes are a read/write trade-off.\n\nGolden rules:\n1. Index your foreign keys — `JOIN` and `WHERE child.parent_id = ?` are the most common slow paths.\n2. Index the columns in your `WHERE`, `JOIN`, `ORDER BY`, and `GROUP BY` clauses — but only the ones with high selectivity.\n3. Don't index low-selectivity columns (a boolean `is_active` on a table where 99% are active).\n4. Run `ANALYZE` after large data loads to refresh planner statistics."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "n-plus-one",
+      "payload": {
+        "title": "The N+1 query problem",
+        "body": "The most common performance bug in ORMs: fetch N records (1 query), then for each record, fetch a related record (N queries) → N+1 total. With N=1000, that's 1001 round trips instead of one JOIN. Symptom in logs: a thousand identical `SELECT * FROM user WHERE id=?` queries for a single page render. Fix: eager-load with a JOIN or `IN (?, ?, …)` (`includes` in Rails, `select_related`/`prefetch_related` in Django, `Include()` in Entity Framework). The N+1 is silent in dev with 10 rows and catastrophic in prod with 10,000.",
+        "kind": "warning"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "query-patterns",
+      "payload": {
+        "text": "**Query patterns that bite:**\n\n- **Sargability** — `WHERE DATE(created_at) = '2025-01-15'` can't use an index on `created_at` because the function wraps the column. Rewrite as `WHERE created_at >= '2025-01-15' AND created_at < '2025-01-16'`. A 'sargable' predicate is one the planner can use with an index.\n\n- **SELECT \\*** — fetching all columns when you need two wastes I/O and defeats covering indexes. `SELECT id, name FROM …` lets the planner use an index-only scan.\n\n- **OFFSET pagination** — `LIMIT 100 OFFSET 100000` still scans 100,100 rows. Use keyset pagination: `WHERE id > last_seen_id ORDER BY id LIMIT 100`. Constant time per page.\n\n- **COUNT(\\*) on big tables** — PostgreSQL's `COUNT(*)` is a full scan; there's no row count cached. Maintain a counter table or use approximate counts.\n\n- **Correlated subqueries** — `WHERE x IN (SELECT y FROM … WHERE … = outer.z)` may execute per-row. Rewrite as a JOIN or EXISTS.\n\n- **OR across columns** — `WHERE a=? OR b=?` may force a full scan. Use UNION of two indexed queries, or composite indexes.\n\n- **Implicit type casts** — `WHERE varchar_col = 42` may cast every row instead of using an index. Match the column type.\n\n- **LIKE '%foo%'** — leading wildcard can't use an index. Use full-text search (GIN/GIST) or trigram indexes (`pg_trgm`) for substring search.\n\nEvery one of these shows up clearly in EXPLAIN ANALYZE as a Seq Scan or a slow node. The planner tells you the problem; the fix is usually an index or a query rewrite."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "connection-pooling",
+      "payload": {
+        "text": "**Connection pooling** is invisible until it isn't. PostgreSQL forks a process per connection — a few thousand connections can exhaust memory and cause the 'too many connections' death spiral. Each new connection also pays a TCP handshake, TLS handshake, and Postgres startup cost (~5-10ms).\n\nA pooler (PgBouncer in transaction mode is the standard) keeps a small set of long-lived connections to Postgres and multiplexes application requests across them. The math: 5000 app connections → 50 Postgres connections, with the pooler handling queueing.\n\nApplication-side pooling (HikariCP for Java, sqlx for Rust, asyncpg for Python, the `pg` pool for Node) reduces connection setup cost but doesn't cap Postgres connections unless paired with a server-side pooler. Best practice: app-side pool of 10-30 connections per instance, plus PgBouncer in front of Postgres.\n\nSigns you need a pooler:\n- 'Too many connections' errors under load.\n- p99 latency spikes on connection setup.\n- Postgres memory growing linearly with app instances.\n- A new service instance can't connect because the limit is hit."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q1",
+      "payload": {
+        "question": "A query `SELECT * FROM orders WHERE DATE(created_at) = '2025-01-15'` is slow despite an index on `created_at`. EXPLAIN shows a Seq Scan. What's wrong and how do you fix it?",
+        "shape": "mcq",
+        "options": [
+          "The index is corrupt — REINDEX it.",
+          "The `DATE()` function wrapping the column makes the predicate non-sargable. Rewrite as `WHERE created_at >= '2025-01-15' AND created_at < '2025-01-16'`.",
+          "Add more memory to Postgres.",
+          "Use `SELECT id` instead of `SELECT *`."
+        ],
+        "answer_index": 1,
+        "rationale": "Wrapping an indexed column in a function makes the predicate non-sargable — the planner can't use the B-tree index because it would have to apply the function to every indexed value. The fix is to rewrite the predicate so the column stands alone: a range query on `created_at >= '2025-01-15' AND created_at < '2025-01-16'` is sargable and uses the index. This is one of the most common SQL performance bugs. The general rule: keep indexed columns naked on one side of the operator. Functions, arithmetic, and casts on the column disable the index. SELECT * vs SELECT id affects I/O volume but not the Seq Scan problem.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q2",
+      "payload": {
+        "question": "Your Rails app has a slow 'user list with orders' page. Logs show 1 query fetching 100 users, then 100 separate queries each fetching one user's orders. What's the problem and the fix?",
+        "shape": "mcq",
+        "options": [
+          "The database is slow — add read replicas.",
+          "N+1 query problem — eager-load orders with `includes(:orders)` to fetch them in one or two queries.",
+          "Missing index on users.id — add it.",
+          "Increase connection pool size."
+        ],
+        "answer_index": 1,
+        "rationale": "This is the textbook N+1 pattern: 1 query to fetch N records, then N queries to fetch related records per row — N+1 total. The fix is eager loading: Rails' `includes(:orders)` will either do a JOIN or a single `WHERE user_id IN (?, ?, …)` query, collapsing 101 queries into 1 or 2. Same fix exists in every ORM (Django's `prefetch_related`, SQLAlchemy's `joinedload`/`selectinload`, Entity Framework's `.Include()`). N+1 is silent in development with 10 rows and catastrophic in production with 1000. The single most valuable habit in ORM-tuning is reviewing the query log for repeated identical queries.",
+        "difficulty": "core"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q3",
+      "payload": {
+        "question": "You're paginating a large table with `LIMIT 20 OFFSET 100000`. Page 5000 loads slowly. Why, and what's the better pattern?",
+        "shape": "mcq",
+        "options": [
+          "OFFSET is broken — use ROW_NUMBER() window functions.",
+          "OFFSET 100000 still scans 100,020 rows before returning 20. Use keyset pagination: `WHERE id > last_seen_id ORDER BY id LIMIT 20`.",
+          "Add a composite index on (id, OFFSET).",
+          "Use a cursor in the database."
+        ],
+        "answer_index": 1,
+        "rationale": "OFFSET-based pagination is O(OFFSET + LIMIT) — the database still scans and discards OFFSET rows before returning the page. At OFFSET 100,000, that's a scan of 100,020 rows. At OFFSET 5,000,000, the page never returns. Keyset (seek) pagination fixes this: track the last ID seen and query `WHERE id > last_seen_id ORDER BY id LIMIT 20`. The index on id gives O(log N + 20) — constant time per page, regardless of how deep you are. The trade-off: you can't jump to arbitrary pages (no 'go to page 47') — you must traverse sequentially. For infinite scroll and 'load more' UIs, keyset pagination is strictly better. For random access (search result pages), OFFSET is sometimes acceptable if pages stay shallow.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q4",
+      "payload": {
+        "question": "When you run `ANALYZE` on a PostgreSQL table, what changes?",
+        "shape": "mcq",
+        "options": [
+          "It rewrites the data to be more compact.",
+          "It rebuilds all indexes.",
+          "It updates the planner's statistics about row counts and value distributions, helping the planner choose better plans.",
+          "It locks the table for writes."
+        ],
+        "answer_index": 2,
+        "rationale": "ANALYZE samples the table and updates pg_statistic with information about row counts, most common values, value distributions, and histogram bounds. The planner uses these statistics to estimate how many rows a predicate will match, which drives its index-vs-scan choices. After a large data load or a sudden distribution shift, statistics can be stale and the planner will pick a bad plan (e.g., using an index that's now selective on 90% of rows). Running ANALYZE refreshes the statistics. It doesn't rewrite data or rebuild indexes, and in modern Postgres it doesn't lock the table. The autovacuum process runs ANALYZE periodically, but after big bulk loads you should run it manually.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-sql-tuning-mental",
+      "payload": {
+        "text": "Engineering mental model",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-sql-tuning-mental",
+      "payload": {
+        "text": "**Mental model.** Think of SQL Tuning as a deliberate boundary in a system. The boundary exists because something becomes harder to manage when everything is done in one place: latency, scale, failure isolation, consistency, cost, or team ownership. The useful question is not “what does SQL Tuning mean?” but “what pressure makes this boundary worth introducing, and what new failure mode does it create?”"
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-sql-tuning-decision",
+      "payload": {
+        "title": "Design lens",
+        "body": "Before choosing SQL Tuning, name the workload, the critical user path, the dominant bottleneck, the failure you are trying to absorb, and the trade-off you are willing to accept. If you cannot name those five things, the design is probably premature.",
+        "kind": "info"
+      }
+    },
+    {
+      "type": "image",
+      "id": "upgrade-image-sql-tuning",
+      "payload": {
+        "src": "/learning-visuals/sql-tuning.svg",
+        "alt": "Original NO CAP systems visual for SQL Tuning.",
+        "caption": "SQL Tuning: a compact system-thinking visual.",
+        "credit": "Original NO CAP visual.",
+        "source_url": "https://github.com/donnemartin/system-design-primer"
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "upgrade-mermaid-sql-tuning",
+      "payload": {
+        "code": "flowchart LR\n  A[Client] --> B[Service] --> C[Data layer] --> D[Replication] --> E[Durability]",
+        "caption": "SQL Tuning: a simplified system view showing the primary flow and the main state boundaries.",
+        "alt_text": "SQL Tuning: a simplified system view showing the primary flow and the main state boundaries."
+      }
+    },
+    {
+      "type": "code",
+      "id": "upgrade-code-sql-tuning",
+      "payload": {
+        "language": "sql",
+        "code": "SELECT id, created_at\nFROM records\nWHERE tenant_id = ?\nORDER BY created_at DESC\nLIMIT 50;\n\n-- Ask: which index makes this query predictable at scale?",
+        "caption": "A minimal engineering sketch for reasoning about SQL Tuning."
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-sql-tuning-numbers",
+      "payload": {
+        "text": "Back-of-the-envelope reasoning",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-sql-tuning-numbers",
+      "payload": {
+        "text": "Numerical lens: write down traffic, payload size, read/write ratio, peak multiplier and durability target before choosing a component. The numbers should justify the architecture."
+      }
+    },
+    {
+      "type": "simulation",
+      "id": "upgrade-sim-sql-tuning",
+      "payload": {
+        "title": "Interactive thought experiment: SQL Tuning",
+        "description": "Change the variables below and predict what breaks first in SQL Tuning. The production lab can later reuse these same inputs.",
+        "variables": [
+          {
+            "name": "traffic",
+            "description": "Requests/events per second",
+            "default": "1000"
+          },
+          {
+            "name": "latency",
+            "description": "Dependency latency",
+            "default": "50ms"
+          },
+          {
+            "name": "failure_rate",
+            "description": "Injected failure rate",
+            "default": "0%"
+          }
+        ],
+        "placeholder_note": "Interactive controls are deterministic; use the linked Labs section when a dedicated lab exists."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-sql-tuning-hint",
+      "payload": {
+        "title": "Hint",
+        "body": "If you are stuck on SQL Tuning, start by drawing the request path and marking every network hop, stateful component, queue, cache and failure boundary. Then estimate where the system will saturate.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-sql-tuning-1",
+      "payload": {
+        "shape": "prediction",
+        "question": "You increase traffic by 10× in a system using SQL Tuning. What should you inspect first?",
+        "options": [
+          "The newest framework version",
+          "The dominant bottleneck and its saturation signal",
+          "Only the UI",
+          "Nothing; the architecture should absorb any traffic automatically"
+        ],
+        "answer_index": 1,
+        "rationale": "System design is a constraint-and-bottleneck exercise. Start with the resource or dependency that will saturate first, then choose the smallest change that removes that bottleneck.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-sql-tuning-2",
+      "payload": {
+        "shape": "mcq",
+        "question": "Which statement is the safest engineering habit when using SQL Tuning?",
+        "options": [
+          "Choose it because it is popular",
+          "Add it before measuring the problem",
+          "State the workload, failure mode and trade-off it is solving",
+          "Use the most distributed design possible"
+        ],
+        "answer_index": 2,
+        "rationale": "Good architecture starts from requirements, workload and failure assumptions. The component is the consequence of that reasoning, not the starting point.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "scenario",
+      "id": "upgrade-scenario-sql-tuning",
+      "payload": {
+        "prompt": "Production scenario: your system uses SQL Tuning, traffic suddenly spikes, and p99 latency doubles. What is your first move?",
+        "context": "You have dashboards for traffic, latency, errors and saturation. You can change the architecture, but every change has operational cost.",
+        "options": [
+          {
+            "id": "a",
+            "text": "Add more instances immediately",
+            "outcome": "This may help, but only if compute saturation is the bottleneck.",
+            "correct": false
+          },
+          {
+            "id": "b",
+            "text": "Inspect the bottleneck and its saturation signal first",
+            "outcome": "Correct: diagnose before scaling or introducing a new pattern.",
+            "correct": true
+          },
+          {
+            "id": "c",
+            "text": "Disable monitoring to reduce overhead",
+            "outcome": "This removes the evidence you need to diagnose the incident.",
+            "correct": false
+          }
+        ],
+        "rationale": "Measure the limiting resource or dependency first. A bottleneck can be compute, database I/O, network, cache misses, lock contention, downstream latency, or queue backlog.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-sql-tuning-interview",
+      "payload": {
+        "text": "Interview drill",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-sql-tuning-interview",
+      "payload": {
+        "text": "**Answer this without notes:** When would you choose SQL Tuning, and when would you intentionally avoid it? Mention at least one bottleneck it addresses, one failure mode it introduces, and one alternative. Then quantify the workload you are designing for."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "field-guide-sql-tuning",
+      "payload": {
+        "title": "Engineering lens",
+        "body": "For SQL Tuning, start with access patterns rather than brand names. Identify the dominant reads/writes, data relationships, consistency requirements, partition key, hot keys and failure behavior before choosing a storage strategy.",
+        "kind": "tip"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "numerical-lens-sql-tuning",
+      "payload": {
+        "text": "### Numerical sanity check\n\nA rough capacity check: required write throughput ≈ peak writes/s × average record size. At 5,000 writes/s and 2 KB average payloads, the raw incoming data stream is about 10 MB/s before indexes, replication and overhead."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "field-question-sql-tuning",
+      "payload": {
+        "shape": "prediction",
+        "question": "A team proposes SQL Tuning because it 'scales'. What workload characteristic would make that choice a poor fit?",
+        "context": "Do not optimize for a memorized definition. Reason from the workload and failure mode.",
+        "options": [
+          "Scale the same component immediately.",
+          "Measure the current bottleneck and state the assumption that changed.",
+          "Add more technologies until throughput improves.",
+          "Choose the most popular architecture."
+        ],
+        "answer_index": 1,
+        "rationale": "Good system design starts with the bottleneck and the changed constraint. The most popular or complex choice is not automatically correct.",
+        "difficulty": "interview"
+      }
+    }
+  ],
+  "trade_offs": {
+    "pros": [
+      "Right indexes turn 10s queries into 10ms queries — biggest single lever in database performance.",
+      "EXPLAIN ANALYZE gives visibility into the planner's choices — you're never tuning blind.",
+      "Connection pooling allows thousands of app connections to share dozens of DB connections.",
+      "Eager loading eliminates N+1 — a one-line code change can 10× a page's load time.",
+      "Keyset pagination keeps deep pages fast — no OFFSET cliff."
+    ],
+    "cons": [
+      "Every index slows writes — INSERT/UPDATE/DELETE maintain every index.",
+      "Indexes consume disk and memory — over-indexing wastes resources.",
+      "Planner choices depend on statistics that can drift — autovacuum tuning matters.",
+      "Connection poolers add a hop and complexity (PgBouncer transaction mode breaks session state).",
+      "Aggressive tuning can mask architectural problems (e.g., denormalizing instead of fixing the query).",
+      "ORMs hide queries — N+1 problems surface late in production."
+    ]
+  },
+  "failure_modes": [
+    "Missing index on a foreign key — JOINs and child-by-parent lookups become Seq Scans.",
+    "N+1 query storms — a slow page is actually a thousand tiny queries.",
+    "Non-sargable predicates — wrapping a column in a function disables the index.",
+    "OFFSET pagination cliff — page 1000 takes seconds, page 10000 never returns.",
+    "Stale statistics — planner chooses an index that's no longer selective.",
+    "Connection exhaustion — thousands of app connections exhaust Postgres memory.",
+    "SELECT * — defeats covering indexes and pulls unnecessary bytes from disk."
+  ],
+  "common_mistakes": [
+    "Tuning without EXPLAIN ANALYZE — guessing at the bottleneck.",
+    "Adding indexes 'just in case' — slowing writes and bloating storage for no benefit.",
+    "Trusting ORM-generated SQL blindly — it's often correct but suboptimal.",
+    "Not running ANALYZE after big data loads — planner picks bad plans from stale stats.",
+    "Indexing low-selectivity columns (a boolean on a 99%-true table).",
+    "Using SELECT * when you need two columns — defeats covering indexes and wastes I/O.",
+    "OFFSET pagination for infinite scroll — should be keyset."
+  ],
+  "where_you_see_it": [
+    "Every production SQL database — Postgres, MySQL, SQL Server, Oracle.",
+    "On-call debugging of slow endpoints — first look is the slow query log + EXPLAIN.",
+    "Schema review and migration planning — 'will this query use an index?'",
+    "Capacity planning — connection pool sizing, read replica provisioning."
+  ],
+  "interview_prompts": [
+    "Walk through how you'd diagnose and fix a slow SQL query.",
+    "What is an N+1 query and how do you fix it? Show examples in your ORM of choice.",
+    "Why might a query with an index on the filtered column still do a Seq Scan?",
+    "Compare OFFSET pagination and keyset pagination. When is each appropriate?",
+    "Why does PostgreSQL fork a process per connection, and what does that imply for connection pooling?",
+    "What's the difference between EXPLAIN and EXPLAIN ANALYZE? What does ANALYZE (the standalone command) do?"
+  ],
+  "real_system_mappings": [
+    {
+      "system": "GitHub",
+      "how": "Runs one of the largest MySQL deployments in the world; their engineering blog has detailed posts on query tuning, keyset pagination, and connection pooling via ProxySQL. They've moved much of their workload to Vitess (MySQL sharding middleware)."
+    },
+    {
+      "system": "Shopify",
+      "how": "Operates a massive MySQL fleet behind Vitess. Their engineering blog covers slow-query hunting, N+1 elimination across a huge Rails codebase, and pool tuning."
+    },
+    {
+      "system": "Stripe",
+      "how": "Uses PostgreSQL extensively with PgBouncer in front. Documented patterns include careful index design for financial queries, keyset pagination for ledger iteration, and explicit planner-statistics management after large data loads."
+    },
+    {
+      "system": "Uber",
+      "how": "Migrated parts of their schema from Postgres to MySQL due in part to Postgres connection-per-process overhead and replication concerns, then built Schemaless on top. A useful case study in how tuning pain can drive architectural shifts."
+    }
+  ],
+  "status": "published",
+  "sources": [
+    {
+      "title": "System Design Primer",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Open source"
+    },
+    {
+      "title": "ByteByteGo — Scale from zero to millions",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "ByteByteGo"
+    },
+    {
+      "title": "System Design Tutorial",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "GeeksforGeeks"
+    },
+    {
+      "title": "System Design Roadmap",
+      "url": "https://roadmap.sh/system-design",
+      "publisher": "roadmap.sh"
+    },
+    {
+      "title": "Databases & Data Systems reference",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Databases & Data Systems reference",
+      "url": "https://www.postgresql.org/docs/",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Databases & Data Systems reference",
+      "url": "https://aws.amazon.com/what-is/database/",
+      "publisher": "Reference"
+    }
+  ]
+}

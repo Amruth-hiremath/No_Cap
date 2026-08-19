@@ -1,0 +1,435 @@
+{
+  "slug": "design-chat-system",
+  "version": 3,
+  "title": "Design Chat System",
+  "phase": "case-studies",
+  "area": "Case Studies",
+  "estimated_minutes": 12,
+  "difficulty": "interview",
+  "summary": "Design a Slack/Discord-style real-time chat system at 10M concurrent users. Covers stateful chat servers with sticky WebSocket routing, the subs:{channel_id} Redis set for channel subscriber tracking, throttled typing broadcasts (1Hz, capped to first 50 viewers), batched presence updates (5s), multi-device fan-out via conn:{user_id} SET, Cassandra for messages sharded by (workspace_id, channel_id), and Elasticsearch for search fed async by Kafka.",
+  "why_it_matters": "Chat systems are the canonical 'real-time broadcast' problem. They combine three problems that each stress a system differently: high concurrent connections, high-frequency small broadcasts (typing/presence), and durable message storage with history. The patterns here — sticky WebSocket routing, the subs-channel-Redis pattern, throttled typing, and multi-device fan-out — are reusable for any real-time collaborative system (Figma cursors, Google Docs presence, multiplayer game state).",
+  "prerequisites": [
+    "websockets",
+    "message-queues"
+  ],
+  "related": [
+    "design-whatsapp"
+  ],
+  "used_in": [
+    "Slack",
+    "Discord",
+    "Microsoft Teams",
+    "Mattermost (self-hosted)",
+    "Rocket.Chat"
+  ],
+  "blocks": [
+    {
+      "type": "prose",
+      "id": "problem",
+      "payload": {
+        "text": "**What are we designing?** A general-purpose real-time chat system like Slack or Discord. Users join workspaces (servers), belong to channels (rooms), and exchange messages in real time. The system supports typing indicators, presence ('online now'), message edits/deletes, threaded replies, file attachments, and search. Unlike WhatsApp (mobile-first, push-driven), chat systems are often desktop-first with always-open apps that hold the connection for hours.\n\nThe defining challenge is **presence and typing at scale**: a single Slack workspace can have 100K users across 10K channels, and every keystroke in a channel must be broadcast to every other viewer of that channel within 200 ms. Multiply by every active channel, every active user, and you have a brutal fan-out problem on a tiny, latency-sensitive payload."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "requirements",
+      "payload": {
+        "text": "**Functional requirements.**\n- Send a message to a channel (text + optional files + optional thread).\n- Receive messages in real time when the channel is open.\n- Typing indicators ('Alice is typing...').\n- Presence: see who's online in the workspace.\n- Edit / delete messages.\n- Threaded replies.\n- Search across message history.\n- Push notifications when offline or mentioned.\n\n**Non-functional requirements.**\n- **Message delivery latency**: p99 < 200 ms for online channel members.\n- **Typing broadcast latency**: < 200 ms.\n- **Presence update latency**: < 5 s.\n- **Availability**: 99.95% per workspace (a workspace outage is a business stopper).\n- **Durability**: no message loss; history preserved for years.\n- **Scale**: 10M+ concurrent users across 1M+ workspaces; some workspaces have 100K+ members.\n\n**Non-goals.** No voice/video calls (separate system), no workflow automation (Slack Workflows, etc.)."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "capacity",
+      "payload": {
+        "text": "**Capacity estimation.**\n\n*Messages.* Assume 50M messages/day globally. Each message ~1KB (text + metadata + file refs). 50M x 1KB = 50 GB/day = ~18 TB/year. Tiny by modern standards.\n\n*Concurrent connections.* 10M concurrent users, each holding 1 WebSocket for their session. A chat server holds ~100K connections (Slack uses ~50K/host). Need ~100-200 chat servers globally.\n\n*Typing indicators.* Each user in an active channel types ~10 chars/sec while composing, generating ~1 typing event/sec. With 1M active channels averaging 5 viewers each = 5M typing broadcasts/sec. This dwarfs message traffic — typing is the real load.\n\n*Presence.* 10M users, presence updates every 30 s = 333K presence events/sec. Each event broadcasts to every workspace member viewing the member list — say 100 viewers per workspace = 33M presence broadcasts/sec at the extreme. We need to throttle / batch presence updates.\n\n*Search.* 50M messages/day indexed. Search index ~5x message size = 250 GB/day. Elasticsearch cluster sharded by workspace.\n\n*Storage.* Messages stored in sharded SQL (per-workspace Postgres) or Cassandra. 5-year retention: 50M x 365 x 5 = 91B messages x 1KB = ~91 TB. Fits in Cassandra."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "apis",
+      "payload": {
+        "text": "**APIs.** The chat system uses WebSocket for real-time frames and REST for non-real-time operations.\n\n```\nWS  /v1/connect  (auth token, workspace_id in handshake)\n  -> frame: MSG_SEND    { channel_id, text, thread_id?, client_msg_id }\n  <- frame: MSG_ACK     { server_msg_id, ts }\n  <- frame: MSG_RECV    { channel_id, sender_id, text, server_msg_id, ts }\n  -> frame: TYPING      { channel_id, is_typing }\n  <- frame: PRESENCE    { user_id, status }\n  -> frame: MSG_EDIT    { server_msg_id, new_text }\n  -> frame: MSG_DELETE   { server_msg_id }\n\nPOST /v1/messages          (REST fallback for offline send)\nGET  /v1/channels/:id/messages?before=...\nGET  /v1/search?q=...&channel=...\nPOST /v1/files             (presigned S3 URL for upload)\n```\n\nThe WebSocket is the primary transport; REST is used when no connection is open (mobile notifications reply via REST) and for paginated history fetches."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "data-model",
+      "payload": {
+        "text": "**Data model.**\n\n*Messages* (Cassandra, partitioned by (workspace_id, channel_id), clustered by server_msg_id):\n```\nmessages (\n  workspace_id  BIGINT,\n  channel_id    BIGINT,\n  server_msg_id TIMEUUID,    -- Snowflake, sortable\n  sender_id     BIGINT,\n  text          TEXT,\n  thread_id     BIGINT NULL,\n  edited_at     TIMESTAMP NULL,\n  deleted_at    TIMESTAMP NULL,\n  file_urls     LIST<TEXT>,\n  ts            TIMESTAMP,\n  PRIMARY KEY ((workspace_id, channel_id), server_msg_id)\n)\n```\n\n*Channels* (per-workspace SQL):\n```\nchannels (id, workspace_id, name, type ENUM('public','private','dm'), created_at)\nchannel_members (channel_id, user_id, joined_at)\n```\n\n*Connection registry* (Redis, mapping user_id -> set of chat_server_ids):\n```\nkey: conn:{user_id}\nvalue: SET of chat_server_ids (a user may have multiple devices)\nTTL: 60s\n```\n\n*Channel subscribers* (Redis, mapping channel_id -> set of online user_ids):\n```\nkey: subs:{channel_id}\nvalue: SET of user_ids currently viewing the channel\nTTL: 300s   -- refreshed by client heartbeats\n```\nWhen a message arrives for channel C, we lookup subs:C and broadcast to each subscriber's chat server.\n\n*Presence* (Redis):\n```\nkey: presence:{workspace_id}\nvalue: HASH { user_id: status (active|away|offline) }\n```\nUpdates throttled to every 30s per user."
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "arch",
+      "payload": {
+        "code": "flowchart TD\n    N0[\"Client (browser/app)\"]\n    N1[\"browser/app\"]\n    N2[\"[Client\"]\n    N3[\"(browser\"]\n    N4[\"app)]\"]\n    N5[\"long-lived\"]\n    N6[\"WebSocket\"]\n    N7[\"(long\"]\n    N8[\"lived)\"]\n    N9[\"Chat Gateway / LB\"]\n    N10[\"sticky by user_id so reconnects hit the same chat server\"]\n    N11[\"[Chat\"]\n    N12[\"Gateway\"]\n    N13[\"LB]\"]\n    N14[\"(sticky\"]\n    N15[\"user_id\"]\n    N16[\"reconnects\"]\n    N17[\"hit\"]\n    N18[\"the\"]\n    N19[\"same\"]\n    N20[\"chat\"]\n    N21[\"server)\"]\n    N22[\"Chat Server\"]\n    N23[\"Server]\"]\n    N24[\"(stateful\"]\n    N25[\"per\"]\n    N26[\"connection;\"]\n    N27[\"tracks\"]\n    N28[\"user\"]\n    N29[\"channel\"]\n    N30[\"subscriptions)\"]\n    N31[\"Cassandra\"]\n    N32[\"reads\"]\n    N33[\"writes\"]\n    N34[\"messages\"]\n    N35[\"[Cassandra]\"]\n    N36[\"(sharded\"]\n    N37[\"Redis Cluster\"]\n    N38[\"presence,\"]\n    N39[\"conn\"]\n    N40[\"registry\"]\n    N41[\"[Redis\"]\n    N42[\"Cluster]\"]\n    N43[\"(presence,\"]\n    N44[\"Elasticsearch\"]\n    N45[\"search\"]\n    N46[\"[Elasticsearch]\"]\n    N47[\"subs,\"]\n    N48[\"conn)\"]\n    N49[\"Send\"]\n    N50[\"path\"]\n    N51[\"sends\"]\n    N52[\"assigns server_msg_id\"]\n    N53[\"A's\"]\n    N54[\"server\"]\n    N55[\"message\"]\n    N56[\"(assigns\"]\n    N57[\"server_msg_id)\"]\n    N58[\"single tick\"]\n    N59[\"ACKs\"]\n    N60[\"(single\"]\n    N61[\"tick)\"]\n    N62[\"C\"]\n    N63[\"subs:{C}\"]\n    N64[\"from\"]\n    N65[\"Redis\"]\n    N66[\"set\"]\n    N67[\"viewer\"]\n    N68[\"user_ids\"]\n    N69[\"For\"]\n    N70[\"each\"]\n    N71[\"viewer,\"]\n    N72[\"look\"]\n    N73[\"conn:{user_id}\"]\n    N74[\"chat_server_ids\"]\n    N75[\"distinct\"]\n    N76[\"server,\"]\n    N77[\"send\"]\n    N78[\"one\"]\n    N79[\"RPC\"]\n    N80[\"containing\"]\n    N81[\"Each\"]\n    N82[\"pushes\"]\n    N83[\"its\"]\n    N84[\"local\"]\n    N85[\"WebSockets\"]\n    N86[\"if mentioned\"]\n    N87[\"Offline\"]\n    N88[\"viewers\"]\n    N89[\"get\"]\n    N90[\"push\"]\n    N91[\"notification\"]\n    N92[\"(if\"]\n    N93[\"mentioned)\"]\n    N94[\"Typing\"]\n    N95[\"types\"]\n    N96[\"1 event/sec/user\"]\n    N97[\"throttles\"]\n    N98[\"event\"]\n    N99[\"sec\"]\n    N100[\"user)\"]\n    N101[\"Lookup\"]\n    N102[\"subs:{C},\"]\n    N103[\"broadcast\"]\n    N104[\"TYPING\"]\n    N105[\"frame\"]\n    N106[\"viewer's\"]\n    N107[\"Chat\"]\n    N108[\"servers\"]\n    N109[\"typing\"]\n    N110[\"indicator\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44\n    N44 --> N45\n    N45 --> N46\n    N46 --> N47\n    N47 --> N48\n    N48 --> N49\n    N49 --> N50\n    N50 --> N51\n    N51 --> N52\n    N52 --> N53\n    N53 --> N54\n    N54 --> N55\n    N55 --> N56\n    N56 --> N57\n    N57 --> N58\n    N58 --> N59\n    N59 --> N60\n    N60 --> N61\n    N61 --> N62\n    N62 --> N63\n    N63 --> N64\n    N64 --> N65\n    N65 --> N66\n    N66 --> N67\n    N67 --> N68\n    N68 --> N69\n    N69 --> N70\n    N70 --> N71\n    N71 --> N72\n    N72 --> N73\n    N73 --> N74\n    N74 --> N75\n    N75 --> N76\n    N76 --> N77\n    N77 --> N78\n    N78 --> N79\n    N79 --> N80\n    N80 --> N81\n    N81 --> N82\n    N82 --> N83\n    N83 --> N84\n    N84 --> N85\n    N85 --> N86\n    N86 --> N87\n    N87 --> N88\n    N88 --> N89\n    N89 --> N90\n    N90 --> N91\n    N91 --> N92\n    N92 --> N93\n    N93 --> N94\n    N94 --> N95\n    N95 --> N96\n    N96 --> N97\n    N97 --> N98\n    N98 --> N99\n    N99 --> N100\n    N100 --> N101\n    N101 --> N102\n    N102 --> N103\n    N103 --> N104\n    N104 --> N105\n    N105 --> N106\n    N106 --> N107\n    N107 --> N108\n    N108 --> N109\n    N109 --> N110",
+        "caption": "Chat system: stateful chat servers per connection, Redis for presence + channel subscriber set, Cassandra for messages, async broadcast per channel.",
+        "alt_text": "A diagram of a chat system. Clients hold long-lived WebSockets through a sticky chat gateway to chat servers. Each chat server is stateful per connection, tracking which user is on which channel. Chat servers read and write messages to Cassandra, and read and write presence and connection registries to a Redis cluster. Search runs against Elasticsearch. The send path: A sends to channel C; A's chat server writes the message to Cassandra, ACKs to A, reads the subscriber set subs:C from Redis, then for each subscriber looks up their chat server via conn:user_id, groups subscribers by chat server, and sends one batched RPC per distinct chat server. Each chat server pushes the message to its local WebSockets. Offline viewers get a push notification if mentioned. The typing path is similar but throttled to one event per second per user and broadcast only to active viewers of the channel."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "deep-dive",
+      "payload": {
+        "text": "**Deep dive: presence, typing, and the broadcast fan-out.**\n\nThe hardest part of a chat system is not storing messages — that's a solved problem (Cassandra, partitioned by channel). The hard part is **broadcasting small, high-frequency events (typing, presence, edits) to every viewer of every channel, within 200 ms, without melting the system**.\n\n**The subs:C set.** When a user opens channel C, their client subscribes via the chat server, which does `SADD subs:{C} user_id`. When they switch channels, `SREM` from the old, `SADD` to the new. The chat server reads subs:C to know who to broadcast to. TTL 300s means a closed laptop stops receiving broadcasts within 5 minutes.\n\n**Typing throttling.** A naive implementation sends a typing event on every keystroke. At 10 chars/sec per user, this is 10 broadcasts/sec per typing user per channel. We throttle to 1 event/sec per (user, channel) — clients render an 'Alice is typing...' indicator that fades after 3 seconds, so 1Hz is enough to keep it alive.\n\n**Presence batching.** Presence updates for 10M users at 30s interval = 333K events/sec. Each event broadcasts to every workspace member viewing the member list — potentially 100K viewers for a large workspace. Naive: 33M broadcasts/sec. We batch: presence updates are aggregated per workspace and pushed every 5s; clients render a slightly-stale member list.\n\n**Multi-device fan-out.** A user with 3 devices (desktop, phone, tablet) has 3 WebSocket connections, possibly to 3 different chat servers. The conn:{user_id} key holds a SET of chat_server_ids. Every broadcast to user X must reach all 3 servers. We do this by sending to each chat_server_id in the set.\n\n**Message edits and deletes.** Edits broadcast an MSG_EDIT frame to subs:C with the new text and server_msg_id; clients replace the message locally. Deletes broadcast MSG_DELETE; clients replace the message with '(deleted)'. The Cassandra row is updated with `edited_at` / `deleted_at`; reads filter deleted messages.\n\n**Search indexing.** Every message publish also goes to a Kafka topic per workspace; an indexer writes to Elasticsearch. Search returns message_ids; the client fetches full messages from Cassandra. Search is decoupled from the chat path — a search outage doesn't break chatting.\n\n**Idempotency and ordering.** Same as WhatsApp: client_msg_id for idempotency; Snowflake TIMEUUID for ordering within a channel. Channel messages are clustered by server_msg_id, so reads are in send order."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "bottlenecks",
+      "payload": {
+        "text": "**Bottlenecks and failure modes.**\n\n- **Typing broadcast storm.** A 1000-person channel where everyone is typing generates 1000 broadcasts/sec to 1000 viewers = 1M fan-out writes/sec for one channel. *Mitigation*: cap typing broadcasts to the first 50 viewers (you can't render 1000 typing indicators anyway); sample typing events at 1Hz per user.\n\n- **Chat server failure.** All connections on a dead chat server must reconnect. *Mitigation*: sticky-session rebalancing; clients reconnect with exponential backoff; new chat server re-subscribes to all the user's open channels.\n\n- **Hot channel.** A 100K-person company-wide channel where every message broadcasts to 100K subscribers. *Mitigation*: broadcast via a tree (the sender's chat server forwards to N 'aggregator' chat servers, each of which fans out to their local subscribers).\n\n- **Redis failure.** Without Redis, we can't look up subscribers; broadcasts fail. *Mitigation*: Redis cluster with replicas; fall back to broadcasting only to users on the sender's chat server (degraded mode).\n\n- **Search index lag.** Recently posted messages aren't searchable for 5-30s. *Mitigation*: accept it; show 'this message is being indexed' for the sender.\n\n- **Push notification spam.** A user mentioned in 5 channels while offline generates 5 separate push notifications. *Mitigation*: coalesce notifications into one 'you have 5 new mentions' push, with deep links.\n\n- **Workspace-level isolation failure.** A bug in one workspace affecting another. *Mitigation*: shard by workspace_id; per-workspace rate limits; per-workspace keyspaces in Cassandra.\n\n- **Message edit race.** Two devices edit the same message simultaneously. *Mitigation*: last-write-wins by `edited_at` timestamp; clients fetch the final version on reconnect."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "scaling",
+      "payload": {
+        "text": "**Scaling strategy and trade-offs.**\n\n*Chat server scaling.* Add chat servers horizontally. Use sticky routing (hash of user_id -> chat server) so reconnects are cheap. A dead chat server's users reconnect with backoff.\n\n*Redis cluster.* Shard by user_id for conn: keys, by channel_id for subs: keys, by workspace_id for presence. Cross-shard operations (e.g. broadcasting to a channel whose subscribers span many shards) require fan-out at the application layer.\n\n*Cassandra scaling.* Shard by (workspace_id, channel_id). Each channel's messages live on one partition (cheap reads). For very active channels (company-wide), sub-partition by day.\n\n*Multi-region.* Run chat servers in 5+ regions. Each user connects to nearest. Cross-region broadcasts go through a backbone RPC. Messages are written to a single-region Cassandra primary and asynchronously replicated.\n\n*Search scaling.* Elasticsearch cluster per workspace (or per-shard for large workspaces). Use rollover indices (one per month) so old indices can be searched lazily.\n\n*Trade-offs made explicit.*\n- We chose per-connection stateful chat servers — **gained** low-latency broadcasts, **lost** rebalancing ease (mitigated by sticky routing + client backoff).\n- We chose Cassandra for messages — **gained** write throughput and time-series friendliness, **lost** JOINs (hydrating a thread requires a separate query).\n- We chose 1Hz typing throttle — **gained** bounded broadcast load, **lost** UI responsiveness (acceptable; clients render the indicator for 3s).\n- We chose 5s presence batch — **gained** presence traffic manageable, **lost** real-time presence accuracy (acceptable; users won't notice 5s staleness).\n- We chose async search indexing — **gained** no impact on chat latency, **lost** instant search for very recent messages."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q1",
+      "payload": {
+        "question": "In a 1000-person channel, every user is typing simultaneously. What's the broadcast load, and how do you mitigate it?",
+        "shape": "mcq",
+        "options": [
+          "1000 typing events/sec per user x 1000 viewers = 1M fan-out writes/sec for one channel. Mitigate by throttling to 1Hz per user AND sampling to the first 50 viewers (you can't render 1000 typing indicators anyway).",
+          "1000 events/sec, fine — Redis handles 100K writes/sec easily.",
+          "Typing is dropped entirely above 100 users.",
+          "Each user's typing is broadcast to everyone in the workspace."
+        ],
+        "answer_index": 0,
+        "rationale": "Naively, 1000 typing users at 1Hz broadcasting to 1000 viewers = 1M fan-out writes/sec for one channel — this would melt a Redis shard. Two mitigations: (1) throttle typing events to 1Hz per (user, channel), and (2) cap the broadcast to the first 50 viewers (the UI can't usefully show 1000 'X is typing' indicators anyway — Slack shows 'Alice and 5 others are typing' at most). Together this caps the broadcast to 50 writes/sec per active channel, manageable.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q2",
+      "payload": {
+        "question": "A user has 3 devices (desktop, phone, tablet) connected to 3 different chat servers. A message arrives for them. How is it delivered to all 3?",
+        "shape": "mcq",
+        "options": [
+          "The sender's chat server picks one device to deliver to; the others sync on next reconnect.",
+          "The conn:{user_id} Redis key holds a SET of chat_server_ids; the sender looks up all 3 and sends one RPC to each.",
+          "The user's devices poll for new messages every 5s.",
+          "Only the most-recently-active device receives the message."
+        ],
+        "answer_index": 1,
+        "rationale": "Multi-device delivery is a hard requirement (you want to read on phone while desktop is open). We store conn:{user_id} as a SET of chat_server_ids in Redis. When a message arrives for the user, the sender's chat server reads the set, gets 3 chat_server_ids, and sends one RPC to each distinct server. Each server then pushes the message to the specific WebSocket(s) it hosts for that user. The set is maintained by SADD on connect, SREM on disconnect, with TTL 60s as a safety net.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-design-chat-system-mental",
+      "payload": {
+        "text": "Engineering mental model",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-design-chat-system-mental",
+      "payload": {
+        "text": "**Mental model.** Think of Design Chat System as a deliberate boundary in a system. The boundary exists because something becomes harder to manage when everything is done in one place: latency, scale, failure isolation, consistency, cost, or team ownership. The useful question is not “what does Design Chat System mean?” but “what pressure makes this boundary worth introducing, and what new failure mode does it create?”"
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-design-chat-system-decision",
+      "payload": {
+        "title": "Design lens",
+        "body": "Before choosing Design Chat System, name the workload, the critical user path, the dominant bottleneck, the failure you are trying to absorb, and the trade-off you are willing to accept. If you cannot name those five things, the design is probably premature.",
+        "kind": "info"
+      }
+    },
+    {
+      "type": "image",
+      "id": "upgrade-image-design-chat-system",
+      "payload": {
+        "src": "/learning-visuals/design-chat-system.svg",
+        "alt": "Original NO CAP systems visual for Design Chat System.",
+        "caption": "Design Chat System: a compact system-thinking visual.",
+        "credit": "Original NO CAP visual.",
+        "source_url": "https://github.com/donnemartin/system-design-primer"
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "upgrade-mermaid-design-chat-system",
+      "payload": {
+        "code": "flowchart LR\n  A[Client] --> B[Gateway] --> C[Services] --> D[Data] --> E[Delivery]",
+        "caption": "Design Chat System: a simplified system view showing the primary flow and the main state boundaries.",
+        "alt_text": "Design Chat System: a simplified system view showing the primary flow and the main state boundaries."
+      }
+    },
+    {
+      "type": "code",
+      "id": "upgrade-code-design-chat-system",
+      "payload": {
+        "language": "text",
+        "code": "// Pseudocode\nrequest = receive()\nresult = design_chat_system(request)\nreturn result\n\n// Production questions:\n// 1. What happens on timeout?\n// 2. Can this operation be retried safely?\n// 3. What is the bottleneck?",
+        "caption": "A minimal engineering sketch for reasoning about Design Chat System."
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-design-chat-system-numbers",
+      "payload": {
+        "text": "Back-of-the-envelope reasoning",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-design-chat-system-numbers",
+      "payload": {
+        "text": "Numerical lens: write down traffic, payload size, read/write ratio, peak multiplier and durability target before choosing a component. The numbers should justify the architecture."
+      }
+    },
+    {
+      "type": "simulation",
+      "id": "upgrade-sim-design-chat-system",
+      "payload": {
+        "title": "Interactive thought experiment: Design Chat System",
+        "description": "Change the variables below and predict what breaks first in Design Chat System. The production lab can later reuse these same inputs.",
+        "variables": [
+          {
+            "name": "traffic",
+            "description": "Requests/events per second",
+            "default": "1000"
+          },
+          {
+            "name": "latency",
+            "description": "Dependency latency",
+            "default": "50ms"
+          },
+          {
+            "name": "failure_rate",
+            "description": "Injected failure rate",
+            "default": "0%"
+          }
+        ],
+        "placeholder_note": "Interactive controls are deterministic; use the linked Labs section when a dedicated lab exists."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-design-chat-system-hint",
+      "payload": {
+        "title": "Hint",
+        "body": "If you are stuck on Design Chat System, start by drawing the request path and marking every network hop, stateful component, queue, cache and failure boundary. Then estimate where the system will saturate.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-design-chat-system-1",
+      "payload": {
+        "shape": "prediction",
+        "question": "You increase traffic by 10× in a system using Design Chat System. What should you inspect first?",
+        "options": [
+          "The newest framework version",
+          "The dominant bottleneck and its saturation signal",
+          "Only the UI",
+          "Nothing; the architecture should absorb any traffic automatically"
+        ],
+        "answer_index": 1,
+        "rationale": "System design is a constraint-and-bottleneck exercise. Start with the resource or dependency that will saturate first, then choose the smallest change that removes that bottleneck.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-design-chat-system-2",
+      "payload": {
+        "shape": "mcq",
+        "question": "Which statement is the safest engineering habit when using Design Chat System?",
+        "options": [
+          "Choose it because it is popular",
+          "Add it before measuring the problem",
+          "State the workload, failure mode and trade-off it is solving",
+          "Use the most distributed design possible"
+        ],
+        "answer_index": 2,
+        "rationale": "Good architecture starts from requirements, workload and failure assumptions. The component is the consequence of that reasoning, not the starting point.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "scenario",
+      "id": "upgrade-scenario-design-chat-system",
+      "payload": {
+        "prompt": "Production scenario: your system uses Design Chat System, traffic suddenly spikes, and p99 latency doubles. What is your first move?",
+        "context": "You have dashboards for traffic, latency, errors and saturation. You can change the architecture, but every change has operational cost.",
+        "options": [
+          {
+            "id": "a",
+            "text": "Add more instances immediately",
+            "outcome": "This may help, but only if compute saturation is the bottleneck.",
+            "correct": false
+          },
+          {
+            "id": "b",
+            "text": "Inspect the bottleneck and its saturation signal first",
+            "outcome": "Correct: diagnose before scaling or introducing a new pattern.",
+            "correct": true
+          },
+          {
+            "id": "c",
+            "text": "Disable monitoring to reduce overhead",
+            "outcome": "This removes the evidence you need to diagnose the incident.",
+            "correct": false
+          }
+        ],
+        "rationale": "Measure the limiting resource or dependency first. A bottleneck can be compute, database I/O, network, cache misses, lock contention, downstream latency, or queue backlog.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-design-chat-system-interview",
+      "payload": {
+        "text": "Interview drill",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-design-chat-system-interview",
+      "payload": {
+        "text": "**Answer this without notes:** When would you choose Design Chat System, and when would you intentionally avoid it? Mention at least one bottleneck it addresses, one failure mode it introduces, and one alternative. Then quantify the workload you are designing for."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "field-guide-design-chat-system",
+      "payload": {
+        "title": "Engineering lens",
+        "body": "A useful engineering lens for Design Chat System: define the problem it solves, the simpler design that fails first, the constraint that forces you to introduce this concept, and the new failure modes the concept creates.",
+        "kind": "tip"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "numerical-lens-design-chat-system",
+      "payload": {
+        "text": "### Numerical sanity check\n\nBack-of-the-envelope reasoning beats fake precision. State your traffic, payload, concurrency and growth assumptions explicitly, then calculate enough to know whether the current architecture is orders of magnitude away from the target."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "field-question-design-chat-system",
+      "payload": {
+        "shape": "prediction",
+        "question": "Imagine the simplest version of a system using Design Chat System. What breaks first as traffic grows by 10×, and what would you change before reaching 100×?",
+        "context": "Do not optimize for a memorized definition. Reason from the workload and failure mode.",
+        "options": [
+          "Scale the same component immediately.",
+          "Measure the current bottleneck and state the assumption that changed.",
+          "Add more technologies until throughput improves.",
+          "Choose the most popular architecture."
+        ],
+        "answer_index": 1,
+        "rationale": "Good system design starts with the bottleneck and the changed constraint. The most popular or complex choice is not automatically correct.",
+        "difficulty": "interview"
+      }
+    }
+  ],
+  "trade_offs": {
+    "pros": [
+      "Sticky WebSocket routing keeps reconnects cheap and broadcasts local.",
+      "Throttled typing + capped viewer list bounds the worst-case broadcast load.",
+      "Multi-device fan-out via conn:{user_id} SET delivers to every device.",
+      "Async Kafka -> Elasticsearch decouples search from the chat path."
+    ],
+    "cons": [
+      "Typing broadcasts can melt a Redis shard without throttling + viewer capping.",
+      "Per-connection stateful servers complicate rebalancing on failure.",
+      "Presence staleness (5s) is acceptable but limits real-time apps.",
+      "Search index lag (5-30s) makes very recent messages unsearchable briefly."
+    ]
+  },
+  "failure_modes": [
+    "Typing broadcast storm in large channels — needs 1Hz throttle + 50-viewer cap.",
+    "Chat server death causes reconnection thundering herd — needs backoff.",
+    "Hot channel for company-wide broadcasts — needs tree-based fan-out.",
+    "Redis failure kills broadcasts — needs cluster + degraded-mode fallback.",
+    "Multi-device edit race — needs last-write-wins on edited_at."
+  ],
+  "common_mistakes": [
+    "Broadcasting typing to every viewer without throttling — melts Redis.",
+    "Single WebSocket per user (no multi-device) — breaks mobile + desktop together.",
+    "Storing presence in Cassandra instead of Redis — too slow for 5s updates.",
+    "Sync search indexing on the chat path — adds latency to message sends.",
+    "Per-user Redis keys instead of per-channel subs:C — 1000x more lookups."
+  ],
+  "where_you_see_it": [
+    "Slack",
+    "Discord",
+    "Microsoft Teams",
+    "Mattermost (self-hosted)",
+    "Rocket.Chat"
+  ],
+  "interview_prompts": [
+    "Design a chat system like Slack. How do you handle typing indicators?",
+    "A user has 3 devices open. How do you deliver a message to all 3?",
+    "A 1000-person channel has everyone typing. What breaks, and how do you fix it?",
+    "How do you make search not block the chat path?"
+  ],
+  "real_system_mappings": [
+    {
+      "system": "Slack",
+      "how": "Stateful chat servers with sticky WebSocket routing, Redis for presence and channel subscriptions, Cassandra-style store for messages. Documented in their engineering blog."
+    },
+    {
+      "system": "Discord",
+      "how": "Originally used Elixir + Phoenix for chat servers; migrated to Rust + ScyllaDB (C++ Cassandra) for higher throughput. Handles 10M+ concurrent voice users."
+    },
+    {
+      "system": "Microsoft Teams",
+      "how": "Built on top of Skype's infrastructure with Azure Service Bus for fan-out. Uses Exchange Online for message storage."
+    }
+  ],
+  "status": "published",
+  "sources": [
+    {
+      "title": "System Design Primer",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Open source"
+    },
+    {
+      "title": "ByteByteGo — Scale from zero to millions",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "ByteByteGo"
+    },
+    {
+      "title": "System Design Tutorial",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "GeeksforGeeks"
+    },
+    {
+      "title": "System Design Roadmap",
+      "url": "https://roadmap.sh/system-design",
+      "publisher": "roadmap.sh"
+    },
+    {
+      "title": "Case Studies reference",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Case Studies reference",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Case Studies reference",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "Reference"
+    }
+  ]
+}

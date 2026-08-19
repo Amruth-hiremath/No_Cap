@@ -1,0 +1,440 @@
+{
+  "slug": "cdn",
+  "version": 3,
+  "title": "Content Delivery Networks",
+  "phase": "architecture-infrastructure",
+  "area": "Architecture & Infrastructure",
+  "estimated_minutes": 7,
+  "difficulty": "core",
+  "summary": "A Content Delivery Network (CDN) is a globally distributed set of cache servers (POPs) that store copies of your static and cacheable content close to users. Instead of every user fetching each asset from a single origin server across the world, they fetch from a nearby edge node, cutting latency from 200ms to under 20ms and shielding the origin from traffic spikes.",
+  "why_it_matters": "Latency is dominated by physics: light in fiber travels ~50ms per continent crossing. The single highest-leverage way to cut perceived latency for a global user base is to move the bytes closer to them. CDNs also absorb traffic spikes (a video going viral, a product launch) at the edge so your origin never sees the load. They are the difference between a site that 'feels instant' worldwide and one that feels slow past one ocean.",
+  "prerequisites": [
+    "dns"
+  ],
+  "related": [
+    "caching-strategies",
+    "web-server-caching"
+  ],
+  "used_in": [
+    "Serving static assets (JS, CSS, images, fonts) for nearly every modern website.",
+    "Video streaming (Netflix, YouTube) and large software downloads.",
+    "Dynamic content acceleration and DDoS protection at the edge."
+  ],
+  "blocks": [
+    {
+      "type": "prose",
+      "id": "the-problem",
+      "payload": {
+        "text": "**The problem:**\n\nYour origin server lives in `us-east-1` (Virginia). A user in Sydney, Australia requests your 1.2 MB homepage bundle. The TCP handshake alone crosses the Pacific twice (~150ms RTT), then the file transfer pays for every extra round trip under slow-start. The user stares at a blank screen for 800ms while a user in Boston gets it in 60ms.\n\nThe same problem hurts your origin server. A product launch drives 100,000 requests per second for hero images. Your origin saturates its network link, your database connection pool collapses, and even Boston users now see timeouts — not because the application is slow, but because the origin is being hammered for bytes that never change.\n\n**The fix:** put a cache in front of the origin, in many places, close to users. That is a CDN."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "what-a-cdn-is",
+      "payload": {
+        "text": "A CDN is a network of edge servers (Points of Presence, or POPs) operated by a provider like Cloudflare, Akamai, Fastly, or AWS CloudFront. Each POP runs a cache. When a user requests `https://cdn.example.com/logo.png`, DNS resolves to the IP of the nearest POP — not the origin. The POP checks its cache:\n\n- **Cache hit**: the asset is local. Serve it immediately. ~5–20ms. Origin never sees the request.\n- **Cache miss**: the POP fetches the asset from the origin once, stores it (keyed by URL + vary headers), and serves it. Subsequent requests are hits.\n\nThe first user in each region pays the origin fetch; everyone after them gets the cached copy until the TTL expires. For a popular asset, the cache hit ratio reaches 95–99.9%, meaning the origin sees less than 1% of real traffic."
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "cdn-flow",
+      "payload": {
+        "code": "flowchart TD\n    N0[\"Sydney\"]\n    N1[\"user\"]\n    N2[\"Boston\"]\n    N3[\"London\"]\n    N4[\"POP-SYD\"]\n    N5[\"POP-BOS\"]\n    N6[\"POP-LHR\"]\n    N7[\"[POP\"]\n    N8[\"SYD]\"]\n    N9[\"BOS]\"]\n    N10[\"LHR]\"]\n    N11[\"nearest\"]\n    N12[\"edge\"]\n    N13[\"caches\"]\n    N14[\"cached\"]\n    N15[\"miss?\"]\n    N16[\"hit\"]\n    N17[\"(cached)\"]\n    N18[\"us-east-1\"]\n    N19[\"ORIGIN\"]\n    N20[\"SERVER\"]\n    N21[\"(us\"]\n    N22[\"east\"]\n    N23[\"only\"]\n    N24[\"handles\"]\n    N25[\"~1%\"]\n    N26[\"traffic\"]\n    N27[\"User\"]\n    N28[\"DNS\"]\n    N29[\"resolves\"]\n    N30[\"POP,\"]\n    N31[\"not\"]\n    N32[\"origin.\"]\n    N33[\"fast, no origin load\"]\n    N34[\"POP\"]\n    N35[\"serves\"]\n    N36[\"from\"]\n    N37[\"cache\"]\n    N38[\"(fast,\"]\n    N39[\"origin\"]\n    N40[\"load).\"]\n    N41[\"TTL\"]\n    N42[\"fetches\"]\n    N43[\"miss,\"]\n    N44[\"then\"]\n    N45[\"(TTL).\"]\n    N46[\"Origin\"]\n    N47[\"shielded:\"]\n    N48[\"viral\"]\n    N49[\"spike\"]\n    N50[\"hits\"]\n    N51[\"the\"]\n    N52[\"edges,\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44\n    N44 --> N45\n    N45 --> N46\n    N46 --> N47\n    N47 --> N48\n    N48 --> N49\n    N49 --> N50\n    N50 --> N51\n    N51 --> N52",
+        "caption": "A CDN routes each user to the nearest POP, serving from edge cache on hit and fetching from origin on miss.",
+        "alt_text": "A diagram of a CDN with three users in Sydney, Boston, and London. Each user's DNS resolves to the nearest point of presence — POP-SYD, POP-BOS, or POP-LHR. On a cache hit the POP serves immediately. On a cache miss the POP fetches from the origin server in us-east-1 once and caches the result. The origin only handles about one percent of real traffic, shielded from viral spikes."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "cdn-vs-origin",
+      "payload": {
+        "text": "**CDN vs origin server:**\n\n| Aspect | Origin server | CDN edge |\n|--------|---------------|----------|\n| Location | One region (or a few) | Hundreds of POPs worldwide |\n| Latency to user | 50–250ms depending on distance | 5–30ms (nearby) |\n| Capacity | Bounded by your instances/servers | Provider's global capacity (huge) |\n| State | Source of truth | Cache only; can be evicted |\n| Failure cost | Site goes down | Edge keeps serving cached content even if origin is down |\n\nThe CDN is never the source of truth. It is a read cache. Writes always go to the origin. If the origin is down, the CDN can keep serving stale content (with `stale-while-revalidate`) for hours — a powerful resilience property."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "ttl-and-invalidation",
+      "payload": {
+        "text": "**TTL, invalidation, and cache hit ratio:**\n\nEvery cached object has a **TTL** (time to live), set via the `Cache-Control: max-age=N` HTTP header. The edge serves the cached copy until the TTL expires, then re-fetches.\n\nTTL is a trade-off:\n- **Long TTL (hours/days)**: high hit ratio, low origin load, but users see stale content after a deploy.\n- **Short TTL (seconds/minutes)**: fresher content, but lower hit ratio and more origin load.\n\nFor hashed, content-addressed assets like `app.4f3a9b.js` (filename changes when content changes), use a 1-year TTL — the file is immutable. For HTML, use a short TTL or `no-cache` so deploys appear quickly.\n\n**Invalidation** is how you push a new version before the TTL expires. Two flavors:\n- **Purge**: actively tell each POP to evict an object. Cloudflare, Fastly, and CloudFront all expose purge APIs. Propagates in seconds to minutes.\n- **Versioned URLs**: change the URL instead of the content (`/app.v2.js`). The old URL keeps its TTL forever; the new URL is fetched fresh. No purge needed. This is why modern build tools hash filenames.\n\n**Cache hit ratio** is the percentage of requests served from the edge. 95%+ is good. Below 80% means you are paying origin egress for content the CDN could have cached. Tune TTLs, add `s-maxage` for shared caches, and check that your `Vary` header isn't fragmenting the cache unnecessarily."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "origin-shield",
+      "payload": {
+        "title": "Origin shield: a cache in front of the cache",
+        "body": "When 200 POPs all cache-miss the same new asset at once, they generate 200 simultaneous origin requests — a 'thundering herd'. An origin shield is a single intermediate cache (often the CDN's regional tier) that all POPs fetch through. The origin sees exactly 1 request, no matter how many POPs miss. Configure a short shield TTL (e.g., 1 minute) so the herd collapses into a single fetch.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q1",
+      "payload": {
+        "question": "Your site uses hashed filenames like `app.4f3a9b.js`. What Cache-Control header should you use for these?",
+        "options": [
+          "`Cache-Control: no-cache` so users always get the latest version.",
+          "`Cache-Control: max-age=60` to balance freshness and caching.",
+          "`Cache-Control: public, max-age=31536000, immutable` for a 1-year cache.",
+          "`Cache-Control: private` so only the browser caches it."
+        ],
+        "answer_index": 2,
+        "rationale": "Hashed filenames are content-addressed: the URL changes whenever the content changes. There is no 'stale' version possible — the old URL always points to the old bytes. So you can cache aggressively for a full year (31536000 seconds) and mark it `immutable` so browsers don't even revalidate. HTML referencing the asset uses a short TTL so the new filename propagates fast. This is the standard pattern for SPA and modern web builds.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q2",
+      "payload": {
+        "question": "You deployed a CSS fix but users still see the old styles 10 minutes later. The file is `styles.css` with `Cache-Control: max-age=3600`. What is the cleanest fix going forward?",
+        "options": [
+          "Lower the TTL on `styles.css` to 60 seconds globally.",
+          "Use versioned filenames like `styles.v2.css` referenced from a short-TTL HTML document, so deploys don't require purging.",
+          "Call the CDN purge API after every deploy.",
+          "Add a query string `?v=2` to force a new fetch."
+        ],
+        "answer_index": 1,
+        "rationale": "Versioned filenames make deploys cache-safe without purging: the HTML (short TTL) starts referencing `styles.v2.css`, which is a fresh URL the CDN has never seen, so it always fetches once and caches for a long TTL. Option (b) is the durable pattern. Lowering the global TTL (a) sacrifices hit ratio on all assets. Purging (c) is operationally fragile and easy to forget. Query strings (d) work but some CDNs ignore them by default for cache keys, and they create infinite URL variations.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "video",
+      "id": "upgrade-video-cdn",
+      "payload": {
+        "provider": "youtube",
+        "video_id": "Fy0jVMICp1Y",
+        "title": "Database Replication & Caching — broader scaling context",
+        "description": "Supplementary explanation. The NO CAP lesson remains self-contained.",
+        "source_url": "https://www.youtube.com/watch?v=Fy0jVMICp1Y"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q3",
+      "payload": {
+        "question": "Your origin goes down entirely for 30 minutes. Users can still load the homepage. How?",
+        "options": [
+          "The CDN is also a database, so it doesn't need the origin.",
+          "The CDN keeps serving cached objects (and can serve stale content via `stale-while-revalidate`) even when the origin is unreachable.",
+          "DNS automatically points users directly to a backup origin.",
+          "The CDN rewrites requests to a different website."
+        ],
+        "answer_index": 1,
+        "rationale": "The edge caches are independent of origin availability. As long as an object's TTL has not expired, the POP serves it without contacting the origin. With `stale-while-revalidate=86400`, the POP can even serve an expired cached object while asynchronously attempting to re-fetch. This is one of the most underrated resilience properties of a CDN: it decouples user experience from origin uptime.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-cdn-mental",
+      "payload": {
+        "text": "Engineering mental model",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-cdn-mental",
+      "payload": {
+        "text": "**Mental model.** Think of Content Delivery Networks as a deliberate boundary in a system. The boundary exists because something becomes harder to manage when everything is done in one place: latency, scale, failure isolation, consistency, cost, or team ownership. The useful question is not “what does Content Delivery Networks mean?” but “what pressure makes this boundary worth introducing, and what new failure mode does it create?”"
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-cdn-decision",
+      "payload": {
+        "title": "Design lens",
+        "body": "Before choosing Content Delivery Networks, name the workload, the critical user path, the dominant bottleneck, the failure you are trying to absorb, and the trade-off you are willing to accept. If you cannot name those five things, the design is probably premature.",
+        "kind": "info"
+      }
+    },
+    {
+      "type": "image",
+      "id": "upgrade-image-cdn",
+      "payload": {
+        "src": "/learning-visuals/cdn.svg",
+        "alt": "Original NO CAP systems visual for Content Delivery Networks.",
+        "caption": "Content Delivery Networks: a compact system-thinking visual.",
+        "credit": "Original NO CAP visual.",
+        "source_url": "https://github.com/donnemartin/system-design-primer"
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "upgrade-mermaid-cdn",
+      "payload": {
+        "code": "flowchart LR\n U[User] --> E[Nearest Edge]\n E -->|hit| X[Cached object]\n E -->|miss| O[Origin] --> E --> U",
+        "caption": "A CDN serves cacheable content from an edge location close to the requester.",
+        "alt_text": "A CDN serves cacheable content from an edge location close to the requester."
+      }
+    },
+    {
+      "type": "code",
+      "id": "upgrade-code-cdn",
+      "payload": {
+        "language": "text",
+        "code": "// Pseudocode\nrequest = receive()\nresult = cdn(request)\nreturn result\n\n// Production questions:\n// 1. What happens on timeout?\n// 2. Can this operation be retried safely?\n// 3. What is the bottleneck?",
+        "caption": "A minimal engineering sketch for reasoning about Content Delivery Networks."
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-cdn-numbers",
+      "payload": {
+        "text": "Back-of-the-envelope reasoning",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-cdn-numbers",
+      "payload": {
+        "text": "Numerical lens: write down traffic, payload size, read/write ratio, peak multiplier and durability target before choosing a component. The numbers should justify the architecture."
+      }
+    },
+    {
+      "type": "simulation",
+      "id": "upgrade-sim-cdn",
+      "payload": {
+        "title": "Interactive thought experiment: Content Delivery Networks",
+        "description": "Change the variables below and predict what breaks first in Content Delivery Networks. The production lab can later reuse these same inputs.",
+        "variables": [
+          {
+            "name": "traffic",
+            "description": "Requests/events per second",
+            "default": "1000"
+          },
+          {
+            "name": "latency",
+            "description": "Dependency latency",
+            "default": "50ms"
+          },
+          {
+            "name": "failure_rate",
+            "description": "Injected failure rate",
+            "default": "0%"
+          }
+        ],
+        "placeholder_note": "Interactive controls are deterministic; use the linked Labs section when a dedicated lab exists."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-cdn-hint",
+      "payload": {
+        "title": "Hint",
+        "body": "If you are stuck on Content Delivery Networks, start by drawing the request path and marking every network hop, stateful component, queue, cache and failure boundary. Then estimate where the system will saturate.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-cdn-1",
+      "payload": {
+        "shape": "prediction",
+        "question": "You increase traffic by 10× in a system using Content Delivery Networks. What should you inspect first?",
+        "options": [
+          "The newest framework version",
+          "The dominant bottleneck and its saturation signal",
+          "Only the UI",
+          "Nothing; the architecture should absorb any traffic automatically"
+        ],
+        "answer_index": 1,
+        "rationale": "System design is a constraint-and-bottleneck exercise. Start with the resource or dependency that will saturate first, then choose the smallest change that removes that bottleneck.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-cdn-2",
+      "payload": {
+        "shape": "mcq",
+        "question": "Which statement is the safest engineering habit when using Content Delivery Networks?",
+        "options": [
+          "Choose it because it is popular",
+          "Add it before measuring the problem",
+          "State the workload, failure mode and trade-off it is solving",
+          "Use the most distributed design possible"
+        ],
+        "answer_index": 2,
+        "rationale": "Good architecture starts from requirements, workload and failure assumptions. The component is the consequence of that reasoning, not the starting point.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "scenario",
+      "id": "upgrade-scenario-cdn",
+      "payload": {
+        "prompt": "Production scenario: your system uses Content Delivery Networks, traffic suddenly spikes, and p99 latency doubles. What is your first move?",
+        "context": "You have dashboards for traffic, latency, errors and saturation. You can change the architecture, but every change has operational cost.",
+        "options": [
+          {
+            "id": "a",
+            "text": "Add more instances immediately",
+            "outcome": "This may help, but only if compute saturation is the bottleneck.",
+            "correct": false
+          },
+          {
+            "id": "b",
+            "text": "Inspect the bottleneck and its saturation signal first",
+            "outcome": "Correct: diagnose before scaling or introducing a new pattern.",
+            "correct": true
+          },
+          {
+            "id": "c",
+            "text": "Disable monitoring to reduce overhead",
+            "outcome": "This removes the evidence you need to diagnose the incident.",
+            "correct": false
+          }
+        ],
+        "rationale": "Measure the limiting resource or dependency first. A bottleneck can be compute, database I/O, network, cache misses, lock contention, downstream latency, or queue backlog.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-cdn-interview",
+      "payload": {
+        "text": "Interview drill",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-cdn-interview",
+      "payload": {
+        "text": "**Answer this without notes:** When would you choose Content Delivery Networks, and when would you intentionally avoid it? Mention at least one bottleneck it addresses, one failure mode it introduces, and one alternative. Then quantify the workload you are designing for."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "field-guide-cdn",
+      "payload": {
+        "title": "Engineering lens",
+        "body": "A useful engineering lens for Content Delivery Networks: define the problem it solves, the simpler design that fails first, the constraint that forces you to introduce this concept, and the new failure modes the concept creates.",
+        "kind": "tip"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "numerical-lens-cdn",
+      "payload": {
+        "text": "### Numerical sanity check\n\nBack-of-the-envelope reasoning beats fake precision. State your traffic, payload, concurrency and growth assumptions explicitly, then calculate enough to know whether the current architecture is orders of magnitude away from the target."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "field-question-cdn",
+      "payload": {
+        "shape": "prediction",
+        "question": "Imagine the simplest version of a system using Content Delivery Networks. What breaks first as traffic grows by 10×, and what would you change before reaching 100×?",
+        "context": "Do not optimize for a memorized definition. Reason from the workload and failure mode.",
+        "options": [
+          "Scale the same component immediately.",
+          "Measure the current bottleneck and state the assumption that changed.",
+          "Add more technologies until throughput improves.",
+          "Choose the most popular architecture."
+        ],
+        "answer_index": 1,
+        "rationale": "Good system design starts with the bottleneck and the changed constraint. The most popular or complex choice is not automatically correct.",
+        "difficulty": "interview"
+      }
+    }
+  ],
+  "trade_offs": {
+    "pros": [
+      "Cuts latency dramatically: 5–30ms from the edge instead of 50–250ms from a distant origin.",
+      "Shields the origin from traffic spikes — viral content is absorbed at the edge.",
+      "Origin decoupling: cached content keeps serving even if the origin is down.",
+      "Often cheaper than origin egress: CDN egress to users is frequently priced lower than cloud-origin egress.",
+      "Built-in DDoS absorption and WAF at the edge (provider-dependent)."
+    ],
+    "cons": [
+      "Adds another moving part and a vendor relationship.",
+      "Cache invalidation is hard; stale content bugs are common and confusing.",
+      "Dynamic, per-user content (personalized HTML, API responses) is hard to cache correctly.",
+      "Hit ratio below ~80% means you're paying for the CDN AND paying origin egress.",
+      "CDN itself is a dependency — a global CDN outage takes down your static assets too."
+    ]
+  },
+  "failure_modes": [
+    "Stale content served after a deploy because the TTL is too long and no purge was issued.",
+    "Cache key fragmentation: a `Vary: Cookie` or `Vary: User-Agent` header causes the CDN to cache hundreds of near-identical copies, destroying hit ratio.",
+    "Thundering herd on origin when a popular asset expires simultaneously across many POPs (mitigate with origin shield).",
+    "CDN provider outage — your static assets go down globally even though your origin is healthy.",
+    "Caching personalized responses by accident, leaking one user's data to another. Never cache responses that depend on auth headers without explicit cache key design."
+  ],
+  "common_mistakes": [
+    "Setting a long TTL on HTML or API responses, then complaining that deploys don't propagate.",
+    "Using query strings for cache busting without confirming the CDN includes them in the cache key.",
+    "Forgetting `s-maxage` — the browser `max-age` doesn't control CDN caches; `s-maxage` does.",
+    "Treating CDN as a black box. If hit ratio is bad, you are paying for nothing. Monitor it.",
+    "Caching POST responses or responses with auth-derived content. CDNs cache GETs by default; never enable caching on endpoints that return user-specific data without careful key design."
+  ],
+  "where_you_see_it": [
+    "Almost every modern website — Cloudflare, Fastly, Akamai, AWS CloudFront.",
+    "Video streaming: Netflix Open Connect, YouTube, Twitch all use CDNs as the primary delivery mechanism.",
+    "Software downloads: OS updates, game patches, npm/pip package metadata."
+  ],
+  "interview_prompts": [
+    "Design a global image-hosting service. Where does the CDN fit, and how do you handle cache invalidation when a user replaces an image?",
+    "Your CDN hit ratio dropped from 95% to 70% overnight. How do you debug it?",
+    "Explain the difference between browser caching (max-age) and CDN caching (s-maxage). Why does it matter?",
+    "Your origin is down. Users can still load cached pages. How would you extend this 'serve stale' behavior to API responses safely?",
+    "A viral product launch is tomorrow. How do you pre-warm the CDN so the origin doesn't get crushed at launch?"
+  ],
+  "real_system_mappings": [
+    {
+      "system": "Cloudflare",
+      "how": "Operates 300+ POPs globally. Serves static assets, provides a WAF, and offers Workers for compute at the edge (CDN + serverless in one platform). Cache purge API propagates in seconds."
+    },
+    {
+      "system": "Netflix Open Connect",
+      "how": "Netflix runs its own purpose-built CDN with appliances placed inside ISPs' networks (OCA — Open Connect Appliances). Video is pre-populated onto OCAs overnight, so streaming rarely touches Netflix's origin."
+    },
+    {
+      "system": "AWS CloudFront",
+      "how": "Managed CDN integrated with S3 and other AWS origins. Supports origin shield, field-level encryption, signed URLs for private content, and Lambda@Edge for request/response manipulation at the edge."
+    }
+  ],
+  "status": "published",
+  "sources": [
+    {
+      "title": "System Design Primer",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Open source"
+    },
+    {
+      "title": "ByteByteGo — Scale from zero to millions",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "ByteByteGo"
+    },
+    {
+      "title": "System Design Tutorial",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "GeeksforGeeks"
+    },
+    {
+      "title": "System Design Roadmap",
+      "url": "https://roadmap.sh/system-design",
+      "publisher": "roadmap.sh"
+    },
+    {
+      "title": "Architecture & Infrastructure reference",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Architecture & Infrastructure reference",
+      "url": "https://www.cloudflare.com/learning/cdn/what-is-a-cdn/",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Architecture & Infrastructure reference",
+      "url": "https://aws.amazon.com/architecture/",
+      "publisher": "Reference"
+    }
+  ]
+}

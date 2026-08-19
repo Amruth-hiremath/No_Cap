@@ -1,0 +1,499 @@
+{
+  "slug": "performance-vs-scalability",
+  "version": 4,
+  "title": "Performance vs Scalability",
+  "phase": "foundations",
+  "area": "Foundations",
+  "estimated_minutes": 7,
+  "difficulty": "core",
+  "summary": "Performance is how fast a system handles a single request. Scalability is how well it handles more requests. They are related but distinct: a system can be fast and unscalable, or slow and scalable. Confusing them leads to bad architecture decisions.",
+  "why_it_matters": "If you don't know whether your problem is a performance problem or a scalability problem, you'll apply the wrong solution. Adding more servers (scaling out) doesn't fix slow code. Optimizing an algorithm doesn't help if your single database is the bottleneck. Naming the problem correctly is half the solution.",
+  "prerequisites": [
+    "what-is-system-design"
+  ],
+  "related": [
+    "latency-vs-throughput",
+    "horizontal-scaling"
+  ],
+  "used_in": [
+    "Every system that needs to handle growth."
+  ],
+  "blocks": [
+    {
+      "type": "prose",
+      "id": "intro",
+      "payload": {
+        "text": "**Performance** measures how fast your system does one thing. **Scalability** measures how well it does many things. These sound similar, but they fail in different ways and need different fixes.\n\nA Formula 1 car has high performance (fast lap time) but poor scalability (only seats one). A city bus has lower performance (slower) but better scalability (seats 50). Neither is 'better' — they solve different problems."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "definition",
+      "payload": {
+        "title": "Definitions",
+        "body": "**Performance**: how quickly a system responds to a given load. Measured in latency, throughput, resource utilization.\n\n**Scalability**: how well a system maintains performance as load increases. Measured in how throughput changes when you add resources.\n\nA system that handles 100 RPS at 50ms latency and 1000 RPS at 50ms latency is **scalable**. A system that handles 100 RPS at 50ms and 1000 RPS at 500ms is **fast but not scalable**.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "perf-vs-scale",
+      "payload": {
+        "code": "flowchart TD\n    N0[\"single request\"]\n    N1[\"PERFORMANCE\"]\n    N2[\"(single\"]\n    N3[\"request)\"]\n    N4[\"Server\"]\n    N5[\"Request\"]\n    N6[\"[Server]\"]\n    N7[\"Response\"]\n    N8[\"50ms\"]\n    N9[\"Question:\"]\n    N10[\"how\"]\n    N11[\"fast\"]\n    N12[\"one\"]\n    N13[\"request?\"]\n    N14[\"Fix:\"]\n    N15[\"optimize\"]\n    N16[\"code,\"]\n    N17[\"faster\"]\n    N18[\"CPU,\"]\n    N19[\"better\"]\n    N20[\"algorithm\"]\n    N21[\"many requests\"]\n    N22[\"SCALABILITY\"]\n    N23[\"(many\"]\n    N24[\"requests)\"]\n    N25[\"Load Balancer\"]\n    N26[\"S1\"]\n    N27[\"S2\"]\n    N28[\"S3\"]\n    N29[\"S4\"]\n    N30[\"[Load\"]\n    N31[\"Balancer]\"]\n    N32[\"[S1]\"]\n    N33[\"[S2]\"]\n    N34[\"[S3]\"]\n    N35[\"[S4]\"]\n    N36[\"10,000\"]\n    N37[\"RPS\"]\n    N38[\"does\"]\n    N39[\"latency\"]\n    N40[\"stay\"]\n    N41[\"flat\"]\n    N42[\"load\"]\n    N43[\"grows?\"]\n    N44[\"add\"]\n    N45[\"servers,\"]\n    N46[\"partition\"]\n    N47[\"data,\"]\n    N48[\"cache\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44\n    N44 --> N45\n    N45 --> N46\n    N46 --> N47\n    N47 --> N48",
+        "caption": "Performance is about one request. Scalability is about the curve as load grows.",
+        "alt_text": "Two diagrams. The first shows performance: a single request hits one server and returns in 50 milliseconds. The question is how fast one request is. The fix is to optimize code or use a faster CPU. The second shows scalability: thousands of requests hit a load balancer that distributes them across four servers. The question is whether latency stays flat as load grows. The fix is to add servers, partition data, or cache."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "relationship",
+      "payload": {
+        "text": "Performance and scalability interact, but improving one doesn't always improve the other:\n\n- **Fast but not scalable**: A single PostgreSQL instance with a well-tuned query. Handles 100 RPS at 5ms. But at 10,000 RPS it falls over because one machine can't handle the connections.\n- **Scalable but not fast**: A distributed system across 100 nodes. Each request takes 200ms (slow) because of network hops, but the system handles 1M RPS without latency increasing.\n- **Both**: A system with a fast single-request path AND horizontal scalability. This is the goal — and it's hard."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "diagnose",
+      "payload": {
+        "title": "How to diagnose",
+        "body": "If latency is high at low load → **performance problem**. Fix the code, the algorithm, or the hardware.\n\nIf latency is low at low load but increases as load grows → **scalability problem**. Add capacity (scale out), partition data (shard), or introduce caching.\n\nIf latency is high at all loads → you have both problems. Start with the performance problem; it's usually cheaper to fix.",
+        "kind": "success"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q1",
+      "payload": {
+        "question": "Your API responds in 50ms when 100 users hit it, but takes 500ms when 1000 users hit it. Is this a performance problem or a scalability problem?",
+        "shape": "mcq",
+        "options": [
+          "Performance — the code is too slow.",
+          "Scalability — the system doesn't maintain performance as load grows.",
+          "Both — you need to rewrite everything.",
+          "Neither — 500ms is acceptable."
+        ],
+        "answer_index": 1,
+        "rationale": "The system is fast at low load (50ms) but degrades as load grows (500ms at 1000 users). This is a scalability problem — the system cannot maintain performance as load increases. The fix is to add capacity (scale out), introduce caching, or partition data — not to optimize the single-request code path.",
+        "difficulty": "core"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q2",
+      "payload": {
+        "question": "Which change is a performance optimization (not a scalability optimization)?",
+        "shape": "mcq",
+        "options": [
+          "Adding a load balancer and 3 more app servers.",
+          "Replacing a O(n²) sort with a O(n log n) sort.",
+          "Sharding the database across 4 nodes.",
+          "Adding a Redis cache in front of the database."
+        ],
+        "answer_index": 1,
+        "rationale": "Replacing a slow algorithm with a faster one improves single-request performance — the response time for one request drops. Adding load balancers, sharding, and caching are all scalability optimizations: they help the system handle more requests, but don't necessarily make any single request faster (and can even add latency through network hops).",
+        "difficulty": "core"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "scaling-failure-mode-deep",
+      "payload": {
+        "text": "**How systems fail to scale.** A system that doesn't scale doesn't usually fail loudly — it degrades gracefully at first, then catastrophically. The classic progression:\n\n1. **Low load (10 RPS)**: everything is fast. CPU 5%, latency 20ms. Looks great.\n2. **Medium load (500 RPS)**: latency creeps to 50ms. CPU 40%. Database starts showing some lock contention. Cache hit rate still 95%.\n3. **High load (2000 RPS)**: latency jumps to 500ms. Why? Connection pool exhausted — requests queue waiting for a free DB connection. Cache hit rate drops to 85% because evictions are thrashing. CPU is now 80% but the bottleneck is I/O wait, not CPU.\n4. **Critical load (5000 RPS)**: latency hits 10s. The DB connection pool is fully exhausted, requests time out at the app layer, clients retry, retry traffic doubles the load, more requests queue, the system cascades to failure.\n\nThe diagnosis at each stage is different. Stage 2 needs optimization (indexes, query tuning). Stage 3 needs scaling (read replicas, bigger cache). Stage 4 needs circuit breaking and load shedding — you're already over capacity, and adding more load makes it worse, not better. The mistake teams make is jumping to 'scale out' at stage 4 when they should have been shedding load and diagnosing the real bottleneck at stage 2."
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "single-vs-scaled-arch",
+      "payload": {
+        "code": "flowchart TB\n    subgraph Single[Single-server architecture - high perf, low scalability]\n        U1[Users] --> LB1[Load Balancer]\n        LB1 --> App1[App Server<br/>1 instance, 32 vCPU]\n        App1 --> DB1[(PostgreSQL<br/>single primary)]\n        App1 --> C1[(Redis<br/>single instance)]\n    end\n    subgraph Scaled[Scaled architecture - lower per-req perf, high scalability]\n        U2[Users] --> CDN[CDN edge<br/>~330 PoPs]\n        CDN --> LB2[Global LB<br/>+ anycast]\n        LB2 --> AS1[App Server 1]\n        LB2 --> AS2[App Server 2]\n        LB2 --> AS3[App Server N<br/>stateless, autoscaled]\n        AS1 --> RG[(Redis cluster<br/>sharded, replicated)]\n        AS2 --> RG\n        AS3 --> RG\n        AS1 --> DBS[(PG primary<br/>+ 3 read replicas)]\n        AS2 --> DBS\n        AS3 --> DBS\n    end\n    classDef fast fill:#e6f4ea,stroke:#188038,color:#0d652d\n    classDef bottleneck fill:#fee,stroke:#c33,color:#900\n    class DB1,C1 bottleneck\n    class AS1,AS2,AS3,RG,DBS,CDN fast",
+        "caption": "Single-server architecture maximizes per-request performance but every component is a single point of failure and a scaling ceiling. The scaled architecture trades per-request latency (network hops) for horizontal scalability and fault tolerance.",
+        "alt_text": "Two architectures side by side. Single-server: users hit a load balancer, then a single 32-vCPU app server, then a single PostgreSQL primary and a single Redis. Maximum performance per request, but the DB and Redis are bottlenecks and single points of failure. Scaled architecture: users hit a CDN edge, then a global anycast load balancer, then N stateless app servers behind autoscaling, then a sharded replicated Redis cluster and a Postgres primary with read replicas. Per-request latency is higher due to network hops, but the system scales horizontally and survives component failures."
+      }
+    },
+    {
+      "type": "video",
+      "id": "upgrade-video-performance-vs-scalability",
+      "payload": {
+        "provider": "youtube",
+        "video_id": "-W9F__D3oY4",
+        "title": "Scalability lecture — scaling fundamentals",
+        "description": "Supplementary explanation. The NO CAP lesson remains self-contained.",
+        "source_url": "https://www.youtube.com/watch?v=-W9F__D3oY4"
+      }
+    },
+    {
+      "type": "callout",
+      "id": "amdahl-law",
+      "payload": {
+        "title": "Amdahl's Law — the ceiling on parallel speedup",
+        "body": "Gene Amdahl proved in 1967 that if a fraction P of a workload can be parallelized and (1-P) must run serially, the maximum speedup from N processors is `1 / ((1-P) + P/N)`. The implication is brutal: if 5% of your workload is serial (a single-threaded lock, a serial commit log, a synchronous cross-shard query), then even with infinite processors your speedup is capped at `1 / 0.05 = 20x`. Most real systems hit this wall: database transactions need a serial commit log, distributed coordination needs a leader, garbage collection has stop-the-world phases. This is why 'just add more servers' eventually stops working — you hit the serial fraction. The system design response: minimize the serial fraction. Use sharding to keep transactions single-shard. Use append-only logs (no locking for reads). Use eventual consistency where possible (no coordination needed). The goal is to drive P toward 1.0.",
+        "kind": "warning"
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "diagnose-flowchart",
+      "payload": {
+        "code": "flowchart TD\n    Start[Users complain app is slow] --> Q1{Latency high<br/>at low load?}\n    Q1 -->|Yes - always slow| Perf[PERFORMANCE problem<br/>single request is slow]\n    Q1 -->|No - fast at low load| Q2{Latency grows<br/>with load?}\n    Q2 -->|Yes - degrades under load| Scale[SCALABILITY problem<br/>system cant handle growth]\n    Q2 -->|No - sudden spikes| Q3{Spikes correlate<br/>with downstream events?}\n    Q3 -->|Yes| Downstream[DEPENDENCY problem<br/>downstream slow or failing]\n    Q3 -->|No - random spikes| Q4{Spikes correlate<br/>with GC, deployment, cron?}\n    Q4 -->|Yes| Ops[OPERATIONAL problem<br/>GC pause, deploy warmup, etc]\n    Q4 -->|No - truly random| Tail[Long-tail latency<br/>investigate p99 specifically]\n    Perf --> PerfFix[Profile single request<br/>find hot path, optimize code/index/cache]\n    Scale --> ScaleFix[Identify bottleneck component<br/>add capacity, shard, partition, cache]\n    Downstream --> DownFix[Add circuit breaker<br/>timeout, fallback, async retry]\n    Ops --> OpsFix[Tune GC, warm up after deploys<br/>spread load, use read replicas]\n    Tail --> TailFix[Profile p99 requests<br/>look for slow disk, lock contention]\n    classDef problem fill:#fee,stroke:#c33,color:#900\n    classDef fix fill:#e6f4ea,stroke:#188038,color:#0d652d\n    class Perf,Scale,Downstream,Ops,Tail problem\n    class PerfFix,ScaleFix,DownFix,OpsFix,TailFix fix",
+        "caption": "Diagnosing performance vs scalability vs dependency vs operational problems. The shape of the latency-vs-load curve tells you which fix to apply.",
+        "alt_text": "A diagnostic flowchart for slow apps. Start: users complain app is slow. Is latency high at low load? Yes means performance problem - profile single request, optimize code/index/cache. No, fast at low load: does latency grow with load? Yes means scalability problem - identify bottleneck, add capacity, shard, cache. No, sudden spikes: do spikes correlate with downstream events? Yes means dependency problem - add circuit breaker, timeout, fallback. No: do spikes correlate with GC, deployment, or cron? Yes means operational problem - tune GC, warm up, spread load. No, truly random: long-tail latency - investigate p99 specifically."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "real-system-redis-cassandra",
+      "payload": {
+        "text": "**Real systems make the trade-off explicit.**\n\n**Redis** optimizes for performance first: single-threaded, in-memory, ~100K ops/sec on one instance, sub-millisecond latency. It scales horizontally through Redis Cluster (sharding across N nodes), but each shard is still single-threaded — so throughput scales linearly with shards, but per-key latency stays flat at ~1ms. The designers explicitly separated the two concerns: 'be the fastest possible single instance' was the goal; horizontal scaling was layered on later via sharding.\n\n**Cassandra** optimizes for scalability first: distributed, multi-primary, no single point of failure, linear horizontal scaling. But per-request latency is higher than Redis — typically 5-20ms due to network hops, quorum reads (reads from multiple replicas), and write-path coordination. Cassandra trades per-request performance for the ability to handle petabytes across hundreds of nodes with no leader.\n\nThe lesson: when you pick a database, you're picking which side of the performance/scalability trade-off to optimize for. There is no 'best' — there is only 'best for your workload.' A session cache wants Redis. A time-series log across 1000 nodes wants Cassandra. Most systems need both, layered: Redis in front of Postgres for hot reads, Cassandra for write-heavy event logs."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q-amdahl",
+      "payload": {
+        "question": "You profile your monolithic service and find 10% of the request time is spent in a single-threaded in-memory lock (a global registry that all requests touch). You scale from 1 to 10 app servers. What's the maximum speedup you can possibly achieve?",
+        "shape": "mcq",
+        "options": [
+          "10x — you have 10 servers, so 10x the throughput.",
+          "1x — the lock doesn't matter, it's in-memory.",
+          "~5.3x — by Amdahl's Law, max speedup with 10% serial = 1 / (0.1 + 0.9/10) = 5.3x. The serial fraction caps the speedup well below 10x.",
+          "Unlimited — adding more servers always scales."
+        ],
+        "answer_index": 2,
+        "rationale": "Amdahl's Law: if fraction (1-P) of the workload is serial, max speedup with N processors is `1 / ((1-P) + P/N)`. Here P=0.9 (90% parallelizable), 1-P=0.1 (10% serial), N=10: speedup = 1 / (0.1 + 0.9/10) = 1 / 0.19 = ~5.26x. You spent 10x the hardware for ~5x the throughput. With N=100 servers: 1 / (0.1 + 0.009) = ~9.2x. With N=infinity: 1 / 0.1 = 10x — the absolute ceiling. The serial 10% caps your maximum speedup at 10x, no matter how many servers you add. The fix isn't more servers — it's removing the serial fraction. Replace the global lock with per-shard locks, partition the registry, or use lock-free data structures. Until you do, scaling past ~5x is wasting money. This is why Amdahl's Law is the foundational limit on scalability engineering.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "scenario",
+      "id": "scenario-diagnose-slow",
+      "payload": {
+        "prompt": "Black Friday is approaching. Your e-commerce API normally runs at 200 RPS with p99 latency of 80ms. Last year on Black Friday you hit 2000 RPS and p99 spiked to 5s, losing sales. You have budget for either (a) a major code optimization project, or (b) doubling server capacity. Which do you choose?",
+        "context": "Your monitoring shows: at 200 RPS, CPU is at 30%, DB connection pool is 20% utilized, cache hit rate is 92%. There's no obvious single slow query. Last year's incident showed p50 jumped to 400ms at 1000 RPS, and the DB connection pool was 100% saturated at 1500 RPS.",
+        "options": [
+          {
+            "id": "a",
+            "text": "Code optimization — find the slow algorithm and fix it.",
+            "outcome": "Wrong diagnosis. At 200 RPS your code is fine (p99 80ms is great). The problem is saturation under load, not slow code.",
+            "correct": false
+          },
+          {
+            "id": "b",
+            "text": "Double server capacity (more app servers + larger DB connection pool).",
+            "outcome": "Partially right but insufficient. Doubling gets you to ~4000 RPS theoretical headroom. But last year's failure was DB connection pool exhaustion at 1500 RPS — doubling the pool gets you to 3000 RPS, still below the 2000 RPS target with safety margin.",
+            "correct": false
+          },
+          {
+            "id": "c",
+            "text": "Diagnose the bottleneck first (it's DB connection pool saturation), then fix the right layer: increase pool size, add read replicas for read-heavy queries, and add autoscaling on app servers with circuit breaking to shed load if DB saturates.",
+            "outcome": "Correct — last year's data shows the bottleneck is the DB connection pool, not the app code. Fix the bottleneck, add capacity, and add a safety net (circuit breaking) so you don't cascade to failure if load exceeds headroom.",
+            "correct": true
+          },
+          {
+            "id": "d",
+            "text": "Add more caching — cache everything.",
+            "outcome": "Helps but doesn't address the underlying bottleneck. Without understanding where the bottleneck is, you'll add complexity and may still fail.",
+            "correct": false
+          }
+        ],
+        "rationale": "The data tells the story: at 200 RPS the system is healthy (CPU 30%, pool 20%, cache 92%). Last year, p50 jumped from 80ms to 400ms at 1000 RPS — that's not slow code (slow code would be slow at every load), it's queueing (latency grows when utilization approaches 100%). The DB connection pool saturated at 1500 RPS, meaning requests queued waiting for connections, p99 exploded, and the system cascaded. This is a scalability problem, not a performance problem. The fix has three parts: (1) remove the bottleneck — bigger DB connection pool, plus read replicas for read-heavy queries so the primary isn't the only path; (2) add capacity — autoscale app servers; (3) add a safety net — circuit breaking so if the DB saturates, you return 503 fast instead of queuing requests until they time out. The mistake is to jump to either 'optimize code' (option A — wrong diagnosis) or 'add servers blindly' (option B — addresses symptoms without fixing the bottleneck layer). The deeper lesson: always diagnose the bottleneck layer before choosing a fix. Adding capacity to a layer that isn't the bottleneck just wastes money.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-performance-vs-scalability-mental",
+      "payload": {
+        "text": "Engineering mental model",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-performance-vs-scalability-mental",
+      "payload": {
+        "text": "**Mental model.** Think of Performance vs Scalability as a deliberate boundary in a system. The boundary exists because something becomes harder to manage when everything is done in one place: latency, scale, failure isolation, consistency, cost, or team ownership. The useful question is not “what does Performance vs Scalability mean?” but “what pressure makes this boundary worth introducing, and what new failure mode does it create?”"
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-performance-vs-scalability-decision",
+      "payload": {
+        "title": "Design lens",
+        "body": "Before choosing Performance vs Scalability, name the workload, the critical user path, the dominant bottleneck, the failure you are trying to absorb, and the trade-off you are willing to accept. If you cannot name those five things, the design is probably premature.",
+        "kind": "info"
+      }
+    },
+    {
+      "type": "image",
+      "id": "upgrade-image-performance-vs-scalability",
+      "payload": {
+        "src": "/learning-visuals/performance-vs-scalability.svg",
+        "alt": "Original NO CAP systems visual for Performance vs Scalability.",
+        "caption": "Performance vs Scalability: a compact system-thinking visual.",
+        "credit": "Original NO CAP visual.",
+        "source_url": "https://github.com/donnemartin/system-design-primer"
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "upgrade-mermaid-performance-vs-scalability",
+      "payload": {
+        "code": "flowchart LR\n  A[Client] --> B[Gateway] --> C[Service] --> D[State] --> E[Outcome]",
+        "caption": "Performance vs Scalability: a simplified system view showing the primary flow and the main state boundaries.",
+        "alt_text": "Performance vs Scalability: a simplified system view showing the primary flow and the main state boundaries."
+      }
+    },
+    {
+      "type": "code",
+      "id": "upgrade-code-performance-vs-scalability",
+      "payload": {
+        "language": "text",
+        "code": "// Pseudocode\nrequest = receive()\nresult = performance_vs_scalability(request)\nreturn result\n\n// Production questions:\n// 1. What happens on timeout?\n// 2. Can this operation be retried safely?\n// 3. What is the bottleneck?",
+        "caption": "A minimal engineering sketch for reasoning about Performance vs Scalability."
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-performance-vs-scalability-numbers",
+      "payload": {
+        "text": "Back-of-the-envelope reasoning",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-performance-vs-scalability-numbers",
+      "payload": {
+        "text": "Numerical lens: write down traffic, payload size, read/write ratio, peak multiplier and durability target before choosing a component. The numbers should justify the architecture."
+      }
+    },
+    {
+      "type": "simulation",
+      "id": "upgrade-sim-performance-vs-scalability",
+      "payload": {
+        "title": "Interactive thought experiment: Performance vs Scalability",
+        "description": "Change the variables below and predict what breaks first in Performance vs Scalability. The production lab can later reuse these same inputs.",
+        "variables": [
+          {
+            "name": "traffic",
+            "description": "Requests per second",
+            "default": "5000"
+          },
+          {
+            "name": "instances",
+            "description": "Healthy application instances",
+            "default": "4"
+          },
+          {
+            "name": "failure_rate",
+            "description": "Fraction of failed instances",
+            "default": "0%"
+          }
+        ],
+        "placeholder_note": "Interactive controls are deterministic; use the linked Labs section when a dedicated lab exists."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-performance-vs-scalability-hint",
+      "payload": {
+        "title": "Hint",
+        "body": "If you are stuck on Performance vs Scalability, start by drawing the request path and marking every network hop, stateful component, queue, cache and failure boundary. Then estimate where the system will saturate.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-performance-vs-scalability-1",
+      "payload": {
+        "shape": "prediction",
+        "question": "You increase traffic by 10× in a system using Performance vs Scalability. What should you inspect first?",
+        "options": [
+          "The newest framework version",
+          "The dominant bottleneck and its saturation signal",
+          "Only the UI",
+          "Nothing; the architecture should absorb any traffic automatically"
+        ],
+        "answer_index": 1,
+        "rationale": "System design is a constraint-and-bottleneck exercise. Start with the resource or dependency that will saturate first, then choose the smallest change that removes that bottleneck.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-performance-vs-scalability-2",
+      "payload": {
+        "shape": "mcq",
+        "question": "Which statement is the safest engineering habit when using Performance vs Scalability?",
+        "options": [
+          "Choose it because it is popular",
+          "Add it before measuring the problem",
+          "State the workload, failure mode and trade-off it is solving",
+          "Use the most distributed design possible"
+        ],
+        "answer_index": 2,
+        "rationale": "Good architecture starts from requirements, workload and failure assumptions. The component is the consequence of that reasoning, not the starting point.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "scenario",
+      "id": "upgrade-scenario-performance-vs-scalability",
+      "payload": {
+        "prompt": "Production scenario: your system uses Performance vs Scalability, traffic suddenly spikes, and p99 latency doubles. What is your first move?",
+        "context": "You have dashboards for traffic, latency, errors and saturation. You can change the architecture, but every change has operational cost.",
+        "options": [
+          {
+            "id": "a",
+            "text": "Add more instances immediately",
+            "outcome": "This may help, but only if compute saturation is the bottleneck.",
+            "correct": false
+          },
+          {
+            "id": "b",
+            "text": "Inspect the bottleneck and its saturation signal first",
+            "outcome": "Correct: diagnose before scaling or introducing a new pattern.",
+            "correct": true
+          },
+          {
+            "id": "c",
+            "text": "Disable monitoring to reduce overhead",
+            "outcome": "This removes the evidence you need to diagnose the incident.",
+            "correct": false
+          }
+        ],
+        "rationale": "Measure the limiting resource or dependency first. A bottleneck can be compute, database I/O, network, cache misses, lock contention, downstream latency, or queue backlog.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-performance-vs-scalability-interview",
+      "payload": {
+        "text": "Interview drill",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-performance-vs-scalability-interview",
+      "payload": {
+        "text": "**Answer this without notes:** When would you choose Performance vs Scalability, and when would you intentionally avoid it? Mention at least one bottleneck it addresses, one failure mode it introduces, and one alternative. Then quantify the workload you are designing for."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "field-guide-performance-vs-scalability",
+      "payload": {
+        "title": "Engineering lens",
+        "body": "A useful engineering lens for Performance vs Scalability: define the problem it solves, the simpler design that fails first, the constraint that forces you to introduce this concept, and the new failure modes the concept creates.",
+        "kind": "tip"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "numerical-lens-performance-vs-scalability",
+      "payload": {
+        "text": "### Numerical sanity check\n\nBack-of-the-envelope reasoning beats fake precision. State your traffic, payload, concurrency and growth assumptions explicitly, then calculate enough to know whether the current architecture is orders of magnitude away from the target."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "field-question-performance-vs-scalability",
+      "payload": {
+        "shape": "prediction",
+        "question": "Imagine the simplest version of a system using Performance vs Scalability. What breaks first as traffic grows by 10×, and what would you change before reaching 100×?",
+        "context": "Do not optimize for a memorized definition. Reason from the workload and failure mode.",
+        "options": [
+          "Scale the same component immediately.",
+          "Measure the current bottleneck and state the assumption that changed.",
+          "Add more technologies until throughput improves.",
+          "Choose the most popular architecture."
+        ],
+        "answer_index": 1,
+        "rationale": "Good system design starts with the bottleneck and the changed constraint. The most popular or complex choice is not automatically correct.",
+        "difficulty": "interview"
+      }
+    }
+  ],
+  "trade_offs": {
+    "pros": [
+      "Naming the problem correctly points to the right fix.",
+      "Performance optimizations are often cheap (code changes).",
+      "Scalability optimizations are often additive (add more nodes)."
+    ],
+    "cons": [
+      "Performance and scalability can conflict: adding network hops for scalability can hurt single-request performance.",
+      "Scalability fixes cost money (more servers).",
+      "Performance fixes can introduce complexity (caching, async)."
+    ]
+  },
+  "failure_modes": [
+    "Adding more servers when the code is slow (doesn't fix the problem).",
+    "Optimizing algorithms when the database is the bottleneck.",
+    "Caching everything when the real issue is connection pool exhaustion."
+  ],
+  "common_mistakes": [
+    "Confusing 'fast' with 'scalable'.",
+    "Treating scalability as a single axis — it has throughput, latency, and data-volume dimensions.",
+    "Forgetting that scalability has a cost (more servers = more money + more complexity)."
+  ],
+  "where_you_see_it": [
+    "Every system that needs to handle growth.",
+    "Every performance review and capacity planning meeting.",
+    "Every 'why is the app slow?' investigation."
+  ],
+  "interview_prompts": [
+    "What's the difference between performance and scalability? Give an example of each.",
+    "If your system is slow, how do you decide whether to optimize code or add servers?",
+    "Can a system be both high-performance and highly scalable? What's the tension?"
+  ],
+  "real_system_mappings": [
+    {
+      "system": "Redis",
+      "how": "Single-threaded, extremely fast per-request (performance). Scales by sharding across multiple Redis instances (scalability). The designers explicitly separated the two concerns."
+    },
+    {
+      "system": "Cassandra",
+      "how": "Lower single-request performance than Redis (network hops, consensus), but linear horizontal scalability. Designed for scalability first."
+    }
+  ],
+  "status": "published",
+  "sources": [
+    {
+      "title": "System Design Primer",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Open source"
+    },
+    {
+      "title": "ByteByteGo — Scale from zero to millions",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "ByteByteGo"
+    },
+    {
+      "title": "System Design Tutorial",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "GeeksforGeeks"
+    },
+    {
+      "title": "System Design Roadmap",
+      "url": "https://roadmap.sh/system-design",
+      "publisher": "roadmap.sh"
+    },
+    {
+      "title": "Foundations reference",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Foundations reference",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Foundations reference",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "Reference"
+    }
+  ]
+}

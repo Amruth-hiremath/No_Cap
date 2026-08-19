@@ -1,0 +1,405 @@
+{
+  "slug": "circuit-breaker",
+  "version": 4,
+  "title": "Circuit Breaker",
+  "phase": "reliability-resilience",
+  "area": "Reliability & Resilience",
+  "estimated_minutes": 7,
+  "difficulty": "advanced",
+  "summary": "A circuit breaker stops calling a failing service after a threshold of failures, giving it time to recover. It has three states: closed (normal), open (failing, stop calling), and half-open (testing if recovery happened). It prevents cascading failures and retry storms.",
+  "why_it_matters": "Without a circuit breaker, a slow or failing downstream service drags down every service that calls it — connections pile up, threads block, and the whole system cascades into failure. A circuit breaker cuts the connection early, letting the caller fail fast and the downstream recover.",
+  "prerequisites": [
+    "retry"
+  ],
+  "related": [
+    "bulkhead",
+    "rate-limiting",
+    "timeout",
+    "graceful-degradation"
+  ],
+  "used_in": [
+    "Every resilient microservice architecture.",
+    "Every system with downstream dependencies."
+  ],
+  "blocks": [
+    {
+      "type": "prose",
+      "id": "intro",
+      "payload": {
+        "text": "A circuit breaker is like an electrical fuse: when too many failures occur, it 'trips' and stops current from flowing. In software, this means: stop calling a failing service so it can recover, and so your service doesn't waste resources waiting for timeouts.\n\nThe pattern has three states:\n\n- **Closed** (normal): requests flow through. Failures are counted.\n- **Open** (tripped): requests fail immediately — no call is made to the downstream. This gives the downstream time to recover.\n- **Half-Open** (testing): after a cooldown, a few requests are allowed through. If they succeed, the breaker closes. If they fail, it opens again."
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "states",
+      "payload": {
+        "code": "flowchart TD\n    N0[\"failures\"]\n    N1[\"threshold\"]\n    N2[\"CLOSED\"]\n    N3[\"OPEN\"]\n    N4[\"normal\"]\n    N5[\"failing\"]\n    N6[\"(normal)\"]\n    N7[\"(failing)\"]\n    N8[\"cooldown\"]\n    N9[\"expires\"]\n    N10[\"probe\"]\n    N11[\"succeeds\"]\n    N12[\"HALF\"]\n    N13[\"testing\"]\n    N14[\"(testing)\"]\n    N15[\"fails\"]\n    N16[\"back\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16",
+        "caption": "Circuit breaker state machine: Closed → Open → Half-Open → Closed/Open.",
+        "alt_text": "A state machine diagram. In the Closed state, requests flow normally and failures are counted. When failures exceed a threshold, the breaker transitions to Open — requests fail immediately without calling the downstream. After a cooldown period, it transitions to Half-Open — a few probe requests are allowed through. If probes succeed, the breaker returns to Closed. If probes fail, it goes back to Open."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "why",
+      "payload": {
+        "text": "Why is this better than just retrying?\n\n- **Fail fast**: when the breaker is open, your service fails in 1ms instead of waiting 30 seconds for a timeout. Resources (threads, connections) are freed immediately.\n- **Let the downstream recover**: if your service keeps hammering a recovering service, it can't recover. The breaker gives it breathing room.\n- **Prevent cascading failures**: without a breaker, a slow downstream service causes your service to pile up connections, which causes services that depend on you to pile up, which takes down the whole system."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "vs-retry",
+      "payload": {
+        "title": "Retry vs Circuit Breaker",
+        "body": "Retries handle transient failures (a single bad request). Circuit breakers handle sustained failures (the service is down). Use both: retry first (for transient blips), then circuit break (if retries keep failing). Retries without a breaker cause retry storms. A breaker without retries fails too aggressively.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "configuration",
+      "payload": {
+        "text": "Typical circuit breaker configuration:\n\n- **Failure threshold**: e.g., 'open after 5 consecutive failures' or 'open after 50% failure rate over 20 requests'.\n- **Cooldown duration**: e.g., 'stay open for 30 seconds before half-open'.\n- **Half-open probes**: e.g., 'allow 3 requests through; if all succeed, close; if any fail, re-open'.\n- **Sliding window**: count failures over the last N seconds or N requests, not since startup.\n\nLibraries like Resilience4j (Java), Polly (.NET), and opossum (Node.js) implement this with sensible defaults."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q1",
+      "payload": {
+        "question": "Your service calls a downstream API that starts timing out. Without a circuit breaker, what happens?",
+        "shape": "mcq",
+        "options": [
+          "Your service fails fast and recovers quickly.",
+          "Your service accumulates blocked connections, eventually running out of threads/connections and failing entirely.",
+          "The downstream service recovers on its own.",
+          "Nothing — timeouts handle everything."
+        ],
+        "answer_index": 1,
+        "rationale": "Without a circuit breaker, every call to the failing downstream service waits for its timeout (e.g., 30 seconds). During this time, the calling service holds a thread and a connection. As more requests come in, more threads block, until the calling service runs out of threads/connections and fails entirely — even though it was the downstream that was broken. This is a cascading failure. A circuit breaker would fail fast (1ms) when the downstream is down, freeing resources immediately.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q2",
+      "payload": {
+        "question": "A circuit breaker is in the Open state. A request comes in. What happens?",
+        "shape": "mcq",
+        "options": [
+          "The request is sent to the downstream service and waits for a timeout.",
+          "The request fails immediately (in ~1ms) without calling the downstream.",
+          "The request is queued until the breaker closes.",
+          "The request is retried 3 times."
+        ],
+        "answer_index": 1,
+        "rationale": "In the Open state, the circuit breaker fails the request immediately — it does not call the downstream service at all. This is the entire point of the pattern: fail fast (~1ms) instead of waiting for a timeout (~30s), freeing up threads and connections. The request either gets a fallback response (graceful degradation) or an error. The breaker only starts sending requests again after the cooldown expires and it enters the Half-Open state to test recovery.",
+        "difficulty": "core"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-circuit-breaker-mental",
+      "payload": {
+        "text": "Engineering mental model",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-circuit-breaker-mental",
+      "payload": {
+        "text": "**Mental model.** Think of Circuit Breaker as a deliberate boundary in a system. The boundary exists because something becomes harder to manage when everything is done in one place: latency, scale, failure isolation, consistency, cost, or team ownership. The useful question is not “what does Circuit Breaker mean?” but “what pressure makes this boundary worth introducing, and what new failure mode does it create?”"
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-circuit-breaker-decision",
+      "payload": {
+        "title": "Design lens",
+        "body": "Before choosing Circuit Breaker, name the workload, the critical user path, the dominant bottleneck, the failure you are trying to absorb, and the trade-off you are willing to accept. If you cannot name those five things, the design is probably premature.",
+        "kind": "info"
+      }
+    },
+    {
+      "type": "image",
+      "id": "upgrade-image-circuit-breaker",
+      "payload": {
+        "src": "/learning-visuals/circuit-breaker.svg",
+        "alt": "Original NO CAP systems visual for Circuit Breaker.",
+        "caption": "Circuit Breaker: a compact system-thinking visual.",
+        "credit": "Original NO CAP visual.",
+        "source_url": "https://github.com/donnemartin/system-design-primer"
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "upgrade-mermaid-circuit-breaker",
+      "payload": {
+        "code": "stateDiagram-v2\n [*] --> Closed\n Closed --> Open: failures exceed threshold\n Open --> HalfOpen: cooldown\n HalfOpen --> Closed: probe succeeds\n HalfOpen --> Open: probe fails",
+        "caption": "A circuit breaker stops repeatedly calling a failing dependency and later probes for recovery.",
+        "alt_text": "A circuit breaker stops repeatedly calling a failing dependency and later probes for recovery."
+      }
+    },
+    {
+      "type": "code",
+      "id": "upgrade-code-circuit-breaker",
+      "payload": {
+        "language": "text",
+        "code": "// Pseudocode\nrequest = receive()\nresult = circuit_breaker(request)\nreturn result\n\n// Production questions:\n// 1. What happens on timeout?\n// 2. Can this operation be retried safely?\n// 3. What is the bottleneck?",
+        "caption": "A minimal engineering sketch for reasoning about Circuit Breaker."
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-circuit-breaker-numbers",
+      "payload": {
+        "text": "Back-of-the-envelope reasoning",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-circuit-breaker-numbers",
+      "payload": {
+        "text": "Numerical lens: write down traffic, payload size, read/write ratio, peak multiplier and durability target before choosing a component. The numbers should justify the architecture."
+      }
+    },
+    {
+      "type": "simulation",
+      "id": "upgrade-sim-circuit-breaker",
+      "payload": {
+        "title": "Interactive thought experiment: Circuit Breaker",
+        "description": "Change the variables below and predict what breaks first in Circuit Breaker. The production lab can later reuse these same inputs.",
+        "variables": [
+          {
+            "name": "traffic",
+            "description": "Requests/events per second",
+            "default": "1000"
+          },
+          {
+            "name": "latency",
+            "description": "Dependency latency",
+            "default": "50ms"
+          },
+          {
+            "name": "failure_rate",
+            "description": "Injected failure rate",
+            "default": "0%"
+          }
+        ],
+        "placeholder_note": "Interactive controls are deterministic; use the linked Labs section when a dedicated lab exists."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-circuit-breaker-hint",
+      "payload": {
+        "title": "Hint",
+        "body": "If you are stuck on Circuit Breaker, start by drawing the request path and marking every network hop, stateful component, queue, cache and failure boundary. Then estimate where the system will saturate.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-circuit-breaker-1",
+      "payload": {
+        "shape": "prediction",
+        "question": "You increase traffic by 10× in a system using Circuit Breaker. What should you inspect first?",
+        "options": [
+          "The newest framework version",
+          "The dominant bottleneck and its saturation signal",
+          "Only the UI",
+          "Nothing; the architecture should absorb any traffic automatically"
+        ],
+        "answer_index": 1,
+        "rationale": "System design is a constraint-and-bottleneck exercise. Start with the resource or dependency that will saturate first, then choose the smallest change that removes that bottleneck.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-circuit-breaker-2",
+      "payload": {
+        "shape": "mcq",
+        "question": "Which statement is the safest engineering habit when using Circuit Breaker?",
+        "options": [
+          "Choose it because it is popular",
+          "Add it before measuring the problem",
+          "State the workload, failure mode and trade-off it is solving",
+          "Use the most distributed design possible"
+        ],
+        "answer_index": 2,
+        "rationale": "Good architecture starts from requirements, workload and failure assumptions. The component is the consequence of that reasoning, not the starting point.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "scenario",
+      "id": "upgrade-scenario-circuit-breaker",
+      "payload": {
+        "prompt": "Production scenario: your system uses Circuit Breaker, traffic suddenly spikes, and p99 latency doubles. What is your first move?",
+        "context": "You have dashboards for traffic, latency, errors and saturation. You can change the architecture, but every change has operational cost.",
+        "options": [
+          {
+            "id": "a",
+            "text": "Add more instances immediately",
+            "outcome": "This may help, but only if compute saturation is the bottleneck.",
+            "correct": false
+          },
+          {
+            "id": "b",
+            "text": "Inspect the bottleneck and its saturation signal first",
+            "outcome": "Correct: diagnose before scaling or introducing a new pattern.",
+            "correct": true
+          },
+          {
+            "id": "c",
+            "text": "Disable monitoring to reduce overhead",
+            "outcome": "This removes the evidence you need to diagnose the incident.",
+            "correct": false
+          }
+        ],
+        "rationale": "Measure the limiting resource or dependency first. A bottleneck can be compute, database I/O, network, cache misses, lock contention, downstream latency, or queue backlog.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-circuit-breaker-interview",
+      "payload": {
+        "text": "Interview drill",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-circuit-breaker-interview",
+      "payload": {
+        "text": "**Answer this without notes:** When would you choose Circuit Breaker, and when would you intentionally avoid it? Mention at least one bottleneck it addresses, one failure mode it introduces, and one alternative. Then quantify the workload you are designing for."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "field-guide-circuit-breaker",
+      "payload": {
+        "title": "Engineering lens",
+        "body": "For Circuit Breaker, treat the system as a control loop: observe load and failure, choose a bounded response, and measure whether the response stabilizes the system instead of simply moving the bottleneck somewhere else.",
+        "kind": "tip"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "numerical-lens-circuit-breaker",
+      "payload": {
+        "text": "### Numerical sanity check\n\nWhen estimating capacity, distinguish average from peak. If average traffic is 4,000 RPS and the observed peak-to-average factor is 3×, design the first pass around roughly 12,000 RPS, then leave headroom for failure and growth."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "field-question-circuit-breaker",
+      "payload": {
+        "shape": "prediction",
+        "question": "What is the earliest signal that Circuit Breaker is becoming the bottleneck: latency, saturation, errors, queue depth, or something else? Why?",
+        "context": "Do not optimize for a memorized definition. Reason from the workload and failure mode.",
+        "options": [
+          "Scale the same component immediately.",
+          "Measure the current bottleneck and state the assumption that changed.",
+          "Add more technologies until throughput improves.",
+          "Choose the most popular architecture."
+        ],
+        "answer_index": 1,
+        "rationale": "Good system design starts with the bottleneck and the changed constraint. The most popular or complex choice is not automatically correct.",
+        "difficulty": "interview"
+      }
+    }
+  ],
+  "trade_offs": {
+    "pros": [
+      "Prevents cascading failures — one broken service doesn't take down everything.",
+      "Fails fast — frees resources instead of waiting for timeouts.",
+      "Gives downstream services time to recover.",
+      "Self-healing — automatically tests for recovery (half-open)."
+    ],
+    "cons": [
+      "Adds complexity — another state to reason about.",
+      "Can cause 'flapping' if the threshold is too sensitive.",
+      "Requires tuning — wrong thresholds cause false trips or missed failures.",
+      "Doesn't help with non-transient failures (e.g., a 404)."
+    ]
+  },
+  "failure_modes": [
+    "Threshold too sensitive — breaker trips on normal variance, causing unnecessary failures.",
+    "Threshold too insensitive — breaker never trips, cascading failure still happens.",
+    "Cooldown too short — downstream doesn't have time to recover before being hammered again.",
+    "No fallback — when the breaker is open, the caller needs a fallback (cached data, default value, error."
+  ],
+  "common_mistakes": [
+    "Treating the breaker as a retry mechanism — it's the opposite, it stops retries.",
+    "Not providing a fallback — when the breaker is open, what does the user see?",
+    "Setting the threshold too low — normal latency variance trips the breaker.",
+    "Forgetting to monitor breaker state — you need to know when breakers are open."
+  ],
+  "where_you_see_it": [
+    "Every resilient microservice architecture.",
+    "Service meshes (Istio, Linkerd) implement circuit breaking at the sidecar.",
+    "Cloud SDKs (AWS, GCP) have built-in circuit breakers for API calls."
+  ],
+  "interview_prompts": [
+    "What is a circuit breaker? How does it differ from a retry?",
+    "Explain the three states of a circuit breaker.",
+    "How do you choose the failure threshold and cooldown duration?",
+    "What happens when the breaker is open — what does the caller do?"
+  ],
+  "real_system_mappings": [
+    {
+      "system": "Netflix Hystrix",
+      "how": "Pioneered circuit breaking in microservices. Now deprecated in favor of Resilience4j, but the pattern is universal."
+    },
+    {
+      "system": "Istio service mesh",
+      "how": "Implements circuit breaking at the sidecar (Envoy proxy), so applications don't need circuit breaker code."
+    }
+  ],
+  "status": "published",
+  "sources": [
+    {
+      "title": "System Design Primer",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Open source"
+    },
+    {
+      "title": "ByteByteGo — Scale from zero to millions",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "ByteByteGo"
+    },
+    {
+      "title": "System Design Tutorial",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "GeeksforGeeks"
+    },
+    {
+      "title": "System Design Roadmap",
+      "url": "https://roadmap.sh/system-design",
+      "publisher": "roadmap.sh"
+    },
+    {
+      "title": "Reliability & Resilience reference",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Reliability & Resilience reference",
+      "url": "https://sre.google/sre-book/table-of-contents/",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Reliability & Resilience reference",
+      "url": "https://aws.amazon.com/builders-library/",
+      "publisher": "Reference"
+    },
+    {
+      "title": "AWS Well-Architected",
+      "url": "https://aws.amazon.com/architecture/well-architected/",
+      "publisher": "AWS"
+    }
+  ]
+}

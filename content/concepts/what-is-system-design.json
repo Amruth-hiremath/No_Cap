@@ -1,0 +1,485 @@
+{
+  "slug": "what-is-system-design",
+  "version": 5,
+  "title": "What is System Design",
+  "phase": "foundations",
+  "area": "Foundations",
+  "estimated_minutes": 9,
+  "difficulty": "core",
+  "summary": "System design is the process of defining the architecture, components, modules, interfaces, and data flows of a software system to meet specific requirements for scale, reliability, performance, and maintainability. It is the difference between code that works on your laptop and systems that survive production.",
+  "why_it_matters": "Most code works in development. Most systems fail in production — under real load, with real failures, with real users doing unexpected things. System design is the discipline that prevents those failures. Every interview, every architecture review, every incident postmortem is fundamentally a system-design conversation. If you can't reason about trade-offs, bottlenecks, and failure modes, you can't build systems that scale.",
+  "prerequisites": [],
+  "related": [
+    "how-to-approach-system-design",
+    "performance-vs-scalability",
+    "latency-vs-throughput"
+  ],
+  "used_in": [
+    "Every production software system ever built."
+  ],
+  "blocks": [
+    {
+      "type": "prose",
+      "id": "intro",
+      "payload": {
+        "text": "System design answers a deceptively simple question: **how do you build software that works at scale, survives failures, and can be maintained over time?**\n\nThe question is simple because the goal is obvious. The answer is hard because 'scale', 'failure', and 'time' each pull in different directions.\n\nWhen you write a script that reads a file and prints the result, you are programming. When you ask 'what happens if 10,000 people run this script at the same time, on different machines, and one of the machines catches fire?' — you are doing system design."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "definition",
+      "payload": {
+        "title": "Working definition",
+        "body": "System design is the process of choosing **what components** your system has, **how they communicate**, **where data lives**, and **what trade-offs you accept** — so the system meets its requirements for scale, reliability, latency, cost, and maintainability.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "diagram-layers",
+      "payload": {
+        "code": "flowchart TD\n    N0[\"clients\"]\n    N1[\"Users\"]\n    N2[\"(clients)\"]\n    N3[\"CDN\"]\n    N4[\"Load\"]\n    N5[\"Balancer\"]\n    N6[\"traffic\"]\n    N7[\"enters\"]\n    N8[\"here\"]\n    N9[\"Application\"]\n    N10[\"Layer\"]\n    N11[\"stateless\"]\n    N12[\"services\"]\n    N13[\"service A, service B, ...\"]\n    N14[\"(service\"]\n    N15[\"service\"]\n    N16[\"...)\"]\n    N17[\"Cache\"]\n    N18[\"Queue\"]\n    N19[\"state\"]\n    N20[\"lives\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20",
+        "caption": "A typical web system: clients → edge → app → stateful stores. Every box is a design decision.",
+        "alt_text": "A typical web system architecture diagram. Users connect through a CDN and load balancer to a layer of stateless application services. The services read from and write to a cache, a database, and a message queue. Every box represents a design decision with trade-offs."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "what-you-design",
+      "payload": {
+        "text": "When you design a system, you are making decisions in five areas:\n\n**1. Components** — what services, databases, caches, queues, and storage systems exist. A simple blog might have one web server and one database. A system like Netflix has hundreds of microservices, multiple database clusters, CDNs across the globe, and message queues connecting everything.\n\n**2. Communication** — how components talk to each other:\n- **Synchronous** (HTTP, gRPC): the caller waits for a response. Simple, but couples the caller's latency to the callee's.\n- **Asynchronous** (message queues, pub/sub): the caller sends and moves on. Decouples latency, but makes the system eventually consistent.\n- **Streaming** (WebSockets, SSE): persistent connection, server pushes data. Real-time, but resource-intensive.\n\n**3. Data** — where state lives and how it's stored:\n- **Relational** (PostgreSQL): structured, ACID, JOINs. Good for transactions.\n- **Key-value** (Redis): fast, simple. Good for caching.\n- **Document** (MongoDB): flexible schema. Good for content.\n- **Wide-column** (Cassandra): massive writes. Good for time-series.\n- **Object storage** (S3): files, images, videos. Cheap, durable.\n\n**4. Failure** — what happens when each component breaks:\n- If the primary database dies, can a replica take over?\n- If the cache cluster dies, does the system slow down or crash?\n- If a downstream service is slow, does your service hang or fail fast?\n- If an entire region goes offline, can you serve from another?\n\n**5. Scale** — how the system behaves at different loads:\n- 100 users: one server is fine.\n- 10,000 users: you need load balancing, caching, and probably read replicas.\n- 10,000,000 users: you need sharding, CDN, multi-region deployment, and careful capacity planning.\n\nEvery design decision is a trade-off. There are no free lunches."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "no-free-lunch",
+      "payload": {
+        "title": "The core truth",
+        "body": "You cannot have maximum consistency, maximum availability, and maximum performance simultaneously. You cannot have a system that is infinitely scalable, perfectly reliable, and trivially simple. System design is the art of choosing **which trade-offs are acceptable for your specific problem**.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "the-problem-first-approach",
+      "payload": {
+        "text": "Good system design always starts with the problem, not the technology. Before choosing Kafka or Cassandra, before drawing boxes and arrows, you must answer:\n\n**What problem am I solving?**\n- 'Users need to share short messages with followers.' (Twitter)\n- 'Users need to watch videos on any device, anywhere.' (Netflix)\n- 'Drivers and riders need to match in real time.' (Uber)\n\n**What are the constraints?**\n- How many users? (10K vs 10M changes everything)\n- What latency is acceptable? (50ms vs 500ms vs 5s)\n- What availability is required? (99% vs 99.99%)\n- What's the budget? (startup vs enterprise)\n- What's the team size? (2 people vs 200)\n\n**What are the trade-offs?**\n- Strong consistency vs high availability?\n- Low latency vs low cost?\n- Simplicity vs flexibility?\n\nOnly after answering these questions do you start choosing technologies. The biggest mistake in system design is jumping to 'use Kafka and Cassandra' before understanding whether you even need them."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "interview-context",
+      "payload": {
+        "text": "In a system-design interview, the interviewer is not looking for a 'correct' answer — there usually isn't one. They are looking for:\n\n- **Clarification**: do you ask good questions before designing? ('What's the DAU? What's the read/write ratio? Do we need real-time?')\n- **Structure**: do you break the problem into requirements → capacity → API → data model → high-level design → deep dive → bottlenecks → trade-offs?\n- **Trade-off awareness**: do you name what you're giving up when you choose a technology? ('I chose Redis for caching — it gives me sub-millisecond reads, but it's in-memory so I risk data loss on crash.')\n- **Communication**: can you explain your reasoning out loud, draw diagrams, and adjust when the interviewer changes constraints?\n\nThis is why system design is a skill, not memorization. You practice it by designing systems, explaining your choices, and learning from real architectures."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "real-example",
+      "payload": {
+        "text": "Let's make this concrete. Suppose you're asked: **Design a URL shortener like bit.ly.**\n\n**Step 1 — Clarify:**\n- How many URLs per day? (100M/month → ~40 URLs/sec average, 400/sec peak)\n- Read/write ratio? (100:1 — shorteners are read-heavy)\n- Custom aliases? (Yes, but max 15 chars)\n- Analytics? (Yes — track clicks, referrer, geo)\n- Lifespan? (URLs never expire)\n\n**Step 2 — Capacity:**\n- 100M URLs/month × 100 bytes each = 10GB/month = 120GB/year of URL data\n- 100:1 read ratio → 10B reads/month → ~4,000 reads/sec average\n- Analytics: 10B click events/month → ~4,000 events/sec\n\n**Step 3 — API:**\n- `POST /shorten {url: '...', alias?: '...'}` → `{short: 'https://x.co/abc123'}`\n- `GET /{code}` → 301 redirect to long URL + record analytics\n\n**Step 4 — Data model:**\n- URLs table: `code` (PK), `long_url`, `created_at`, `user_id`\n- Clicks table: `code`, `timestamp`, `ip`, `referrer`, `geo`\n- Store: SQL for URLs (need uniqueness + transactions), analytics DB (Cassandra — high write throughput)\n\n**Step 5 — High-level design:**\n- Clients → CDN → Load Balancer → App servers → (Cache for hot URLs + DB for cold)\n- Analytics: App → Message Queue → Analytics consumer → Cassandra\n\n**Step 6 — Deep dive (the hard part):**\n- How to generate short codes? Hash + base62 encoding, or counter + encoding.\n- How to handle collisions? Check DB, retry with salt.\n- How to serve 4,000 reads/sec? Cache hot URLs in Redis (hit rate > 90%).\n- How to handle analytics without slowing redirects? Fire-and-forget to a queue.\n\nThis is system design: **structured thinking about trade-offs at scale.**"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q1",
+      "payload": {
+        "question": "Which statement best captures what system design is?",
+        "shape": "mcq",
+        "options": [
+          "Choosing the right framework and programming language for your app.",
+          "Defining components, communication, data, failure, and scale trade-offs for a software system.",
+          "Writing code that passes all tests and has no bugs.",
+          "Deploying code to cloud infrastructure like AWS or GCP."
+        ],
+        "answer_index": 1,
+        "rationale": "Frameworks, tests, and deployment are all implementation details. System design is the higher-level discipline of deciding what components exist, how they communicate, where data lives, how failures are handled, and how the system scales. It is about architecture and trade-offs, not specific tools. A system designer can work in any language and any cloud — the thinking is what matters.",
+        "difficulty": "core"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q2",
+      "payload": {
+        "question": "You're asked to 'Design Twitter.' What should you do FIRST?",
+        "shape": "mcq",
+        "options": [
+          "Choose between PostgreSQL and Cassandra for the database.",
+          "Draw the high-level architecture with load balancers and app servers.",
+          "Clarify requirements: How many users? Real-time feed or eventual consistency? What's the read/write ratio?",
+          "Estimate storage needed for 5 years of tweets."
+        ],
+        "answer_index": 2,
+        "rationale": "Always clarify requirements before estimating capacity or choosing technology. Without knowing the DAU (10K vs 300M), the read/write ratio (read-heavy vs write-heavy), and whether the feed needs to be real-time, you cannot choose the right database, caching strategy, or architecture. This is the #1 mistake in system design interviews: jumping to technology before understanding the problem.",
+        "difficulty": "core"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q3",
+      "payload": {
+        "question": "In a system design interview, what is the interviewer PRIMARILY evaluating?",
+        "shape": "mcq",
+        "options": [
+          "Whether you can recite the CAP theorem from memory.",
+          "Whether you have built the exact system before.",
+          "Your ability to clarify requirements, structure the problem, and reason about trade-offs.",
+          "How fast you can draw boxes on a whiteboard."
+        ],
+        "answer_index": 2,
+        "rationale": "Interviewers evaluate structured thinking and trade-off reasoning, not memorization. They want to see you clarify ambiguous requirements, break the problem into manageable pieces, and explain why you chose each technology and what you gave up. A candidate who designs a simple, well-reasoned system beats one who draws a complex diagram without explaining trade-offs.",
+        "difficulty": "core"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "netflix-evolution-b2",
+      "payload": {
+        "text": "**Real architectures evolve with scale — Netflix as a worked example.**\n\nNetflix started in 1997 as a single monolithic application talking to a single Oracle database — the kind of system one team could deploy on a Friday afternoon. That worked while Netflix was a DVD-by-mail service shipping a few thousand discs a day. Then they launched streaming in 2007, and the geometry of the problem changed overnight: a DVD shipment is one event per user per week; a streaming session is hundreds of requests per user per hour, from anywhere on earth, on any device, with sub-second latency expectations.\n\nThe evolution (documented across a decade of Netflix engineering blog posts and postmortems):\n\n- **2008–2010**: monolith → horizontally-scaled stateless web tier behind AWS Elastic Load Balancer; Oracle replaced with sharded MySQL for the billing system that needed ACID; Cassandra introduced for viewing-history (massive writes, eventual consistency tolerated).\n- **2010–2013**: full migration to AWS — their own datacenters shut down. Per-service microservices replaced the monolith. EVCache (a Memcached-derived distributed cache) absorbs 90%+ of reads. Zuul (reverse proxy / API gateway) sits in front of all services. Hystrix (circuit breaker) isolates per-service failures.\n- **2013–2018**: global expansion drives multi-region active-active. Cassandra clusters span AWS regions. Chaos Monkey randomly kills production instances to force engineers to design for failure — the origin of the Simian Army chaos-engineering practice.\n- **2018–present**: Spinnaker (continuous delivery) does thousands of deployments per day. Each service owns its own data store; no shared database across services. Edge traffic flows through Amazon's global CDN plus their own Open Connect appliances inside ISP facilities.\n\nThe Netflix story is not 'we used microservices and Kafka'. It is 'each step of growth forced a specific architectural change, and each change was a trade-off.' Going from monolith to microservices bought independent deploys and per-service scaling at the cost of distributed-systems complexity, eventual consistency between services, and a much harder debugging story. EVCache bought a 90% cache hit rate at the cost of an in-memory store that, when it crashes, drops a multi-gigabyte-per-second read load straight onto Cassandra. Every architecture decision at Netflix is a trade-off, and the trade-offs compound."
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "decision-areas-b2",
+      "payload": {
+        "code": "flowchart LR\n    Req[Requirements<br/>scale, latency, consistency, cost, budget] --> Decide\n    subgraph Decide[5 Decision Areas]\n        direction TB\n        Comp[1. Components<br/>services, queues, caches, stores]\n        Comm[2. Communication<br/>sync RPC vs async queue vs stream]\n        Data[3. Data<br/>SQL, KV, document, wide-column, object]\n        Fail[4. Failure<br/>replicas, fallbacks, circuit breakers]\n        Scal[5. Scale<br/>stateless nodes, shards, regions]\n        Comp --> Comm --> Data --> Fail --> Scal\n    end\n    Decide --> ToF[Trade-offs<br/>explicit, defensible]\n    ToF --> Arch[Concrete architecture]\n    Arch -.feedback.-> Req\n\n    classDef area fill:#1e3a5f,stroke:#3b82f6,color:#e0e7ff\n    classDef io fill:#3a2e1e,stroke:#f59e0b,color:#fef3c7\n    class Comp,Comm,Data,Fail,Scal area\n    class Req,ToF,Arch io",
+        "caption": "The five decision areas, fed by requirements, output as a concrete architecture with explicit trade-offs.",
+        "alt_text": "A flowchart. Requirements (scale, latency, consistency, cost, budget) flow into a subgraph labelled '5 Decision Areas' containing five sequential nodes: 1. Components, 2. Communication, 3. Data, 4. Failure, 5. Scale. The subgraph outputs Trade-offs (explicit, defensible), which produces a Concrete architecture. A dotted feedback arrow returns from Architecture back to Requirements — signifying that design is iterative."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "scaling-orders-of-magnitude-b2",
+      "payload": {
+        "text": "**Scaling changes the system at every order of magnitude.**\n\nA useful mental model: each 10x in load forces a different architectural decision. Missing the transition kills companies.\n\n- **100 → 1,000 users** (a single server works): you are programming, not designing. Focus on correctness and ship.\n- **1,000 → 10,000 users** (single server strains): introduce a load balancer + a second app server, add a cache for hot reads, offload static assets to a CDN. The database is still one box.\n- **10,000 → 100,000 users** (database becomes the bottleneck): add read replicas, move sessions to Redis, move file uploads to S3. App servers are now stateless.\n- **100,000 → 1,000,000 users** (single-region ceiling): shard the database, add message queues for async work, introduce a service mesh. Deploy across multiple AZs.\n- **1,000,000 → 10,000,000 users** (one region is not enough): go multi-region. Active-active with conflict resolution, geo-routed traffic, global CDN. Each region now contains a full stack.\n- **10,000,000+** (the global internet-scale tier): custom protocols (QUIC), edge compute (Cloudflare Workers, Lambda@Edge), purpose-built databases (Spanner, DynamoDB), chaos engineering as a routine practice.\n\nThe common failure mode is jumping two steps ahead — adopting Kafka and sharded Cassandra at 5,000 users because 'we'll need it eventually'. You won't, or you will need something different by the time you do. The second-most-common failure mode is refusing to take the next step — running a single MySQL box at 500,000 users because 'it's simpler'. Both are expensive, in opposite directions."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "tradeoff-matrix-b2",
+      "payload": {
+        "title": "Trade-off analysis: write down what you give up",
+        "body": "Every senior design conversation ends with an explicit trade-off matrix. For each option, name (a) what it gives you, (b) what it costs, and (c) under what condition it breaks. Example: 'Redis cache gives sub-millisecond reads, costs in-memory RAM ($/GB) and risks data loss on crash, breaks when the working set exceeds RAM or when invalidation falls behind writes.' If you can't fill in column (c), you don't yet understand the choice. The most common design failure is not picking the wrong technology — it's picking a technology without knowing when it will betray you.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q-interview-b2",
+      "payload": {
+        "question": "In a system design interview, after you sketch a CDN → load balancer → stateless app services → Cassandra diagram for 'Design Netflix', the interviewer asks: 'So you'd just use Cassandra everywhere?' What is the strongest response?",
+        "shape": "mcq",
+        "options": [
+          "Yes — Cassandra handles massive writes, so it's the right choice for all our data.",
+          "No — I'd use Cassandra for viewing history (high write volume, eventual consistency OK), PostgreSQL for billing (ACID required for payments), Redis for hot-content caches, and S3 for the actual video files. Each store is chosen for its access pattern.",
+          "It depends — I'd start with Cassandra everywhere and migrate later if needed.",
+          "Actually I'd use DynamoDB because it's managed by AWS."
+        ],
+        "answer_index": 1,
+        "rationale": "Cassandra is excellent for time-series writes (viewing history) but the wrong choice for billing data which requires ACID transactions, foreign-key constraints, and joins. Polyglot persistence — using different databases for different access patterns — is exactly how Netflix actually built it: Cassandra for viewing history, MySQL for billing, EVCache/Redis for cache, S3 for media. Option 1 ('Cassandra everywhere') signals cargo-culting a single technology without reasoning about workloads. Option 3 ('start with Cassandra and migrate') is the worst kind of hedging — database migration is one of the most expensive engineering projects in existence, and 'we'll fix it later' usually means 'we'll fix it after an outage'. Option 4 (DynamoDB) is a technology choice without reasoning — managed != better. The interview-correct response names a specific workload, its requirements, and a matching technology, with the trade-off made explicit. That is what system design actually is.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-what-is-system-design-mental",
+      "payload": {
+        "text": "Engineering mental model",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-what-is-system-design-mental",
+      "payload": {
+        "text": "**Mental model.** Think of What is System Design as a deliberate boundary in a system. The boundary exists because something becomes harder to manage when everything is done in one place: latency, scale, failure isolation, consistency, cost, or team ownership. The useful question is not “what does What is System Design mean?” but “what pressure makes this boundary worth introducing, and what new failure mode does it create?”"
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-what-is-system-design-decision",
+      "payload": {
+        "title": "Design lens",
+        "body": "Before choosing What is System Design, name the workload, the critical user path, the dominant bottleneck, the failure you are trying to absorb, and the trade-off you are willing to accept. If you cannot name those five things, the design is probably premature.",
+        "kind": "info"
+      }
+    },
+    {
+      "type": "image",
+      "id": "upgrade-image-what-is-system-design",
+      "payload": {
+        "src": "/learning-visuals/what-is-system-design.svg",
+        "alt": "Original NO CAP systems visual for What is System Design.",
+        "caption": "What is System Design: a compact system-thinking visual.",
+        "credit": "Original NO CAP visual.",
+        "source_url": "https://github.com/donnemartin/system-design-primer"
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "upgrade-mermaid-what-is-system-design",
+      "payload": {
+        "code": "flowchart LR\n  A[Client] --> B[Gateway] --> C[Service] --> D[State] --> E[Outcome]",
+        "caption": "What is System Design: a simplified system view showing the primary flow and the main state boundaries.",
+        "alt_text": "What is System Design: a simplified system view showing the primary flow and the main state boundaries."
+      }
+    },
+    {
+      "type": "code",
+      "id": "upgrade-code-what-is-system-design",
+      "payload": {
+        "language": "text",
+        "code": "// Pseudocode\nrequest = receive()\nresult = what_is_system_design(request)\nreturn result\n\n// Production questions:\n// 1. What happens on timeout?\n// 2. Can this operation be retried safely?\n// 3. What is the bottleneck?",
+        "caption": "A minimal engineering sketch for reasoning about What is System Design."
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-what-is-system-design-numbers",
+      "payload": {
+        "text": "Back-of-the-envelope reasoning",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-what-is-system-design-numbers",
+      "payload": {
+        "text": "Numerical lens: write down traffic, payload size, read/write ratio, peak multiplier and durability target before choosing a component. The numbers should justify the architecture."
+      }
+    },
+    {
+      "type": "simulation",
+      "id": "upgrade-sim-what-is-system-design",
+      "payload": {
+        "title": "Interactive thought experiment: What is System Design",
+        "description": "Change the variables below and predict what breaks first in What is System Design. The production lab can later reuse these same inputs.",
+        "variables": [
+          {
+            "name": "traffic",
+            "description": "Requests/events per second",
+            "default": "1000"
+          },
+          {
+            "name": "latency",
+            "description": "Dependency latency",
+            "default": "50ms"
+          },
+          {
+            "name": "failure_rate",
+            "description": "Injected failure rate",
+            "default": "0%"
+          }
+        ],
+        "placeholder_note": "Interactive controls are deterministic; use the linked Labs section when a dedicated lab exists."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-what-is-system-design-hint",
+      "payload": {
+        "title": "Hint",
+        "body": "If you are stuck on What is System Design, start by drawing the request path and marking every network hop, stateful component, queue, cache and failure boundary. Then estimate where the system will saturate.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-what-is-system-design-1",
+      "payload": {
+        "shape": "prediction",
+        "question": "You increase traffic by 10× in a system using What is System Design. What should you inspect first?",
+        "options": [
+          "The newest framework version",
+          "The dominant bottleneck and its saturation signal",
+          "Only the UI",
+          "Nothing; the architecture should absorb any traffic automatically"
+        ],
+        "answer_index": 1,
+        "rationale": "System design is a constraint-and-bottleneck exercise. Start with the resource or dependency that will saturate first, then choose the smallest change that removes that bottleneck.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-what-is-system-design-2",
+      "payload": {
+        "shape": "mcq",
+        "question": "Which statement is the safest engineering habit when using What is System Design?",
+        "options": [
+          "Choose it because it is popular",
+          "Add it before measuring the problem",
+          "State the workload, failure mode and trade-off it is solving",
+          "Use the most distributed design possible"
+        ],
+        "answer_index": 2,
+        "rationale": "Good architecture starts from requirements, workload and failure assumptions. The component is the consequence of that reasoning, not the starting point.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "scenario",
+      "id": "upgrade-scenario-what-is-system-design",
+      "payload": {
+        "prompt": "Production scenario: your system uses What is System Design, traffic suddenly spikes, and p99 latency doubles. What is your first move?",
+        "context": "You have dashboards for traffic, latency, errors and saturation. You can change the architecture, but every change has operational cost.",
+        "options": [
+          {
+            "id": "a",
+            "text": "Add more instances immediately",
+            "outcome": "This may help, but only if compute saturation is the bottleneck.",
+            "correct": false
+          },
+          {
+            "id": "b",
+            "text": "Inspect the bottleneck and its saturation signal first",
+            "outcome": "Correct: diagnose before scaling or introducing a new pattern.",
+            "correct": true
+          },
+          {
+            "id": "c",
+            "text": "Disable monitoring to reduce overhead",
+            "outcome": "This removes the evidence you need to diagnose the incident.",
+            "correct": false
+          }
+        ],
+        "rationale": "Measure the limiting resource or dependency first. A bottleneck can be compute, database I/O, network, cache misses, lock contention, downstream latency, or queue backlog.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-what-is-system-design-interview",
+      "payload": {
+        "text": "Interview drill",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-what-is-system-design-interview",
+      "payload": {
+        "text": "**Answer this without notes:** When would you choose What is System Design, and when would you intentionally avoid it? Mention at least one bottleneck it addresses, one failure mode it introduces, and one alternative. Then quantify the workload you are designing for."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "field-guide-what-is-system-design",
+      "payload": {
+        "title": "Engineering lens",
+        "body": "A useful engineering lens for What is System Design: define the problem it solves, the simpler design that fails first, the constraint that forces you to introduce this concept, and the new failure modes the concept creates.",
+        "kind": "tip"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "numerical-lens-what-is-system-design",
+      "payload": {
+        "text": "### Numerical sanity check\n\nBack-of-the-envelope reasoning beats fake precision. State your traffic, payload, concurrency and growth assumptions explicitly, then calculate enough to know whether the current architecture is orders of magnitude away from the target."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "field-question-what-is-system-design",
+      "payload": {
+        "shape": "prediction",
+        "question": "Imagine the simplest version of a system using What is System Design. What breaks first as traffic grows by 10×, and what would you change before reaching 100×?",
+        "context": "Do not optimize for a memorized definition. Reason from the workload and failure mode.",
+        "options": [
+          "Scale the same component immediately.",
+          "Measure the current bottleneck and state the assumption that changed.",
+          "Add more technologies until throughput improves.",
+          "Choose the most popular architecture."
+        ],
+        "answer_index": 1,
+        "rationale": "Good system design starts with the bottleneck and the changed constraint. The most popular or complex choice is not automatically correct.",
+        "difficulty": "interview"
+      }
+    }
+  ],
+  "trade_offs": {
+    "pros": [
+      "Forces explicit reasoning about scale, reliability, and cost before building.",
+      "Catches problems before they become production incidents.",
+      "Creates a shared language for engineering teams to discuss architecture.",
+      "Enables teams to make informed decisions about technology choices."
+    ],
+    "cons": [
+      "No single 'correct' answer — judgement-based and subjective.",
+      "Time-consuming; easy to over-engineer or under-engineer.",
+      "Requires broad knowledge of many technologies and patterns.",
+      "Hard to practice without real production experience."
+    ]
+  },
+  "failure_modes": [
+    "Over-engineering: adding queues, caches, and microservices before the system needs them. Premature complexity is worse than simple code.",
+    "Under-engineering: assuming a single server and single database will scale forever. They won't.",
+    "Cargo-culting: copying a big-company architecture (e.g., Netflix) without understanding why they made those choices. Netflix has different constraints than you.",
+    "Ignoring failure modes: designing only for the happy path. In production, the unhappy path is the normal path."
+  ],
+  "common_mistakes": [
+    "Jumping into a solution before clarifying requirements and constraints.",
+    "Memorizing architectures instead of understanding trade-offs. 'Use Kafka' is not a design — it's a technology choice that must be justified.",
+    "Treating 'scalability' as a single axis — it has throughput, latency, and data-volume dimensions. A system can be high-throughput but high-latency.",
+    "Forgetting that the simplest design that meets requirements is usually the best design. Complexity has a cost."
+  ],
+  "where_you_see_it": [
+    "Every production software system ever built.",
+    "Every system-design interview at every tech company.",
+    "Every architecture review and incident postmortem."
+  ],
+  "interview_prompts": [
+    "What is system design, and why does it matter?",
+    "Walk me through how you would approach designing a system you've never seen before.",
+    "What's the difference between system design and software architecture?",
+    "Why do we study system design separately from programming?"
+  ],
+  "real_system_mappings": [
+    {
+      "system": "Netflix",
+      "how": "Microservices architecture with hundreds of services, each designed for a specific scale and failure profile. They migrated from a monolith to microservices to enable independent scaling and deployment. Their architecture is documented openly in their tech blog."
+    },
+    {
+      "system": "Uber",
+      "how": "Domain-oriented microservices with explicit dispatch, geospatial, and pricing subsystems. Evolved from a monolith to a distributed system over years as they scaled from one city to hundreds. Their engineering blog details the evolution."
+    }
+  ],
+  "status": "published",
+  "sources": [
+    {
+      "title": "System Design Primer",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Open source"
+    },
+    {
+      "title": "ByteByteGo — Scale from zero to millions",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "ByteByteGo"
+    },
+    {
+      "title": "System Design Tutorial",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "GeeksforGeeks"
+    },
+    {
+      "title": "System Design Roadmap",
+      "url": "https://roadmap.sh/system-design",
+      "publisher": "roadmap.sh"
+    },
+    {
+      "title": "Foundations reference",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Foundations reference",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Foundations reference",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "Reference"
+    }
+  ]
+}

@@ -1,0 +1,517 @@
+{
+  "slug": "cache-aside",
+  "version": 5,
+  "title": "Cache Aside (Lazy Loading)",
+  "phase": "cache-aside",
+  "area": "Caching",
+  "estimated_minutes": 8,
+  "difficulty": "core",
+  "summary": "Cache aside is the most common caching strategy. The application checks the cache first; on a miss, it fetches from the database, writes to the cache with a TTL, and returns. Writes update the DB and invalidate the cache. It is simple, fault-tolerant, and wastes no memory on unread data — but it allows stale reads and cache stampedes.",
+  "why_it_matters": "Cache aside is the default caching pattern for most web applications. If you use Redis or Memcached in front of a database, you are almost certainly using cache aside. Understanding its failure modes (stale data, stampede, thundering herd) is essential for building reliable systems.",
+  "prerequisites": [
+    "caching-strategies"
+  ],
+  "related": [
+    "write-through",
+    "write-behind",
+    "refresh-ahead"
+  ],
+  "used_in": [
+    "Netflix, web apps, APIs — everywhere reads outnumber writes."
+  ],
+  "blocks": [
+    {
+      "type": "prose",
+      "id": "intro",
+      "payload": {
+        "text": "In cache aside (also called lazy loading), the application code manages the cache explicitly. The cache is not pre-populated — it fills lazily based on actual access patterns. Only data that is actually read gets cached.\n\nThis is the most common caching strategy because it is simple, fault-tolerant, and memory-efficient. If the cache crashes, the system still works (just slower). If data is never read, it never enters the cache (no wasted memory)."
+      }
+    },
+    {
+      "type": "code",
+      "id": "code-example",
+      "payload": {
+        "language": "python",
+        "code": "from redis import Redis\n\ncache = Redis(...)\n\ndef get_user(user_id):\n    key = f'user:{user_id}'\n\n    # 1. Check cache first\n    cached = cache.get(key)\n    if cached:\n        return cached  # cache HIT\n\n    # 2. Cache MISS — fetch from DB\n    user = db.fetch_user(user_id)\n\n    # 3. Write to cache with TTL (safety net)\n    cache.set(key, user, ttl=300)  # 5 minutes\n\n    return user\n\ndef update_user(user_id, data):\n    # 1. Update DB first (source of truth)\n    db.update_user(user_id, data)\n    # 2. Invalidate cache (next read will re-populate)\n    cache.delete(f'user:{user_id}')",
+        "caption": "Cache aside in Python with Redis. Reads check cache, fall through to DB on miss, then populate. Writes invalidate."
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "flow",
+      "payload": {
+        "code": "flowchart TD\n    N0[\"READ\"]\n    N1[\"FLOW\"]\n    N2[\"App\"]\n    N3[\"Cache\"]\n    N4[\"[App]\"]\n    N5[\"[Cache]\"]\n    N6[\"fast, ~1ms\"]\n    N7[\"HIT?\"]\n    N8[\"YES\"]\n    N9[\"Return\"]\n    N10[\"(fast,\"]\n    N11[\"~1ms)\"]\n    N12[\"miss\"]\n    N13[\"(miss)\"]\n    N14[\"Database\"]\n    N15[\"[Database]\"]\n    N16[\"TTL=300s\"]\n    N17[\"fetch\"]\n    N18[\"write\"]\n    N19[\"cache\"]\n    N20[\"(TTL\"]\n    N21[\"300s)\"]\n    N22[\"slow, ~50ms\"]\n    N23[\"(slow,\"]\n    N24[\"~50ms)\"]\n    N25[\"WRITE\"]\n    N26[\"update source of truth\"]\n    N27[\"(update\"]\n    N28[\"source\"]\n    N29[\"truth)\"]\n    N30[\"DELETE key\"]\n    N31[\"invalidate\"]\n    N32[\"(DELETE\"]\n    N33[\"key)\"]\n    N34[\"Next\"]\n    N35[\"read:\"]\n    N36[\"MISS\"]\n    N37[\"from\"]\n    N38[\"repopulate\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38",
+        "caption": "Cache aside: first read misses and populates; subsequent reads hit. Writes invalidate.",
+        "alt_text": "Two diagrams. Read flow: the app checks the cache. If HIT, return in 1ms. If MISS, fetch from the database (50ms), write to cache with a 5-minute TTL, and return. Write flow: the app updates the database (source of truth), then invalidates the cache entry. The next read will miss and re-populate from the database."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "stale-warning",
+      "payload": {
+        "title": "Stale data risk",
+        "body": "Cache aside trades freshness for speed. Between a write and the cache invalidation, reads can return stale data. TTLs cap the staleness window — a 300s TTL means data is at most 5 minutes stale. For strong freshness, invalidate synchronously on write, but accept that the invalidation can fail (cache can be down) — always set a TTL as a safety net.",
+        "kind": "warning"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "stampede",
+      "payload": {
+        "text": "**Cache stampede (thundering herd):**\n\nA subtle failure mode: when a popular key expires, the next N requests all miss simultaneously, all fetch from the database, all write to the cache. The database takes N times the expected load for a brief window.\n\n**Example**: 10,000 requests/sec for a popular product page. The cache TTL expires. Within the next 100ms, 1,000 requests all see a miss. They all query the database. The database, which was handling 100 queries/sec (the 10% that were misses), now handles 1,000 queries in 100ms — 10x normal load. It may crash or become very slow.\n\n**Mitigations:**\n1. **Cache locking (request coalescing)**: only the first miss fetches from the DB; others wait for the first to complete and share the result.\n2. **Early refresh (refresh-ahead)**: refresh the cache before it expires, in the background.\n3. **Probabilistic early expiration**: add jitter to the TTL (e.g., TTL = 300s ± random(0-30s)) so keys don't all expire at the same instant."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "when-to-use",
+      "payload": {
+        "text": "**When to use cache aside:**\n- Read-heavy workloads (read:write ratio > 10:1).\n- Data that changes infrequently (product catalog, user profiles).\n- When you can tolerate brief staleness (social feeds, analytics).\n- When you want the simplest caching strategy.\n\n**When NOT to use cache aside:**\n- When staleness is unacceptable (bank balances, inventory counts). Use write-through instead.\n- When writes are very frequent and reads are rare. Cache aside adds invalidation overhead on every write for little benefit.\n- When you need the cache to be the source of truth for writes (write-behind)."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q1",
+      "payload": {
+        "question": "Your cache aside system uses a 5-minute TTL on user profiles. A user updates their bio, the DB write succeeds, but the cache invalidation call fails (cache is briefly down). What happens?",
+        "shape": "mcq",
+        "options": [
+          "The user sees their new bio immediately.",
+          "The user may see stale bio for up to 5 minutes, then it self-corrects when the TTL expires.",
+          "The database rolls back the write.",
+          "The cache becomes permanently inconsistent."
+        ],
+        "answer_index": 1,
+        "rationale": "The write succeeded, but the cache still holds the old bio. Until the TTL expires (up to 5 minutes), reads return stale data. Once the TTL expires, the next read misses, fetches the updated bio from the DB, and the cache is correct again. This is why TTLs are a safety net — they cap the maximum staleness window even when invalidation fails. Without a TTL, a failed invalidation would mean stale data forever.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q2",
+      "payload": {
+        "question": "A popular product page's cache entry expires. Within the same second, 1000 users request the page. What happens without mitigation?",
+        "shape": "mcq",
+        "options": [
+          "Nothing special — the cache refills normally.",
+          "All 1000 requests miss simultaneously, hammering the database with 1000 concurrent queries.",
+          "The cache automatically extends its TTL.",
+          "The load balancer blocks the requests."
+        ],
+        "answer_index": 1,
+        "rationale": "This is a cache stampede (thundering herd). All 1000 requests see a miss at the same time, all fetch from the database, all write to the cache. The database briefly takes 1000x the expected load. The fix is cache locking (only one request fetches, others wait), early refresh (refresh before expiry), or probabilistic early expiration (jitter the TTL).",
+        "difficulty": "hard"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "hit-miss-path-deep",
+      "payload": {
+        "text": "**The HIT and MISS paths, side by side.** Cache aside's apparent simplicity hides two very different code paths the application must execute correctly.\n\n**HIT path (cache hit, ~1ms):**\n1. App calls `cache.get(key)`.\n2. Redis returns the value in ~0.5-1ms (network + lookup).\n3. App deserializes and returns.\n\nThe HIT path is what makes cache-aside fast — it's a single Redis call, no DB involvement, no serialization of complex queries.\n\n**MISS path (cache miss, ~50-100ms):**\n1. App calls `cache.get(key)` — returns nil (0.5ms).\n2. App queries the database (10-100ms depending on query complexity).\n3. App serializes the result and calls `cache.set(key, value, TTL)` (1ms).\n4. App returns the value.\n\nThe MISS path is what makes cache-aside slow on the first request — but it's a one-time cost amortized over many subsequent HITs. The ratio of HITs to MISSes is the **cache hit rate** — typically 90-99% in production. At 95% hit rate, average latency = 0.95 × 1ms + 0.05 × 50ms = 3.45ms — far below the un-cached 50ms.\n\nThe subtle bug: if step 3 (`cache.set`) fails silently (Redis momentarily down, network blip), the next read will also miss — and the next, and the next. The cache stays empty until Redis recovers. Most production code logs and alarms on set-failure rates to catch this."
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "hit-miss-flow",
+      "payload": {
+        "code": "flowchart TD\n    Read[App: get_user 42] --> Get1[cache.get 'user:42']\n    Get1 --> Hit{Hit?}\n    Hit -->|YES - 1ms total| Return1[Deserialize + return<br/>HIT path: ~1ms]\n    Hit -->|MISS| DB[db.fetch_user 42<br/>~50ms]\n    DB --> Set[cache.set 'user:42', value, TTL=300s<br/>~1ms]\n    Set --> Return2[Return value<br/>MISS path: ~52ms]\n    Set -.->|set fails silently| Silent{Set OK?}\n    Silent -->|No - Redis down| Warn[Next reads will MISS too<br/>alarm and degrade to DB-only path]\n    Silent -->|Yes| OK[Cache populated]\n    classDef fast fill:#e6f4ea,stroke:#188038,color:#0d652d\n    classDef slow fill:#fff4e5,stroke:#cc7a00,color:#995500\n    classDef problem fill:#fee,stroke:#c33,color:#900\n    class Return1 fast\n    class Return2 slow\n    class Warn problem",
+        "caption": "Cache aside HIT and MISS paths. HIT is a single Redis call (~1ms). MISS adds a DB fetch and a cache.set (~52ms). Silent set failures cause cascading misses.",
+        "alt_text": "A flowchart of cache aside. App calls get_user(42), which calls cache.get. If hit, deserialize and return - 1ms total (HIT path). If miss, fetch from DB (50ms), then cache.set with TTL (1ms), then return - 52ms total (MISS path). If the cache.set fails silently (Redis down), next reads will also miss - alarm and degrade to DB-only path."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "write-invalidation-deep",
+      "payload": {
+        "text": "**Write invalidation — the order matters.** When the application updates the database, it must also update (or invalidate) the cache. The order of operations determines which failure modes you're exposed to:\n\n**Pattern 1: Update DB, then update cache.** If the cache update fails, the cache now holds stale data until TTL expires. Worst case: a write to the DB never propagates to the cache, and reads return the old value for the full TTL.\n\n**Pattern 2: Update DB, then invalidate cache (delete).** On the next read, the cache miss repopulates from the DB. If the delete fails, the cache holds stale data until TTL expires — same staleness window as Pattern 1, but the cache is empty (not stale) for the brief moment between DB update and delete.\n\n**Pattern 3 (BAD): Update cache, then update DB.** If the DB write fails after the cache was updated, the cache now holds data that doesn't exist in the DB. Reads will return 'successful' results for an operation that didn't actually happen. Never use this pattern.\n\n**Pattern 4 (BAD): Delete cache, then update DB.** Between the delete and the DB update, another read can MISS, fetch the OLD value from the DB, and write the OLD value back to the cache — overwriting the soon-to-be-updated value. The cache and DB diverge, and the cache stays stale until TTL expires. This is a classic race condition.\n\nThe consensus: use Pattern 2 (update DB first, then invalidate cache), and always set a TTL as a safety net for failed invalidations. The TTL bounds the maximum staleness window — even if invalidation fails, the cache will eventually expire and re-fetch from the DB."
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "write-invalidation-seq",
+      "payload": {
+        "code": "sequenceDiagram\n    participant App\n    participant DB\n    participant Cache\n    Note over App: Pattern 2 - update DB then invalidate cache\n    App->>DB: UPDATE user SET bio='new' WHERE id=42\n    DB-->>App: OK (write committed)\n    App->>Cache: DEL 'user:42'\n    Cache-->>App: OK (1 key deleted)\n    Note over App,Cache: Cache now empty - next read will MISS and repopulate\n    Note over App,Cache: If DEL fails, TTL is the safety net:\n    Note over App,Cache: stale data served until TTL expires, then corrected\n    Note over App,Cache: ---\n    Note over App,Cache: Anti-pattern 4 - delete cache then update DB\n    App->>Cache: DEL 'user:42'\n    Note over App: Between DEL and DB UPDATE,\n    Note over App: a concurrent read can MISS,\n    Note over App: fetch OLD value from DB,\n    Note over App: and SET it back into cache.\n    App->>DB: UPDATE user SET bio='new' WHERE id=42\n    Note over Cache: Cache now holds OLD value\n    Note over Cache: written by the concurrent reader.\n    Note over Cache: DB has NEW value. Diverged!\n    Note over Cache: Stuck until TTL expires.",
+        "caption": "Write invalidation sequence. Pattern 2 (update DB then DEL cache) is safe — failed deletes are bounded by TTL. Anti-pattern 4 (DEL cache then update DB) has a race condition: a concurrent read can repopulate the cache with the OLD value.",
+        "alt_text": "A sequence diagram. Pattern 2: app updates DB first (committed), then deletes the cache key. Next read will miss and repopulate. If DEL fails, TTL is the safety net. Anti-pattern 4: app deletes the cache key first, then updates the DB. Between the delete and the DB update, a concurrent read can miss, fetch the OLD value from the DB, and SET it back into the cache. Now the cache holds the OLD value and the DB holds the NEW value — diverged, stuck until TTL expires."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "stampede-mitigation-comparison",
+      "payload": {
+        "text": "**Cache stampede mitigations, compared.** All three approaches reduce the thundering-herd problem; each has different trade-offs.\n\n| Mitigation | How it works | Pros | Cons |\n|------------|--------------|------|------|\n| **Cache lock** | First MISS acquires a lock; others wait. | Simple, DB sees 1 query. | Waiters pay extra latency (up to the DB query time). Lock holder is a single point of failure. |\n| **Probabilistic early expiration** | TTL = base + random(-jitter, +jitter). Misses spread over time instead of clustering. | No coordination needed; decentralized. | Some misses still happen, just spread out. Tuning the jitter is tricky. |\n| **Refresh-ahead** | Background job refreshes popular items before expiry. | Users never see a miss for popular items. | Wastes work refreshing items that may not be read. |\n\nThe production choice depends on the workload:\n- **Hot key with predictable traffic** (home page, top product): refresh-ahead — zero misses, low latency, worth the wasted refresh.\n- **Many keys with spiky access** (user profiles): probabilistic early expiration — cheap, scales, requires no coordination.\n- **One-off expensive query** (rare but slow): cache lock — keep the DB safe, accept the waiter latency.\n\nIn practice, most teams combine: refresh-ahead for the top-N hottest keys, probabilistic jitter for the long tail, and cache locking as the last-resort safety net on the rarest, most expensive queries. Netflix, Facebook, and Twitter all use combinations of these techniques."
+      }
+    },
+    {
+      "type": "code",
+      "id": "redis-stampede-code",
+      "payload": {
+        "language": "python",
+        "code": "import redis\nimport json\nimport time\nimport uuid\n\nr = redis.Redis(...)\n\n# Cache-aside with stampede protection via SET NX (lock)\n\ndef get_user(user_id):\n    key = f'user:{user_id}'\n    lock_key = f'lock:{key}'\n\n    # 1. Fast path: cache HIT\n    cached = r.get(key)\n    if cached:\n        return json.loads(cached)\n\n    # 2. MISS - try to acquire a lock with NX (only one wins)\n    #    Others wait and retry the cache read.\n    lock_token = str(uuid.uuid4())\n    acquired = r.set(lock_key, lock_token, nx=True, ex=10)  # 10s TTL on the lock\n\n    if not acquired:\n        # Another request is fetching - wait and retry cache\n        for _ in range(20):\n            time.sleep(0.05)  # 50ms\n            cached = r.get(key)\n            if cached:\n                return json.loads(cached)\n        # Lock held too long - fall through to DB as a safety net\n\n    try:\n        # 3. Cache MISS path: fetch from DB (the slow part)\n        user = db.fetch_user(user_id)\n\n        # 4. Populate cache with TTL (safety net for failed invalidation)\n        #    Add +/- 30s jitter to spread out future expiries (stampede mitigation)\n        jitter = random.randint(-30, 30)\n        r.set(key, json.dumps(user), ex=300 + jitter)\n        return user\n    finally:\n        # 5. Release the lock - only if we still hold it (use Lua for atomic check-and-del)\n        r.eval(\n            'if redis.call(\"get\", KEYS[1]) == ARGV[1] then '\n            '  return redis.call(\"del\", KEYS[1]) '\n            'else return 0 end',\n            1, lock_key, lock_token\n        )\n\ndef update_user(user_id, data):\n    # Pattern 2: update DB first, then invalidate cache\n    db.update_user(user_id, data)\n    r.delete(f'user:{user_id}')  # if this fails, TTL is the safety net",
+        "caption": "Production cache-aside in Python with stampede protection (cache lock + TTL jitter) and safe write invalidation (DB first, then delete)."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "t-debounce-key",
+      "payload": {
+        "title": "Key design matters as much as TTL",
+        "body": "A subtle cache-aside bug: cache key choice. If you cache by `user_id` only, all reads of a user share one entry — fine. But if you cache `user:42:with_orders` (a join of user + their orders) under the same `user:42` key as the basic profile, an order update invalidates the basic profile too — unnecessary. Use specific keys per shape of data: `user:{id}`, `user:{id}:with_orders`, `user:{id}:permissions`. On write, invalidate only the keys whose shape changed. Netflix's EVCache uses a versioned key scheme: `user:{id}:v{schema_version}` — bumping the version invalidates the whole shape atomically. The lesson: cache key design is a schema decision, not an afterthought. Plan your cache keys like you plan your database schema.",
+        "kind": "tip"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q-write-order-race",
+      "payload": {
+        "question": "Your team implements cache invalidation as: `cache.delete(key); db.update(...)`. The code review flags it as a race condition. Why?",
+        "shape": "mcq",
+        "options": [
+          "It's not a race — delete before update is fine because the cache will repopulate.",
+          "Between the cache.delete and the db.update, a concurrent read can MISS, fetch the OLD value from the DB, and SET it back into the cache — overwriting the new value the db.update is about to write. Cache and DB diverge until TTL expires.",
+          "The race is that the DB update might fail and the cache is already deleted.",
+          "There's no race condition — delete-then-update is the standard pattern."
+        ],
+        "answer_index": 1,
+        "rationale": "This is the classic cache-aside race condition. Sequence: (1) App A calls cache.delete(key) — cache is now empty. (2) Before App A calls db.update, App B reads: cache MISS, fetches OLD value from DB, calls cache.set(key, OLD_VALUE). (3) App A calls db.update — DB now has NEW value. (4) The cache now holds OLD_VALUE (set by App B in step 2), the DB holds NEW_VALUE — they diverged. Subsequent reads return the OLD value until TTL expires. The fix: reverse the order — update DB first, then delete cache. Pattern 2 (update DB, then delete cache) avoids this race because there's no window where a MISS could repopulate the cache with stale data. The window between db.update and cache.delete is a 'stale read window' (reads may return the OLD cached value briefly), but it self-corrects on the delete. Option 2 is incorrect because the DB update failing is a different problem (transactional integrity, not cache coherence). Option 4 is wrong — delete-then-update is explicitly an anti-pattern.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "scenario",
+      "id": "scenario-stale-bio",
+      "payload": {
+        "prompt": "A user updates their profile bio. They refresh the page 2 seconds later and still see the old bio. They refresh again 10 seconds later — old bio. They refresh at 60 seconds — finally the new bio appears. Your code does: `db.update(...); cache.delete(key)` with TTL=300s. Diagnose.",
+        "context": "The cache.delete call appears in your logs as successful. Redis is healthy. The DB write is committed.",
+        "options": [
+          {
+            "id": "a",
+            "text": "The cache.delete failed silently — Redis is dropping some commands.",
+            "outcome": "Unlikely if Redis is healthy and other deletes work. But check by adding a GET after the DELETE in code.",
+            "correct": false
+          },
+          {
+            "id": "b",
+            "text": "There's a race condition: another reader fetched the OLD value between the db.update and the cache.delete, and repopulated the cache with OLD data. The TTL (300s) means stale data is served for up to 5 minutes.",
+            "outcome": "Possible but unlikely — the window between db.update and cache.delete is microseconds, very few reads would land in it.",
+            "correct": false
+          },
+          {
+            "id": "c",
+            "text": "There's a multi-layer cache hierarchy. The browser, CDN, app-server in-process cache, and Redis all cached the OLD bio. The cache.delete only cleared Redis. The CDN or browser is serving the stale version.",
+            "outcome": "Correct — a single cache.delete only clears one layer. The CDN may have cached the bio response with its own TTL. The browser may have cached the page. Without Cache-Control headers and CDN purges, stale data persists at every layer.",
+            "correct": true
+          },
+          {
+            "id": "d",
+            "text": "The DB replication lag is high — the read replica doesn't yet have the new bio.",
+            "outcome": "Possible but the 60-seconds-then-it-works pattern doesn't match typical replication lag (usually <1s).",
+            "correct": false
+          }
+        ],
+        "rationale": "The pattern — stale for ~60s, then suddenly fresh — is the signature of a multi-layer cache hierarchy. The 60-second mark likely corresponds to the TTL of an intermediate cache (CDN, browser, or app-server cache). The cache.delete only cleared Redis; the intermediate layer is still serving the old response until its own TTL expires. The fix is two-fold: (1) issue a CDN purge (or use cache-busting URLs with version hashes) so the CDN drops the stale response immediately; (2) set appropriate Cache-Control headers on the response (e.g., `Cache-Control: no-cache` for user-specific pages, `max-age=60` for public pages) so each layer knows how long to cache. The broader lesson: in a multi-layer cache, a single invalidation is insufficient. You need a coordinated invalidation strategy (or accept multi-layer staleness). Production systems use Cache-Control headers + CDN purge APIs + versioned asset URLs to keep all layers in sync. Option A (silent Redis failure) is unlikely if other deletes work and Redis is healthy. Option B (the race condition from anti-pattern 4) is possible but the timing would be much rarer and wouldn't produce the consistent ~60s pattern. Option D (replication lag) is usually sub-second in modern databases and doesn't match the 60s pattern.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-cache-aside-mental",
+      "payload": {
+        "text": "Engineering mental model",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-cache-aside-mental",
+      "payload": {
+        "text": "**Mental model.** Think of Cache Aside (Lazy Loading) as a deliberate boundary in a system. The boundary exists because something becomes harder to manage when everything is done in one place: latency, scale, failure isolation, consistency, cost, or team ownership. The useful question is not “what does Cache Aside (Lazy Loading) mean?” but “what pressure makes this boundary worth introducing, and what new failure mode does it create?”"
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-cache-aside-decision",
+      "payload": {
+        "title": "Design lens",
+        "body": "Before choosing Cache Aside (Lazy Loading), name the workload, the critical user path, the dominant bottleneck, the failure you are trying to absorb, and the trade-off you are willing to accept. If you cannot name those five things, the design is probably premature.",
+        "kind": "info"
+      }
+    },
+    {
+      "type": "image",
+      "id": "upgrade-image-cache-aside",
+      "payload": {
+        "src": "/learning-visuals/cache-aside.svg",
+        "alt": "Original NO CAP systems visual for Cache Aside (Lazy Loading).",
+        "caption": "Cache Aside (Lazy Loading): a compact system-thinking visual.",
+        "credit": "Original NO CAP visual.",
+        "source_url": "https://github.com/donnemartin/system-design-primer"
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "upgrade-mermaid-cache-aside",
+      "payload": {
+        "code": "flowchart LR\n  A[Request] --> B[Lookup] --> C[Cache] --> D[Origin] --> E[Response]",
+        "caption": "Cache Aside (Lazy Loading): a simplified system view showing the primary flow and the main state boundaries.",
+        "alt_text": "Cache Aside (Lazy Loading): a simplified system view showing the primary flow and the main state boundaries."
+      }
+    },
+    {
+      "type": "code",
+      "id": "upgrade-code-cache-aside",
+      "payload": {
+        "language": "python",
+        "code": "value = cache.get(key)\nif value is None:\n    value = load_from_origin(key)\n    cache.set(key, value, ttl=300)\nreturn value",
+        "caption": "A minimal engineering sketch for reasoning about Cache Aside (Lazy Loading)."
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-cache-aside-numbers",
+      "payload": {
+        "text": "Back-of-the-envelope reasoning",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-cache-aside-numbers",
+      "payload": {
+        "text": "Example: 100,000 requests/s at 90% cache hit rate means roughly 10,000 requests/s reach the origin. Raising the hit rate from 90% to 95% cuts origin traffic in half again."
+      }
+    },
+    {
+      "type": "simulation",
+      "id": "upgrade-sim-cache-aside",
+      "payload": {
+        "title": "Interactive thought experiment: Cache Aside (Lazy Loading)",
+        "description": "Change the variables below and predict what breaks first in Cache Aside (Lazy Loading). The production lab can later reuse these same inputs.",
+        "variables": [
+          {
+            "name": "request_rate",
+            "description": "Requests per second",
+            "default": "10000"
+          },
+          {
+            "name": "hit_rate",
+            "description": "Cache hit percentage",
+            "default": "90%"
+          },
+          {
+            "name": "ttl",
+            "description": "Cache freshness window",
+            "default": "300s"
+          }
+        ],
+        "placeholder_note": "Interactive controls are deterministic; use the linked Labs section when a dedicated lab exists."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-cache-aside-hint",
+      "payload": {
+        "title": "Hint",
+        "body": "If you are stuck on Cache Aside (Lazy Loading), start by drawing the request path and marking every network hop, stateful component, queue, cache and failure boundary. Then estimate where the system will saturate.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-cache-aside-1",
+      "payload": {
+        "shape": "prediction",
+        "question": "You increase traffic by 10× in a system using Cache Aside (Lazy Loading). What should you inspect first?",
+        "options": [
+          "The newest framework version",
+          "The dominant bottleneck and its saturation signal",
+          "Only the UI",
+          "Nothing; the architecture should absorb any traffic automatically"
+        ],
+        "answer_index": 1,
+        "rationale": "System design is a constraint-and-bottleneck exercise. Start with the resource or dependency that will saturate first, then choose the smallest change that removes that bottleneck.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-cache-aside-2",
+      "payload": {
+        "shape": "mcq",
+        "question": "Which statement is the safest engineering habit when using Cache Aside (Lazy Loading)?",
+        "options": [
+          "Choose it because it is popular",
+          "Add it before measuring the problem",
+          "State the workload, failure mode and trade-off it is solving",
+          "Use the most distributed design possible"
+        ],
+        "answer_index": 2,
+        "rationale": "Good architecture starts from requirements, workload and failure assumptions. The component is the consequence of that reasoning, not the starting point.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "scenario",
+      "id": "upgrade-scenario-cache-aside",
+      "payload": {
+        "prompt": "Production scenario: your system uses Cache Aside (Lazy Loading), traffic suddenly spikes, and p99 latency doubles. What is your first move?",
+        "context": "You have dashboards for traffic, latency, errors and saturation. You can change the architecture, but every change has operational cost.",
+        "options": [
+          {
+            "id": "a",
+            "text": "Add more instances immediately",
+            "outcome": "This may help, but only if compute saturation is the bottleneck.",
+            "correct": false
+          },
+          {
+            "id": "b",
+            "text": "Inspect the bottleneck and its saturation signal first",
+            "outcome": "Correct: diagnose before scaling or introducing a new pattern.",
+            "correct": true
+          },
+          {
+            "id": "c",
+            "text": "Disable monitoring to reduce overhead",
+            "outcome": "This removes the evidence you need to diagnose the incident.",
+            "correct": false
+          }
+        ],
+        "rationale": "Measure the limiting resource or dependency first. A bottleneck can be compute, database I/O, network, cache misses, lock contention, downstream latency, or queue backlog.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-cache-aside-interview",
+      "payload": {
+        "text": "Interview drill",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-cache-aside-interview",
+      "payload": {
+        "text": "**Answer this without notes:** When would you choose Cache Aside (Lazy Loading), and when would you intentionally avoid it? Mention at least one bottleneck it addresses, one failure mode it introduces, and one alternative. Then quantify the workload you are designing for."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "field-guide-cache-aside",
+      "payload": {
+        "title": "Engineering lens",
+        "body": "For Cache Aside (Lazy Loading), reason in this order: what data is hottest, where can it live closer to the caller, what makes it stale, and what happens on a miss or cache failure. A cache is an optimization boundary, not the source of truth.",
+        "kind": "tip"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "numerical-lens-cache-aside",
+      "payload": {
+        "text": "### Numerical sanity check\n\nA useful first-order model is cache_load = request_rate × (1 - hit_rate). If traffic is 20,000 req/s and the hit rate is 90%, roughly 2,000 req/s still reaches the origin before considering misses caused by expiration or eviction."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "field-question-cache-aside",
+      "payload": {
+        "shape": "prediction",
+        "question": "You have a read-heavy Cache Aside (Lazy Loading) path. Traffic doubles overnight. What metric would you inspect first, and what would convince you to add another cache layer?",
+        "context": "Do not optimize for a memorized definition. Reason from the workload and failure mode.",
+        "options": [
+          "Scale the same component immediately.",
+          "Measure the current bottleneck and state the assumption that changed.",
+          "Add more technologies until throughput improves.",
+          "Choose the most popular architecture."
+        ],
+        "answer_index": 1,
+        "rationale": "Good system design starts with the bottleneck and the changed constraint. The most popular or complex choice is not automatically correct.",
+        "difficulty": "interview"
+      }
+    }
+  ],
+  "trade_offs": {
+    "pros": [
+      "Lazy population — cache only holds data someone actually reads.",
+      "Fault-tolerant — if cache dies, system keeps working (just slower).",
+      "Simple to implement — GET, SET, DEL.",
+      "Memory-efficient — no wasted entries."
+    ],
+    "cons": [
+      "Stale data window up to TTL duration.",
+      "Cache stampede on popular key expiry.",
+      "Application code is aware of the cache (not transparent).",
+      "First read after expiry is slow (cache miss)."
+    ]
+  },
+  "failure_modes": [
+    "Stale data — invalidation fails, TTL hasn't expired yet.",
+    "Cache stampede — popular key expiry causes thundering herd.",
+    "Cache thrashing — keys evicted before they're read again (cache too small).",
+    "Inconsistent state — DB updated but cache invalidation failed."
+  ],
+  "common_mistakes": [
+    "No TTL. Without a TTL, a cache invalidation failure means stale data forever.",
+    "Updating cache before DB. If the cache write succeeds but the DB write fails, you are now inconsistent. Always write DB first, then invalidate cache.",
+    "Forgetting cache stampede protection on hot keys.",
+    "Caching everything. Caching rarely-read data wastes memory and adds invalidation complexity."
+  ],
+  "where_you_see_it": [
+    "Netflix, web apps, APIs — everywhere reads outnumber writes.",
+    "Redis, Memcached, Varnish, CDN edge caching.",
+    "Browser cache, OS page cache — caching is everywhere, layered."
+  ],
+  "interview_prompts": [
+    "Design a caching layer for a news feed that gets 10k reads/sec and 10 writes/sec.",
+    "How do you handle cache stampedes? What are the trade-offs of each approach?",
+    "Your cache and database diverged. How do you detect it, and how do you fix it?",
+    "When would you NOT use cache aside? What are the alternatives?"
+  ],
+  "real_system_mappings": [
+    {
+      "system": "Netflix",
+      "how": "Multi-tier caching: CDN edge → EVCache (origin cache, cache-aside) → database. 90%+ of reads served from cache. Cache-aside for content metadata."
+    },
+    {
+      "system": "Redis",
+      "how": "The most popular in-memory cache. Used in cache-aside mode by most applications: GET on read, SET on miss, DEL on write."
+    }
+  ],
+  "status": "published",
+  "sources": [
+    {
+      "title": "System Design Primer",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Open source"
+    },
+    {
+      "title": "ByteByteGo — Scale from zero to millions",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "ByteByteGo"
+    },
+    {
+      "title": "System Design Tutorial",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "GeeksforGeeks"
+    },
+    {
+      "title": "System Design Roadmap",
+      "url": "https://roadmap.sh/system-design",
+      "publisher": "roadmap.sh"
+    },
+    {
+      "title": "Caching reference",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Caching reference",
+      "url": "https://aws.amazon.com/caching/",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Caching reference",
+      "url": "https://redis.io/docs/latest/develop/get-started/",
+      "publisher": "Reference"
+    }
+  ]
+}

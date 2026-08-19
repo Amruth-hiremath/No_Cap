@@ -1,0 +1,423 @@
+{
+  "slug": "event-sourcing",
+  "version": 3,
+  "title": "Event Sourcing",
+  "phase": "cloud-architecture",
+  "area": "Cloud Architecture",
+  "estimated_minutes": 7,
+  "difficulty": "expert",
+  "summary": "Event Sourcing stores the system's state as an append-only log of events — every state change is captured as an immutable event, and current state is derived by replaying the log. Instead of storing the current row in `orders`, you store `OrderCreated`, `OrderShipped`, `OrderCancelled` events; the order's current state is computed by folding over the events. This gives an audit trail for free, time-travel queries (what was the state at 3 PM Tuesday?), and the ability to rebuild any read model from the log. The trade-offs: complexity, eventual consistency on reads, and an event schema that must be carefully versioned.",
+  "why_it_matters": "Traditional CRUD stores only the current state — overwriting history with every update. When a bug occurs, you can't reconstruct what happened. When you need a new view of the data, you can't derive it from current state alone. Event Sourcing inverts this: the log is the truth, current state is a projection. This is the architecture behind financial ledgers (every transaction is an event), Git (every commit is an event), Kafka (every message is an event), and modern CQRS systems. It's also the foundation for audit-compliant systems, time-travel debugging, and rebuilding read models from scratch.",
+  "prerequisites": [
+    "cqrs",
+    "wal"
+  ],
+  "related": [
+    "cqrs",
+    "materialized-view"
+  ],
+  "used_in": [
+    "Financial systems — ledgers where every transaction must be auditable.",
+    "Version control systems — Git's commit log is event-sourced.",
+    "CQRS systems where the write model is the event log.",
+    "Compliance-heavy domains (healthcare, finance) requiring full audit trails.",
+    "Event-driven microservice architectures."
+  ],
+  "blocks": [
+    {
+      "type": "prose",
+      "id": "intro",
+      "payload": {
+        "text": "In a traditional CRUD system, the database stores the *current state* of each entity. When you update an order's status from `pending` to `shipped`, the old `pending` value is overwritten — history is lost. To query ‘what was this order's status at 3 PM Tuesday?’ you'd need separate audit logs, and they're usually incomplete.\n\nEvent Sourcing flips the model. The system's state is an append-only log of events:\n\n```\nevent_id  | aggregate_id | event_type        | payload              | timestamp\n1         | order-42     | OrderCreated      | {items: [...], total} | 10:00\n2         | order-42     | PaymentReceived   | {amount: 100}         | 10:05\n3         | order-42     | OrderShipped      | {tracking: '...'}     | 11:30\n4         | order-42     | OrderDelivered    | {}                    | 14:00\n```\n\nThe order's current state is computed by replaying events 1-4: created, paid, shipped, delivered. The current state is a *projection* of the log.\n\nKey properties:\n- **Append-only** — events are never modified or deleted (except via compaction, which preserves the latest event per aggregate).\n- **Immutable** — once written, an event never changes.\n- **Ordered** — events have a sequence number; replay must preserve order.\n- **Named and typed** — each event type describes a domain fact (`OrderShipped`, not `update status to 'shipped'`).\n- **Source of truth** — the log is the truth; projections (read models) are derived.\n\nThe aggregate (e.g., an Order) is reconstructed by folding events:\n```python\ndef apply(state, event):\n    if event.type == 'OrderCreated':\n        return State(status='pending', items=event.items, total=event.total)\n    elif event.type == 'PaymentReceived':\n        return state.with(status='paid')\n    elif event.type == 'OrderShipped':\n        return state.with(status='shipped', tracking=event.tracking)\n    ...\n\ncurrent_state = fold(apply, initial_state, events_for_order_42)\n```\n\nThis is the same pattern Git uses internally (commits are events), and the same pattern financial ledgers have used for centuries (every transaction is recorded)."
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "topology",
+      "payload": {
+        "code": "flowchart TD\n    N0[\"Command\"]\n    N1[\"Bus\"]\n    N2[\"validates, applies, emits\"]\n    N3[\"(validates,\"]\n    N4[\"applies,\"]\n    N5[\"emits)\"]\n    N6[\"Event\"]\n    N7[\"Store\"]\n    N8[\"append\"]\n    N9[\"only\"]\n    N10[\"log\"]\n    N11[\"e1\"]\n    N12[\"source of truth\"]\n    N13[\"OrderCreated\"]\n    N14[\"(e1)\"]\n    N15[\"(source\"]\n    N16[\"truth)\"]\n    N17[\"e2\"]\n    N18[\"PaymentReceived\"]\n    N19[\"(e2)\"]\n    N20[\"e3\"]\n    N21[\"OrderShipped\"]\n    N22[\"(e3)\"]\n    N23[\"e4\"]\n    N24[\"OrderDelivered\"]\n    N25[\"(e4)\"]\n    N26[\"stream\"]\n    N27[\"replay\"]\n    N28[\"Projection:\"]\n    N29[\"current\"]\n    N30[\"state\"]\n    N31[\"daily_revenue\"]\n    N32[\"audit_trail\"]\n    N33[\"orders tab\"]\n    N34[\"analytics\"]\n    N35[\"compliance\"]\n    N36[\"(orders\"]\n    N37[\"tab)\"]\n    N38[\"(analytics)\"]\n    N39[\"(compliance)\"]\n    N40[\"Replaying\"]\n    N41[\"e1..e4\"]\n    N42[\"reconstructs\"]\n    N43[\"Order\"]\n    N44[\"42's\"]\n    N45[\"state.\"]\n    N46[\"Different\"]\n    N47[\"projections\"]\n    N48[\"different\"]\n    N49[\"views\"]\n    N50[\"the\"]\n    N51[\"same\"]\n    N52[\"events.\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44\n    N44 --> N45\n    N45 --> N46\n    N46 --> N47\n    N47 --> N48\n    N48 --> N49\n    N49 --> N50\n    N50 --> N51\n    N51 --> N52",
+        "caption": "Event Sourcing: commands emit events to an append-only log; multiple projections derive different views by replaying events.",
+        "alt_text": "A diagram with three layers. At the top is the Command Bus, which validates, applies, and emits events. Below it is the Event Store — an append-only log that is the source of truth — containing OrderCreated event 1, PaymentReceived event 2, OrderShipped event 3, and OrderDelivered event 4. Below that, the event stream is consumed by three projections: current state (the orders table), daily_revenue (analytics), and audit_trail (compliance). Replaying events 1 through 4 reconstructs Order-42's current state. Different projections provide different views of the same events."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "benefits",
+      "payload": {
+        "text": "Benefits of Event Sourcing:\n\n- **Perfect audit trail** — every state change is recorded with timestamp, who, what, why. Required for finance, healthcare, regulated industries.\n- **Time-travel queries** — replay events up to a point in time to see the state then. ‘What was the account balance on Jan 15 at noon?’\n- **Rebuildable read models** — any projection can be rebuilt from scratch by replaying the log. Schema changes are easy: write a new projection, replay.\n- **Decoupled read models** — different projections serve different query patterns, all from the same log. CQRS reads naturally fall out.\n- **Bug diagnosis** — when a bug occurs, replay the events that led to the bad state and see exactly what happened.\n- **Event-driven integration** — other services can subscribe to the event stream and react ( Saga pattern, pub/sub ).\n- **No update anomalies** — there are no updates, only appends. Optimistic concurrency control is natural: each event references the prior version.\n\nCosts:\n- **Complexity** — versioning events, writing projections, handling replays, dealing with side-effects (e.g., sending an email during replay) is hard.\n- **Eventual consistency on reads** — projections lag the log by milliseconds (or more under load).\n- **Storage growth** — the log grows forever; compaction (keeping only the latest event per aggregate) is needed.\n- **Schema evolution** — events are immutable, but their schema evolves. Versioning, upcasting, and backward compatibility are required.\n- **Side-effects are hard** — during a projection rebuild, you must NOT re-send emails or charge credit cards. Idempotency and outbox patterns are essential.\n- **Learning curve** — developers must think in events, not state."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "versioning",
+      "payload": {
+        "title": "Event Schema Evolution",
+        "body": "Events are immutable, but their schema evolves. After 6 months in production, you'll want to add a field to OrderCreated, rename a field, or split one event into two. Patterns: (1) versioned events — OrderCreatedV1, OrderCreatedV2; consumers handle both. (2) upcasters — transform old events to the new schema on read; the log stays raw, but consumers see the new shape. (3) weak schema — Avro/Protobuf with backward-compatible field additions. (4) snapshot and migrate — read all old events, write new ones in a new format. Whatever you choose, plan for evolution from day one. Events are forever; their schemas must evolve gracefully.",
+        "kind": "key"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "snapshots",
+      "payload": {
+        "text": "Performance: replaying 10,000 events to reconstruct an aggregate's state is slow. Two optimizations:\n\n**1. Snapshots** — periodically persist the current state as a snapshot. To reconstruct, load the latest snapshot and replay only the events after it. Common snapshot cadence: every 100 or 1,000 events. The snapshot is itself derived from the log (it's not the source of truth — the log is).\n\n**2. Compaction** — for long-lived aggregates (e.g., a customer over 10 years), keep only the latest event per type per aggregate, or fold old events into a single ‘summary’ event. This reduces log size at the cost of historical fidelity.\n\nProjection rebuilds are similar: for a large projection (e.g., daily_revenue over years), you can either (a) replay all events from the beginning (hours for billions of events) or (b) snapshot the projection periodically and resume from the snapshot.\n\nA common operational pattern: keep the raw event log forever (or for the regulatory retention period), maintain snapshots and projections alongside, and rebuild projections as needed when schemas change. The log is canonical; snapshots and projections are derived and rebuildable."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q1",
+      "payload": {
+        "question": "In an event-sourced system, what is the source of truth, and how is current state derived?",
+        "shape": "mcq",
+        "options": [
+          "The current state table is the source of truth; events are an audit log derived from it.",
+          "The append-only event log is the source of truth; current state is derived by replaying the events up to now.",
+          "There is no source of truth — event-sourced systems are eventually consistent without a canonical state.",
+          "The command bus is the source of truth."
+        ],
+        "answer_index": 1,
+        "rationale": "The defining property of Event Sourcing is that the append-only event log is the source of truth. Current state — what you'd traditionally store in a `current_state` table — is derived by replaying events in order and folding them into the state. The log is canonical and immutable; the state table is a projection that can be rebuilt from the log at any time. Option (a) reverses the relationship — in event sourcing, the events come first, the state table is derived. Option (c) is wrong — there is a canonical state, derived from the log. Option (d) is wrong — the command bus validates and emits events, but the events (the log) are the truth, not the commands (which may be rejected).",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q2",
+      "payload": {
+        "question": "You need to rebuild a read-model projection after a schema change. How does Event Sourcing make this possible, and what's the main concern?",
+        "shape": "mcq",
+        "options": [
+          "You can't — once a projection is built, it can't be rebuilt. You must design it right the first time.",
+          "Replay the event log from the beginning, applying each event with the new projection logic. The main concern is performance (replaying billions of events takes hours) and avoiding side-effects (don't re-send emails or charge cards during replay).",
+          "You must rebuild the entire event log too, because the log and projection share a schema.",
+          "You can only rebuild if all events have a version field."
+        ],
+        "answer_index": 1,
+        "rationale": "This is one of the core benefits of Event Sourcing: any projection can be rebuilt from scratch by replaying the event log with the new projection logic. The log is canonical; projections are derived. This is how schema changes work in event-sourced systems. The main concerns are: (1) performance — for a system with billions of events, replay takes hours; mitigations include snapshots (resume from a recent projection snapshot), parallel replay (partition by aggregate), and incremental rebuilds. (2) side-effects — during replay, the projection must NOT trigger external side-effects (sending emails, charging cards, calling downstream services); the projection logic must be pure data transformation, with side-effects handled separately (e.g., via an outbox pattern). Option (a) is wrong — rebuildability is the whole point. Option (c) is wrong — the event log's schema is independent of the projection's schema (the projection translates events to its own model). Option (d) is wrong — version fields help with schema evolution but aren't required for rebuild.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-event-sourcing-mental",
+      "payload": {
+        "text": "Engineering mental model",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-event-sourcing-mental",
+      "payload": {
+        "text": "**Mental model.** Think of Event Sourcing as a deliberate boundary in a system. The boundary exists because something becomes harder to manage when everything is done in one place: latency, scale, failure isolation, consistency, cost, or team ownership. The useful question is not “what does Event Sourcing mean?” but “what pressure makes this boundary worth introducing, and what new failure mode does it create?”"
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-event-sourcing-decision",
+      "payload": {
+        "title": "Design lens",
+        "body": "Before choosing Event Sourcing, name the workload, the critical user path, the dominant bottleneck, the failure you are trying to absorb, and the trade-off you are willing to accept. If you cannot name those five things, the design is probably premature.",
+        "kind": "info"
+      }
+    },
+    {
+      "type": "image",
+      "id": "upgrade-image-event-sourcing",
+      "payload": {
+        "src": "/learning-visuals/event-sourcing.svg",
+        "alt": "Original NO CAP systems visual for Event Sourcing.",
+        "caption": "Event Sourcing: a compact system-thinking visual.",
+        "credit": "Original NO CAP visual.",
+        "source_url": "https://github.com/donnemartin/system-design-primer"
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "upgrade-mermaid-event-sourcing",
+      "payload": {
+        "code": "flowchart LR\n  A[Producer] --> Q[(Broker)] --> B[Consumer] --> X[Retry] --> O[Outcome]",
+        "caption": "Event Sourcing: a simplified system view showing the primary flow and the main state boundaries.",
+        "alt_text": "Event Sourcing: a simplified system view showing the primary flow and the main state boundaries."
+      }
+    },
+    {
+      "type": "code",
+      "id": "upgrade-code-event-sourcing",
+      "payload": {
+        "language": "python",
+        "code": "message_id = queue.publish({\n    \"type\": \"event-sourcing\",\n    \"key\": resource_id\n})\n# Consumer must be safe to retry.",
+        "caption": "A minimal engineering sketch for reasoning about Event Sourcing."
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-event-sourcing-numbers",
+      "payload": {
+        "text": "Back-of-the-envelope reasoning",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-event-sourcing-numbers",
+      "payload": {
+        "text": "Numerical lens: write down traffic, payload size, read/write ratio, peak multiplier and durability target before choosing a component. The numbers should justify the architecture."
+      }
+    },
+    {
+      "type": "simulation",
+      "id": "upgrade-sim-event-sourcing",
+      "payload": {
+        "title": "Interactive thought experiment: Event Sourcing",
+        "description": "Change the variables below and predict what breaks first in Event Sourcing. The production lab can later reuse these same inputs.",
+        "variables": [
+          {
+            "name": "producer_rate",
+            "description": "Messages produced per second",
+            "default": "1000"
+          },
+          {
+            "name": "consumer_count",
+            "description": "Concurrent consumers",
+            "default": "4"
+          },
+          {
+            "name": "processing_rate",
+            "description": "Messages processed per consumer per second",
+            "default": "300"
+          }
+        ],
+        "placeholder_note": "Interactive controls are deterministic; use the linked Labs section when a dedicated lab exists."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-event-sourcing-hint",
+      "payload": {
+        "title": "Hint",
+        "body": "If you are stuck on Event Sourcing, start by drawing the request path and marking every network hop, stateful component, queue, cache and failure boundary. Then estimate where the system will saturate.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-event-sourcing-1",
+      "payload": {
+        "shape": "prediction",
+        "question": "You increase traffic by 10× in a system using Event Sourcing. What should you inspect first?",
+        "options": [
+          "The newest framework version",
+          "The dominant bottleneck and its saturation signal",
+          "Only the UI",
+          "Nothing; the architecture should absorb any traffic automatically"
+        ],
+        "answer_index": 1,
+        "rationale": "System design is a constraint-and-bottleneck exercise. Start with the resource or dependency that will saturate first, then choose the smallest change that removes that bottleneck.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-event-sourcing-2",
+      "payload": {
+        "shape": "mcq",
+        "question": "Which statement is the safest engineering habit when using Event Sourcing?",
+        "options": [
+          "Choose it because it is popular",
+          "Add it before measuring the problem",
+          "State the workload, failure mode and trade-off it is solving",
+          "Use the most distributed design possible"
+        ],
+        "answer_index": 2,
+        "rationale": "Good architecture starts from requirements, workload and failure assumptions. The component is the consequence of that reasoning, not the starting point.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "scenario",
+      "id": "upgrade-scenario-event-sourcing",
+      "payload": {
+        "prompt": "Production scenario: your system uses Event Sourcing, traffic suddenly spikes, and p99 latency doubles. What is your first move?",
+        "context": "You have dashboards for traffic, latency, errors and saturation. You can change the architecture, but every change has operational cost.",
+        "options": [
+          {
+            "id": "a",
+            "text": "Add more instances immediately",
+            "outcome": "This may help, but only if compute saturation is the bottleneck.",
+            "correct": false
+          },
+          {
+            "id": "b",
+            "text": "Inspect the bottleneck and its saturation signal first",
+            "outcome": "Correct: diagnose before scaling or introducing a new pattern.",
+            "correct": true
+          },
+          {
+            "id": "c",
+            "text": "Disable monitoring to reduce overhead",
+            "outcome": "This removes the evidence you need to diagnose the incident.",
+            "correct": false
+          }
+        ],
+        "rationale": "Measure the limiting resource or dependency first. A bottleneck can be compute, database I/O, network, cache misses, lock contention, downstream latency, or queue backlog.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-event-sourcing-interview",
+      "payload": {
+        "text": "Interview drill",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-event-sourcing-interview",
+      "payload": {
+        "text": "**Answer this without notes:** When would you choose Event Sourcing, and when would you intentionally avoid it? Mention at least one bottleneck it addresses, one failure mode it introduces, and one alternative. Then quantify the workload you are designing for."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "field-guide-event-sourcing",
+      "payload": {
+        "title": "Engineering lens",
+        "body": "For Event Sourcing, separate producer speed from consumer speed. The key design question is what happens when production temporarily exceeds processing capacity: queue it, shed it, slow producers down, or degrade the feature.",
+        "kind": "tip"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "numerical-lens-event-sourcing",
+      "payload": {
+        "text": "### Numerical sanity check\n\nA simple queue sanity check: if producers create 8,000 messages/s and consumers process 6,000 messages/s, backlog grows at roughly 2,000 messages/s until the imbalance is corrected."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "field-question-event-sourcing",
+      "payload": {
+        "shape": "prediction",
+        "question": "A downstream service slows down while Event Sourcing keeps accepting traffic. Would you rather apply backpressure, queue more work, shed load, or degrade? Explain the trade-off.",
+        "context": "Do not optimize for a memorized definition. Reason from the workload and failure mode.",
+        "options": [
+          "Scale the same component immediately.",
+          "Measure the current bottleneck and state the assumption that changed.",
+          "Add more technologies until throughput improves.",
+          "Choose the most popular architecture."
+        ],
+        "answer_index": 1,
+        "rationale": "Good system design starts with the bottleneck and the changed constraint. The most popular or complex choice is not automatically correct.",
+        "difficulty": "interview"
+      }
+    }
+  ],
+  "trade_offs": {
+    "pros": [
+      "Perfect audit trail — every state change recorded with full context.",
+      "Time-travel queries — replay up to any point in time.",
+      "Rebuildable read models — any projection can be rebuilt from the log.",
+      "Multiple projections from one log — CQRS reads fall out naturally.",
+      "Bug diagnosis — replay the events leading to a bad state.",
+      "Event-driven integration — other services can subscribe to the stream.",
+      "No update anomalies — only appends, so optimistic concurrency is natural."
+    ],
+    "cons": [
+      "Complexity — versioning events, writing projections, handling replays.",
+      "Eventual consistency on reads — projections lag the log.",
+      "Storage growth — the log grows forever; needs compaction.",
+      "Schema evolution is hard — events are immutable but their schema evolves.",
+      "Side-effects are tricky — must not re-trigger them during replay.",
+      "Steep learning curve — developers must think in events, not state."
+    ]
+  },
+  "failure_modes": [
+    "Event schema evolves incompatibly — old events can't be replayed with new code; requires upcasters or versioned events.",
+    "Projection lag grows under load — read models fall behind writes.",
+    "Side-effects re-triggered during replay — emails re-sent, cards re-charged; must use outbox or idempotency keys.",
+    "Snapshot corruption — a bad snapshot requires full replay to recover.",
+    "Event ordering bugs — out-of-order events produce wrong state; needs sequencing or version vectors.",
+    "Unbounded log growth — without compaction, storage costs grow forever."
+  ],
+  "common_mistakes": [
+    "Treating events as CRUD updates — naming events `OrderUpdated` instead of `OrderShipped` loses domain meaning.",
+    "Storing current state in the event payload — events should describe what happened, not the new state.",
+    "Not versioning events from day one — schema evolution becomes painful later.",
+    "Triggering side-effects inside projection logic — replays re-trigger them.",
+    "Not snapshotting long-lived aggregates — replaying thousands of events per read is slow.",
+    "Forgetting idempotency — replays and redeliveries cause duplicate effects without it."
+  ],
+  "where_you_see_it": [
+    "Financial ledgers — every transaction recorded, never deleted.",
+    "Git — every commit is an event; current tree state is derived.",
+    "Kafka-based event-driven systems — topics as event logs, consumers as projections.",
+    "Domain-Driven Design aggregates — aggregates apply events, persist to event store.",
+    "Compliance-heavy systems — healthcare, finance, where full audit trails are required.",
+    "CQRS systems where the write model is the event log."
+  ],
+  "interview_prompts": [
+    "What is Event Sourcing, and how does it differ from traditional CRUD?",
+    "How do you rebuild a read-model projection in an event-sourced system? What are the concerns?",
+    "How do you handle event schema evolution over years in production?",
+    "Why is Event Sourcing popular in financial systems? What does it give you that CRUD doesn't?",
+    "What are the trade-offs of Event Sourcing? When would you NOT use it?"
+  ],
+  "real_system_mappings": [
+    {
+      "system": "Apache Kafka as an event log",
+      "how": "Kafka's design is built around the event log concept — topics are append-only, partitioned logs; consumers are projections. Many CQRS systems use Kafka as the event store, with consumers (Flink, Kafka Streams, custom services) building read models."
+    },
+    {
+      "system": "EventStoreDB",
+      "how": "A purpose-built event store that implements Event Sourcing natively — append-only streams per aggregate, subscriptions for projections, built-in snapshot support. Used in DDD-heavy systems where events are first-class."
+    },
+    {
+      "system": "Axon Framework (Java)",
+      "how": "A Java framework that implements CQRS + Event Sourcing explicitly: aggregates apply events, events are persisted to an event store, query-side projections subscribe and build read models. The canonical reference implementation for the pattern."
+    },
+    {
+      "system": "Git internals",
+      "how": "Git's commit log is event-sourced — every commit is an immutable event, the current tree state is derived by replaying commits. Branches and tags are projections. This is why Git can rebase, cherry-pick, and time-travel."
+    }
+  ],
+  "status": "published",
+  "sources": [
+    {
+      "title": "System Design Primer",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Open source"
+    },
+    {
+      "title": "ByteByteGo — Scale from zero to millions",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "ByteByteGo"
+    },
+    {
+      "title": "System Design Tutorial",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "GeeksforGeeks"
+    },
+    {
+      "title": "System Design Roadmap",
+      "url": "https://roadmap.sh/system-design",
+      "publisher": "roadmap.sh"
+    },
+    {
+      "title": "Cloud Architecture reference",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Cloud Architecture reference",
+      "url": "https://learn.microsoft.com/en-us/azure/architecture/",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Cloud Architecture reference",
+      "url": "https://aws.amazon.com/architecture/",
+      "publisher": "Reference"
+    }
+  ]
+}

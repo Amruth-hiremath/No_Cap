@@ -1,0 +1,453 @@
+{
+  "slug": "vertical-scaling",
+  "version": 4,
+  "title": "Vertical Scaling",
+  "phase": "scaling-performance",
+  "area": "Scaling & Performance",
+  "estimated_minutes": 7,
+  "difficulty": "core",
+  "summary": "Vertical scaling (scale up) means making a single machine bigger — more CPU, more RAM, faster disks — instead of adding more machines. It is the simplest scaling strategy: no code changes, no distributed systems, no statelessness required. The trade-off is a hard ceiling (the biggest available instance), downtime to upgrade, and a single point of failure. Vertical scaling is the right first step for most systems; horizontal scaling becomes necessary when you hit the vertical ceiling or need fault tolerance.",
+  "why_it_matters": "Every system starts vertically scaled, and most stay that way longer than engineers admit. Vertical scaling is dramatically simpler than horizontal scaling — you do not need statelessness, sharding, distributed coordination, or service discovery. A single bigger machine often outperforms a cluster of smaller ones for I/O-bound workloads (databases especially). Understanding vertical scaling means knowing when it is the right answer (early stage, databases, simple apps) and when it has been exhausted (the ceiling, fault tolerance needs, global latency). The biggest scaling mistake is jumping to horizontal too early, paying distributed-systems complexity when a bigger machine would have been sufficient.",
+  "prerequisites": [
+    "horizontal-scaling"
+  ],
+  "related": [
+    "horizontal-scaling",
+    "performance-vs-scalability",
+    "capacity-estimation"
+  ],
+  "used_in": [
+    "Database primary nodes (PostgreSQL, MySQL, Oracle).",
+    "Single-tenant SaaS deployments.",
+    "Early-stage startups (a single big box is enough).",
+    "Specialized workloads (in-memory analytics, ML training)."
+  ],
+  "blocks": [
+    {
+      "type": "prose",
+      "id": "intro",
+      "payload": {
+        "text": "**Vertical scaling** (scale up) means making your single machine bigger — more CPU cores, more RAM, faster disks, more network bandwidth — without adding more machines. The application code is unchanged; you just give it more resources.\n\nContrast this with **horizontal scaling** (scale out), which means adding more machines and distributing load across them. Horizontal scaling requires statelessness, distributed data, load balancing, and failure handling. Vertical scaling requires none of these — the system architecture is unchanged.\n\nThis makes vertical scaling the right first move for most systems. A database that is slow on a 4-core / 16 GB instance will likely be fast on a 32-core / 128 GB instance, with no code changes and no sharding required. The relational database industry is built on this observation: a single beefy PostgreSQL instance can handle enormous load on a single machine, and only the largest workloads ever need to shard.\n\nThe cost is two-fold: (a) there is a hard ceiling — the biggest machine AWS offers is `u-6tb1.metal` (6 TB RAM, ~$10k/month) — and beyond that you must scale horizontally; (b) a single machine is a single point of failure unless you pair it with a synchronous replica."
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "vertical-vs-horizontal",
+      "payload": {
+        "code": "flowchart TD\n    N0[\"scale up\"]\n    N1[\"VERTICAL\"]\n    N2[\"SCALING\"]\n    N3[\"(scale\"]\n    N4[\"up)\"]\n    N5[\"Server: 4 CPU, 16GB\"]\n    N6[\"[Server:\"]\n    N7[\"CPU,\"]\n    N8[\"16GB]\"]\n    N9[\"~$100\"]\n    N10[\"often requires restart\"]\n    N11[\"upgrade\"]\n    N12[\"(often\"]\n    N13[\"requires\"]\n    N14[\"restart)\"]\n    N15[\"Server: 32 CPU, 128GB\"]\n    N16[\"128GB]\"]\n    N17[\"~$1,000\"]\n    N18[\"Server: 128 CPU, 2TB\"]\n    N19[\"128\"]\n    N20[\"2TB]\"]\n    N21[\"~$10,000\"]\n    N22[\"Server: 448 CPU, 6TB\"]\n    N23[\"448\"]\n    N24[\"6TB]\"]\n    N25[\"~$100,000\"]\n    N26[\"AWS\"]\n    N27[\"6tb1.metal\"]\n    N28[\"ceiling\"]\n    N29[\"bigger\"]\n    N30[\"machine\"]\n    N31[\"exists.\"]\n    N32[\"Must\"]\n    N33[\"scale\"]\n    N34[\"horizontally.\"]\n    N35[\"Pros:\"]\n    N36[\"code\"]\n    N37[\"changes.\"]\n    N38[\"statelessness,\"]\n    N39[\"sharding,\"]\n    N40[\"distributed\"]\n    N41[\"coordination.\"]\n    N42[\"Single\"]\n    N43[\"often\"]\n    N44[\"outperforms\"]\n    N45[\"cluster\"]\n    N46[\"smaller\"]\n    N47[\"ones\"]\n    N48[\"databases especially\"]\n    N49[\"for\"]\n    N50[\"bound\"]\n    N51[\"workloads\"]\n    N52[\"(databases\"]\n    N53[\"especially).\"]\n    N54[\"Cons:\"]\n    N55[\"Hard\"]\n    N56[\"biggest\"]\n    N57[\"available.\"]\n    N58[\"restart on bigger box\"]\n    N59[\"Upgrade\"]\n    N60[\"usually\"]\n    N61[\"downtime\"]\n    N62[\"(restart\"]\n    N63[\"box).\"]\n    N64[\"unless paired with synchronous replica\"]\n    N65[\"point\"]\n    N66[\"failure\"]\n    N67[\"(unless\"]\n    N68[\"paired\"]\n    N69[\"with\"]\n    N70[\"synchronous\"]\n    N71[\"replica).\"]\n    N72[\"scale out\"]\n    N73[\"HORIZONTAL\"]\n    N74[\"out)\"]\n    N75[\"comparison\"]\n    N76[\"A\"]\n    N77[\"B\"]\n    N78[\"C\"]\n    N79[\"D\"]\n    N80[\"E\"]\n    N81[\"[A]\"]\n    N82[\"[A][B]\"]\n    N83[\"[A][B][C][D][E]\"]\n    N84[\"ceiling,\"]\n    N85[\"downtime,\"]\n    N86[\"fault\"]\n    N87[\"tolerant.\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44\n    N44 --> N45\n    N45 --> N46\n    N46 --> N47\n    N47 --> N48\n    N48 --> N49\n    N49 --> N50\n    N50 --> N51\n    N51 --> N52\n    N52 --> N53\n    N53 --> N54\n    N54 --> N55\n    N55 --> N56\n    N56 --> N57\n    N57 --> N58\n    N58 --> N59\n    N59 --> N60\n    N60 --> N61\n    N61 --> N62\n    N62 --> N63\n    N63 --> N64\n    N64 --> N65\n    N65 --> N66\n    N66 --> N67\n    N67 --> N68\n    N68 --> N69\n    N69 --> N70\n    N70 --> N71\n    N71 --> N72\n    N72 --> N73\n    N73 --> N74\n    N74 --> N75\n    N75 --> N76\n    N76 --> N77\n    N77 --> N78\n    N78 --> N79\n    N79 --> N80\n    N80 --> N81\n    N81 --> N82\n    N82 --> N83\n    N83 --> N84\n    N84 --> N85\n    N85 --> N86\n    N86 --> N87",
+        "caption": "Vertical scaling upgrades a single machine; horizontal scaling adds more machines. Vertical has a ceiling.",
+        "alt_text": "Vertical versus horizontal scaling diagram. Vertical scaling: a single server is upgraded from 4 CPU and 16 GB at about 100 dollars per month, to 32 CPU and 128 GB at about 1,000 dollars per month, to 128 CPU and 2 TB at about 10,000 dollars per month, to 448 CPU and 6 TB at about 100,000 dollars per month — the AWS u-6tb1.metal ceiling. Beyond that, no bigger machine exists and you must scale horizontally. Pros: no code changes, no statelessness or sharding or distributed coordination, and a single machine often outperforms a cluster of smaller ones for I/O-bound workloads like databases. Cons: hard ceiling at the biggest machine available, upgrade usually requires downtime to restart on a bigger box, and single point of failure unless paired with a synchronous replica. Horizontal scaling for comparison: add more machines, no ceiling, no downtime, fault-tolerant, but requires statelessness, sharding, and distributed coordination."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "when-to-choose",
+      "payload": {
+        "text": "**When vertical scaling is the right answer:**\n\n1. **You are below the ceiling.** If a 64-core / 256 GB machine handles your load, vertical scaling is correct. The biggest AWS instances are 100x that size; you have headroom.\n\n2. **Your workload is I/O-bound.** A single machine with NVMe disks and lots of RAM often outperforms a sharded cluster. Network calls between shards are slow (1-5 ms); in-process memory access is microseconds. For databases especially, sharding is rarely worth the complexity until you absolutely need it.\n\n3. **Your system is stateful and hard to shard.** Relational databases with complex transactions, joins across tables, and foreign-key constraints are very hard to shard correctly. Vertical scaling delays the sharding decision by years for most applications.\n\n4. **You are early-stage or small.** A startup with 10,000 users does not need a sharded cluster of microservices. A single big machine is simpler, cheaper, and more reliable.\n\n5. **Operational simplicity matters.** A single machine is easier to operate, monitor, debug, and back up than a distributed cluster. If your team is small, vertical scaling preserves operational capacity.\n\n**When horizontal scaling becomes necessary:**\n\n1. **You are approaching the vertical ceiling.** If you need 8 TB of RAM and the biggest instance is 6 TB, you must shard.\n\n2. **You need fault tolerance.** A single machine, even with a replica, has a higher failure correlation than independent machines in different racks/AZs.\n\n3. **You need geographic distribution.** A single machine in one region cannot serve users in another region with low latency. You need multiple machines in multiple regions (and they will be horizontally scaled within each region).\n\n4. **Your workload is embarrassingly parallel.** Web/app servers are stateless and trivially horizontal — scaling them vertically is usually more expensive than scaling horizontally.\n\n5. **Cost.** Above a certain size, N small machines are cheaper than 1 big machine, because big machines carry a price premium per unit of compute."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "databases",
+      "payload": {
+        "title": "Databases should usually be vertically scaled first",
+        "body": "The single most important rule of database scaling: scale vertically until you cannot, then shard. Sharding a relational database is one of the hardest engineering problems — cross-shard transactions, joins, schema migrations, and rebalancing all become exponentially harder. Most production databases never need to shard; a single big instance with read replicas handles the load. The companies that did shard (Uber, Facebook, Google) did so only after exhausting vertical options, and they speak openly about how painful it was. Do not shard prematurely.",
+        "kind": "info"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "ceiling",
+      "payload": {
+        "text": "**The ceiling and the cost premium.**\n\nVertical scaling hits two hard limits: the biggest machine available, and the price-per-unit of compute on big machines.\n\n**The biggest machines** (as of 2025):\n- AWS: `u-7tb1.metal` — 7 TB RAM, 448 vCPUs, ~$100k/month.\n- Azure: M-series — up to 4 TB RAM, similar pricing.\n- GCP: `m3-ultramem-128` — 4 TB RAM, similar.\n- On-prem: limited only by hardware availability and budget; the largest x86 servers have 8-12 TB RAM.\n\nBeyond these, vertical scaling is impossible — you must shard. In practice, very few workloads need a single machine larger than 1 TB of RAM. Most applications are well-served by a 64-256 GB instance, which is widely available and affordable.\n\n**The price premium.** Big machines cost more per unit of compute than small ones. A `u-7tb1.metal` instance is ~$100k/month for 448 vCPUs and 7 TB RAM. The same 448 vCPUs and 7 TB RAM distributed across 56 `m5.2xlarge` instances (8 vCPU / 32 GB each) costs ~$15k/month. The big machine costs 7x more per unit. This is the price of not having to shard — and it is often worth it for the operational simplicity, but it is a real cost.\n\nThe deeper lesson: **vertical scaling is paid in dollars; horizontal scaling is paid in engineering complexity.** At some scale, the engineering cost of horizontal exceeds the dollar cost of vertical — but only at extreme scale. Below that scale, vertical is the right answer."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "failure-modes",
+      "payload": {
+        "text": "**The single point of failure problem.**\n\nA vertically scaled system has, by definition, one machine handling the load. If that machine fails, the system is down — unless you have a synchronous replica.\n\nThe standard pattern for stateful vertical systems (databases especially):\n- **Primary + synchronous replica.** Writes go to the primary; the primary forwards WAL/binlog to the replica synchronously. If the primary dies, the replica is promoted. RPO ≈ 0 (no committed data loss), RTO ≈ seconds to minutes (failover time).\n- **Primary + asynchronous replica.** Writes go to the primary; replication is asynchronous. If the primary dies, you may lose the last few seconds of writes (RPO > 0), but the replica is available.\n- **Multi-AZ deployment.** Primary in one AZ, synchronous replica in another. Survives AZ failure.\n- **Multi-region.** Primary in one region, async replica in another. Survives region failure (with RPO > 0).\n\nThe key insight is that vertical scaling is compatible with high availability — but only by adding replicas. A single machine cannot be highly available; it can only be made tolerant by having a hot standby. This is fundamentally different from horizontal scaling, where the loss of one of N nodes is a graceful degradation, not a failover event.\n\nThis is why the question \"vertical or horizontal?\" is the wrong question. The right question is: \"vertical with HA replicas, or horizontal with N nodes?\" Both can be highly available; the choice depends on workload characteristics (stateful workloads favor vertical with replicas), the vertical ceiling (have you hit it?), and engineering capacity (can you operate a sharded system?)."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q1",
+      "payload": {
+        "question": "Your startup's PostgreSQL database is slow at 100 GB. The team proposes sharding across 4 instances. What is the right response?",
+        "shape": "mcq",
+        "options": [
+          "Shard immediately — that is what scalable systems do.",
+          "Vertically scale first — a bigger instance (more RAM, faster disk) likely solves the problem without sharding complexity. Sharding a relational DB is extremely hard; defer it as long as possible.",
+          "Switch to a NoSQL database that scales horizontally natively.",
+          "Add read replicas."
+        ],
+        "answer_index": 1,
+        "rationale": "100 GB is small for PostgreSQL — a single instance with 64 GB of RAM and an NVMe disk handles this easily. The proposal to shard at this scale is premature optimization that introduces enormous complexity (cross-shard transactions, joins, migrations, rebalancing) for no benefit. The right move is to vertically scale first: more RAM (so the working set fits in shared_buffers), faster disk (NVMe), more CPU. Read replicas (option 4) are also reasonable if reads are the bottleneck, but they don't address write scaling. Sharding becomes necessary only at much larger scales (typically TB+) or when write throughput exceeds what one machine can deliver. The rule: shard as a last resort, not as a first move.",
+        "difficulty": "core"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q2",
+      "payload": {
+        "question": "You are choosing between one `u-7tb1.metal` instance (~$100k/month, 448 vCPU, 7 TB RAM) and 56 `m5.2xlarge` instances (~$15k/month total, same aggregate vCPU and RAM). What factors beyond cost determine the choice?",
+        "shape": "mcq",
+        "options": [
+          "Cost is the only factor; the 56 small instances are always better.",
+          "The big machine is simpler to operate (one node, no distributed coordination, no sharding) and often faster for I/O-bound workloads (in-process memory vs network calls). The cluster requires statelessness, sharding, load balancing, and failure handling.",
+          "The cluster is always more reliable because it has more nodes.",
+          "The big machine is always more reliable because it has fewer moving parts."
+        ],
+        "answer_index": 1,
+        "rationale": "Cost is only one factor. The big machine is dramatically simpler to operate — one node, no distributed coordination, no sharding, no rebalancing, no cross-node network latency. For I/O-bound workloads (databases especially), in-process memory access (microseconds) is 1000x faster than cross-node network calls (milliseconds). The 56-node cluster requires statelessness (sessions in shared storage), sharding (data split across nodes), load balancing, distributed coordination, and failure handling. Reliability: neither is always more reliable. The big machine is a SPOF unless paired with a synchronous replica. The cluster survives node failures gracefully but is harder to operate correctly. The choice depends on workload characteristics, engineering capacity, and fault tolerance needs — not just cost.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "video",
+      "id": "upgrade-video-vertical-scaling",
+      "payload": {
+        "provider": "youtube",
+        "video_id": "-W9F__D3oY4",
+        "title": "Scalability lecture — scaling fundamentals",
+        "description": "Supplementary explanation. The NO CAP lesson remains self-contained.",
+        "source_url": "https://www.youtube.com/watch?v=-W9F__D3oY4"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q3",
+      "payload": {
+        "question": "You vertically scale your database by upgrading to an instance with 4x the RAM. Performance barely improves. What is the likely diagnosis?",
+        "shape": "mcq",
+        "options": [
+          "Vertical scaling does not work; you need to shard.",
+          "The workload is CPU-bound or query-plan-bound, not memory-bound. The buffer pool was already large enough; the bottleneck is elsewhere (CPU, locks, query plan, connection pool). Diagnose with EXPLAIN ANALYZE and CPU profiling before scaling further.",
+          "AWS overcharged you.",
+          "The new instance has a different CPU architecture."
+        ],
+        "answer_index": 1,
+        "rationale": "Adding RAM helps only if the working set was not fitting in the buffer pool. If the buffer pool was already large enough (hit rate was already high), more RAM does nothing. The bottleneck is elsewhere — likely CPU (computation), locks (concurrency contention), query plan (missing index, bad join), or connection pool exhaustion. The right diagnostic is to profile before scaling: EXPLAIN ANALYZE for query plans, pg_stat_statements for hot queries, CPU profiling for computation, lock monitoring for contention. Scaling blindly (\"more RAM\") is a common mistake — it works only when RAM was the bottleneck. Vertical scaling is effective only when you correctly identify the bottleneck resource (CPU, RAM, disk I/O, network) and scale that specific dimension.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-vertical-scaling-mental",
+      "payload": {
+        "text": "Engineering mental model",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-vertical-scaling-mental",
+      "payload": {
+        "text": "**Mental model.** Think of Vertical Scaling as a deliberate boundary in a system. The boundary exists because something becomes harder to manage when everything is done in one place: latency, scale, failure isolation, consistency, cost, or team ownership. The useful question is not “what does Vertical Scaling mean?” but “what pressure makes this boundary worth introducing, and what new failure mode does it create?”"
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-vertical-scaling-decision",
+      "payload": {
+        "title": "Design lens",
+        "body": "Before choosing Vertical Scaling, name the workload, the critical user path, the dominant bottleneck, the failure you are trying to absorb, and the trade-off you are willing to accept. If you cannot name those five things, the design is probably premature.",
+        "kind": "info"
+      }
+    },
+    {
+      "type": "image",
+      "id": "upgrade-image-vertical-scaling",
+      "payload": {
+        "src": "/learning-visuals/vertical-scaling.svg",
+        "alt": "Original NO CAP systems visual for Vertical Scaling.",
+        "caption": "Vertical Scaling: a compact system-thinking visual.",
+        "credit": "Original NO CAP visual.",
+        "source_url": "https://github.com/donnemartin/system-design-primer"
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "upgrade-mermaid-vertical-scaling",
+      "payload": {
+        "code": "flowchart LR\n  A[Client] --> B[Gateway] --> C[Service] --> D[State] --> E[Outcome]",
+        "caption": "Vertical Scaling: a simplified system view showing the primary flow and the main state boundaries.",
+        "alt_text": "Vertical Scaling: a simplified system view showing the primary flow and the main state boundaries."
+      }
+    },
+    {
+      "type": "code",
+      "id": "upgrade-code-vertical-scaling",
+      "payload": {
+        "language": "text",
+        "code": "// Pseudocode\nrequest = receive()\nresult = vertical_scaling(request)\nreturn result\n\n// Production questions:\n// 1. What happens on timeout?\n// 2. Can this operation be retried safely?\n// 3. What is the bottleneck?",
+        "caption": "A minimal engineering sketch for reasoning about Vertical Scaling."
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-vertical-scaling-numbers",
+      "payload": {
+        "text": "Back-of-the-envelope reasoning",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-vertical-scaling-numbers",
+      "payload": {
+        "text": "Numerical lens: write down traffic, payload size, read/write ratio, peak multiplier and durability target before choosing a component. The numbers should justify the architecture."
+      }
+    },
+    {
+      "type": "simulation",
+      "id": "upgrade-sim-vertical-scaling",
+      "payload": {
+        "title": "Interactive thought experiment: Vertical Scaling",
+        "description": "Change the variables below and predict what breaks first in Vertical Scaling. The production lab can later reuse these same inputs.",
+        "variables": [
+          {
+            "name": "traffic",
+            "description": "Requests per second",
+            "default": "5000"
+          },
+          {
+            "name": "instances",
+            "description": "Healthy application instances",
+            "default": "4"
+          },
+          {
+            "name": "failure_rate",
+            "description": "Fraction of failed instances",
+            "default": "0%"
+          }
+        ],
+        "placeholder_note": "Interactive controls are deterministic; use the linked Labs section when a dedicated lab exists."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-vertical-scaling-hint",
+      "payload": {
+        "title": "Hint",
+        "body": "If you are stuck on Vertical Scaling, start by drawing the request path and marking every network hop, stateful component, queue, cache and failure boundary. Then estimate where the system will saturate.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-vertical-scaling-1",
+      "payload": {
+        "shape": "prediction",
+        "question": "You increase traffic by 10× in a system using Vertical Scaling. What should you inspect first?",
+        "options": [
+          "The newest framework version",
+          "The dominant bottleneck and its saturation signal",
+          "Only the UI",
+          "Nothing; the architecture should absorb any traffic automatically"
+        ],
+        "answer_index": 1,
+        "rationale": "System design is a constraint-and-bottleneck exercise. Start with the resource or dependency that will saturate first, then choose the smallest change that removes that bottleneck.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-vertical-scaling-2",
+      "payload": {
+        "shape": "mcq",
+        "question": "Which statement is the safest engineering habit when using Vertical Scaling?",
+        "options": [
+          "Choose it because it is popular",
+          "Add it before measuring the problem",
+          "State the workload, failure mode and trade-off it is solving",
+          "Use the most distributed design possible"
+        ],
+        "answer_index": 2,
+        "rationale": "Good architecture starts from requirements, workload and failure assumptions. The component is the consequence of that reasoning, not the starting point.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "scenario",
+      "id": "upgrade-scenario-vertical-scaling",
+      "payload": {
+        "prompt": "Production scenario: your system uses Vertical Scaling, traffic suddenly spikes, and p99 latency doubles. What is your first move?",
+        "context": "You have dashboards for traffic, latency, errors and saturation. You can change the architecture, but every change has operational cost.",
+        "options": [
+          {
+            "id": "a",
+            "text": "Add more instances immediately",
+            "outcome": "This may help, but only if compute saturation is the bottleneck.",
+            "correct": false
+          },
+          {
+            "id": "b",
+            "text": "Inspect the bottleneck and its saturation signal first",
+            "outcome": "Correct: diagnose before scaling or introducing a new pattern.",
+            "correct": true
+          },
+          {
+            "id": "c",
+            "text": "Disable monitoring to reduce overhead",
+            "outcome": "This removes the evidence you need to diagnose the incident.",
+            "correct": false
+          }
+        ],
+        "rationale": "Measure the limiting resource or dependency first. A bottleneck can be compute, database I/O, network, cache misses, lock contention, downstream latency, or queue backlog.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-vertical-scaling-interview",
+      "payload": {
+        "text": "Interview drill",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-vertical-scaling-interview",
+      "payload": {
+        "text": "**Answer this without notes:** When would you choose Vertical Scaling, and when would you intentionally avoid it? Mention at least one bottleneck it addresses, one failure mode it introduces, and one alternative. Then quantify the workload you are designing for."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "field-guide-vertical-scaling",
+      "payload": {
+        "title": "Engineering lens",
+        "body": "A useful engineering lens for Vertical Scaling: define the problem it solves, the simpler design that fails first, the constraint that forces you to introduce this concept, and the new failure modes the concept creates.",
+        "kind": "tip"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "numerical-lens-vertical-scaling",
+      "payload": {
+        "text": "### Numerical sanity check\n\nBack-of-the-envelope reasoning beats fake precision. State your traffic, payload, concurrency and growth assumptions explicitly, then calculate enough to know whether the current architecture is orders of magnitude away from the target."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "field-question-vertical-scaling",
+      "payload": {
+        "shape": "prediction",
+        "question": "Imagine the simplest version of a system using Vertical Scaling. What breaks first as traffic grows by 10×, and what would you change before reaching 100×?",
+        "context": "Do not optimize for a memorized definition. Reason from the workload and failure mode.",
+        "options": [
+          "Scale the same component immediately.",
+          "Measure the current bottleneck and state the assumption that changed.",
+          "Add more technologies until throughput improves.",
+          "Choose the most popular architecture."
+        ],
+        "answer_index": 1,
+        "rationale": "Good system design starts with the bottleneck and the changed constraint. The most popular or complex choice is not automatically correct.",
+        "difficulty": "interview"
+      }
+    }
+  ],
+  "trade_offs": {
+    "pros": [
+      "Simplest scaling strategy — no code changes, no distributed systems.",
+      "Often outperforms horizontal clusters for I/O-bound workloads (databases).",
+      "No statelessness, sharding, or coordination required.",
+      "Operationally simpler — one machine to monitor, debug, back up.",
+      "Right first move for most systems — defer horizontal complexity."
+    ],
+    "cons": [
+      "Hard ceiling — the biggest available machine.",
+      "Upgrade usually requires downtime (restart on bigger instance).",
+      "Single point of failure unless paired with a synchronous replica.",
+      "Price premium per unit of compute on big machines (3-7x small instances).",
+      "Does not address geographic distribution — single region only."
+    ]
+  },
+  "failure_modes": [
+    "Hitting the ceiling — workload exceeds the biggest available machine.",
+    "Single point of failure — primary dies, no replica, system down.",
+    "Cost cliff — vertical scaling beyond ~256 GB RAM becomes disproportionately expensive.",
+    "Misdiagnosis — scaling RAM when CPU or query plan was the bottleneck.",
+    "Upgrade downtime — resizing an instance requires a restart.",
+    "Failure correlation — primary and replica in the same AZ/rack go down together."
+  ],
+  "common_mistakes": [
+    "Sharding prematurely — scaling horizontally when vertical would suffice.",
+    "Adding RAM without diagnosing the actual bottleneck — wasted spend, no improvement.",
+    "Single-instance deployment without a replica — guaranteed downtime on failure.",
+    "Primary and replica in the same AZ — correlated failures.",
+    "Treating vertical and horizontal as mutually exclusive — most systems use both (vertical for stateful, horizontal for stateless).",
+    "Forgetting that vertical scaling has a ceiling — designing as if you can always scale up."
+  ],
+  "where_you_see_it": [
+    "Database primary nodes (PostgreSQL, MySQL, Oracle, SQL Server).",
+    "Single-tenant SaaS — each customer gets a dedicated big instance.",
+    "Early-stage startups — one big box handles everything.",
+    "Specialized workloads — in-memory analytics, ML training (single big GPU box).",
+    "Stateful services where sharding is hard (search indexes, graph databases)."
+  ],
+  "interview_prompts": [
+    "When would you choose vertical over horizontal scaling? When does horizontal become necessary?",
+    "Your startup's PostgreSQL is slow at 100 GB. The team proposes sharding across 4 instances. What do you say?",
+    "A single big instance costs 7x what an equivalent cluster of small instances costs. When is it worth it?",
+    "How do you make a vertically scaled database highly available?",
+    "You vertically scaled by adding RAM, but performance did not improve. Diagnose."
+  ],
+  "real_system_mappings": [
+    {
+      "system": "PostgreSQL / MySQL primary databases at most companies",
+      "how": "The default database deployment pattern: a single vertically scaled primary (64-256 GB RAM is common) with synchronous replicas for HA. Most production databases never need to shard — vertical scaling carries them for years."
+    },
+    {
+      "system": "Stripe, GitHub (early stage)",
+      "how": "Both companies ran on single large PostgreSQL instances for years before needing to shard. Stripe has spoken publicly about deferring the sharding decision; GitHub still runs a primary PostgreSQL that handles their main workload."
+    },
+    {
+      "system": "AWS RDS / Aurora",
+      "how": "AWS's managed database offerings are vertically scaled by design — you pick an instance size, and AWS manages the machine. Read replicas provide read scaling; multi-AZ provides HA. Vertical scaling is the explicit design."
+    },
+    {
+      "system": "Single-tenant SaaS (e.g., enterprise GitLab dedicated)",
+      "how": "Single-tenant enterprise deployments often run each customer on a dedicated big instance — vertical scaling per customer, with no multi-tenant complexity. Cost per customer is high; isolation is complete."
+    }
+  ],
+  "status": "published",
+  "sources": [
+    {
+      "title": "System Design Primer",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Open source"
+    },
+    {
+      "title": "ByteByteGo — Scale from zero to millions",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "ByteByteGo"
+    },
+    {
+      "title": "System Design Tutorial",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "GeeksforGeeks"
+    },
+    {
+      "title": "System Design Roadmap",
+      "url": "https://roadmap.sh/system-design",
+      "publisher": "roadmap.sh"
+    },
+    {
+      "title": "Scaling & Performance reference",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Scaling & Performance reference",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Scaling & Performance reference",
+      "url": "https://highscalability.com/",
+      "publisher": "Reference"
+    }
+  ]
+}

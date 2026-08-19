@@ -1,0 +1,449 @@
+{
+  "slug": "denormalization",
+  "version": 4,
+  "title": "Denormalization",
+  "phase": "databases-data-systems",
+  "area": "Databases & Data Systems",
+  "estimated_minutes": 7,
+  "difficulty": "advanced",
+  "summary": "Denormalization trades storage and write complexity for read performance by duplicating data so that reads can be answered from a single place. It is the standard pattern for scaling read-heavy workloads, NoSQL data modeling, and precomputing query results. The cost is update amplification — when the source data changes, every copy must be updated — and the resulting risk of inconsistency.",
+  "why_it_matters": "Normalization is what you do when reads are cheap and writes are authoritative; denormalization is what you do when reads are expensive and you can afford to do extra work on writes. Almost every scaling story eventually involves denormalization: a leaderboard cached in Redis, a materialized view in PostgreSQL, a read-optimized projection in CQRS, a denormalized friends list embedded in a user document. Understanding when to denormalize — and how to keep denormalized copies consistent — is one of the most practically useful database skills.",
+  "prerequisites": [
+    "sql-vs-nosql"
+  ],
+  "related": [
+    "materialized-view",
+    "federation",
+    "document-stores",
+    "caching-strategies",
+    "cqrs"
+  ],
+  "used_in": [
+    "Document databases (MongoDB) where embedding replaces JOINs.",
+    "Read replicas and materialized views in PostgreSQL/MySQL.",
+    "CQRS read models — denormalized projections updated by events.",
+    "Search indexes (Elasticsearch) — denormalized copies of source data.",
+    "Precomputed counters (post_count, follower_count) cached for fast reads.",
+    "Time-series rollups (hourly/daily aggregates)."
+  ],
+  "blocks": [
+    {
+      "type": "prose",
+      "id": "intro",
+      "payload": {
+        "text": "**Normalization** is the textbook relational design: split data into many tables, each holding one fact, eliminate redundancy, and rely on JOINs at read time. The goals are write simplicity (update a fact once) and consistency (there's one source of truth).\n\n**Denormalization** inverts this: deliberately duplicate data so that common reads can be answered from a single table (or document, or cache entry), without JOINs or fan-out. The goals are read performance and query simplicity.\n\nThe fundamental trade-off:\n- Normalized: 1 write per fact, N reads per query (JOIN cost).\n- Denormalized: M writes per fact (one per copy), 1 read per query.\n\nYou denormalize when reads outnumber writes by a wide margin — which, for most web apps, is 100:1 or more. A product page is read a thousand times for every price update; embedding the category name into the product record (instead of JOINing to a categories table) saves a thousand JOINs at the cost of one extra write when a category is renamed."
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "normalized-vs-denormalized",
+      "payload": {
+        "code": "flowchart TD\n    N0[\"Read\"]\n    N1[\"'list\"]\n    N2[\"products\"]\n    N3[\"with\"]\n    N4[\"category\"]\n    N5[\"name\"]\n    N6[\"and\"]\n    N7[\"supplier\"]\n    N8[\"name'\"]\n    N9[\"3 tables, JOIN on read\"]\n    N10[\"NORMALIZED\"]\n    N11[\"tables,\"]\n    N12[\"JOIN\"]\n    N13[\"read)\"]\n    N14[\"categories\"]\n    N15[\"suppliers\"]\n    N16[\"price\"]\n    N17[\"country\"]\n    N18[\"category_id\"]\n    N19[\"supplier_id\"]\n    N20[\"cost:\"]\n    N21[\"query\"]\n    N22[\"JOINs.\"]\n    N23[\"Cache\"]\n    N24[\"invalidation\"]\n    N25[\"easy.\"]\n    N26[\"1 table, no JOIN\"]\n    N27[\"DENORMALIZED\"]\n    N28[\"table,\"]\n    N29[\"JOIN)\"]\n    N30[\"products_with_lookups\"]\n    N31[\"id,\"]\n    N32[\"name,\"]\n    N33[\"price,\"]\n    N34[\"category_id,\"]\n    N35[\"category_name,\"]\n    N36[\"supplier_id,\"]\n    N37[\"supplier_name,\"]\n    N38[\"supplier_country\"]\n    N39[\"query,\"]\n    N40[\"JOIN.\"]\n    N41[\"Write\"]\n    N42[\"rename\"]\n    N43[\"update\"]\n    N44[\"every\"]\n    N45[\"product\"]\n    N46[\"it.\"]\n    N47[\"Trade\"]\n    N48[\"off:\"]\n    N49[\"read\"]\n    N50[\"latency\"]\n    N51[\"write\"]\n    N52[\"amplification\"]\n    N53[\"consistency\"]\n    N54[\"risk\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44\n    N44 --> N45\n    N45 --> N46\n    N46 --> N47\n    N47 --> N48\n    N48 --> N49\n    N49 --> N50\n    N50 --> N51\n    N51 --> N52\n    N52 --> N53\n    N53 --> N54",
+        "caption": "Normalized: 1 write per fact, JOINs on read. Denormalized: writes propagate to every copy, reads are single-table.",
+        "alt_text": "Two diagrams of a products lookup with category and supplier names. In the normalized version, three separate tables (products, categories, suppliers) are joined by foreign keys at read time, costing one query plus two JOINs but making writes simple — rename a category in one row. In the denormalized version, one table products_with_lookups contains id, name, price, category_id, category_name, supplier_id, supplier_name, and supplier_country — reads are a single query with no JOIN, but renaming a category requires updating every product row in that category, increasing write amplification and consistency risk."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "when-to-denormalize",
+      "payload": {
+        "text": "**Denormalize when:**\n\n1. **Reads vastly outnumber writes** — a product page viewed 1000× per price update. The arithmetic favors denormalization.\n2. **JOINs are the bottleneck** — EXPLAIN ANALYZE shows most time in joins, not in scans.\n3. **Latency targets can't be met with JOINs** — e.g., p99 < 50ms on a user feed that needs 5-table joins.\n4. **Geographic distribution** — JOINs across regions are prohibitively slow; denormalize locally.\n5. **You're using a NoSQL database** — MongoDB, Cassandra, DynamoDB don't have JOINs, so denormalization is the model, not an optimization.\n6. **You're building a read model in CQRS** — the read side is explicitly a denormalized projection optimized for queries.\n\n**Don't denormalize when:**\n\n1. Writes outnumber reads (logs, audit trails).\n2. The data changes constantly (real-time inventory on a flash-sale site).\n3. Consistency is critical and you can't tolerate stale copies.\n4. The denormalized copy is hard to keep in sync (complex derivations, multi-source).\n5. You haven't measured — premature denormalization adds complexity for nothing.\n\nThe single biggest mistake is denormalizing without a measurement. 'It feels like JOINs will be slow' is not a reason. EXPLAIN ANALYZE is."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "nosql-pattern",
+      "payload": {
+        "title": "Denormalization is the NoSQL data model",
+        "body": "In a relational database, denormalization is an optimization layered on top of a normalized model. In NoSQL databases, denormalization is the model — there's no alternative. MongoDB embeds related data in documents because there are no JOINs; DynamoDB items contain denormalized copies of related data because cross-item queries are expensive; Cassandra denormalizes by writing the same data into multiple tables ('materialized views' in the Cassandra sense) so each query can hit a single partition. Choosing NoSQL is, in part, choosing to embrace denormalization as a first-class citizen.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "keeping-in-sync",
+      "payload": {
+        "text": "The hard part of denormalization isn't the initial duplication — it's keeping the copies in sync. Strategies, in order of complexity:\n\n1. **Synchronous update in the same transaction** — `UPDATE products SET price=? WHERE id=?; UPDATE products_denormalized SET price=? WHERE product_id=?;` within one transaction. Simple, consistent, but adds write latency and only works within one database.\n\n2. **Application-level dual-write** — service writes to both the source and the denormalized copy. Risk: if the second write fails, you have inconsistency. Mitigated by idempotent retries, but never fully safe without the outbox pattern.\n\n3. **Outbox pattern** — write the source data and an 'update event' row in the same transaction; a separate process reads the outbox and updates denormalized copies (and publishes to Kafka, etc.). Guarantees the event is emitted iff the source is committed. The standard answer for reliable cross-system denormalization.\n\n4. **Change Data Capture (CDC)** — read the database's transaction log (PostgreSQL WAL, MySQL binlog) and stream changes to downstream denormalized stores. Debezium is the canonical tool. Decouples the source from consumers entirely.\n\n5. **Periodic rebuild** — materialized views refreshed on a schedule (`REFRESH MATERIALIZED VIEW`). Simple, but data is stale between refreshes. Fine for analytics, dangerous for user-facing data.\n\n6. **Accept eventual consistency** — many denormalized copies don't need to be real-time. A search index updated 'within a minute' is fine; a price feed might not be."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "common-patterns",
+      "payload": {
+        "text": "**Common denormalization patterns:**\n\n- **Counter fields** — `user.post_count`, `video.view_count`, `product.review_avg`. Updated on every write to the underlying data, read as a single field. Counter caches in Redis are the same idea applied across a service boundary.\n\n- **Materialized views** — `SELECT … GROUP BY` results precomputed and stored. PostgreSQL's `MATERIALIZED VIEW` is the textbook example.\n\n- **Embedded documents** — MongoDB's pattern: store the user's address inside the user document, not in a separate `addresses` table.\n\n- **Read models in CQRS** — the read side is a denormalized projection; the write side is the normalized source. Updates flow via events.\n\n- **Lookup denormalization** — copy `category_name` into the `products` row so reads don't JOIN to `categories`.\n\n- **Time-series rollups** — precompute hourly/daily aggregates from raw events so dashboard queries are fast.\n\n- **Precomputed user feeds** — Twitter-style fanout-on-write: when a user posts, write the post ID into every follower's precomputed feed list. The feed read is O(1); the write cost is O(followers).\n\nEach of these trades write amplification for read simplicity. The right choice depends on the read/write ratio and how stale the denormalized copy can be."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q1",
+      "payload": {
+        "question": "You have a `products` table with a `category_id` foreign key to `categories`. A query to list products with their category name is the slowest query on the site. Should you denormalize by copying `category_name` into `products`?",
+        "shape": "mcq",
+        "options": [
+          "Yes, immediately — denormalization always improves read performance.",
+          "First run EXPLAIN ANALYZE; if the JOIN is the bottleneck and reads are frequent, denormalize (or add an index, or use a materialized view).",
+          "No, never denormalize — normalization is always right.",
+          "Yes, and remove the categories table since you no longer need it."
+        ],
+        "answer_index": 1,
+        "rationale": "The disciplined answer is to measure first. EXPLAIN ANALYZE will tell you whether the JOIN is the actual bottleneck or whether the issue is a missing index, an inefficient query, or insufficient cache. If the JOIN is the problem AND reads are frequent AND categories are renamed rarely, denormalizing category_name into products is a valid optimization. But often the right first fix is an index on `products.category_id` (if missing) or a Redis cache of the query result. Premature denormalization adds consistency risk for nothing. And you absolutely keep the `categories` table — it's the source of truth for category metadata and needed for writes.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q2",
+      "payload": {
+        "question": "Your team is building Twitter-style home timelines: when a user posts, their followers should see it in their feed. Which denormalization strategy best fits?",
+        "shape": "mcq",
+        "options": [
+          "Normalize: store one `tweets` table; each follower queries `WHERE user_id IN (my_followees) ORDER BY ts LIMIT 100`.",
+          "Fanout-on-write: when a user tweets, append the tweet ID to each follower's precomputed feed list (Redis sorted set).",
+          "Fanout-on-read: when a follower loads their feed, query all their followees' tweets and merge.",
+          "Store a denormalized copy of every tweet inside the user record."
+        ],
+        "answer_index": 1,
+        "rationale": "Fanout-on-write is the classic Twitter architecture: at write time, the tweet is appended to every follower's precomputed timeline (typically a Redis sorted set keyed by user_id, sorted by timestamp). The read is O(1) — just read the first 100 entries. The cost is write amplification proportional to follower count (a celebrity with 50M followers causes 50M writes per tweet). Twitter handles celebrity accounts with a hybrid: for users with millions of followers, fall back to fanout-on-read for their tweets (don't push to timelines) and merge at read time. The other options are normalized or fanout-on-read, both of which make the read path expensive — the exact opposite of what a real-time feed wants.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q3",
+      "payload": {
+        "question": "What is the core trade-off of denormalization?",
+        "shape": "mcq",
+        "options": [
+          "More storage used; less CPU used.",
+          "Reads become faster (no JOINs), but writes become more complex (must update every copy) and consistency risk increases.",
+          "Better consistency; worse availability.",
+          "More memory; less disk."
+        ],
+        "answer_index": 1,
+        "rationale": "The defining trade-off of denormalization is read/write inversion: normalized systems optimize writes (one write per fact, JOINs on read), denormalized systems optimize reads (one read per query, multiple writes per fact to keep copies in sync). The risk introduced is inconsistency — if a write fails partway through updating copies, you have stale data somewhere. This is why denormalization strategies (outbox pattern, CDC, materialized view refresh) exist — to manage that consistency risk. Storage and CPU effects exist but are secondary; the architectural decision is about read/write trade-off and consistency.",
+        "difficulty": "core"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-denormalization-mental",
+      "payload": {
+        "text": "Engineering mental model",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-denormalization-mental",
+      "payload": {
+        "text": "**Mental model.** Think of Denormalization as a deliberate boundary in a system. The boundary exists because something becomes harder to manage when everything is done in one place: latency, scale, failure isolation, consistency, cost, or team ownership. The useful question is not “what does Denormalization mean?” but “what pressure makes this boundary worth introducing, and what new failure mode does it create?”"
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-denormalization-decision",
+      "payload": {
+        "title": "Design lens",
+        "body": "Before choosing Denormalization, name the workload, the critical user path, the dominant bottleneck, the failure you are trying to absorb, and the trade-off you are willing to accept. If you cannot name those five things, the design is probably premature.",
+        "kind": "info"
+      }
+    },
+    {
+      "type": "image",
+      "id": "upgrade-image-denormalization",
+      "payload": {
+        "src": "/learning-visuals/denormalization.svg",
+        "alt": "Original NO CAP systems visual for Denormalization.",
+        "caption": "Denormalization: a compact system-thinking visual.",
+        "credit": "Original NO CAP visual.",
+        "source_url": "https://github.com/donnemartin/system-design-primer"
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "upgrade-mermaid-denormalization",
+      "payload": {
+        "code": "flowchart LR\n  A[Client] --> B[Gateway] --> C[Service] --> D[State] --> E[Outcome]",
+        "caption": "Denormalization: a simplified system view showing the primary flow and the main state boundaries.",
+        "alt_text": "Denormalization: a simplified system view showing the primary flow and the main state boundaries."
+      }
+    },
+    {
+      "type": "code",
+      "id": "upgrade-code-denormalization",
+      "payload": {
+        "language": "text",
+        "code": "// Pseudocode\nrequest = receive()\nresult = denormalization(request)\nreturn result\n\n// Production questions:\n// 1. What happens on timeout?\n// 2. Can this operation be retried safely?\n// 3. What is the bottleneck?",
+        "caption": "A minimal engineering sketch for reasoning about Denormalization."
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-denormalization-numbers",
+      "payload": {
+        "text": "Back-of-the-envelope reasoning",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-denormalization-numbers",
+      "payload": {
+        "text": "Numerical lens: write down traffic, payload size, read/write ratio, peak multiplier and durability target before choosing a component. The numbers should justify the architecture."
+      }
+    },
+    {
+      "type": "simulation",
+      "id": "upgrade-sim-denormalization",
+      "payload": {
+        "title": "Interactive thought experiment: Denormalization",
+        "description": "Change the variables below and predict what breaks first in Denormalization. The production lab can later reuse these same inputs.",
+        "variables": [
+          {
+            "name": "traffic",
+            "description": "Requests/events per second",
+            "default": "1000"
+          },
+          {
+            "name": "latency",
+            "description": "Dependency latency",
+            "default": "50ms"
+          },
+          {
+            "name": "failure_rate",
+            "description": "Injected failure rate",
+            "default": "0%"
+          }
+        ],
+        "placeholder_note": "Interactive controls are deterministic; use the linked Labs section when a dedicated lab exists."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-denormalization-hint",
+      "payload": {
+        "title": "Hint",
+        "body": "If you are stuck on Denormalization, start by drawing the request path and marking every network hop, stateful component, queue, cache and failure boundary. Then estimate where the system will saturate.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-denormalization-1",
+      "payload": {
+        "shape": "prediction",
+        "question": "You increase traffic by 10× in a system using Denormalization. What should you inspect first?",
+        "options": [
+          "The newest framework version",
+          "The dominant bottleneck and its saturation signal",
+          "Only the UI",
+          "Nothing; the architecture should absorb any traffic automatically"
+        ],
+        "answer_index": 1,
+        "rationale": "System design is a constraint-and-bottleneck exercise. Start with the resource or dependency that will saturate first, then choose the smallest change that removes that bottleneck.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-denormalization-2",
+      "payload": {
+        "shape": "mcq",
+        "question": "Which statement is the safest engineering habit when using Denormalization?",
+        "options": [
+          "Choose it because it is popular",
+          "Add it before measuring the problem",
+          "State the workload, failure mode and trade-off it is solving",
+          "Use the most distributed design possible"
+        ],
+        "answer_index": 2,
+        "rationale": "Good architecture starts from requirements, workload and failure assumptions. The component is the consequence of that reasoning, not the starting point.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "scenario",
+      "id": "upgrade-scenario-denormalization",
+      "payload": {
+        "prompt": "Production scenario: your system uses Denormalization, traffic suddenly spikes, and p99 latency doubles. What is your first move?",
+        "context": "You have dashboards for traffic, latency, errors and saturation. You can change the architecture, but every change has operational cost.",
+        "options": [
+          {
+            "id": "a",
+            "text": "Add more instances immediately",
+            "outcome": "This may help, but only if compute saturation is the bottleneck.",
+            "correct": false
+          },
+          {
+            "id": "b",
+            "text": "Inspect the bottleneck and its saturation signal first",
+            "outcome": "Correct: diagnose before scaling or introducing a new pattern.",
+            "correct": true
+          },
+          {
+            "id": "c",
+            "text": "Disable monitoring to reduce overhead",
+            "outcome": "This removes the evidence you need to diagnose the incident.",
+            "correct": false
+          }
+        ],
+        "rationale": "Measure the limiting resource or dependency first. A bottleneck can be compute, database I/O, network, cache misses, lock contention, downstream latency, or queue backlog.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-denormalization-interview",
+      "payload": {
+        "text": "Interview drill",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-denormalization-interview",
+      "payload": {
+        "text": "**Answer this without notes:** When would you choose Denormalization, and when would you intentionally avoid it? Mention at least one bottleneck it addresses, one failure mode it introduces, and one alternative. Then quantify the workload you are designing for."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "field-guide-denormalization",
+      "payload": {
+        "title": "Engineering lens",
+        "body": "For Denormalization, start with access patterns rather than brand names. Identify the dominant reads/writes, data relationships, consistency requirements, partition key, hot keys and failure behavior before choosing a storage strategy.",
+        "kind": "tip"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "numerical-lens-denormalization",
+      "payload": {
+        "text": "### Numerical sanity check\n\nA rough capacity check: required write throughput ≈ peak writes/s × average record size. At 5,000 writes/s and 2 KB average payloads, the raw incoming data stream is about 10 MB/s before indexes, replication and overhead."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "field-question-denormalization",
+      "payload": {
+        "shape": "prediction",
+        "question": "A team proposes Denormalization because it 'scales'. What workload characteristic would make that choice a poor fit?",
+        "context": "Do not optimize for a memorized definition. Reason from the workload and failure mode.",
+        "options": [
+          "Scale the same component immediately.",
+          "Measure the current bottleneck and state the assumption that changed.",
+          "Add more technologies until throughput improves.",
+          "Choose the most popular architecture."
+        ],
+        "answer_index": 1,
+        "rationale": "Good system design starts with the bottleneck and the changed constraint. The most popular or complex choice is not automatically correct.",
+        "difficulty": "interview"
+      }
+    }
+  ],
+  "trade_offs": {
+    "pros": [
+      "Reads are faster — no JOINs, no fan-out, single-table queries.",
+      "Query plans are simpler and more predictable.",
+      "Latency targets are achievable that JOINs can't meet.",
+      "Enables NoSQL data modeling — denormalization is how you design around the absence of JOINs.",
+      "Read-side scaling is independent of write-side scaling (CQRS).",
+      "Precomputed aggregates (counters, rollups) eliminate expensive GROUP BY queries."
+    ],
+    "cons": [
+      "Write amplification — every update to source data must update every copy.",
+      "Consistency risk — partial update failures leave copies stale.",
+      "Storage cost — duplicated data consumes more disk and memory.",
+      "Schema evolution is harder — changing a denormalized field often requires backfilling many rows.",
+      "Source of truth becomes ambiguous — which copy is authoritative?",
+      "Operational complexity — outbox, CDC, or async sync infrastructure needed."
+    ]
+  },
+  "failure_modes": [
+    "Stale denormalized copies — event delivery fails and copies drift.",
+    "Write amplification explosion — high-fanout denormalization (fanout-on-write for celebrities) saturates write capacity.",
+    "Lost updates — concurrent writes to source and copy overwrite each other.",
+    "Backfill pain — schema change on a denormalized field requires updating every row.",
+    "Inconsistent reads across copies — one replica updated, another not yet.",
+    "Premature denormalization — added complexity without measuring whether JOINs were the actual bottleneck."
+  ],
+  "common_mistakes": [
+    "Denormalizing without measuring — JOINs are often not the bottleneck.",
+    "Dual-writing without the outbox pattern — partial failures leave copies inconsistent.",
+    "Forgetting to backfill existing data when introducing a denormalized field.",
+    "Treating denormalized copies as source of truth — they're caches of derived data.",
+    "Not monitoring drift between source and copies — silent staleness is dangerous.",
+    "Denormalizing in SQL when a materialized view or Redis cache would have been simpler."
+  ],
+  "where_you_see_it": [
+    "MongoDB document models — embedded subdocuments instead of JOINs.",
+    "Cassandra tables — one table per query, with the same data denormalized across multiple tables.",
+    "Twitter / X — fanout-on-write for home timelines (with hybrid fanout-on-read for celebrities).",
+    "Reddit — precomputed hot ranking lists updated by scheduled jobs.",
+    "Elasticsearch search indexes — denormalized copies of source data, updated by CDC or outbox.",
+    "PostgreSQL materialized views — precomputed GROUP BY results for analytics dashboards."
+  ],
+  "interview_prompts": [
+    "When would you denormalize a database? What's the trade-off?",
+    "Design Twitter's home timeline. Compare fanout-on-write vs fanout-on-read.",
+    "How do you keep denormalized copies consistent with the source of truth? Compare the outbox pattern, CDC, and synchronous dual-write.",
+    "Your team added a denormalized `category_name` column to `products` for performance. Walk through what happens when a category is renamed.",
+    "Compare denormalization in SQL (an optimization) vs. NoSQL (the data model). Why are they treated differently?"
+  ],
+  "real_system_mappings": [
+    {
+      "system": "Twitter / X",
+      "how": "Home timelines use fanout-on-write: each user's feed is precomputed as a Redis sorted set of tweet IDs. Reads are O(1). Celebrities (huge follower counts) use a hybrid where their tweets are merged at read time instead of fanned out."
+    },
+    {
+      "system": "Reddit",
+      "how": "Hot ranking lists for subreddits are precomputed periodically and cached — denormalized projections of the underlying votes and submissions, optimized for the read-heavy front-page workload."
+    },
+    {
+      "system": "Cassandra deployments",
+      "how": "The same logical data is often written into multiple tables, each shaped for a specific query pattern. This is denormalization as the data model — there's no JOIN to fall back on."
+    },
+    {
+      "system": "PostgreSQL + materialized views",
+      "how": "Analytics dashboards use `CREATE MATERIALIZED VIEW` to precompute expensive GROUP BY queries. Refreshed on a schedule or on demand; trades freshness for read speed."
+    }
+  ],
+  "status": "published",
+  "sources": [
+    {
+      "title": "System Design Primer",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Open source"
+    },
+    {
+      "title": "ByteByteGo — Scale from zero to millions",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "ByteByteGo"
+    },
+    {
+      "title": "System Design Tutorial",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "GeeksforGeeks"
+    },
+    {
+      "title": "System Design Roadmap",
+      "url": "https://roadmap.sh/system-design",
+      "publisher": "roadmap.sh"
+    },
+    {
+      "title": "Databases & Data Systems reference",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Databases & Data Systems reference",
+      "url": "https://www.postgresql.org/docs/",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Databases & Data Systems reference",
+      "url": "https://aws.amazon.com/what-is/database/",
+      "publisher": "Reference"
+    }
+  ]
+}

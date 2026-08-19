@@ -1,0 +1,441 @@
+{
+  "slug": "quic",
+  "version": 3,
+  "title": "QUIC — The UDP Transport Powering HTTP/3",
+  "phase": "networking-communication",
+  "area": "Networking & Communication",
+  "estimated_minutes": 7,
+  "difficulty": "advanced",
+  "summary": "QUIC is a UDP-based transport protocol that rebuilds TCP's reliability, congestion control, and TLS's encryption in userspace, while fixing TCP's biggest modern problem: head-of-line blocking across multiplexed streams. QUIC powers HTTP/3 and now carries a meaningful fraction of the internet's traffic. It is the most significant transport-layer innovation since TCP itself.",
+  "why_it_matters": "QUIC is the future of the web's transport. Google, Cloudflare, Facebook, and Akamai all serve HTTP/3 over QUIC. Mobile carriers love it because it survives network switches better than TCP. If you are a backend or platform engineer, you will run QUIC endpoints within a few years. Understanding it — the per-stream independence, the 0-RTT setup, the connection migration — is understanding the next decade of how the internet moves data.",
+  "prerequisites": [
+    "udp",
+    "tls"
+  ],
+  "related": [
+    "http",
+    "tcp",
+    "tls",
+    "udp"
+  ],
+  "used_in": [
+    "HTTP/3 — the third major version of HTTP.",
+    "YouTube video streaming (Google).",
+    "Cloudflare's edge network (HTTP/3 enabled by default).",
+    "Facebook's app and web traffic.",
+    "WebTransport — the API for low-latency bidirectional communication in browsers."
+  ],
+  "blocks": [
+    {
+      "type": "prose",
+      "id": "intro",
+      "payload": {
+        "text": "QUIC (Quick UDP Internet Connections, pronounced 'quick') was designed by Google starting in 2012 to fix the specific problems TCP+TLS+HTTP/2 hit at scale. The problems:\n\n1. **Head-of-line blocking across multiplexed streams.** HTTP/2 multiplexes many streams over one TCP connection. If one TCP packet is lost, every stream stalls until the retransmission arrives — even streams whose data already arrived. The application cannot see the arrived data because TCP guarantees in-order delivery of the whole byte stream.\n2. **Slow connection setup.** TCP handshake (1 RTT) + TLS 1.2 (2 RTT) = 3 RTT before the first HTTP byte. TLS 1.3 reduced this to 2 RTT, but a fresh connection still pays for both layers.\n3. **Connection death on IP change.** A TCP connection is identified by a 4-tuple (source IP, source port, dest IP, dest port). When your phone switches from Wi-Fi to cellular, the source IP changes, and every TCP connection dies — your downloads abort, your streams buffer.\n4. **TCP is in the kernel.** Iterating on TCP (new congestion control, new handshake, new features) takes a decade because every OS kernel must be updated. UDP is in the kernel too, but a UDP-based protocol's logic runs in userspace, where a team can ship changes weekly.\n\nQUIC addresses all four by rebuilding TCP+TLS on top of UDP. Reliability, ordering, flow control, congestion control — all reimplemented in userspace. TLS 1.3 is integrated (not layered) so the handshake is one round trip and the encryption is per-packet from the start. Streams are first-class objects, so a lost packet stalls only one stream."
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "streams",
+      "payload": {
+        "code": "flowchart TD\n    N0[\"HTTP\"]\n    N1[\"over\"]\n    N2[\"TCP\"]\n    N3[\"head\"]\n    N4[\"line\"]\n    N5[\"blocking\"]\n    N6[\"1a\"]\n    N7[\"1b\"]\n    N8[\"1c\"]\n    N9[\"Stream\"]\n    N10[\"[1a][1b][1c]\"]\n    N11[\"LOST\"]\n    N12[\"2a\"]\n    N13[\"2b\"]\n    N14[\"2c\"]\n    N15[\"[2a][2b][2c]\"]\n    N16[\"3a\"]\n    N17[\"3b\"]\n    N18[\"3c\"]\n    N19[\"[3a][3b][3c]\"]\n    N20[\"Shared\"]\n    N21[\"byte\"]\n    N22[\"stream:\"]\n    N23[\"1b*\"]\n    N24[\"All\"]\n    N25[\"bytes\"]\n    N26[\"after\"]\n    N27[\"are\"]\n    N28[\"stuck\"]\n    N29[\"the\"]\n    N30[\"receiver's\"]\n    N31[\"kernel\"]\n    N32[\"buffer\"]\n    N33[\"until\"]\n    N34[\"retransmitted.\"]\n    N35[\"ALL\"]\n    N36[\"streams\"]\n    N37[\"stall.\"]\n    N38[\"QUIC\"]\n    N39[\"per\"]\n    N40[\"stream\"]\n    N41[\"reliability\"]\n    N42[\"[1a][1b*][1c]\"]\n    N43[\"lost;\"]\n    N44[\"only\"]\n    N45[\"stalls\"]\n    N46[\"still\"]\n    N47[\"flows\"]\n    N48[\"Independent\"]\n    N49[\"UDP\"]\n    N50[\"datagrams,\"]\n    N51[\"each\"]\n    N52[\"carrying\"]\n    N53[\"frames\"]\n    N54[\"for\"]\n    N55[\"one\"]\n    N56[\"with\"]\n    N57[\"sequence\"]\n    N58[\"numbers.\"]\n    N59[\"loss\"]\n    N60[\"blocks\"]\n    N61[\"Win:\"]\n    N62[\"independent\"]\n    N63[\"remove\"]\n    N64[\"cross\"]\n    N65[\"HOL\"]\n    N66[\"blocking.\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44\n    N44 --> N45\n    N45 --> N46\n    N46 --> N47\n    N47 --> N48\n    N48 --> N49\n    N49 --> N50\n    N50 --> N51\n    N51 --> N52\n    N52 --> N53\n    N53 --> N54\n    N54 --> N55\n    N55 --> N56\n    N56 --> N57\n    N57 --> N58\n    N58 --> N59\n    N59 --> N60\n    N60 --> N61\n    N61 --> N62\n    N62 --> N63\n    N63 --> N64\n    N64 --> N65\n    N65 --> N66",
+        "caption": "HTTP/2 over TCP: one lost packet stalls every multiplexed stream. HTTP/3 over QUIC: a lost packet stalls only one stream.",
+        "alt_text": "Two diagrams comparing HTTP/2 over TCP and HTTP/3 over QUIC. The first shows three streams multiplexed over one TCP byte stream. When stream 1's packet 1b is lost, all bytes after it — including data from streams 2 and 3 that already arrived — are stuck in the receiver's kernel buffer until 1b is retransmitted. Every stream stalls. The second shows HTTP/3 over QUIC with independent UDP datagrams per stream, each with its own sequence numbers. When stream 1's packet 1b is lost, only stream 1 stalls. Streams 2 and 3 continue to flow because their reliability is independent. The win is removing cross-stream head-of-line blocking."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "key-features",
+      "payload": {
+        "text": "QUIC's defining features, in order of impact:\n\n**1. Multiplexed streams without cross-stream HOL blocking.** A single QUIC connection carries many streams; each has its own sequence numbers and acks. A loss on stream A is retransmitted for stream A only; stream B's data, which already arrived, is delivered to the application immediately. This is the headline feature for HTTP/3.\n\n**2. Integrated TLS 1.3.** TLS is not layered on top of QUIC; it is wired into the protocol. The QUIC handshake carries the TLS handshake inside it, so the first round trip establishes both the transport and the encryption. The result: 1-RTT handshake for new connections, 0-RTT for repeat connections (data can flow in the very first packet using a cached pre-shared key).\n\n**3. Connection migration.** A QUIC connection is identified by a 64-bit Connection ID, not by the 4-tuple. When your phone switches from Wi-Fi to cellular, the IP changes — but the Connection ID stays the same. The server keeps the connection alive; your download continues, your stream does not buffer. This is a big deal for mobile.\n\n**4. Faster loss recovery.** QUIC has more information than TCP does (per-packet timestamps, monotonically increasing packet numbers so retransmissions get new numbers and can be acked distinctly) and uses it for faster, more accurate RTT estimates and loss detection.\n\n**5. Pluggable congestion control.** Because QUIC runs in userspace, deploying a new congestion control algorithm (BBR, CUBIC) does not require kernel changes. Different applications can use different algorithms.\n\n**6. No middlebox ossification.** TCP has decades of middleboxes (NATs, firewalls, optimizers) that make assumptions about its behavior. Changing TCP in the kernel would break them. QUIC, being new and UDP-based, can iterate freely — the middleboxes do not pretend to understand it."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "costs",
+      "payload": {
+        "text": "QUIC is not free. The costs:\n\n- **CPU overhead.** TCP's processing is in the kernel, with hardware offloads (TSO, LRO, checksum offload) and zero-copy paths refined over decades. QUIC runs in userspace, typically without those offloads. Early QUIC implementations were 2-4x more CPU-intensive than equivalent TCP. This has improved dramatically with kernel-bypass NICs, DPDK, and specialized QUIC offload, but it remains a consideration for high-throughput servers.\n\n- **Amplification attack surface.** A small UDP request triggering a large response is a classic amplification vector. QUIC mitigates this by limiting the server's first-flight response size to 3x the client's request, until the client's address is validated. This adds a round trip in the worst case.\n\n- **Middlebox hostility.** Some corporate firewalls and NATs block or rate-limit UDP because they cannot track state the way they can for TCP. QUIC connections fail in these environments; HTTP/3 falls back to HTTP/2 over TCP automatically.\n\n- **Increased connection ID tracking.** Connection IDs mean the server must maintain a lookup from Connection ID to connection state, even after the IP changes. This is a feature for the user but a complexity for the load balancer — it must be Connection-ID-aware, not just 4-tuple-aware.\n\n- **0-RTT replay risk.** 0-RTT data is replayable — an attacker can capture and replay the early data. Servers must not execute non-idempotent operations from 0-RTT; they must wait for the handshake to complete.\n\nThe net is that QUIC is a clear win for client-facing traffic (browsers, mobile apps) on lossy networks, where the latency and resilience gains outweigh the CPU cost. For internal service-to-service on a fast, low-loss datacenter network, TCP+TLS (often gRPC over HTTP/2) remains excellent — the gains QUIC provides mostly do not apply. This is why HTTP/3 adoption is concentrated at the edge, not between backend services."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "future",
+      "payload": {
+        "title": "WebTransport — QUIC for the browser",
+        "body": "WebTransport is the browser API for QUIC (specifically HTTP/3 transport). It exposes QUIC's datagram and stream semantics to JavaScript, finally giving browsers a low-latency bidirectional transport that is not WebSocket-over-TCP. Expect WebTransport to be the new foundation for browser-based games, video calls, and collaborative tools over the next decade.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q1",
+      "payload": {
+        "question": "Which problem does QUIC solve that HTTP/2 over TCP does not?",
+        "shape": "mcq",
+        "options": [
+          "Multiplexing multiple requests over one connection — HTTP/2 already does this over TCP.",
+          "Head-of-line blocking across multiplexed streams — in HTTP/2 over TCP, one lost packet stalls every stream; QUIC makes each stream independent.",
+          "Encrypting traffic — TLS works fine over TCP.",
+          "Compressing HTTP headers — HPACK already does this in HTTP/2."
+        ],
+        "answer_index": 1,
+        "rationale": "This is QUIC's headline feature. HTTP/2 solved application-layer head-of-line blocking (the old 'one request per TCP connection' limit) by multiplexing streams. But it inherited transport-layer head-of-line blocking from TCP: the byte stream is shared, so a lost packet means every stream's later bytes are stuck in the kernel buffer until retransmission. QUIC removes this by giving each stream its own sequence numbers and acks within a single connection — a loss on stream A blocks only stream A. The other options are features HTTP/2 already has; QUIC does not uniquely provide them.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q2",
+      "payload": {
+        "question": "Your phone is on Wi-Fi streaming a video over HTTP/3. You walk out the door and the phone switches to cellular. What does the QUIC connection do, and how does it differ from TCP?",
+        "shape": "mcq",
+        "options": [
+          "The connection drops; the client must reconnect and restart the stream from the beginning.",
+          "The connection survives because QUIC uses a 64-bit Connection ID, not the IP+port 4-tuple; the server keeps the connection alive across the IP change.",
+          "The connection drops; QUIC has the same 4-tuple limitation as TCP.",
+          "The connection pauses for 5 seconds and then resumes automatically."
+        ],
+        "answer_index": 1,
+        "rationale": "This is QUIC's connection migration feature. TCP identifies a connection by the 4-tuple (src IP, src port, dst IP, dst port) — change any of these (e.g., when your phone's IP changes from Wi-Fi to cellular) and the connection dies. QUIC identifies a connection by a 64-bit Connection ID chosen at handshake time. When the IP changes, the client keeps sending packets with the same Connection ID; the server recognizes the connection and continues. The video keeps streaming. This is a major UX win for mobile, where network switches happen constantly. Note: some packet loss may occur during the transition as the server validates the new path, but the connection itself survives.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q3",
+      "payload": {
+        "question": "QUIC's 0-RTT mode lets a repeat client send application data in its very first packet. What is the security risk, and how is it mitigated?",
+        "shape": "mcq",
+        "options": [
+          "No risk — 0-RTT is encrypted, so it is safe.",
+          "An attacker can capture and replay the 0-RTT data; servers must not execute non-idempotent operations from 0-RTT and should wait for handshake completion for sensitive operations.",
+          "0-RTT weakens the encryption; servers should disable it always.",
+          "0-RTT leaks the user's identity; mitigate by sending no data in the first packet."
+        ],
+        "answer_index": 1,
+        "rationale": "0-RTT uses a pre-shared key from a previous connection to encrypt the client's first flight of data. This data is encrypted, but it is replayable — an attacker who captures the packets can resend them later, and the server cannot tell that they were captured. The mitigation is to never execute non-idempotent operations from 0-RTT data: do not POST a credit card charge, do not send an email, do not decrement inventory. Use 0-RTT only for idempotent GETs, or for data whose duplicate execution is harmless. For sensitive operations, the application waits for the handshake to complete (1-RTT) before acting. Disabling 0-RTT (option 3) loses its latency benefit; it is safe to use with discipline.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-quic-mental",
+      "payload": {
+        "text": "Engineering mental model",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-quic-mental",
+      "payload": {
+        "text": "**Mental model.** Think of QUIC — The UDP Transport Powering HTTP/3 as a deliberate boundary in a system. The boundary exists because something becomes harder to manage when everything is done in one place: latency, scale, failure isolation, consistency, cost, or team ownership. The useful question is not “what does QUIC — The UDP Transport Powering HTTP/3 mean?” but “what pressure makes this boundary worth introducing, and what new failure mode does it create?”"
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-quic-decision",
+      "payload": {
+        "title": "Design lens",
+        "body": "Before choosing QUIC — The UDP Transport Powering HTTP/3, name the workload, the critical user path, the dominant bottleneck, the failure you are trying to absorb, and the trade-off you are willing to accept. If you cannot name those five things, the design is probably premature.",
+        "kind": "info"
+      }
+    },
+    {
+      "type": "image",
+      "id": "upgrade-image-quic",
+      "payload": {
+        "src": "/learning-visuals/quic.svg",
+        "alt": "Original NO CAP systems visual for QUIC — The UDP Transport Powering HTTP/3.",
+        "caption": "QUIC — The UDP Transport Powering HTTP/3: a compact system-thinking visual.",
+        "credit": "Original NO CAP visual.",
+        "source_url": "https://github.com/donnemartin/system-design-primer"
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "upgrade-mermaid-quic",
+      "payload": {
+        "code": "flowchart LR\n  A[Client] --> B[Gateway] --> C[Service] --> D[State] --> E[Outcome]",
+        "caption": "QUIC — The UDP Transport Powering HTTP/3: a simplified system view showing the primary flow and the main state boundaries.",
+        "alt_text": "QUIC — The UDP Transport Powering HTTP/3: a simplified system view showing the primary flow and the main state boundaries."
+      }
+    },
+    {
+      "type": "code",
+      "id": "upgrade-code-quic",
+      "payload": {
+        "language": "bash",
+        "code": "curl -i https://api.example.com/v1/quic\n\n# Look for:\n# - status code\n# - latency\n# - retryability\n# - response size",
+        "caption": "A minimal engineering sketch for reasoning about QUIC — The UDP Transport Powering HTTP/3."
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-quic-numbers",
+      "payload": {
+        "text": "Back-of-the-envelope reasoning",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-quic-numbers",
+      "payload": {
+        "text": "Numerical lens: write down traffic, payload size, read/write ratio, peak multiplier and durability target before choosing a component. The numbers should justify the architecture."
+      }
+    },
+    {
+      "type": "simulation",
+      "id": "upgrade-sim-quic",
+      "payload": {
+        "title": "Interactive thought experiment: QUIC — The UDP Transport Powering HTTP/3",
+        "description": "Change the variables below and predict what breaks first in QUIC — The UDP Transport Powering HTTP/3. The production lab can later reuse these same inputs.",
+        "variables": [
+          {
+            "name": "traffic",
+            "description": "Requests/events per second",
+            "default": "1000"
+          },
+          {
+            "name": "latency",
+            "description": "Dependency latency",
+            "default": "50ms"
+          },
+          {
+            "name": "failure_rate",
+            "description": "Injected failure rate",
+            "default": "0%"
+          }
+        ],
+        "placeholder_note": "Interactive controls are deterministic; use the linked Labs section when a dedicated lab exists."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-quic-hint",
+      "payload": {
+        "title": "Hint",
+        "body": "If you are stuck on QUIC — The UDP Transport Powering HTTP/3, start by drawing the request path and marking every network hop, stateful component, queue, cache and failure boundary. Then estimate where the system will saturate.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-quic-1",
+      "payload": {
+        "shape": "prediction",
+        "question": "You increase traffic by 10× in a system using QUIC — The UDP Transport Powering HTTP/3. What should you inspect first?",
+        "options": [
+          "The newest framework version",
+          "The dominant bottleneck and its saturation signal",
+          "Only the UI",
+          "Nothing; the architecture should absorb any traffic automatically"
+        ],
+        "answer_index": 1,
+        "rationale": "System design is a constraint-and-bottleneck exercise. Start with the resource or dependency that will saturate first, then choose the smallest change that removes that bottleneck.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-quic-2",
+      "payload": {
+        "shape": "mcq",
+        "question": "Which statement is the safest engineering habit when using QUIC — The UDP Transport Powering HTTP/3?",
+        "options": [
+          "Choose it because it is popular",
+          "Add it before measuring the problem",
+          "State the workload, failure mode and trade-off it is solving",
+          "Use the most distributed design possible"
+        ],
+        "answer_index": 2,
+        "rationale": "Good architecture starts from requirements, workload and failure assumptions. The component is the consequence of that reasoning, not the starting point.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "scenario",
+      "id": "upgrade-scenario-quic",
+      "payload": {
+        "prompt": "Production scenario: your system uses QUIC — The UDP Transport Powering HTTP/3, traffic suddenly spikes, and p99 latency doubles. What is your first move?",
+        "context": "You have dashboards for traffic, latency, errors and saturation. You can change the architecture, but every change has operational cost.",
+        "options": [
+          {
+            "id": "a",
+            "text": "Add more instances immediately",
+            "outcome": "This may help, but only if compute saturation is the bottleneck.",
+            "correct": false
+          },
+          {
+            "id": "b",
+            "text": "Inspect the bottleneck and its saturation signal first",
+            "outcome": "Correct: diagnose before scaling or introducing a new pattern.",
+            "correct": true
+          },
+          {
+            "id": "c",
+            "text": "Disable monitoring to reduce overhead",
+            "outcome": "This removes the evidence you need to diagnose the incident.",
+            "correct": false
+          }
+        ],
+        "rationale": "Measure the limiting resource or dependency first. A bottleneck can be compute, database I/O, network, cache misses, lock contention, downstream latency, or queue backlog.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-quic-interview",
+      "payload": {
+        "text": "Interview drill",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-quic-interview",
+      "payload": {
+        "text": "**Answer this without notes:** When would you choose QUIC — The UDP Transport Powering HTTP/3, and when would you intentionally avoid it? Mention at least one bottleneck it addresses, one failure mode it introduces, and one alternative. Then quantify the workload you are designing for."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "field-guide-quic",
+      "payload": {
+        "title": "Engineering lens",
+        "body": "A useful engineering lens for QUIC - The UDP Transport Powering HTTP/3: define the problem it solves, the simpler design that fails first, the constraint that forces you to introduce this concept, and the new failure modes the concept creates.",
+        "kind": "tip"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "numerical-lens-quic",
+      "payload": {
+        "text": "### Numerical sanity check\n\nBack-of-the-envelope reasoning beats fake precision. State your traffic, payload, concurrency and growth assumptions explicitly, then calculate enough to know whether the current architecture is orders of magnitude away from the target."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "field-question-quic",
+      "payload": {
+        "shape": "prediction",
+        "question": "Imagine the simplest version of a system using QUIC - The UDP Transport Powering HTTP/3. What breaks first as traffic grows by 10×, and what would you change before reaching 100×?",
+        "context": "Do not optimize for a memorized definition. Reason from the workload and failure mode.",
+        "options": [
+          "Scale the same component immediately.",
+          "Measure the current bottleneck and state the assumption that changed.",
+          "Add more technologies until throughput improves.",
+          "Choose the most popular architecture."
+        ],
+        "answer_index": 1,
+        "rationale": "Good system design starts with the bottleneck and the changed constraint. The most popular or complex choice is not automatically correct.",
+        "difficulty": "interview"
+      }
+    }
+  ],
+  "trade_offs": {
+    "pros": [
+      "Per-stream independence eliminates cross-stream head-of-line blocking.",
+      "Integrated TLS 1.3: 1-RTT handshake for new connections, 0-RTT for repeats.",
+      "Connection migration survives IP changes — huge win for mobile.",
+      "Userspace implementation means faster iteration on congestion control and features.",
+      "Pluggable congestion control (BBR, CUBIC, custom) without kernel changes.",
+      "More accurate loss detection than TCP due to per-packet timestamps and monotonically increasing packet numbers."
+    ],
+    "cons": [
+      "Higher CPU cost than kernel TCP (userspace processing, fewer offloads) — shrinking but real.",
+      "Some networks block or rate-limit UDP, requiring fallback to TCP.",
+      "Load balancers must be Connection-ID-aware — not just 4-tuple-aware.",
+      "0-RTT replay risk for non-idempotent operations.",
+      "Amplification mitigation adds an extra round trip in the worst case.",
+      "Operational tooling (tcpdump, Wireshark) needed updates to parse QUIC."
+    ]
+  },
+  "failure_modes": [
+    "UDP blocked by a corporate firewall — HTTP/3 falls back to HTTP/2 over TCP, masking the issue from users.",
+    "Connection ID tracking mismatch between LB and backend — packets routed to the wrong server.",
+    "0-RTT replay causing duplicate side effects for non-idempotent operations.",
+    "High CPU from userspace crypto and packet processing at high throughput.",
+    "Idle NAT/proxy timeouts killing the connection — same as TCP, mitigated by keepalives.",
+    "Middleboxes that 'optimize' UDP badly — rare but documented."
+  ],
+  "common_mistakes": [
+    "Assuming QUIC is 'just UDP' — it is a full transport protocol implemented in userspace.",
+    "Treating 0-RTT as always safe — it is replayable; restrict to idempotent operations.",
+    "Forgetting the TCP/HTTP/2 fallback — some users cannot use QUIC and need a working fallback path.",
+    "Configuring load balancers to route QUIC by 4-tuple instead of Connection ID — breaks migration.",
+    "Comparing QUIC CPU to kernel TCP without accounting for TCP's hardware offloads.",
+    "Expecting QUIC to speed up internal datacenter traffic — its wins are mostly for client-facing, lossy networks."
+  ],
+  "where_you_see_it": [
+    "HTTP/3 — the third major HTTP version, served by Google, Cloudflare, Facebook, Akamai by default.",
+    "YouTube video streaming over QUIC — reduced rebuffer rates on mobile.",
+    "Cloudflare's edge — HTTP/3 enabled for every customer by default.",
+    "Facebook's mobile app — major traffic shifted to QUIC for resilience on flaky networks.",
+    "WebTransport (in browsers) — the new foundation for low-latency browser communication."
+  ],
+  "interview_prompts": [
+    "What problem does QUIC solve that HTTP/2 over TCP cannot? Walk through head-of-line blocking.",
+    "Explain QUIC's connection migration. Why does TCP fail when a phone switches networks, and how does QUIC survive?",
+    "What is 0-RTT in QUIC, and what is the security risk? How do you use it safely?",
+    "Why does QUIC integrate TLS 1.3 instead of layering it on top, like TCP+TLS does?",
+    "When would you NOT use QUIC? Give a real scenario where TCP+TLS is better."
+  ],
+  "real_system_mappings": [
+    {
+      "system": "Cloudflare HTTP/3",
+      "how": "HTTP/3 enabled by default across Cloudflare's edge network. Clients that support QUIC get it automatically; others fall back to HTTP/2. Per-stream reliability improves page load on lossy mobile networks."
+    },
+    {
+      "system": "YouTube",
+      "how": "Video streaming over QUIC reduces rebuffer rates on mobile by surviving packet loss better than TCP. Connection migration keeps streams alive across network switches."
+    },
+    {
+      "system": "Google services",
+      "how": "Google's frontend (Search, Drive, Photos) serves QUIC to capable clients. Internally, the team continuously experiments with new congestion control algorithms because QUIC is in userspace and easy to ship changes to."
+    }
+  ],
+  "status": "published",
+  "sources": [
+    {
+      "title": "System Design Primer",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Open source"
+    },
+    {
+      "title": "ByteByteGo — Scale from zero to millions",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "ByteByteGo"
+    },
+    {
+      "title": "System Design Tutorial",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "GeeksforGeeks"
+    },
+    {
+      "title": "System Design Roadmap",
+      "url": "https://roadmap.sh/system-design",
+      "publisher": "roadmap.sh"
+    },
+    {
+      "title": "Networking & Communication reference",
+      "url": "https://www.rfc-editor.org/",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Networking & Communication reference",
+      "url": "https://developer.mozilla.org/en-US/docs/Web/HTTP",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Networking & Communication reference",
+      "url": "https://www.cloudflare.com/learning/network-layer/what-is-a-protocol/",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Cloudflare Learning Center",
+      "url": "https://www.cloudflare.com/learning/",
+      "publisher": "Cloudflare"
+    }
+  ]
+}

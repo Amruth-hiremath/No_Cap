@@ -1,0 +1,422 @@
+{
+  "slug": "service-discovery",
+  "version": 3,
+  "title": "Service Discovery",
+  "phase": "architecture-infrastructure",
+  "area": "Architecture & Infrastructure",
+  "estimated_minutes": 7,
+  "difficulty": "advanced",
+  "summary": "Service discovery is the mechanism by which services locate each other in a dynamic environment where instances come and go. It replaces hard-coded IP addresses and DNS with a registry that tracks live instances and answers 'where is the auth service right now?'. Two flavors: DNS-based (simple, slower to propagate) and registry-based (Consul, etcd, ZooKeeper, Kubernetes API — fast, watchable, often paired with client-side or server-side load balancing).",
+  "why_it_matters": "In a static world, services lived at fixed IPs and you configured them once. In a dynamic world — autoscaling, rolling deploys, containers, ephemeral instances — by the time you wrote down an IP, it would be stale. Without service discovery, every caller would need to be manually reconfigured whenever a backend changed, which defeats the entire point of dynamic infrastructure. Service discovery is the lookup layer that makes microservices viable.",
+  "prerequisites": [
+    "microservices"
+  ],
+  "related": [
+    "load-balancers"
+  ],
+  "used_in": [
+    "Kubernetes (uses the API server + kube-dns / CoreDNS for service discovery).",
+    "Cloud-native microservice platforms (Consul, etcd-backed systems).",
+    "Service meshes (Istio, Linkerd) which build discovery into the sidecar."
+  ],
+  "blocks": [
+    {
+      "type": "prose",
+      "id": "the-problem",
+      "payload": {
+        "text": "**The problem:**\n\nIn a monolith, calling another module is a function call — `auth.check(token)`. The address is fixed: it is in the same process.\n\nIn microservices, calling another service is a network request — but to where? The auth service runs 6 instances behind an autoscaler. This morning there were 4. At 2 PM traffic spiked and 4 more came up. At 2:05 PM one was killed by an OOM. The IP you configured last week is wrong.\n\nYou need a way for service A to ask 'where can I reach the auth service right now?' and get a current, healthy answer. That is service discovery.\n\nThree components define any service discovery system:\n1. **Registration** — instances announce 'I am auth instance #5, reachable at 10.0.3.42:8080'.\n2. **Lookup** — callers query 'give me a healthy auth instance'.\n3. **Health** — the registry removes instances that fail health checks, so callers never get a dead address."
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "discovery-flow",
+      "payload": {
+        "code": "flowchart TD\n    N0[\"Service\"]\n    N1[\"Registry\"]\n    N2[\"Consul/etcd/K8s API\"]\n    N3[\"(Consul\"]\n    N4[\"etcd\"]\n    N5[\"K8s\"]\n    N6[\"API)\"]\n    N7[\"register\"]\n    N8[\"lookup\"]\n    N9[\"health\"]\n    N10[\"watch\"]\n    N11[\"Auth #1\"]\n    N12[\"Caller\"]\n    N13[\"[Auth\"]\n    N14[\"#1]\"]\n    N15[\"[Caller]\"]\n    N16[\"asks:\"]\n    N17[\"'who\"]\n    N18[\"can\"]\n    N19[\"serve\"]\n    N20[\"auth?'\"]\n    N21[\"Auth #2\"]\n    N22[\"#2]\"]\n    N23[\"Auth #3\"]\n    N24[\"#3]\"]\n    N25[\"Auth #4\"]\n    N26[\"#4]\"]\n    N27[\"gets\"]\n    N28[\"healthy\"]\n    N29[\"instance\"]\n    N30[\"list\"]\n    N31[\"e.g., 10.0.3.41, 10.0.3.43\"]\n    N32[\"(e.g.,\"]\n    N33[\"10.0.3.41,\"]\n    N34[\"10.0.3.43)\"]\n    N35[\"picks\"]\n    N36[\"one,\"]\n    N37[\"calls\"]\n    N38[\"directly\"]\n    N39[\"Each\"]\n    N40[\"registers\"]\n    N41[\"itself\"]\n    N42[\"startup.\"]\n    N43[\"runs\"]\n    N44[\"checks;\"]\n    N45[\"removes\"]\n    N46[\"dead\"]\n    N47[\"instances.\"]\n    N48[\"or watches\"]\n    N49[\"queries\"]\n    N50[\"(or\"]\n    N51[\"watches)\"]\n    N52[\"the\"]\n    N53[\"registry.\"]\n    N54[\"usually\"]\n    N55[\"with\"]\n    N56[\"client\"]\n    N57[\"side\"]\n    N58[\"LB.\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44\n    N44 --> N45\n    N45 --> N46\n    N46 --> N47\n    N47 --> N48\n    N48 --> N49\n    N49 --> N50\n    N50 --> N51\n    N51 --> N52\n    N52 --> N53\n    N53 --> N54\n    N54 --> N55\n    N55 --> N56\n    N56 --> N57\n    N57 --> N58",
+        "caption": "Service discovery: instances register, the registry health-checks them, callers query the registry and pick an instance.",
+        "alt_text": "A diagram of service discovery. Multiple instances of the Auth service register themselves with a central registry (Consul, etcd, or the Kubernetes API server). The registry runs health checks and removes dead instances. A caller asks the registry for a list of healthy auth instances, gets back a current list of IPs, picks one (often with client-side load balancing), and calls it directly."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "two-styles",
+      "payload": {
+        "text": "**Two styles of service discovery:**\n\n**1. DNS-based (the simpler style)**\n\nEach service gets a DNS name: `auth.svc.cluster.local`. The DNS server (often CoreDNS in Kubernetes, or a cloud provider's private DNS) resolves it to one or more instance IPs.\n\n- Pros: zero code changes. Any HTTP client that already does DNS lookups works.\n- Cons: DNS caching means callers may keep using a stale IP for the TTL window (often 30s+). DNS does not expose health — it returns all instances, healthy or not. Load balancing is implicit (round-robin in DNS, or relies on a separate load balancer).\n- Use case: Kubernetes Services (ClusterIP + kube-dns), AWS Cloud Map in DNS mode, simple internal services.\n\n**2. Registry-based (the dynamic style)**\n\nA dedicated registry (Consul, etcd, ZooKeeper, or the Kubernetes API server) holds the live list of instances. Callers either query the registry on each call or **watch** it for changes and keep a local, always-current copy.\n\n- Pros: sub-second propagation, exposes health, supports client-side load balancing.\n- Cons: caller must integrate with the registry SDK or sidecar. More moving parts.\n- Use case: large microservice deployments, gRPC service meshes, anything that needs fast failover.\n\nModern platforms blend both: Kubernetes gives each service a DNS name (`auth.svc.cluster.local`) that is backed by the API server's live list of endpoints. Callers can use either the DNS (simple, cached) or watch the endpoints directly (fast, accurate)."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "client-vs-server-side",
+      "payload": {
+        "text": "**Client-side vs server-side load balancing:**\n\nOnce a caller has a list of healthy instances, someone has to pick one. Two patterns:\n\n- **Server-side LB**: a load balancer sits between caller and instances. The caller asks the LB; the LB picks an instance. Caller code is simple. Adds a network hop and a stateful middleman. Examples: AWS ALB, classic NGINX in front of services.\n- **Client-side LB**: the caller fetches the instance list from the registry and picks one itself (round-robin, least-connections, etc.). No middleman, no extra hop. Caller code is more complex — but libraries (gRPC's built-in LB, Ribbon, Envoy sidecar) hide it. Examples: gRPC client load balancing, Istio/Envoy sidecars.\n\nService meshes (Istio, Linkerd) make this elegant: a sidecar proxy runs next to every service. The sidecar handles discovery, health, load balancing, retries, and mTLS — the application code sees a simple localhost call to the sidecar. The mesh centralizes what would otherwise be scattered client library code."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "consensus-backing",
+      "payload": {
+        "title": "Consul, etcd, ZooKeeper: the consensus-backed registries",
+        "body": "Most production registries run as a small cluster (3 or 5 nodes) and use a consensus protocol (Raft for Consul and etcd, Zab for ZooKeeper) to replicate data. Consensus means a quorum (N/2+1) must agree before a write is committed. This makes the registry strongly consistent and survive node loss, at the cost of: (a) one extra network hop for the consensus round, and (b) the registry being unavailable if quorum is lost. Three nodes tolerate one failure; five nodes tolerate two. Never run an even number of consensus nodes — you cannot form a quorum.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q1",
+      "payload": {
+        "question": "Your service calls `auth.svc.cluster.local` (DNS-based discovery). After an auth instance crashes, callers still send traffic to its old IP for 30 seconds. Why?",
+        "options": [
+          "DNS is broken — switch to a registry-based system.",
+          "Callers cached the DNS resolution for the TTL, so they keep using the stale IP until it expires.",
+          "The auth instance did not crash cleanly enough.",
+          "The load balancer is misconfigured."
+        ],
+        "answer_index": 1,
+        "rationale": "DNS-based discovery is cached at every resolver hop, including the calling process's own stub resolver. If the TTL is 30s, callers will keep using the cached IP — even a dead one — for up to 30 seconds. The fix is either a shorter TTL (increases query load), a registry-based system with watch support (sub-second propagation), or client-side retries with the registry as the source of truth. This latency-vs-accuracy trade-off is the central trade-off of DNS-based discovery.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q2",
+      "payload": {
+        "question": "You are deploying a Consul cluster as a service registry. How many nodes should you run, and why?",
+        "options": [
+          "1 node — simplest, fastest, single point of failure is acceptable for a registry.",
+          "2 nodes — for redundancy, with one primary and one backup.",
+          "3 or 5 nodes — odd numbers, to allow consensus (Raft) to form a quorum while tolerating 1 or 2 node failures.",
+          "As many as possible — more nodes always means more availability."
+        ],
+        "answer_index": 2,
+        "rationale": "Consul uses Raft, which requires a strict quorum (N/2+1) to commit writes. With 1 node, the registry is a single point of failure. With 2 nodes, you cannot form a quorum if either fails (you need 2 of 2, but with one down you have only 1 of 2 — no majority). With 3 nodes, you tolerate 1 failure (quorum is 2 of 3). With 5, you tolerate 2 failures (quorum is 3 of 5). Even numbers add no fault tolerance over the next-lower odd number — 4 nodes also tolerate only 1 failure but pay for an extra node. The standard production size is 3 or 5.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q3",
+      "payload": {
+        "question": "In a service mesh like Istio, where does service discovery happen?",
+        "options": [
+          "In the application code, via the Istio SDK.",
+          "In a sidecar proxy (Envoy) running next to every service; the application calls localhost and the sidecar resolves, load-balances, and retries.",
+          "In a central API gateway that all traffic flows through.",
+          "Service discovery is not needed in a service mesh."
+        ],
+        "answer_index": 1,
+        "rationale": "Service meshes push discovery, load balancing, retries, mTLS, and observability out of application code and into a sidecar proxy (typically Envoy) running in the same pod as the service. The application makes a plain localhost HTTP call to the sidecar; the sidecar uses the registry (or watches Kubernetes endpoints) to pick a healthy instance of the destination service, applies load balancing and circuit breaking, and forwards the request. Application code is unaware of any of it. This is the appeal of the mesh: cross-cutting concerns move out of business logic into a uniform data plane.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-service-discovery-mental",
+      "payload": {
+        "text": "Engineering mental model",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-service-discovery-mental",
+      "payload": {
+        "text": "**Mental model.** Think of Service Discovery as a deliberate boundary in a system. The boundary exists because something becomes harder to manage when everything is done in one place: latency, scale, failure isolation, consistency, cost, or team ownership. The useful question is not “what does Service Discovery mean?” but “what pressure makes this boundary worth introducing, and what new failure mode does it create?”"
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-service-discovery-decision",
+      "payload": {
+        "title": "Design lens",
+        "body": "Before choosing Service Discovery, name the workload, the critical user path, the dominant bottleneck, the failure you are trying to absorb, and the trade-off you are willing to accept. If you cannot name those five things, the design is probably premature.",
+        "kind": "info"
+      }
+    },
+    {
+      "type": "image",
+      "id": "upgrade-image-service-discovery",
+      "payload": {
+        "src": "/learning-visuals/service-discovery.svg",
+        "alt": "Original NO CAP systems visual for Service Discovery.",
+        "caption": "Service Discovery: a compact system-thinking visual.",
+        "credit": "Original NO CAP visual.",
+        "source_url": "https://github.com/donnemartin/system-design-primer"
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "upgrade-mermaid-service-discovery",
+      "payload": {
+        "code": "flowchart LR\n  A[Client] --> B[Gateway] --> C[Service] --> D[State] --> E[Outcome]",
+        "caption": "Service Discovery: a simplified system view showing the primary flow and the main state boundaries.",
+        "alt_text": "Service Discovery: a simplified system view showing the primary flow and the main state boundaries."
+      }
+    },
+    {
+      "type": "code",
+      "id": "upgrade-code-service-discovery",
+      "payload": {
+        "language": "text",
+        "code": "// Pseudocode\nrequest = receive()\nresult = service_discovery(request)\nreturn result\n\n// Production questions:\n// 1. What happens on timeout?\n// 2. Can this operation be retried safely?\n// 3. What is the bottleneck?",
+        "caption": "A minimal engineering sketch for reasoning about Service Discovery."
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-service-discovery-numbers",
+      "payload": {
+        "text": "Back-of-the-envelope reasoning",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-service-discovery-numbers",
+      "payload": {
+        "text": "Numerical lens: write down traffic, payload size, read/write ratio, peak multiplier and durability target before choosing a component. The numbers should justify the architecture."
+      }
+    },
+    {
+      "type": "simulation",
+      "id": "upgrade-sim-service-discovery",
+      "payload": {
+        "title": "Interactive thought experiment: Service Discovery",
+        "description": "Change the variables below and predict what breaks first in Service Discovery. The production lab can later reuse these same inputs.",
+        "variables": [
+          {
+            "name": "traffic",
+            "description": "Requests/events per second",
+            "default": "1000"
+          },
+          {
+            "name": "latency",
+            "description": "Dependency latency",
+            "default": "50ms"
+          },
+          {
+            "name": "failure_rate",
+            "description": "Injected failure rate",
+            "default": "0%"
+          }
+        ],
+        "placeholder_note": "Interactive controls are deterministic; use the linked Labs section when a dedicated lab exists."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-service-discovery-hint",
+      "payload": {
+        "title": "Hint",
+        "body": "If you are stuck on Service Discovery, start by drawing the request path and marking every network hop, stateful component, queue, cache and failure boundary. Then estimate where the system will saturate.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-service-discovery-1",
+      "payload": {
+        "shape": "prediction",
+        "question": "You increase traffic by 10× in a system using Service Discovery. What should you inspect first?",
+        "options": [
+          "The newest framework version",
+          "The dominant bottleneck and its saturation signal",
+          "Only the UI",
+          "Nothing; the architecture should absorb any traffic automatically"
+        ],
+        "answer_index": 1,
+        "rationale": "System design is a constraint-and-bottleneck exercise. Start with the resource or dependency that will saturate first, then choose the smallest change that removes that bottleneck.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-service-discovery-2",
+      "payload": {
+        "shape": "mcq",
+        "question": "Which statement is the safest engineering habit when using Service Discovery?",
+        "options": [
+          "Choose it because it is popular",
+          "Add it before measuring the problem",
+          "State the workload, failure mode and trade-off it is solving",
+          "Use the most distributed design possible"
+        ],
+        "answer_index": 2,
+        "rationale": "Good architecture starts from requirements, workload and failure assumptions. The component is the consequence of that reasoning, not the starting point.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "scenario",
+      "id": "upgrade-scenario-service-discovery",
+      "payload": {
+        "prompt": "Production scenario: your system uses Service Discovery, traffic suddenly spikes, and p99 latency doubles. What is your first move?",
+        "context": "You have dashboards for traffic, latency, errors and saturation. You can change the architecture, but every change has operational cost.",
+        "options": [
+          {
+            "id": "a",
+            "text": "Add more instances immediately",
+            "outcome": "This may help, but only if compute saturation is the bottleneck.",
+            "correct": false
+          },
+          {
+            "id": "b",
+            "text": "Inspect the bottleneck and its saturation signal first",
+            "outcome": "Correct: diagnose before scaling or introducing a new pattern.",
+            "correct": true
+          },
+          {
+            "id": "c",
+            "text": "Disable monitoring to reduce overhead",
+            "outcome": "This removes the evidence you need to diagnose the incident.",
+            "correct": false
+          }
+        ],
+        "rationale": "Measure the limiting resource or dependency first. A bottleneck can be compute, database I/O, network, cache misses, lock contention, downstream latency, or queue backlog.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-service-discovery-interview",
+      "payload": {
+        "text": "Interview drill",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-service-discovery-interview",
+      "payload": {
+        "text": "**Answer this without notes:** When would you choose Service Discovery, and when would you intentionally avoid it? Mention at least one bottleneck it addresses, one failure mode it introduces, and one alternative. Then quantify the workload you are designing for."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "field-guide-service-discovery",
+      "payload": {
+        "title": "Engineering lens",
+        "body": "A useful engineering lens for Service Discovery: define the problem it solves, the simpler design that fails first, the constraint that forces you to introduce this concept, and the new failure modes the concept creates.",
+        "kind": "tip"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "numerical-lens-service-discovery",
+      "payload": {
+        "text": "### Numerical sanity check\n\nBack-of-the-envelope reasoning beats fake precision. State your traffic, payload, concurrency and growth assumptions explicitly, then calculate enough to know whether the current architecture is orders of magnitude away from the target."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "field-question-service-discovery",
+      "payload": {
+        "shape": "prediction",
+        "question": "Imagine the simplest version of a system using Service Discovery. What breaks first as traffic grows by 10×, and what would you change before reaching 100×?",
+        "context": "Do not optimize for a memorized definition. Reason from the workload and failure mode.",
+        "options": [
+          "Scale the same component immediately.",
+          "Measure the current bottleneck and state the assumption that changed.",
+          "Add more technologies until throughput improves.",
+          "Choose the most popular architecture."
+        ],
+        "answer_index": 1,
+        "rationale": "Good system design starts with the bottleneck and the changed constraint. The most popular or complex choice is not automatically correct.",
+        "difficulty": "interview"
+      }
+    }
+  ],
+  "trade_offs": {
+    "pros": [
+      "Services find each other automatically as instances come and go.",
+      "Decouples callers from the deployment topology of their dependencies.",
+      "Enables autoscaling, rolling deploys, and failover without reconfiguring callers.",
+      "Health-aware routing — dead instances are removed from the registry."
+    ],
+    "cons": [
+      "Adds a moving part (the registry) that itself must be highly available.",
+      "DNS-based discovery has TTL propagation delay — fast failover needs registry-based or client-side LB.",
+      "Registry-based discovery requires client SDKs or sidecars — operational complexity.",
+      "A registry outage can take down all inter-service communication (mitigate with local caches and fallback)."
+    ]
+  },
+  "failure_modes": [
+    "Stale DNS cache causing callers to keep using a dead instance until TTL expires.",
+    "Registry outage — all services lose the ability to find each other (mitigate with client-side caching of last-known-good lists).",
+    "Split-brain in the registry cluster (rare with Raft, but misconfiguration can cause it) returning inconsistent instance lists.",
+    "Health-check false positives marking healthy instances down, or false negatives keeping dead instances in the list.",
+    "Runaway registration (instances that never deregister — 'ghosts') polluting the registry."
+  ],
+  "common_mistakes": [
+    "Using DNS-based discovery with a long TTL when fast failover is required.",
+    "Running an even number of consensus nodes (2 or 4) — destroys fault tolerance.",
+    "Forgetting to deregister on shutdown, leaving 'ghost' instances in the registry.",
+    "Hard-coding IPs 'just for now' — they never get replaced and cause an outage later.",
+    "Skipping health checks — the registry returns dead instances, callers fail, and no one knows why.",
+    "Trusting the registry blindly without client-side retry or fallback when the registry itself is down."
+  ],
+  "where_you_see_it": [
+    "Kubernetes Services + Endpoints + CoreDNS — the most widely deployed service discovery on Earth.",
+    "HashiCorp Consul — purpose-built service registry with health checking and a DNS interface.",
+    "etcd (used by Kubernetes, distributed lock services, and many custom registries).",
+    "Apache ZooKeeper — older, used by Kafka and Hadoop ecosystems.",
+    "Service meshes (Istio, Linkerd) that build discovery into the sidecar data plane."
+  ],
+  "interview_prompts": [
+    "Design service discovery for a microservices platform. Compare DNS-based and registry-based approaches.",
+    "A caller keeps using a dead instance for 30 seconds after a crash. What is happening and how do you fix it?",
+    "Why must a Consul/etcd/ZooKeeper cluster have an odd number of nodes?",
+    "How does a service mesh like Istio change the service discovery story for application developers?",
+    "What happens when the service registry itself goes down? How do you keep services talking to each other?"
+  ],
+  "real_system_mappings": [
+    {
+      "system": "Kubernetes",
+      "how": "Each Service gets a stable virtual IP and DNS name (`auth.svc.cluster.local`). The kube-apiserver maintains a live Endpoints list of healthy pod IPs behind it. CoreDNS resolves the name to the virtual IP, and kube-proxy (or a CNI) load-balances across the endpoints. Callers can also watch the Endpoints object directly for client-side LB."
+    },
+    {
+      "system": "HashiCorp Consul",
+      "how": "Agents run on every node, register services, and run health checks. A Consul server cluster (Raft, typically 3 or 5 nodes) stores the registry. Clients can query via HTTP API or DNS. Used by HashiCorp Nomad and many non-Kubernetes microservice platforms."
+    },
+    {
+      "system": "Apache ZooKeeper",
+      "how": "A hierarchical key-value store with Zab consensus, used by Kafka (for broker and topic metadata), HDFS NameNode HA, and many older service-discovery systems. Older than Consul/etcd but battle-tested at Yahoo, Twitter, and LinkedIn scale."
+    }
+  ],
+  "status": "published",
+  "sources": [
+    {
+      "title": "System Design Primer",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Open source"
+    },
+    {
+      "title": "ByteByteGo — Scale from zero to millions",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "ByteByteGo"
+    },
+    {
+      "title": "System Design Tutorial",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "GeeksforGeeks"
+    },
+    {
+      "title": "System Design Roadmap",
+      "url": "https://roadmap.sh/system-design",
+      "publisher": "roadmap.sh"
+    },
+    {
+      "title": "Architecture & Infrastructure reference",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Architecture & Infrastructure reference",
+      "url": "https://www.cloudflare.com/learning/cdn/what-is-a-cdn/",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Architecture & Infrastructure reference",
+      "url": "https://aws.amazon.com/architecture/",
+      "publisher": "Reference"
+    }
+  ]
+}

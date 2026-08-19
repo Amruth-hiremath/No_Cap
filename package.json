@@ -10,31 +10,38 @@
     "lint": "next lint",
     "type-check": "tsc --noEmit",
     "content:validate": "node scripts/validate-content.js",
+    "content:report": "node scripts/content-report.js",
+    "content:generate": "python3 scripts/generate-stubs.py",
     "worker:dev": "cd worker && wrangler dev",
     "worker:deploy": "cd worker && wrangler deploy",
     "db:migrate": "cd worker && wrangler d1 migrations apply nocap --local",
-    "db:migrate:prod": "cd worker && wrangler d1 migrations apply nocap --remote"
+    "db:migrate:prod": "cd worker && wrangler d1 migrations apply nocap --remote",
+    "verify": "npm run type-check && npm run content:validate && npm run build"
   },
   "dependencies": {
+    "clsx": "^2.1.1",
+    "flexsearch": "^0.7.43",
+    "lucide-react": "^0.460.0",
+    "mermaid": "^11.16.1",
     "next": "^16.3.1",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "zustand": "^5.0.0",
-    "clsx": "^2.1.1",
+    "react-markdown": "^10.1.0",
+    "rehype-raw": "^7.0.0",
+    "remark-gfm": "^4.0.1",
     "tailwind-merge": "^2.5.0",
-    "lucide-react": "^0.460.0",
-    "flexsearch": "^0.7.43"
+    "zustand": "^5.0.0"
   },
   "devDependencies": {
-    "typescript": "^5.6.0",
+    "@tailwindcss/postcss": "^4.0.0",
+    "@types/flexsearch": "^0.7.6",
     "@types/node": "^22.0.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
-    "@types/flexsearch": "^0.7.6",
-    "tailwindcss": "^4.0.0",
-    "@tailwindcss/postcss": "^4.0.0",
-    "postcss": "^8.5.23",
     "autoprefixer": "^10.4.20",
+    "postcss": "^8.5.23",
+    "tailwindcss": "^4.0.0",
+    "typescript": "^5.6.0",
     "wrangler": "^4.123.0"
   },
   "overrides": {

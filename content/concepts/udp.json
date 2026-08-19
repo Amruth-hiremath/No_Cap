@@ -1,0 +1,562 @@
+{
+  "slug": "udp",
+  "version": 3,
+  "title": "UDP — User Datagram Protocol",
+  "phase": "networking-communication",
+  "area": "Networking & Communication",
+  "estimated_minutes": 9,
+  "difficulty": "core",
+  "summary": "UDP is the connectionless, unreliable, fastest transport in the IP family. You hand it a datagram, it sends it, and that is the entire contract. No handshake, no retransmission, no ordering, no flow control. This makes UDP the right choice when late data is worse than missing data — voice, video, gaming, DNS — and the foundation on which modern transports like QUIC and WebRTC are built.",
+  "why_it_matters": "UDP looks primitive compared to TCP, but it powers the parts of the internet where latency matters more than completeness: every DNS lookup, every video call, every game packet, and increasingly HTTP/3. If you cannot articulate when UDP beats TCP, you will either over-engineer reliability onto a stream that does not need it, or build a real-time system on TCP and watch it collapse under head-of-line blocking.",
+  "prerequisites": [
+    "tcp"
+  ],
+  "related": [
+    "quic",
+    "webrtc",
+    "dns"
+  ],
+  "used_in": [
+    "DNS — query and response.",
+    "Voice and video calls (WebRTC, Zoom, Teams, Discord).",
+    "Live streaming (RTP, SRT).",
+    "Online games (CS:GO, League of Legends).",
+    "HTTP/3 (over QUIC, which runs over UDP)."
+  ],
+  "blocks": [
+    {
+      "type": "prose",
+      "id": "intro",
+      "payload": {
+        "text": "UDP is the minimalist transport. Its header is 8 bytes — source port, destination port, length, checksum. There is no sequence number, no ack, no window, no congestion state. You call `sendto()` and the kernel fires a datagram at the network. The kernel does not know if it arrived. The kernel does not know if datagrams arrived in order. The kernel does not even know if the destination is alive.\n\nThis sounds bad, but it is exactly what some workloads need. The cost of TCP's guarantees is latency: every byte must wait for its turn (ordering), the sender must wait for acks (reliability), the connection must slow down on loss (congestion control). For a workload where stale data is useless — a video frame from 200ms ago, a game position update from 100ms ago — these guarantees are pure overhead. Better to drop the stale packet and move on."
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "tcp-vs-udp",
+      "payload": {
+        "code": "flowchart TD\n    N0[\"TCP\"]\n    N1[\"UDP\"]\n    N2[\"Client\"]\n    N3[\"SYN\"]\n    N4[\"Server\"]\n    N5[\"DATA\"]\n    N6[\"maybe arrives\"]\n    N7[\"ACK\"]\n    N8[\"(maybe\"]\n    N9[\"arrives)\"]\n    N10[\"(no\"]\n    N11[\"handshake,\"]\n    N12[\"ack,\"]\n    N13[\"order)\"]\n    N14[\"Header:\"]\n    N15[\"bytes\"]\n    N16[\"stateful\"]\n    N17[\"stateless\"]\n    N18[\"Connection:\"]\n    N19[\"yes\"]\n    N20[\"(stateful)\"]\n    N21[\"(stateless)\"]\n    N22[\"Reliability:\"]\n    N23[\"none\"]\n    N24[\"Order:\"]\n    N25[\"order\"]\n    N26[\"delivery\"]\n    N27[\"datagrams\"]\n    N28[\"may\"]\n    N29[\"arrive\"]\n    N30[\"any\"]\n    N31[\"order,\"]\n    N32[\"not\"]\n    N33[\"all\"]\n    N34[\"window\"]\n    N35[\"Flow\"]\n    N36[\"control:\"]\n    N37[\"(window)\"]\n    N38[\"Congestion\"]\n    N39[\"Head\"]\n    N40[\"line\"]\n    N41[\"blocking:\"]\n    N42[\"Setup\"]\n    N43[\"latency:\"]\n    N44[\"RTT\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44",
+        "caption": "TCP vs UDP at a glance. UDP trades every TCP guarantee for one property: speed and no head-of-line blocking.",
+        "alt_text": "A side-by-side comparison of TCP and UDP. On the TCP side, a connection requires a SYN, SYN-ACK, ACK handshake, then data with acknowledgements back. On the UDP side, the client simply sends datagrams and the server may or may not receive them, with no handshake or acks. Below, a property table: TCP has a 20-plus byte header, UDP 8 bytes. TCP is connection-oriented, reliable, in-order, with flow and congestion control and head-of-line blocking. UDP is connectionless, unreliable, unordered, with none of those. TCP setup latency is one round trip; UDP is zero."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "use-cases",
+      "payload": {
+        "text": "The canonical UDP use cases share one trait: **late data is worse than missing data.**\n\n**DNS.** A query is one datagram; the response is one datagram. If it does not arrive, the resolver retries. There is no value in TCP's reliability here — you would pay 1 RTT of handshake for a request that is itself one RTT. (DNS does fall back to TCP for large responses over 512 bytes or for zone transfers, but the default is UDP.)\n\n**Voice and video.** A video call sends 30-60 frames per second. If frame 47 is lost, the player interpolates from frame 46 and 48 — the user sees a brief glitch, not a stalled call. Retransmitting frame 47 would make it arrive 100ms late, which is useless and consumes bandwidth competing with the current frame. UDP lets the codec fire-and-forget; modern codecs (Opus, VP8, H.264) are designed to tolerate loss.\n\n**Online games.** A shooter's player position updates 20-60 times per second. The current position is all that matters; an old position is not just useless, it would be wrong to display it. UDP lets the server send the latest position; the client uses whatever arrives and ignores gaps.\n\n**Live streaming.** RTP, SRT, and similar protocols run over UDP for the same reason: late frames are useless, and the bandwidth saved by not retransmitting is better spent on the next frame.\n\n**Application-level transports.** QUIC (HTTP/3) and WebRTC both run over UDP because they need to implement their own reliability semantics that the kernel's TCP cannot provide: per-stream reliability, 0-RTT setup, connection migration across networks, and custom congestion control optimized for the application."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "reliability-on-udp",
+      "payload": {
+        "text": "UDP itself is unreliable, but many UDP-based protocols add back exactly the reliability they need — and nothing more. This is the key insight: **reliability is not binary, it is shaped to the workload.**\n\n- **TFTP** adds simple stop-and-wait ACKs for file transfer.\n- **QUIC** adds selective ACKs, per-stream retransmission, and CUBIC/BBR congestion control — essentially rebuilding TCP but with independent streams.\n- **WebRTC** adds NACK (negative acknowledgements), FEC (forward error correction), and bandwidth estimation tuned for real-time media.\n- **DNS over UDP** adds 'just retry the whole query' — the simplest possible reliability.\n\nThe reason these protocols do not just use TCP is that they need control over *what* gets retransmitted. TCP retransmits everything, in order, blocking everything behind it. A real-time protocol wants to retransmit the latest I-frame in a video stream, skip the stale P-frames, and keep the audio stream flowing — priorities TCP cannot express.\n\nThe cost is complexity. Building reliability on UDP means you are now responsible for sequence numbers, retransmission timers, congestion control, and security (DTLS, since you cannot use TLS directly over UDP). QUIC is roughly the size of TCP and TLS combined — it is not a 'simpler' protocol. It is a protocol that gives the application the freedom to make different trade-offs than TCP made in 1988."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "firewall-note",
+      "payload": {
+        "title": "UDP and the network middlebox problem",
+        "body": "Many corporate firewalls and NATs treat UDP with suspicion. They allow outbound TCP 443 by default but block or rate-limit UDP because it is stateless and historically associated with amplification attacks. This is why QUIC falls back to TCP in some networks, and why WebRTC needs TURN servers. The lesson: deploying a UDP-based protocol in the wild is not just a protocol design problem — it is a deployment problem.",
+        "kind": "warning"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "practical-implications",
+      "payload": {
+        "text": "Two practical consequences every engineer should internalize about UDP.\n\nFirst, **a naive UDP sender is dangerous**. Unlike TCP, UDP has no congestion control built in. If your application just sends as fast as it can, you will saturate the link and starve TCP flows (TCP backs off, UDP does not). This is exactly what caused the 1986 internet congestion collapse and why Van Jacobson added congestion control to TCP. Modern UDP-based protocols — QUIC, WebRTC, RTSP — all implement their own congestion control (often BBR or GCC). If you build a custom UDP protocol without one, you are committing a network crime.\n\nSecond, **UDP datagrams have a size limit you must respect**. The theoretical max is 65507 bytes (the UDP length field minus header), but in practice anything over the path MTU (typically ~1500 bytes after IP+UDP headers, so ~1472 bytes of payload) gets fragmented at the IP layer. Fragments that lose any piece are discarded wholesale — a 1473-byte datagram sent as two fragments has roughly 2x the loss probability of a 1472-byte datagram sent whole. Production UDP protocols stay under the MTU (often 1200 bytes to be safe across all path MTUs) or implement their own segmentation and reassembly (which is what QUIC does, with its own per-stream frame boundaries).\n\nThese two facts shape every real UDP deployment. DNS stays tiny (one datagram, one response). Voice uses small packets (20ms of Opus audio is ~80 bytes) so loss is fine and bandwidth is cheap. Video uses larger packets but accepts that losing one means losing a frame, not a stream. QUIC keeps packets under MTU and implements its own congestion control. The pattern: UDP gives you a sharp tool; you have to wield it with discipline."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q1",
+      "payload": {
+        "question": "Why does DNS use UDP by default rather than TCP for typical queries?",
+        "shape": "mcq",
+        "options": [
+          "DNS does not need reliability — lost queries are fine.",
+          "A DNS query is one datagram and one response datagram; TCP's handshake would double the latency for no benefit, and the resolver can simply retry the whole query on loss.",
+          "DNS servers cannot keep TCP state for the number of queries they receive.",
+          "UDP packets are smaller than TCP packets, saving bandwidth."
+        ],
+        "answer_index": 1,
+        "rationale": "A typical DNS query fits in a single UDP datagram, and so does its response. Using TCP would require a 3-way handshake (1 RTT) before the query could be sent — doubling the latency of every lookup. UDP lets the client fire the query and the server fire the response, with no setup. If a datagram is lost, the resolver simply retransmits the whole query after a timeout — a simple, effective reliability layer. DNS does fall back to TCP for responses over 512 bytes (DNSSEC, large TXT records) and for zone transfers, but the default is UDP for the latency win. Option 3 is partially true but not the primary reason; option 4 is true but minor.",
+        "difficulty": "core"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q2",
+      "payload": {
+        "question": "You are building a real-time multiplayer game server. Why is UDP the right transport, and what reliability do you add on top?",
+        "shape": "mcq",
+        "options": [
+          "Use TCP — the players must see every state update, in order.",
+          "Use UDP; add per-message reliability only for important events (shots, hits), and fire-and-forget for high-frequency state (positions).",
+          "Use UDP with no reliability — the game will tolerate any loss.",
+          "Use TCP for game state and UDP for voice chat."
+        ],
+        "answer_index": 1,
+        "rationale": "A game has two traffic classes. Position updates at 60 Hz are useless if late — fire them over UDP and let the client interpolate from whatever arrives. Critical events (a player fired a weapon, a hit was registered) need reliability but not ordering — send them over UDP with per-message ACKs and retransmission, so a lost position update does not block a weapon-fire event. Pure TCP would stall the entire game state stream behind any lost packet (head-of-line blocking). Pure UDP with no reliability would lose critical events. The right design is shaped reliability: UDP underneath, application-level reliability on top, with different policies per message class. This is exactly what game networking libraries (and QUIC) do.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q3",
+      "payload": {
+        "question": "Which is NOT a reason HTTP/3 chose to run over QUIC (which is UDP) instead of TCP?",
+        "shape": "mcq",
+        "options": [
+          "To eliminate head-of-line blocking across multiplexed HTTP streams.",
+          "To enable 0-RTT connection setup for repeat clients.",
+          "To allow connection migration when a client changes networks (Wi-Fi to cellular).",
+          "Because UDP is faster than TCP at the protocol level by design."
+        ],
+        "answer_index": 3,
+        "rationale": "UDP is not 'faster' than TCP at the protocol level — it just makes no guarantees. QUIC is essentially TCP (plus TLS) rebuilt on UDP, with its own reliability, ordering, and congestion control. The wins come from design choices TCP cannot express: per-stream reliability so a loss on stream A does not stall stream B (head-of-line blocking fix); 0-RTT setup using cached cryptographic state; connection migration across IP changes (TCP ties the connection to a 4-tuple that breaks when you switch networks). Option 3 ('UDP is faster') is a common misconception — QUIC has to do all the work TCP does, plus more. The point is that it can do that work in a way the application controls.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "table",
+      "id": "tcp-udp-table-b2",
+      "payload": {
+        "headers": [
+          "Property",
+          "TCP",
+          "UDP"
+        ],
+        "rows": [
+          [
+            "Header size",
+            "20+ bytes (with options)",
+            "8 bytes (fixed)"
+          ],
+          [
+            "Connection model",
+            "Connection-oriented (3-way handshake)",
+            "Connectionless (fire-and-forget)"
+          ],
+          [
+            "Setup latency",
+            "1 RTT before first byte",
+            "0 RTT (immediate)"
+          ],
+          [
+            "Reliability",
+            "Guaranteed delivery (ACKs + retransmission)",
+            "Best-effort (may be lost, duplicated, reordered)"
+          ],
+          [
+            "Ordering",
+            "In-order delivery",
+            "No ordering guarantee"
+          ],
+          [
+            "Flow control",
+            "Sliding window",
+            "None"
+          ],
+          [
+            "Congestion control",
+            "Built-in (CUBIC, BBR)",
+            "None — application must implement"
+          ],
+          [
+            "Head-of-line blocking",
+            "Yes — lost packet stalls all later packets",
+            "No — each datagram independent"
+          ],
+          [
+            "Stream multiplexing",
+            "One stream per connection (HTTP/2 works around this)",
+            "Each datagram independent (QUIC uses this for per-stream reliability)"
+          ],
+          [
+            "Multicast / broadcast",
+            "No (point-to-point only)",
+            "Yes (one-to-many native)"
+          ],
+          [
+            "Typical uses",
+            "Web, email, file transfer, RPC",
+            "DNS, voice/video, gaming, QUIC/HTTP/3"
+          ]
+        ],
+        "caption": "TCP vs UDP across the dimensions that actually affect design decisions."
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "udp-use-cases-b2",
+      "payload": {
+        "code": "flowchart LR\n    subgraph DNS[DNS Lookup]\n        D1[Resolver] -->|1 datagram query| D2[Authoritative]\n        D2 -->|1 datagram response| D1\n    end\n    subgraph VoIP[Voice / Video Call]\n        V1[Sender] -->|60 fps frame<br/>20ms audio chunks| V2[Receiver]\n        V2 -.interpolates from<br/>whatever arrives.-> V1\n    end\n    subgraph Game[Online Game]\n        G1[Client] -->|position update 60 Hz| G2[Server]\n        G2 -->|world state 20 Hz| G1\n        G1 -.stale updates silently dropped.-> G1\n    end\n    subgraph QUIC[HTTP/3 over QUIC]\n        Q1[Browser] -->|per-stream reliable frames| Q2[Server]\n        Q2 -->|0-RTT resume<br/>connection migration| Q1\n    end\n\n    classDef app fill:#1e3a5f,stroke:#3b82f6,color:#e0e7ff\n    class D1,D2,V1,V2,G1,G2,Q1,Q2 app",
+        "caption": "Four canonical UDP workloads — each chooses UDP because late data is worse than missing data.",
+        "alt_text": "Four sub-diagrams of UDP use cases. DNS: resolver sends one datagram query, authoritative server sends one datagram response — no handshake. Voice/video: sender sends 60 fps video frames and 20ms audio chunks; receiver interpolates from whatever arrives. Online game: client sends position updates at 60 Hz, server sends world state at 20 Hz, stale updates are silently dropped. HTTP/3 over QUIC: browser sends per-stream reliable frames; server resumes with 0-RTT and supports connection migration across networks."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "quic-youtube-b2",
+      "payload": {
+        "title": "Real example: Google QUIC on YouTube",
+        "body": "Google began deploying QUIC (a UDP-based transport that rebuilds TCP+TLS semantics with per-stream reliability and 0-RTT setup) on youtube.com in 2013. They reported (IETF 97, 2016) that QUIC reduced video rebuffering by 30% on YouTube and cut search latency by 8% on mobile — specifically because per-stream reliability eliminated the head-of-line blocking where one lost packet stalled every multiplexed HTTP/2 stream. By 2023, ~25% of all internet traffic runs over QUIC. The lesson: UDP is not 'faster than TCP' — it's a substrate on which an application can build exactly the reliability it needs. QUIC is essentially the size of TCP+TLS combined; the win is that the application, not the kernel, controls the trade-offs.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "failure-scenarios-b2",
+      "payload": {
+        "text": "**UDP failure scenarios — what breaks in production.**\n\n(1) **Amplification attack.** DNS over UDP is the textbook example: a 60-byte spoofed query triggers a 4000-byte DNSSEC response, ~70x amplification. The attacker forges the source IP to be the victim's; DNS resolvers worldwide pummel the victim. Mitigation: DNS Cookies (RFC 7873), rate-limiting per source IP, and response-size limits.\n\n(2) **NAT timeout mid-call.** Home NAT boxes expire UDP mappings after 30 seconds of inactivity. A video call that pauses audio for 60 seconds (mute, hold) loses its NAT mapping — audio never returns even when unmuted. This is why every WebRTC client sends STUN keepalives every 20 seconds, and why your video call occasionally needs to be re-initiated.\n\n(3) **Path MTU surprises.** A 1473-byte UDP datagram fragments at the IP layer into two fragments. If either fragment is lost, the entire datagram is dropped — so a 0.5% per-fragment loss rate becomes a ~1% datagram loss rate, doubling effective loss. Modern QUIC implementations aggressively stay under 1200 bytes per packet to avoid fragmentation across path-MTU-discovered paths.\n\n(4) **No congestion control collapses the network.** A naive UDP video sender that does not implement BBR or CUBIC will saturate the bottleneck link and starve TCP traffic (which DOES back off). This is the 1986 internet congestion collapse pattern, repeated in modern clothes — it's why every production UDP protocol (QUIC, WebRTC, RTSP) ships with its own congestion control.\n\n(5) **Corporate firewall blocking.** Many enterprises allow TCP 443 by default but block or rate-limit UDP. A QUIC deployment without TCP fallback will silently fail for 10-20% of corporate users. This is why browsers fall back to HTTP/2 over TCP when QUIC fails — and why 'we run on UDP' is a deployment problem, not just a protocol choice."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "scaling-implications-b2",
+      "payload": {
+        "text": "**UDP scaling implications.**\n\nUDP scales to enormous aggregate throughput because the kernel keeps no per-connection state. A single Linux box can service hundreds of thousands of concurrent DNS queries per second because each query is one datagram in, one out, with no handshake, no retransmission buffer, no congestion window. Compare to TCP: each connection requires kernel memory for send/receive buffers, congestion state, and timers — typically 10-50 KB per connection, which caps a single machine at ~100K-1M concurrent connections (the well-known C10K problem, extended to C1M).\n\nThis is exactly why DNS resolvers, NTP servers, and QUIC terminators can handle millions of concurrent clients on modest hardware. It's also why Redis (single-threaded, in-memory, custom protocol) used to support UDP for sub-millisecond lookups before deprecating it for security reasons.\n\nBut the scaling advantage disappears the moment you implement reliability on top. A QUIC terminator that tracks per-stream ACK state and retransmission buffers uses kernel-or-userspace memory similar to a TCP terminator. The 'UDP is more scalable' truth only holds for fire-and-forget workloads: DNS, syslog, SNMP traps, VoIP keepalives. For everything else, UDP is a substrate that lets the application choose its scaling trade-offs — but the application then has to actually make those choices."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q-quic-youtube-b2",
+      "payload": {
+        "question": "A product team is choosing between HTTP/2 (over TCP) and HTTP/3 (over QUIC, which runs over UDP) for a media-heavy web app with significant mobile users on flaky cellular networks. Which benefit most directly justifies choosing HTTP/3?",
+        "shape": "mcq",
+        "options": [
+          "HTTP/3 is faster because UDP has a smaller header than TCP.",
+          "HTTP/3 eliminates head-of-line blocking between multiplexed streams — a lost packet on one stream no longer stalls the others — which is critical when many media assets load in parallel over a lossy cellular link.",
+          "HTTP/3 supports TLS natively whereas HTTP/2 does not.",
+          "HTTP/3 uses less bandwidth because UDP datagrams are smaller than TCP segments."
+        ],
+        "answer_index": 1,
+        "rationale": "The decisive HTTP/3 win is per-stream reliability. HTTP/2 multiplexes many streams over a single TCP connection; if any TCP packet is lost, TCP blocks ALL streams until the lost packet is retransmitted — this is head-of-line blocking at the transport layer. On a lossy cellular link with parallel media downloads, this can stall the entire page. QUIC rebuilds reliability per-stream, so a loss on stream A (say, a tracking pixel) doesn't delay stream B (say, the hero video). Google's reported 30% reduction in YouTube video rebuffering after QUIC deployment is attributable mostly to this. Option 1 (UDP header is smaller) is true but minor (12 bytes saved per packet — negligible vs the head-of-line fix). Option 3 is wrong: HTTP/2 uses TLS too. Option 4 is wrong: HTTP/3 actually has slightly more per-packet overhead than HTTP/2 because QUIC frames carry their own stream and offset metadata.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-udp-mental",
+      "payload": {
+        "text": "Engineering mental model",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-udp-mental",
+      "payload": {
+        "text": "**Mental model.** Think of UDP — User Datagram Protocol as a deliberate boundary in a system. The boundary exists because something becomes harder to manage when everything is done in one place: latency, scale, failure isolation, consistency, cost, or team ownership. The useful question is not “what does UDP — User Datagram Protocol mean?” but “what pressure makes this boundary worth introducing, and what new failure mode does it create?”"
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-udp-decision",
+      "payload": {
+        "title": "Design lens",
+        "body": "Before choosing UDP — User Datagram Protocol, name the workload, the critical user path, the dominant bottleneck, the failure you are trying to absorb, and the trade-off you are willing to accept. If you cannot name those five things, the design is probably premature.",
+        "kind": "info"
+      }
+    },
+    {
+      "type": "image",
+      "id": "upgrade-image-udp",
+      "payload": {
+        "src": "/learning-visuals/udp.svg",
+        "alt": "Original NO CAP systems visual for UDP — User Datagram Protocol.",
+        "caption": "UDP — User Datagram Protocol: a compact system-thinking visual.",
+        "credit": "Original NO CAP visual.",
+        "source_url": "https://github.com/donnemartin/system-design-primer"
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "upgrade-mermaid-udp",
+      "payload": {
+        "code": "flowchart LR\n  A[Client] --> B[Gateway] --> C[Service] --> D[State] --> E[Outcome]",
+        "caption": "UDP — User Datagram Protocol: a simplified system view showing the primary flow and the main state boundaries.",
+        "alt_text": "UDP — User Datagram Protocol: a simplified system view showing the primary flow and the main state boundaries."
+      }
+    },
+    {
+      "type": "code",
+      "id": "upgrade-code-udp",
+      "payload": {
+        "language": "text",
+        "code": "// Pseudocode\nrequest = receive()\nresult = udp(request)\nreturn result\n\n// Production questions:\n// 1. What happens on timeout?\n// 2. Can this operation be retried safely?\n// 3. What is the bottleneck?",
+        "caption": "A minimal engineering sketch for reasoning about UDP — User Datagram Protocol."
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-udp-numbers",
+      "payload": {
+        "text": "Back-of-the-envelope reasoning",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-udp-numbers",
+      "payload": {
+        "text": "Numerical lens: write down traffic, payload size, read/write ratio, peak multiplier and durability target before choosing a component. The numbers should justify the architecture."
+      }
+    },
+    {
+      "type": "simulation",
+      "id": "upgrade-sim-udp",
+      "payload": {
+        "title": "Interactive thought experiment: UDP — User Datagram Protocol",
+        "description": "Change the variables below and predict what breaks first in UDP — User Datagram Protocol. The production lab can later reuse these same inputs.",
+        "variables": [
+          {
+            "name": "traffic",
+            "description": "Requests/events per second",
+            "default": "1000"
+          },
+          {
+            "name": "latency",
+            "description": "Dependency latency",
+            "default": "50ms"
+          },
+          {
+            "name": "failure_rate",
+            "description": "Injected failure rate",
+            "default": "0%"
+          }
+        ],
+        "placeholder_note": "Interactive controls are deterministic; use the linked Labs section when a dedicated lab exists."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-udp-hint",
+      "payload": {
+        "title": "Hint",
+        "body": "If you are stuck on UDP — User Datagram Protocol, start by drawing the request path and marking every network hop, stateful component, queue, cache and failure boundary. Then estimate where the system will saturate.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-udp-1",
+      "payload": {
+        "shape": "prediction",
+        "question": "You increase traffic by 10× in a system using UDP — User Datagram Protocol. What should you inspect first?",
+        "options": [
+          "The newest framework version",
+          "The dominant bottleneck and its saturation signal",
+          "Only the UI",
+          "Nothing; the architecture should absorb any traffic automatically"
+        ],
+        "answer_index": 1,
+        "rationale": "System design is a constraint-and-bottleneck exercise. Start with the resource or dependency that will saturate first, then choose the smallest change that removes that bottleneck.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-udp-2",
+      "payload": {
+        "shape": "mcq",
+        "question": "Which statement is the safest engineering habit when using UDP — User Datagram Protocol?",
+        "options": [
+          "Choose it because it is popular",
+          "Add it before measuring the problem",
+          "State the workload, failure mode and trade-off it is solving",
+          "Use the most distributed design possible"
+        ],
+        "answer_index": 2,
+        "rationale": "Good architecture starts from requirements, workload and failure assumptions. The component is the consequence of that reasoning, not the starting point.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "scenario",
+      "id": "upgrade-scenario-udp",
+      "payload": {
+        "prompt": "Production scenario: your system uses UDP — User Datagram Protocol, traffic suddenly spikes, and p99 latency doubles. What is your first move?",
+        "context": "You have dashboards for traffic, latency, errors and saturation. You can change the architecture, but every change has operational cost.",
+        "options": [
+          {
+            "id": "a",
+            "text": "Add more instances immediately",
+            "outcome": "This may help, but only if compute saturation is the bottleneck.",
+            "correct": false
+          },
+          {
+            "id": "b",
+            "text": "Inspect the bottleneck and its saturation signal first",
+            "outcome": "Correct: diagnose before scaling or introducing a new pattern.",
+            "correct": true
+          },
+          {
+            "id": "c",
+            "text": "Disable monitoring to reduce overhead",
+            "outcome": "This removes the evidence you need to diagnose the incident.",
+            "correct": false
+          }
+        ],
+        "rationale": "Measure the limiting resource or dependency first. A bottleneck can be compute, database I/O, network, cache misses, lock contention, downstream latency, or queue backlog.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-udp-interview",
+      "payload": {
+        "text": "Interview drill",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-udp-interview",
+      "payload": {
+        "text": "**Answer this without notes:** When would you choose UDP — User Datagram Protocol, and when would you intentionally avoid it? Mention at least one bottleneck it addresses, one failure mode it introduces, and one alternative. Then quantify the workload you are designing for."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "field-guide-udp",
+      "payload": {
+        "title": "Engineering lens",
+        "body": "A useful engineering lens for UDP - User Datagram Protocol: define the problem it solves, the simpler design that fails first, the constraint that forces you to introduce this concept, and the new failure modes the concept creates.",
+        "kind": "tip"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "numerical-lens-udp",
+      "payload": {
+        "text": "### Numerical sanity check\n\nBack-of-the-envelope reasoning beats fake precision. State your traffic, payload, concurrency and growth assumptions explicitly, then calculate enough to know whether the current architecture is orders of magnitude away from the target."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "field-question-udp",
+      "payload": {
+        "shape": "prediction",
+        "question": "Imagine the simplest version of a system using UDP - User Datagram Protocol. What breaks first as traffic grows by 10×, and what would you change before reaching 100×?",
+        "context": "Do not optimize for a memorized definition. Reason from the workload and failure mode.",
+        "options": [
+          "Scale the same component immediately.",
+          "Measure the current bottleneck and state the assumption that changed.",
+          "Add more technologies until throughput improves.",
+          "Choose the most popular architecture."
+        ],
+        "answer_index": 1,
+        "rationale": "Good system design starts with the bottleneck and the changed constraint. The most popular or complex choice is not automatically correct.",
+        "difficulty": "interview"
+      }
+    }
+  ],
+  "trade_offs": {
+    "pros": [
+      "No handshake — zero setup latency, ideal for short request-response like DNS.",
+      "No head-of-line blocking — lost datagrams do not stall later ones.",
+      "Application controls reliability — ship exactly what the workload needs, no more.",
+      "Smaller header (8 bytes) and lower per-packet overhead than TCP.",
+      "Enables multicast and broadcast — TCP is strictly point-to-point."
+    ],
+    "cons": [
+      "Unreliable by default — the application must add reliability if it needs it.",
+      "No congestion control — a naive UDP sender can collapse the network (a real concern for video).",
+      "Many firewalls and NATs treat UDP with suspicion — deployment headaches.",
+      "Building reliability correctly is hard (sequence numbers, retransmission timers, congestion control, security).",
+      "Cannot use TLS directly — must use DTLS, which is more complex."
+    ]
+  },
+  "failure_modes": [
+    "Sending UDP without congestion control and collapsing the network — the original 1986 internet congestion collapse, in modern clothes.",
+    "Assuming datagrams arrive in order — they do not, ever.",
+    "Assuming datagrams arrive at all — they can be silently dropped by any router or firewall.",
+    "Fragmenting large UDP datagrams (>MTU) and losing the reassembly when one fragment drops.",
+    "Hitting middlebox UDP timeouts — NATs kill idle UDP flows; the application must keepalive.",
+    "Amplification attacks — a small UDP request triggers a huge response (DNS amplification); mitigated by rate limiting and response cookies."
+  ],
+  "common_mistakes": [
+    "Using UDP 'because it is faster' without adding reliability when the workload actually needs it.",
+    "Using TCP for real-time media and being confused by the latency floor.",
+    "Forgetting to implement congestion control in custom UDP protocols — a single video sender can DoS a network.",
+    "Sending large datagrams (>1400 bytes) without thinking about fragmentation and MTU.",
+    "Assuming UDP will pass through corporate firewalls — plan a TCP fallback.",
+    "Ignoring security — UDP is trivially spoofable; use DTLS or signed datagrams."
+  ],
+  "where_you_see_it": [
+    "DNS — the most widely deployed UDP application.",
+    "Voice and video — Zoom, Meet, Teams, Discord, WebRTC.",
+    "Online games — nearly every real-time multiplayer game.",
+    "QUIC / HTTP/3 — increasingly, the web itself.",
+    "Syslog, SNMP traps — fire-and-forget operational data."
+  ],
+  "interview_prompts": [
+    "When would you choose UDP over TCP? Give three real-world examples and explain why each benefits from UDP.",
+    "If UDP is unreliable, how can a DNS query be trustworthy? Walk through the reliability model.",
+    "You are building a video conferencing product. Why UDP, and what reliability do you add on top?",
+    "Why does HTTP/3 move from TCP to UDP-based QUIC? What does QUIC do that TCP cannot?",
+    "What are the deployment risks of running a UDP service, and how would you mitigate them?"
+  ],
+  "real_system_mappings": [
+    {
+      "system": "DNS",
+      "how": "Standard queries over UDP port 53 — one datagram in, one out. Falls back to TCP for large responses or zone transfers."
+    },
+    {
+      "system": "QUIC / HTTP/3",
+      "how": "Implements TCP-equivalent reliability (plus TLS) on top of UDP to enable per-stream reliability, 0-RTT setup, and connection migration. Now carries a large fraction of Google and Cloudflare traffic."
+    },
+    {
+      "system": "WebRTC",
+      "how": "Peer-to-peer voice, video, and data channels over UDP. Adds NACK, FEC, and bandwidth estimation tuned for sub-second latency. Requires STUN/TURN for NAT traversal."
+    }
+  ],
+  "status": "published",
+  "sources": [
+    {
+      "title": "System Design Primer",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Open source"
+    },
+    {
+      "title": "ByteByteGo — Scale from zero to millions",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "ByteByteGo"
+    },
+    {
+      "title": "System Design Tutorial",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "GeeksforGeeks"
+    },
+    {
+      "title": "System Design Roadmap",
+      "url": "https://roadmap.sh/system-design",
+      "publisher": "roadmap.sh"
+    },
+    {
+      "title": "Networking & Communication reference",
+      "url": "https://www.rfc-editor.org/",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Networking & Communication reference",
+      "url": "https://developer.mozilla.org/en-US/docs/Web/HTTP",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Networking & Communication reference",
+      "url": "https://www.cloudflare.com/learning/network-layer/what-is-a-protocol/",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Cloudflare Learning Center",
+      "url": "https://www.cloudflare.com/learning/",
+      "publisher": "Cloudflare"
+    }
+  ]
+}

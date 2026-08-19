@@ -10,19 +10,11 @@ compatibility_flags = ["python_workers"]
 [[d1_databases]]
 binding = "DB"
 database_name = "nocap"
-database_id = "REPLACE_WITH_YOUR_D1_ID"
+database_id = "233642c4-46d1-4239-b2a4-a4f797332101"
 
-# ── R2 (Object storage) - 10GB free, free egress ──
-# Used for: exported architectures, portfolio PDFs, lesson-pack downloads (Tier B)
-[[r2_buckets]]
-binding = "R2"
-bucket_name = "nocap-assets"
-
-# ── KV (OPTIONAL enrichment cache) - 1GB free, 100k reads/day, 1k writes/day ──
-# Used ONLY for: link preview cache, AI prompt cache (Tier C). Core app works without it.
-[[kv_namespaces]]
-binding = "KV"
-id = "REPLACE_WITH_YOUR_KV_ID"
+# ── Optional storage bindings ─────────────────────────────────────
+# R2/KV are intentionally not active in v0.1. Add them only when the
+# corresponding bucket/namespace exists; the core product does not depend on them.
 
 # ── Durable Objects (Tier B, v2.0 - collab) - 100k req/day, 13k GB-s/day ──
 # Uncomment when you build the collab feature.
@@ -67,5 +59,9 @@ enabled = true
 # ── Secrets (set via `wrangler secret put`) ──
 # GITHUB_CLIENT_ID
 # GITHUB_CLIENT_SECRET
+# GOOGLE_CLIENT_ID
+# GOOGLE_CLIENT_SECRET
+# FRONTEND_ORIGIN
+# APP_ORIGIN
 # ALLOWED_GITHUB_ID
 # JWT_SECRET

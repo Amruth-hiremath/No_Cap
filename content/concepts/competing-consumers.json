@@ -1,0 +1,440 @@
+{
+  "slug": "competing-consumers",
+  "version": 4,
+  "title": "Competing Consumers",
+  "phase": "asynchronous-systems",
+  "area": "Asynchronous Systems",
+  "estimated_minutes": 7,
+  "difficulty": "advanced",
+  "summary": "Competing Consumers is the parallelism pattern for a work queue: multiple consumer instances pull from the same queue, and the broker ensures each message is handed to exactly one of them. Throughput scales horizontally with the number of consumers up to the broker's partition limit. The catches are ordering (you lose it across consumers), idempotency (a redelivered message may hit a different consumer), and backpressure (more consumers do not help if the bottleneck is downstream).",
+  "why_it_matters": "A single consumer is a single point of throughput. If one worker can process 100 messages/sec and your producers burst to 1000/sec, the queue grows unbounded and the system falls over. Competing consumers is the cheapest horizontal scaling lever in the async toolbox: add workers, partition the queue, and let the broker hand out work. But the pattern introduces subtle correctness issues — strict FIFO is gone, in-flight duplicates are possible, and you must design for both. Knowing when to add consumers and when to fix the underlying bottleneck is an interview-grade skill.",
+  "prerequisites": [
+    "pub-sub"
+  ],
+  "related": [
+    "message-queues",
+    "message-queues-async",
+    "back-pressure",
+    "sharding"
+  ],
+  "used_in": [
+    "Background worker pools (Sidekiq, Celery, SQS+Lambda).",
+    "Kafka consumer groups (each group is a set of competing consumers across partitions).",
+    "Stream processing frameworks (Flink, Spark Streaming).",
+    "Job schedulers in CI systems (GitHub Actions runners competing for queued jobs)."
+  ],
+  "blocks": [
+    {
+      "type": "prose",
+      "id": "intro",
+      "payload": {
+        "text": "A single queue with multiple consumers is the **competing consumers** pattern. Each message is delivered to exactly one consumer; consumers 'compete' for the next message. This is the default scaling primitive for work queues.\n\nContrast with **pub/sub**, where each subscriber gets a copy of every message. Pub/sub fans out; competing consumers divide work. The two patterns compose: a topic can fan out to several subscription queues, each of which is drained by a pool of competing consumers. This is exactly the AWS SNS+SQS fan-out pattern and the Kafka topic+consumer-group model.\n\nThe throughput math is straightforward in the happy case: if one consumer processes `R` messages per second, `N` consumers process `N*R` — until you hit the broker's partition limit, the database's write throughput, or some other shared downstream bottleneck."
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "competing-vs-pubsub",
+      "payload": {
+        "code": "flowchart TD\n    N0[\"one message -> one consumer\"]\n    N1[\"COMPETING\"]\n    N2[\"CONSUMERS\"]\n    N3[\"(one\"]\n    N4[\"message\"]\n    N5[\"one\"]\n    N6[\"consumer)\"]\n    N7[\"  QUEUE  \"]\n    N8[\"msg 1, 4, 7, ...\"]\n    N9[\"Producer\"]\n    N10[\"QUEUE\"]\n    N11[\"Worker\"]\n    N12[\"(msg\"]\n    N13[\"...)\"]\n    N14[\"msg 2, 5, 8, ...\"]\n    N15[\"msg 3, 6, 9, ...\"]\n    N16[\"until broker/downstream saturates\"]\n    N17[\"Throughput\"]\n    N18[\"scales\"]\n    N19[\"with\"]\n    N20[\"worker\"]\n    N21[\"count\"]\n    N22[\"(until\"]\n    N23[\"broker\"]\n    N24[\"downstream\"]\n    N25[\"saturates).\"]\n    N26[\"Ordering\"]\n    N27[\"NOT\"]\n    N28[\"preserved\"]\n    N29[\"across\"]\n    N30[\"workers.\"]\n    N31[\"one message -> all subscribers\"]\n    N32[\"PUB\"]\n    N33[\"SUB\"]\n    N34[\"all\"]\n    N35[\"subscribers)\"]\n    N36[\"  TOPIC  \"]\n    N37[\"gets msg 1,2,3,4,...\"]\n    N38[\"TOPIC\"]\n    N39[\"Subscriber\"]\n    N40[\"(gets\"]\n    N41[\"msg\"]\n    N42[\"1,2,3,4,...)\"]\n    N43[\"Each\"]\n    N44[\"subscriber\"]\n    N45[\"gets\"]\n    N46[\"every\"]\n    N47[\"message.\"]\n    N48[\"Broadcast,\"]\n    N49[\"not\"]\n    N50[\"parallelism.\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44\n    N44 --> N45\n    N45 --> N46\n    N46 --> N47\n    N47 --> N48\n    N48 --> N49\n    N49 --> N50",
+        "caption": "Competing consumers divide work for parallelism; pub/sub broadcasts for fan-out.",
+        "alt_text": "Two diagrams side by side. In competing consumers, a producer sends messages to a queue, and each message is delivered to exactly one of three workers. Throughput scales with the number of workers, but ordering is not preserved across workers. In pub/sub, a producer sends messages to a topic, and every subscriber receives a copy of every message. The diagram highlights that competing consumers is a parallelism pattern while pub/sub is a broadcast pattern."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "scaling",
+      "payload": {
+        "text": "Adding consumers is the obvious lever, but it has limits:\n\n1. **Broker partition ceiling.** In Kafka, parallelism is bounded by the number of partitions — adding consumers beyond the partition count is wasted, because partitions are assigned one-per-consumer within a group. In SQS, the broker handles fan-out itself, but there is a soft per-queue throughput limit that can be raised on request.\n2. **Downstream saturation.** If every consumer writes to the same database, adding consumers shifts the bottleneck from the queue to the database. Queue depth drops; database CPU goes to 100%. You have not solved the problem, just moved it.\n3. **Heterogeneous workers.** If workers have different speeds (one is on a slower machine), the slow one becomes the long tail. Use a prefetch limit (RabbitMQ QoS) or maxNumberOfMessages tuning so a slow worker does not hoard a backlog.\n\nThe correct diagnostic is to measure where time is being spent: queue wait time vs. processing time vs. downstream latency. Add consumers when queue wait time dominates; fix the bottleneck when processing time dominates."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "ordering-tradeoff",
+      "payload": {
+        "title": "Ordering is the price of parallelism",
+        "body": "Once two consumers are pulling from the same queue, you cannot guarantee message A is processed before message B, even if A was enqueued first. Worker A might be slow, or Worker B might pull first. If you need strict per-message ordering, use a FIFO queue with a single partition (single consumer, no parallelism) — or partition by key (so messages with the same key go to the same consumer, preserving per-key ordering).",
+        "kind": "warning"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "partitioning",
+      "payload": {
+        "text": "The bridge between 'competing consumers' and 'preserved per-key ordering' is **partitioning by key**. The broker hashes each message's `partition_key` onto one of `P` partitions. Each partition is consumed by exactly one consumer within a consumer group. So:\n\n- **Across partitions**: messages are processed in parallel by different consumers; no ordering guarantees.\n- **Within a partition**: messages are processed in FIFO order by a single consumer.\n\nThis is the Kafka and SQS-FIFO model. The trade-off is that a single hot partition (e.g., all messages for one popular user) cannot be parallelized — you are limited by the single consumer assigned to it. Hot keys are the silent killer of partitioned throughput; consistent hashing and a high enough partition count are the standard mitigations.\n\nWhen a consumer crashes or rejoins, the broker **rebalances** partitions across the live consumers. During rebalance, in-flight messages may be redelivered to the new owner of the partition — which is why consumers must be idempotent even within a single partition."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "prefetch",
+      "payload": {
+        "text": "**Prefetch / QoS** controls how many messages a consumer can hold in-flight before acking. A prefetch of 1 means each consumer processes one message, acks, then pulls the next — slow, but fair. A prefetch of 100 means the consumer can buffer up to 100 messages, which improves throughput by hiding broker latency but means one slow consumer can hoard 100 messages that could have gone to faster consumers.\n\nThe rule of thumb: set prefetch high when all consumers are roughly equally fast; set it low (1-5) when workers are heterogeneous. For latency-sensitive work, prefetch 1 with long polling. For throughput-oriented work, prefetch 50-100 with batch acks."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q1",
+      "payload": {
+        "question": "You have 12 Kafka partitions and 20 consumer instances in one consumer group. How many consumers actually do work?",
+        "shape": "mcq",
+        "options": [
+          "20 — every consumer gets messages.",
+          "12 — one per partition; the other 8 are idle.",
+          "6 — the broker splits partitions evenly and limits concurrency.",
+          "0 — the configuration is invalid and consumers will not start."
+        ],
+        "answer_index": 1,
+        "rationale": "In Kafka, each partition is assigned to exactly one consumer within a consumer group. With 12 partitions and 20 consumers, 12 consumers get one partition each and the remaining 8 are idle. Adding consumers beyond the partition count does nothing for throughput; to scale further, increase the partition count (which is an operational change — partition count cannot be reduced, and re-keying existing data is expensive). This is why planning partition count upfront matters: it sets the ceiling on parallelism for that topic.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q2",
+      "payload": {
+        "question": "Your queue depth is growing. You add consumers, but depth keeps growing. What is the most likely diagnosis?",
+        "shape": "mcq",
+        "options": [
+          "The broker is the bottleneck — increase broker capacity.",
+          "The bottleneck is downstream of the consumers (e.g., the database they write to).",
+          "Consumers are crashing — increase retries.",
+          "Producers are sending too fast — add rate limiting."
+        ],
+        "answer_index": 1,
+        "rationale": "If adding consumers does not drain the queue, the bottleneck is not the consumer pool — it is somewhere downstream. The most common culprit is a shared database that all consumers write to; adding consumers increases load on the DB, which slows each consumer, which keeps queue depth flat or growing. The fix is to look at consumer-side metrics: where is time being spent? If processing time per message is dominated by DB writes, scale the database (read replicas, sharding, batching) or change the workload. The diagnostic rule: queue depth tells you whether you need more consumers; per-message processing time tells you whether consumers are blocked downstream.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q3",
+      "payload": {
+        "question": "You need strict per-order ordering for messages within the same order_id, but want parallelism across orders. Which design do you choose?",
+        "shape": "mcq",
+        "options": [
+          "A single FIFO queue with one consumer — full ordering, no parallelism.",
+          "A partitioned queue keyed by order_id — same-key messages stay in order, different keys parallelize.",
+          "Multiple independent queues, one per order_id — unbounded queue count.",
+          "Pub/sub with order_id filter — every subscriber sees every message."
+        ],
+        "answer_index": 1,
+        "rationale": "Partition by order_id. The broker hashes order_id onto one of N partitions; all messages for the same order land on the same partition and are processed by a single consumer in FIFO order. Different orders hash to different partitions and run in parallel. This is the standard pattern in Kafka (partition key) and SQS FIFO (message group ID). The trade-off is hot keys: if one order_id produces thousands of messages per second, that single partition cannot parallelize. In practice, order_ids are uniformly distributed, so this is rarely an issue. Pure FIFO with one consumer is correct but throws away parallelism; per-order queues blow up queue count and broker metadata.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-competing-consumers-mental",
+      "payload": {
+        "text": "Engineering mental model",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-competing-consumers-mental",
+      "payload": {
+        "text": "**Mental model.** Think of Competing Consumers as a deliberate boundary in a system. The boundary exists because something becomes harder to manage when everything is done in one place: latency, scale, failure isolation, consistency, cost, or team ownership. The useful question is not “what does Competing Consumers mean?” but “what pressure makes this boundary worth introducing, and what new failure mode does it create?”"
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-competing-consumers-decision",
+      "payload": {
+        "title": "Design lens",
+        "body": "Before choosing Competing Consumers, name the workload, the critical user path, the dominant bottleneck, the failure you are trying to absorb, and the trade-off you are willing to accept. If you cannot name those five things, the design is probably premature.",
+        "kind": "info"
+      }
+    },
+    {
+      "type": "image",
+      "id": "upgrade-image-competing-consumers",
+      "payload": {
+        "src": "/learning-visuals/competing-consumers.svg",
+        "alt": "Original NO CAP systems visual for Competing Consumers.",
+        "caption": "Competing Consumers: a compact system-thinking visual.",
+        "credit": "Original NO CAP visual.",
+        "source_url": "https://github.com/donnemartin/system-design-primer"
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "upgrade-mermaid-competing-consumers",
+      "payload": {
+        "code": "flowchart LR\n  A[Client] --> B[Gateway] --> C[Service] --> D[State] --> E[Outcome]",
+        "caption": "Competing Consumers: a simplified system view showing the primary flow and the main state boundaries.",
+        "alt_text": "Competing Consumers: a simplified system view showing the primary flow and the main state boundaries."
+      }
+    },
+    {
+      "type": "code",
+      "id": "upgrade-code-competing-consumers",
+      "payload": {
+        "language": "text",
+        "code": "// Pseudocode\nrequest = receive()\nresult = competing_consumers(request)\nreturn result\n\n// Production questions:\n// 1. What happens on timeout?\n// 2. Can this operation be retried safely?\n// 3. What is the bottleneck?",
+        "caption": "A minimal engineering sketch for reasoning about Competing Consumers."
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-competing-consumers-numbers",
+      "payload": {
+        "text": "Back-of-the-envelope reasoning",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-competing-consumers-numbers",
+      "payload": {
+        "text": "Numerical lens: write down traffic, payload size, read/write ratio, peak multiplier and durability target before choosing a component. The numbers should justify the architecture."
+      }
+    },
+    {
+      "type": "simulation",
+      "id": "upgrade-sim-competing-consumers",
+      "payload": {
+        "title": "Interactive thought experiment: Competing Consumers",
+        "description": "Change the variables below and predict what breaks first in Competing Consumers. The production lab can later reuse these same inputs.",
+        "variables": [
+          {
+            "name": "traffic",
+            "description": "Requests/events per second",
+            "default": "1000"
+          },
+          {
+            "name": "latency",
+            "description": "Dependency latency",
+            "default": "50ms"
+          },
+          {
+            "name": "failure_rate",
+            "description": "Injected failure rate",
+            "default": "0%"
+          }
+        ],
+        "placeholder_note": "Interactive controls are deterministic; use the linked Labs section when a dedicated lab exists."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-competing-consumers-hint",
+      "payload": {
+        "title": "Hint",
+        "body": "If you are stuck on Competing Consumers, start by drawing the request path and marking every network hop, stateful component, queue, cache and failure boundary. Then estimate where the system will saturate.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-competing-consumers-1",
+      "payload": {
+        "shape": "prediction",
+        "question": "You increase traffic by 10× in a system using Competing Consumers. What should you inspect first?",
+        "options": [
+          "The newest framework version",
+          "The dominant bottleneck and its saturation signal",
+          "Only the UI",
+          "Nothing; the architecture should absorb any traffic automatically"
+        ],
+        "answer_index": 1,
+        "rationale": "System design is a constraint-and-bottleneck exercise. Start with the resource or dependency that will saturate first, then choose the smallest change that removes that bottleneck.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-competing-consumers-2",
+      "payload": {
+        "shape": "mcq",
+        "question": "Which statement is the safest engineering habit when using Competing Consumers?",
+        "options": [
+          "Choose it because it is popular",
+          "Add it before measuring the problem",
+          "State the workload, failure mode and trade-off it is solving",
+          "Use the most distributed design possible"
+        ],
+        "answer_index": 2,
+        "rationale": "Good architecture starts from requirements, workload and failure assumptions. The component is the consequence of that reasoning, not the starting point.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "scenario",
+      "id": "upgrade-scenario-competing-consumers",
+      "payload": {
+        "prompt": "Production scenario: your system uses Competing Consumers, traffic suddenly spikes, and p99 latency doubles. What is your first move?",
+        "context": "You have dashboards for traffic, latency, errors and saturation. You can change the architecture, but every change has operational cost.",
+        "options": [
+          {
+            "id": "a",
+            "text": "Add more instances immediately",
+            "outcome": "This may help, but only if compute saturation is the bottleneck.",
+            "correct": false
+          },
+          {
+            "id": "b",
+            "text": "Inspect the bottleneck and its saturation signal first",
+            "outcome": "Correct: diagnose before scaling or introducing a new pattern.",
+            "correct": true
+          },
+          {
+            "id": "c",
+            "text": "Disable monitoring to reduce overhead",
+            "outcome": "This removes the evidence you need to diagnose the incident.",
+            "correct": false
+          }
+        ],
+        "rationale": "Measure the limiting resource or dependency first. A bottleneck can be compute, database I/O, network, cache misses, lock contention, downstream latency, or queue backlog.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-competing-consumers-interview",
+      "payload": {
+        "text": "Interview drill",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-competing-consumers-interview",
+      "payload": {
+        "text": "**Answer this without notes:** When would you choose Competing Consumers, and when would you intentionally avoid it? Mention at least one bottleneck it addresses, one failure mode it introduces, and one alternative. Then quantify the workload you are designing for."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "field-guide-competing-consumers",
+      "payload": {
+        "title": "Engineering lens",
+        "body": "For Competing Consumers, separate producer speed from consumer speed. The key design question is what happens when production temporarily exceeds processing capacity: queue it, shed it, slow producers down, or degrade the feature.",
+        "kind": "tip"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "numerical-lens-competing-consumers",
+      "payload": {
+        "text": "### Numerical sanity check\n\nA simple queue sanity check: if producers create 8,000 messages/s and consumers process 6,000 messages/s, backlog grows at roughly 2,000 messages/s until the imbalance is corrected."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "field-question-competing-consumers",
+      "payload": {
+        "shape": "prediction",
+        "question": "A downstream service slows down while Competing Consumers keeps accepting traffic. Would you rather apply backpressure, queue more work, shed load, or degrade? Explain the trade-off.",
+        "context": "Do not optimize for a memorized definition. Reason from the workload and failure mode.",
+        "options": [
+          "Scale the same component immediately.",
+          "Measure the current bottleneck and state the assumption that changed.",
+          "Add more technologies until throughput improves.",
+          "Choose the most popular architecture."
+        ],
+        "answer_index": 1,
+        "rationale": "Good system design starts with the bottleneck and the changed constraint. The most popular or complex choice is not automatically correct.",
+        "difficulty": "interview"
+      }
+    }
+  ],
+  "trade_offs": {
+    "pros": [
+      "Throughput scales horizontally with consumer count (until the broker or downstream saturates).",
+      "Natural fault tolerance — if a consumer dies, the broker redelivers to another.",
+      "Load balancing is implicit — the broker hands work to whichever consumer is idle.",
+      "Composes cleanly with pub/sub fan-out (topic -> multiple subscription queues, each with competing consumers)."
+    ],
+    "cons": [
+      "Strict FIFO is lost across consumers; only per-partition ordering remains.",
+      "Idempotency becomes mandatory — a redelivered message may hit a different consumer than the original.",
+      "Hot keys cannot be parallelized — a single partition key with high volume bottlenecks one consumer.",
+      "Bounded by broker partitions (Kafka) or broker-level throughput caps (SQS)."
+    ]
+  },
+  "failure_modes": [
+    "Adding consumers does not help — downstream saturation (usually the database) is the real bottleneck.",
+    "Hot partition — a single high-volume key saturates one consumer while others idle.",
+    "Prefetch too high — slow consumers hoard messages that faster consumers could process.",
+    "Rebalance storms — consumers churning (deploy, autoscale) cause constant partition reassignment, with redelivery.",
+    "Ordering violation — assuming global FIFO when only per-partition FIFO is guaranteed."
+  ],
+  "common_mistakes": [
+    "Adding more consumers than partitions (Kafka) — wasted instances do nothing.",
+    "Assuming cross-consumer ordering — only per-partition/per-key ordering is preserved.",
+    "Forgetting that consumers must be idempotent — partition rebalances and ack losses cause redelivery.",
+    "Treating queue depth as the only signal — also measure per-message processing time to find downstream bottlenecks.",
+    "Setting prefetch too high on heterogeneous workers — slow workers hoard messages.",
+    "Not handling consumer-group rebalances gracefully — long-running consumers should commit offsets incrementally."
+  ],
+  "where_you_see_it": [
+    "Background worker pools (Sidekiq workers, Celery workers, SQS+Lambda).",
+    "Kafka consumer groups (every consumer group is a competing-consumers pool across partitions).",
+    "Stream processing frameworks (Flink, Spark Streaming, Kafka Streams).",
+    "CI job queues (GitHub Actions runners, Buildkite agents, Jenkins executors).",
+    "Log and event ingestion (Kinesis Data Streams -> multiple Lambda consumers)."
+  ],
+  "interview_prompts": [
+    "Your queue depth is growing. You add consumers, but depth keeps growing. Walk me through the diagnosis.",
+    "How does Kafka partitioning interact with consumer groups? What happens when you add a consumer beyond the partition count?",
+    "You need strict per-order ordering for messages but want cross-order parallelism. How do you design this?",
+    "What is prefetch / QoS, and how do you tune it for homogeneous vs. heterogeneous workers?",
+    "When does adding competing consumers make the situation worse instead of better?"
+  ],
+  "real_system_mappings": [
+    {
+      "system": "Apache Kafka consumer groups",
+      "how": "Each consumer group is a competing-consumers pool across partitions. Within a group, each partition is assigned to exactly one consumer. Adding consumers beyond partition count is idle. Rebalances on consumer join/leave can cause short redelivery windows."
+    },
+    {
+      "system": "AWS SQS + Lambda / ECS workers",
+      "how": "Multiple Lambda functions or ECS tasks pull from the same SQS queue. The broker handles delivery arbitration; with batch sizes of 10 and long polling, throughput scales with concurrency up to the queue's account-level burst limit. DLQs handle poison messages."
+    },
+    {
+      "system": "Sidekiq / Celery",
+      "how": "Redis-backed job queues with N worker processes competing for jobs. Concurrency is per-process; horizontal scaling is per-host. Prefetch is typically 1 (job is popped and processed before the next is fetched)."
+    },
+    {
+      "system": "GitHub Actions runners",
+      "how": "Self-hosted or hosted runners compete for queued workflow jobs. The queue dispatches one job per idle runner; throughput scales with runner count, bounded by the concurrency limit on the repo/org."
+    }
+  ],
+  "status": "published",
+  "sources": [
+    {
+      "title": "System Design Primer",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Open source"
+    },
+    {
+      "title": "ByteByteGo — Scale from zero to millions",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "ByteByteGo"
+    },
+    {
+      "title": "System Design Tutorial",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "GeeksforGeeks"
+    },
+    {
+      "title": "System Design Roadmap",
+      "url": "https://roadmap.sh/system-design",
+      "publisher": "roadmap.sh"
+    },
+    {
+      "title": "Asynchronous Systems reference",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Asynchronous Systems reference",
+      "url": "https://aws.amazon.com/message-queue/",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Asynchronous Systems reference",
+      "url": "https://martinfowler.com/articles/201701-event-driven.html",
+      "publisher": "Reference"
+    }
+  ]
+}

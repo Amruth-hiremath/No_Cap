@@ -1,0 +1,444 @@
+{
+  "slug": "write-behind",
+  "version": 4,
+  "title": "Write Behind",
+  "phase": "cache-aside",
+  "area": "Caching",
+  "estimated_minutes": 7,
+  "difficulty": "advanced",
+  "summary": "Write-behind (also called write-back) makes every write go to the cache only and returns to the caller immediately. The cache then propagates the write to the database asynchronously, often batched and throttled. Writes are blindingly fast — the caller never waits for the DB — but the cache is now the source of truth for a brief window, and if the cache crashes before flushing, recent writes are lost. Write-behind is the highest-throughput, highest-risk caching strategy.",
+  "why_it_matters": "Write-behind is the only caching strategy that can absorb millions of writes per second on commodity hardware, because the write path never touches the database synchronously. It powers analytics event ingestion, view counters, telemetry pipelines, and real-time leaderboards. But the same property that makes it fast — the DB is decoupled from the write path — also makes it dangerous: a cache crash before flush equals data loss, and the database can lag the cache by seconds or minutes. Understanding write-behind means understanding the durability/latency trade-off in its sharpest form, and knowing exactly when you can and cannot accept it.",
+  "prerequisites": [
+    "write-through"
+  ],
+  "related": [
+    "cache-aside",
+    "write-through",
+    "refresh-ahead"
+  ],
+  "used_in": [
+    "View-count and like counters on social posts.",
+    "Analytics event ingestion (page views, clicks, impressions).",
+    "Real-time leaderboards and gaming scoreboards.",
+    "Telemetry and metrics pipelines (statsd, Prometheus push gateways).",
+    "IoT sensor data collection with intermittent connectivity."
+  ],
+  "blocks": [
+    {
+      "type": "prose",
+      "id": "intro",
+      "payload": {
+        "text": "In **write-behind** (write-back), the application writes only to the cache. The write returns immediately — sub-millisecond for an in-memory store. A background worker (or the cache itself, if it has native write-behind support) then flushes the write to the database asynchronously, often batched and throttled to smooth DB load.\n\nThis is the mirror image of write-through. Write-through prioritizes freshness at the cost of write latency. Write-behind prioritizes write latency at the cost of durability. The cache is the system of record for the brief window between the cache write and the DB flush. If the cache crashes in that window, the writes it held are gone.\n\nThe classic use case is a view counter on a popular video. The true count lives in a database eventually, but no one wants a video play to block on a DB write. The cache (Redis) holds the counter, increments it in microseconds, and a background job flushes counts to the DB every few seconds. If Redis crashes between flushes, you lose a few seconds of view counts — annoying, but not catastrophic, and the alternative (a synchronous DB write per play) would not scale to YouTube's traffic.\n\nThe other major use case is write coalescing. If the same key is written 1000 times in a second (e.g., a counter being incremented 1000 times), write-behind can flush just the final value once per second — collapsing 1000 DB writes into 1. This is the strategy that lets Redis act as a write-amplification reducer, not just a read cache."
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "flow",
+      "payload": {
+        "code": "flowchart TD\n    N0[\"cache is the source of truth for a brief window\"]\n    N1[\"WRITE\"]\n    N2[\"FLOW\"]\n    N3[\"(cache\"]\n    N4[\"the\"]\n    N5[\"source\"]\n    N6[\"truth\"]\n    N7[\"for\"]\n    N8[\"brief\"]\n    N9[\"window)\"]\n    N10[\"App\"]\n    N11[\"[App]\"]\n    N12[\"Cache\"]\n    N13[\"returns immediately, ~0.2ms\"]\n    N14[\"[Cache]\"]\n    N15[\"SET\"]\n    N16[\"INCR\"]\n    N17[\"(returns\"]\n    N18[\"immediately,\"]\n    N19[\"~0.2ms)\"]\n    N20[\"every N seconds or every M writes\"]\n    N21[\"async\"]\n    N22[\"flush\"]\n    N23[\"(every\"]\n    N24[\"seconds\"]\n    N25[\"every\"]\n    N26[\"writes)\"]\n    N27[\"batched, throttled, retried\"]\n    N28[\"(batched,\"]\n    N29[\"throttled,\"]\n    N30[\"retried)\"]\n    N31[\"Database\"]\n    N32[\"[Database]\"]\n    N33[\"eventual\"]\n    N34[\"persistence\"]\n    N35[\"READ\"]\n    N36[\"(HIT\"]\n    N37[\"returns\"]\n    N38[\"most\"]\n    N39[\"recent\"]\n    N40[\"write,\"]\n    N41[\"which\"]\n    N42[\"may\"]\n    N43[\"not\"]\n    N44[\"yet\"]\n    N45[\"DB)\"]\n    N46[\"KEY\"]\n    N47[\"PROPERTIES\"]\n    N48[\"very fast\"]\n    N49[\"Write\"]\n    N50[\"latency\"]\n    N51[\"cache\"]\n    N52[\"write\"]\n    N53[\"only\"]\n    N54[\"(very\"]\n    N55[\"fast).\"]\n    N56[\"sees\"]\n    N57[\"smoothed,\"]\n    N58[\"batched\"]\n    N59[\"stream.\"]\n    N60[\"crash\"]\n    N61[\"before\"]\n    N62[\"DATA\"]\n    N63[\"LOSS\"]\n    N64[\"unflushed\"]\n    N65[\"writes.\"]\n    N66[\"replication lag-like\"]\n    N67[\"can\"]\n    N68[\"lag\"]\n    N69[\"minutes\"]\n    N70[\"(replication\"]\n    N71[\"like).\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44\n    N44 --> N45\n    N45 --> N46\n    N46 --> N47\n    N47 --> N48\n    N48 --> N49\n    N49 --> N50\n    N50 --> N51\n    N51 --> N52\n    N52 --> N53\n    N53 --> N54\n    N54 --> N55\n    N55 --> N56\n    N56 --> N57\n    N57 --> N58\n    N58 --> N59\n    N59 --> N60\n    N60 --> N61\n    N61 --> N62\n    N62 --> N63\n    N63 --> N64\n    N64 --> N65\n    N65 --> N66\n    N66 --> N67\n    N67 --> N68\n    N68 --> N69\n    N69 --> N70\n    N70 --> N71",
+        "caption": "Write-behind: writes hit the cache only and return immediately; a background flusher propagates to the DB asynchronously.",
+        "alt_text": "Write-behind diagram. Write flow: the app writes to the cache and gets an immediate acknowledgement in under a millisecond. A background process flushes the write to the database asynchronously, usually batched and throttled every few seconds. Read flow: reads come from the cache, which holds the most recent write — but that write may not yet be in the database. Key properties: write latency is essentially just the cache write latency, the database sees a smoothed batched stream, a cache crash before flush means data loss for unflushed writes, and the database can lag the cache by seconds or minutes — similar to replication lag."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "durability",
+      "payload": {
+        "text": "**Durability is the central question.**\n\nWrite-behind's risk is concentrated in one event: cache crash before flush. If Redis holds a write for 5 seconds before flushing, and Redis crashes (or is restarted, or fails over) at second 4, that write is gone — there is no DB record of it, and there is no cache record of it either (the cache is gone).\n\nThree properties determine how bad this is in practice:\n\n1. **Flush interval.** A 1-second flush loses at most 1 second of writes. A 60-second flush loses up to a minute. Shorter flushes mean more DB write load (less batching) but tighter durability.\n2. **Cache persistence.** If the cache itself is persistent (Redis AOF with `appendfsync always`, or Redis RDB snapshots every N seconds), a cache crash can recover recent writes from disk. Persistence turns a write-behind cache into something closer to write-through with extra steps — but it blunts the data-loss risk dramatically.\n3. **Write idempotency.** If every write carries a unique ID and the flusher is idempotent (re-applying the same write twice is safe), then a crash mid-flush can be retried safely. If writes are not idempotent (raw increments with no operation log), a crash mid-flush means the DB and the recovered cache disagree forever.\n\nThe hard rule is: **write-behind is acceptable only when the value of the writes you might lose is less than the cost of the latency you save.** View counts: yes. Bank balances: absolutely not."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "consistency-window",
+      "payload": {
+        "title": "The cache is ahead of the DB",
+        "body": "A read from a write-behind cache returns the most recent write — which the database may not have seen yet. If a second service reads from the database directly (bypassing the cache), it sees a stale value, and the two services disagree. This is the same shape as replication lag, and it has the same remedies: read-your-writes consistency (the writer always reads from the cache), session stickiness, or accepting eventual consistency. Never mix direct DB reads with write-behind cache reads in the same code path without a clear story for the staleness window.",
+        "kind": "warning"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "coalescing",
+      "payload": {
+        "text": "**Write coalescing — the hidden superpower.**\n\nWrite-behind's killer feature is not just fast writes, it is write coalescing. If the same key is updated 1000 times in 5 seconds (a counter being incremented, a sensor reporting a value), the flusher only needs to persist the final value once. 1000 logical writes collapse into 1 physical DB write.\n\nThis is enormous for write-amplification-prone workloads:\n- **Counters:** a popular video's play count might increment 10,000 times per second. The DB only needs to know the count once per second, not 10,000 times.\n- **Telemetry:** a metrics pipeline might receive 100,000 events/sec. Aggregating in the cache (HyperLogLog, sorted sets, sums) and flushing a single aggregate per minute reduces DB load by 100,000x.\n- **Hot keys:** a session's last-seen timestamp can be updated on every page load and flushed every 30 seconds — the DB never sees the per-page-load writes.\n\nCoalescing is what makes write-behind structurally different from write-through with async retry. Write-through-with-async-retry flushes every logical write exactly once (no coalescing); the latency saving is just moving the cache SET off the critical path. Write-behind coalesces multiple writes into one — the throughput saving is multiplicative, not additive."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "when-to-use",
+      "payload": {
+        "text": "**When to use write-behind:**\n- **Write-heavy workloads where individual writes don't matter much.** Counters, view counts, telemetry, metrics, sensor data.\n- **When write coalescing gives you a 10-100,000x DB load reduction.** Anywhere the same key is written many times per second.\n- **When the cache is durable (Redis AOF) and the flush interval is short.** A 1-second AOF-persisted write-behind cache has a 1-second data-loss window under catastrophic failure — acceptable for many non-financial workloads.\n- **When downstream consumers can tolerate lag.** Dashboards, analytics, leaderboards — these don't need real-time precision.\n\n**When NOT to use write-behind:**\n- **Financial transactions, balances, orders.** A crash means real money lost.\n- **Any system that needs to read from the DB directly.** The lag between cache and DB breaks correctness for direct DB readers.\n- **When writes are not idempotent and there is no operation log.** A crash mid-flush leaves the DB and the recovered cache permanently inconsistent.\n- **When you cannot afford the operational complexity.** Write-behind requires monitoring flush lag, handling flush failures, and replay on cache recovery. If you don't have an SRE culture, use cache-aside or write-through."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q1",
+      "payload": {
+        "question": "Your write-behind cache has a 10-second flush interval. Redis crashes at second 7 of an interval and restarts empty (no AOF). What is the consequence?",
+        "shape": "mcq",
+        "options": [
+          "Nothing — the DB still has all writes because write-behind is synchronous.",
+          "All writes from the last 7 seconds are lost permanently; the DB never sees them.",
+          "The DB automatically rolls back to the last consistent state.",
+          "The cache recovers from the DB on restart, so no writes are lost."
+        ],
+        "answer_index": 1,
+        "rationale": "Write-behind holds writes in the cache for up to the flush interval before persisting. If the cache crashes mid-interval and is not persistent (no AOF/RDB), the unflushed writes are gone — there is no DB record of them and the cache is gone. With a 10-second flush interval, you lose up to 10 seconds of writes; at second 7, that is 7 seconds. The DB does not roll back (it never had the writes), and the cache cannot recover from the DB (the DB is missing them). This is the fundamental risk of write-behind, and why financial workloads cannot use it. Mitigations: shorter flush interval, Redis AOF persistence, or write-ahead logging of cache writes.",
+        "difficulty": "core"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q2",
+      "payload": {
+        "question": "A video's view counter is incremented 10,000 times per second. The cache flushes to the DB once per second. How many DB writes per second does this produce, and why is this acceptable when the cache alone could not handle the load?",
+        "shape": "mcq",
+        "options": [
+          "10,000 DB writes/sec — the cache forwards each increment individually.",
+          "1 DB write/sec — write-behind coalesces the 10,000 increments into a single write of the final count.",
+          "0 DB writes/sec — write-behind never flushes counters.",
+          "10,000 DB writes/sec but batched, so the DB sees them all at once."
+        ],
+        "answer_index": 1,
+        "rationale": "Write-behind's superpower is coalescing. The cache holds the running counter; 10,000 INCR operations per second update it in memory; the flusher writes the final value to the DB once per second. The DB sees 1 write/sec, not 10,000. This is the entire reason write-behind exists for counters: it reduces DB write load by the coalescing factor (10,000x in this case). The cache handles the 10,000 increments because in-memory INCR is sub-microsecond; the DB only needs to handle the final aggregated value once per interval. Without this, the DB would need to handle 10,000 writes/sec for one video, which would not scale.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q3",
+      "payload": {
+        "question": "You have two services reading the same data. Service A reads from the write-behind cache. Service B reads directly from the database. What problem will you observe, and what is the standard fix?",
+        "shape": "mcq",
+        "options": [
+          "No problem — the cache and DB are always in sync in write-behind.",
+          "Service A sees fresher data than Service B by up to the flush interval; the fix is to make Service B also read from the cache, or to accept eventual consistency.",
+          "Service B sees fresher data than Service A; the fix is to disable the cache.",
+          "Both services see stale data; the fix is to switch to write-through."
+        ],
+        "answer_index": 1,
+        "rationale": "In write-behind, the cache is ahead of the DB by up to the flush interval. A direct DB reader sees data that is older than what the cache reader sees — the two services disagree for up to the flush interval. This is structurally identical to replication lag and has the same fixes: either ensure all readers go through the cache (read-your-writes consistency), or accept that the two services have an eventual-consistency relationship. Switching to write-through would fix it but defeats the purpose of write-behind. The key insight is that write-behind is incompatible with mixed cache-and-DB read paths without explicit consistency reasoning.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-write-behind-mental",
+      "payload": {
+        "text": "Engineering mental model",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-write-behind-mental",
+      "payload": {
+        "text": "**Mental model.** Think of Write Behind as a deliberate boundary in a system. The boundary exists because something becomes harder to manage when everything is done in one place: latency, scale, failure isolation, consistency, cost, or team ownership. The useful question is not “what does Write Behind mean?” but “what pressure makes this boundary worth introducing, and what new failure mode does it create?”"
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-write-behind-decision",
+      "payload": {
+        "title": "Design lens",
+        "body": "Before choosing Write Behind, name the workload, the critical user path, the dominant bottleneck, the failure you are trying to absorb, and the trade-off you are willing to accept. If you cannot name those five things, the design is probably premature.",
+        "kind": "info"
+      }
+    },
+    {
+      "type": "image",
+      "id": "upgrade-image-write-behind",
+      "payload": {
+        "src": "/learning-visuals/write-behind.svg",
+        "alt": "Original NO CAP systems visual for Write Behind.",
+        "caption": "Write Behind: a compact system-thinking visual.",
+        "credit": "Original NO CAP visual.",
+        "source_url": "https://github.com/donnemartin/system-design-primer"
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "upgrade-mermaid-write-behind",
+      "payload": {
+        "code": "flowchart LR\n  A[Client] --> B[Gateway] --> C[Service] --> D[State] --> E[Outcome]",
+        "caption": "Write Behind: a simplified system view showing the primary flow and the main state boundaries.",
+        "alt_text": "Write Behind: a simplified system view showing the primary flow and the main state boundaries."
+      }
+    },
+    {
+      "type": "code",
+      "id": "upgrade-code-write-behind",
+      "payload": {
+        "language": "text",
+        "code": "// Pseudocode\nrequest = receive()\nresult = write_behind(request)\nreturn result\n\n// Production questions:\n// 1. What happens on timeout?\n// 2. Can this operation be retried safely?\n// 3. What is the bottleneck?",
+        "caption": "A minimal engineering sketch for reasoning about Write Behind."
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-write-behind-numbers",
+      "payload": {
+        "text": "Back-of-the-envelope reasoning",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-write-behind-numbers",
+      "payload": {
+        "text": "Numerical lens: write down traffic, payload size, read/write ratio, peak multiplier and durability target before choosing a component. The numbers should justify the architecture."
+      }
+    },
+    {
+      "type": "simulation",
+      "id": "upgrade-sim-write-behind",
+      "payload": {
+        "title": "Interactive thought experiment: Write Behind",
+        "description": "Change the variables below and predict what breaks first in Write Behind. The production lab can later reuse these same inputs.",
+        "variables": [
+          {
+            "name": "traffic",
+            "description": "Requests/events per second",
+            "default": "1000"
+          },
+          {
+            "name": "latency",
+            "description": "Dependency latency",
+            "default": "50ms"
+          },
+          {
+            "name": "failure_rate",
+            "description": "Injected failure rate",
+            "default": "0%"
+          }
+        ],
+        "placeholder_note": "Interactive controls are deterministic; use the linked Labs section when a dedicated lab exists."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-write-behind-hint",
+      "payload": {
+        "title": "Hint",
+        "body": "If you are stuck on Write Behind, start by drawing the request path and marking every network hop, stateful component, queue, cache and failure boundary. Then estimate where the system will saturate.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-write-behind-1",
+      "payload": {
+        "shape": "prediction",
+        "question": "You increase traffic by 10× in a system using Write Behind. What should you inspect first?",
+        "options": [
+          "The newest framework version",
+          "The dominant bottleneck and its saturation signal",
+          "Only the UI",
+          "Nothing; the architecture should absorb any traffic automatically"
+        ],
+        "answer_index": 1,
+        "rationale": "System design is a constraint-and-bottleneck exercise. Start with the resource or dependency that will saturate first, then choose the smallest change that removes that bottleneck.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-write-behind-2",
+      "payload": {
+        "shape": "mcq",
+        "question": "Which statement is the safest engineering habit when using Write Behind?",
+        "options": [
+          "Choose it because it is popular",
+          "Add it before measuring the problem",
+          "State the workload, failure mode and trade-off it is solving",
+          "Use the most distributed design possible"
+        ],
+        "answer_index": 2,
+        "rationale": "Good architecture starts from requirements, workload and failure assumptions. The component is the consequence of that reasoning, not the starting point.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "scenario",
+      "id": "upgrade-scenario-write-behind",
+      "payload": {
+        "prompt": "Production scenario: your system uses Write Behind, traffic suddenly spikes, and p99 latency doubles. What is your first move?",
+        "context": "You have dashboards for traffic, latency, errors and saturation. You can change the architecture, but every change has operational cost.",
+        "options": [
+          {
+            "id": "a",
+            "text": "Add more instances immediately",
+            "outcome": "This may help, but only if compute saturation is the bottleneck.",
+            "correct": false
+          },
+          {
+            "id": "b",
+            "text": "Inspect the bottleneck and its saturation signal first",
+            "outcome": "Correct: diagnose before scaling or introducing a new pattern.",
+            "correct": true
+          },
+          {
+            "id": "c",
+            "text": "Disable monitoring to reduce overhead",
+            "outcome": "This removes the evidence you need to diagnose the incident.",
+            "correct": false
+          }
+        ],
+        "rationale": "Measure the limiting resource or dependency first. A bottleneck can be compute, database I/O, network, cache misses, lock contention, downstream latency, or queue backlog.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-write-behind-interview",
+      "payload": {
+        "text": "Interview drill",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-write-behind-interview",
+      "payload": {
+        "text": "**Answer this without notes:** When would you choose Write Behind, and when would you intentionally avoid it? Mention at least one bottleneck it addresses, one failure mode it introduces, and one alternative. Then quantify the workload you are designing for."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "field-guide-write-behind",
+      "payload": {
+        "title": "Engineering lens",
+        "body": "For Write Behind, reason in this order: what data is hottest, where can it live closer to the caller, what makes it stale, and what happens on a miss or cache failure. A cache is an optimization boundary, not the source of truth.",
+        "kind": "tip"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "numerical-lens-write-behind",
+      "payload": {
+        "text": "### Numerical sanity check\n\nA useful first-order model is cache_load = request_rate × (1 - hit_rate). If traffic is 20,000 req/s and the hit rate is 90%, roughly 2,000 req/s still reaches the origin before considering misses caused by expiration or eviction."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "field-question-write-behind",
+      "payload": {
+        "shape": "prediction",
+        "question": "You have a read-heavy Write Behind path. Traffic doubles overnight. What metric would you inspect first, and what would convince you to add another cache layer?",
+        "context": "Do not optimize for a memorized definition. Reason from the workload and failure mode.",
+        "options": [
+          "Scale the same component immediately.",
+          "Measure the current bottleneck and state the assumption that changed.",
+          "Add more technologies until throughput improves.",
+          "Choose the most popular architecture."
+        ],
+        "answer_index": 1,
+        "rationale": "Good system design starts with the bottleneck and the changed constraint. The most popular or complex choice is not automatically correct.",
+        "difficulty": "interview"
+      }
+    }
+  ],
+  "trade_offs": {
+    "pros": [
+      "Write latency is essentially the cache write latency — sub-millisecond for in-memory stores.",
+      "Write coalescing collapses N writes to the same key into one DB write (10-100,000x reduction).",
+      "DB load is smoothed and batched — no spikes from write bursts.",
+      "Throughput scales with the cache, not the DB — millions of writes/sec on commodity hardware.",
+      "Reads from the cache return the freshest possible value (more recent than the DB)."
+    ],
+    "cons": [
+      "Cache crash before flush = DATA LOSS for unflushed writes — the defining risk.",
+      "DB lags the cache by the flush interval — direct DB readers see stale data.",
+      "Cache must be persistent (AOF/RDB) to mitigate data loss, adding cache-side latency.",
+      "Operationally complex: monitor flush lag, handle flush failures, replay on cache recovery.",
+      "Not idempotent-safe without an operation log — crash mid-flush leaves DB and cache permanently inconsistent."
+    ]
+  },
+  "failure_modes": [
+    "Cache crash before flush → unflushed writes lost permanently (no DB record).",
+    "Flush failure storm → cache accumulates writes faster than the DB can absorb, growing unboundedly.",
+    "Mixed read paths (cache + direct DB) → staleness inconsistency between services.",
+    "Non-idempotent writes during partial flush → DB and recovered cache disagree forever.",
+    "Cache failover to a stale replica → reads return values older than the primary had before the crash.",
+    "Flush interval grows under DB pressure → lag spikes, breaking latency-sensitive consumers."
+  ],
+  "common_mistakes": [
+    "Using write-behind for financial or transactional data — a crash means real money lost.",
+    "Setting a long flush interval (minutes) without AOF persistence — enormous data-loss window.",
+    "Allowing some services to read directly from the DB while others use the cache — silent staleness.",
+    "Assuming writes are idempotent when they are not — crash recovery produces permanent inconsistency.",
+    "Not monitoring flush lag — a stalled flusher can accumulate hours of unflushed writes silently.",
+    "Treating write-behind as a drop-in replacement for write-through — the durability and consistency semantics are fundamentally different."
+  ],
+  "where_you_see_it": [
+    "YouTube/Netflix view counters — millions of increments coalesced to one DB write per second.",
+    "Reddit/Twitter like and retweet counters — fast increments, eventual DB persistence.",
+    "statsd and metrics pipelines — aggregate in memory, flush periodically.",
+    "Real-time gaming leaderboards (Redis sorted sets) — score updates coalesced before persistence.",
+    "IoT sensor ingestion — high write rate, intermittent connectivity, tolerant of brief data loss.",
+    "Clickstream and analytics event buffers (Kafka is durable, but Redis-backed buffers are write-behind)."
+  ],
+  "interview_prompts": [
+    "Design a view counter for a video platform with 1B views/day. How do you make the DB survive the write load?",
+    "When is write-behind the right choice? When is it the wrong choice? Give an example of each.",
+    "Your write-behind cache just crashed with a 5-second flush interval and no persistence. What did you lose, and how do you prevent it next time?",
+    "A second service reads the count from the DB directly and disagrees with the service reading from the cache. Why? How do you fix it?",
+    "How is write-behind's lag window similar to replication lag? How would you monitor it?"
+  ],
+  "real_system_mappings": [
+    {
+      "system": "YouTube view counters",
+      "how": "View increments are coalesced in a Redis-backed write-behind layer; the canonical counter is flushed to a sharded DB periodically. Brief data loss on cache failure is acceptable because exact view counts are not financially material."
+    },
+    {
+      "system": "Instagram / Facebook like counters",
+      "how": "Likes are written to a cache (memcache/Redis), aggregated, and flushed to the durable tier asynchronously. The exact count is eventually consistent — viewers may see slightly different counts for a few seconds."
+    },
+    {
+      "system": "statsd / Etsy metrics pipeline",
+      "how": "statsd aggregates counters and timers in memory and flushes to a backend (Graphite, etc.) every 10 seconds by default — a textbook write-behind pattern tuned for write coalescing."
+    },
+    {
+      "system": "Redis with persistence for write-behind (AOF appendfsync everysec)",
+      "how": "Redis configured with AOF everysec and a write-behind flusher gives a 1-second data-loss window under catastrophic failure — the standard configuration for non-financial write-heavy workloads."
+    }
+  ],
+  "status": "published",
+  "sources": [
+    {
+      "title": "System Design Primer",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Open source"
+    },
+    {
+      "title": "ByteByteGo — Scale from zero to millions",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "ByteByteGo"
+    },
+    {
+      "title": "System Design Tutorial",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "GeeksforGeeks"
+    },
+    {
+      "title": "System Design Roadmap",
+      "url": "https://roadmap.sh/system-design",
+      "publisher": "roadmap.sh"
+    },
+    {
+      "title": "Caching reference",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Caching reference",
+      "url": "https://aws.amazon.com/caching/",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Caching reference",
+      "url": "https://redis.io/docs/latest/develop/get-started/",
+      "publisher": "Reference"
+    }
+  ]
+}

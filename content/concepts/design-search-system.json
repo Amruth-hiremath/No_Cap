@@ -1,0 +1,449 @@
+{
+  "slug": "design-search-system",
+  "version": 3,
+  "title": "Design Search System",
+  "phase": "case-studies",
+  "area": "Case Studies",
+  "estimated_minutes": 12,
+  "difficulty": "interview",
+  "summary": "Design a full-text search system (Elasticsearch / Lucene architecture). Covers the inverted index data structure, analyzer pipeline (tokenize -> lowercase -> stem -> stop words), term-sharded indexing, TF-IDF + BM25 ranking, the query pipeline (parse -> plan -> scatter-gather across shards -> merge), and near-real-time indexing via the commit/refresh/flush cycle. The deep dive walks through why you shard by term (not by document) for skewed term frequencies, and how per-shard postings lists are merged with a priority queue at query time.",
+  "why_it_matters": "Search is one of the highest-leverage features in any product — Amazon, Google, Yelp, LinkedIn all derive massive value from search quality. The inverted index is one of the few data structures that has dominated unchanged for 50 years (since Lucene, originally since the 1960s). Understanding it unlocks Elasticsearch, Solr, OpenSearch, Lucene, and any custom search backend you'll build. The sharding-by-term pattern (vs sharding-by-document) is a classic interview differentiator because most candidates default to document-sharding and lose query fan-out to the wrong place.",
+  "prerequisites": [
+    "sharding",
+    "consistent-hashing",
+    "cache-aside"
+  ],
+  "related": [
+    "design-news-feed",
+    "sharding",
+    "denormalization"
+  ],
+  "used_in": [
+    "Elasticsearch / OpenSearch",
+    "Apache Solr",
+    "Lucene (the underlying engine)",
+    "Wikipedia search",
+    "GitHub code search"
+  ],
+  "blocks": [
+    {
+      "type": "prose",
+      "id": "problem",
+      "payload": {
+        "text": "**What are we designing?** A full-text search system over 10B documents (web pages, product listings, code, logs). A user types a query and gets a ranked list of matching documents in under 200 ms, even when the corpus is petabytes. The system must index new documents within seconds (near real-time) and rank by relevance.\n\nThe defining challenges are (1) **the inverted index** — the core data structure that maps terms to postings lists (which documents contain them, in which positions), (2) **sharding** — how to split 10B documents across 100 nodes such that a query can be answered without scanning the whole corpus, and (3) **ranking** — given a set of matching documents, how to put the most relevant ones first using TF-IDF, BM25, and page-rank-style signals."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "requirements",
+      "payload": {
+        "text": "**Functional requirements.**\n- A document is indexed (title, body, metadata) within seconds of being published.\n- A user can search by arbitrary text query and get ranked results.\n- Search supports phrase queries (\"distributed systems\"), boolean operators, filters (date, language), and facets (counts by category).\n- Optional: typo tolerance (fuzzy search), autocomplete, personalization.\n\n**Non-functional requirements.**\n- **Query latency**: p99 < 200 ms for 10B docs across 100 shards.\n- **Indexing latency**: < 5 s from publish to searchable (NRT — near real time).\n- **Freshness**: indexed documents visible within seconds.\n- **Throughput**: 10K queries/sec avg, 100K/sec peak.\n- **Availability**: 99.9% (degraded results acceptable during partial outages).\n\n**Non-goals.** No ML-based semantic search (separate vector-DB layer — see below), no real-time personalization per query (cached signals only)."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "capacity",
+      "payload": {
+        "text": "**Capacity estimation.**\n\n*Corpus.* 10B documents, avg 10 KB each = 100 TB of source text. Postings list (term -> [doc_id, position]) is typically 50-100% of source size with positions; without positions, much smaller. Estimate 50 TB of index data.\n\n*Shards.* A single shard can hold ~50 GB of index comfortably (Lucene segment merge cost, JVM heap for caches). 50 TB / 50 GB = 1000 shards. Replicate 2x = 2000 shard instances across ~100 nodes (each node holds ~20 shards).\n\n*Query throughput.* 10K QPS. Each query touches ~20 shards (one shard per primary, plus 1 replica for HA) = 200K shard queries/sec. Each shard query scans at most ~10K postings and ranks via BM25 — ~5 ms per shard, parallelized. With fan-out, total query latency = max shard latency + merge ~ 50-100 ms. Good.\n\n*Indexing throughput.* 10K docs/sec avg. Each doc requires: analyze tokens, update postings lists, write to segment. Single shard ~1K docs/sec. We have 1000 shards, so total ~1M docs/sec capacity — plenty.\n\n*Memory.* Hot postings lists (top-K most frequent terms) cached in JVM heap. Caches ~30% hit rate on long-tail queries; ~80% hit rate on top 1000 terms."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "apis",
+      "payload": {
+        "text": "**APIs.**\n\n```\nPOST /v1/index/:index_name/_doc\n  { id, title, body, metadata: {lang, date, ...} }\n  -> { _id, _version, result: \"created\" }\n\nPOST /v1/index/:index_name/_search\n  { query: { match: { body: \"distributed systems design\" } },\n    filter: { range: { date: { gte: \"2024-01-01\" } } },\n    facets: [\"category\"],\n    size: 20 }\n  -> { hits: { total, hits: [{ _id, _score, _source }] } }\n\nPOST /v1/index/:index_name/_refresh    -- make recent docs visible\n```\n\nElasticsearch's REST API is the de-facto standard. The `_refresh` endpoint forces Lucene to reopen its searcher, making newly indexed docs visible (NRT cycle is ~1s by default)."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "data-model",
+      "payload": {
+        "text": "**Data model: the inverted index.**\n\nThe inverted index is a map: `term -> postings list`. A posting is `(doc_id, term_frequency, positions[])`.\n\n```\nInverted index for corpus of 3 docs:\n  Doc1: \"the cat sat on the mat\"\n  Doc2: \"the dog sat on the log\"\n  Doc3: \"the cat chased the dog\"\n\nTerm   -> Postings\n-----\nthe    -> [(1,2,[0,5]), (2,2,[0,5]), (3,2,[0,4])]\ncat    -> [(1,1,[1]), (3,1,[1])]\nsat    -> [(1,1,[2]), (2,1,[2])]\non     -> [(1,1,[3]), (2,1,[3])]\nmat    -> [(1,1,[6])]\ndog    -> [(2,1,[5]), (3,1,[4])]\nlog    -> [(2,1,[6])]\nchased -> [(3,1,[2])]\n```\n\nQuery `\"cat sat\"` finds postings for both `cat` and `sat`, intersects doc_ids ({1} ∩ {1,2} = {1}), and ranks by BM25 score on combined term frequencies.\n\n**Per-shard storage** (Lucene segment files):\n- `.tii` / `.tip` — term dictionary (FST, prefix-compressed)\n- `.doc` / `.pos` — postings lists (doc IDs and positions, delta-encoded + bit-packed)\n- `.fdt` / `.fdx` — stored fields (the original document content for retrieval)\n- `.cfs` — compound segment file (single file for many sub-files, fewer file handles)\n\n**Sharding strategy.** Elasticsearch defaults to **shard-by-document**: each primary shard holds a random ~1/N subset of documents. A query is broadcast to all primaries (scatter-gather), each returns top-K, the coordinator merges. This is simple and balanced — but every query touches every shard."
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "arch",
+      "payload": {
+        "code": "flowchart TD\n    N0[\"Client\"]\n    N1[\" query: 'distributed systems' \"]\n    N2[\"[Client]\"]\n    N3[\"POST\"]\n    N4[\"search\"]\n    N5[\"query:\"]\n    N6[\"'distributed\"]\n    N7[\"systems'\"]\n    N8[\"Coordinator Node\"]\n    N9[\"[Coordinator\"]\n    N10[\"Node]\"]\n    N11[\"parse\"]\n    N12[\"query\"]\n    N13[\"plan:\"]\n    N14[\"per\"]\n    N15[\"shard\"]\n    N16[\"scatter\"]\n    N17[\"all\"]\n    N18[\"shards\"]\n    N19[\"parallel\"]\n    N20[\"Shard 1\"]\n    N21[\"Shard 2\"]\n    N22[\"Shard N\"]\n    N23[\"[Shard\"]\n    N24[\"primary\"]\n    N25[\"(primary)\"]\n    N26[\"each\"]\n    N27[\"shard:\"]\n    N28[\"look\"]\n    N29[\"postings\"]\n    N30[\"term\"]\n    N31[\".tii/.tip\"]\n    N32[\"inverted\"]\n    N33[\"index\"]\n    N34[\"(.tii\"]\n    N35[\".tip)\"]\n    N36[\"intersect\"]\n    N37[\"for\"]\n    N38[\"AND\"]\n    N39[\"skiplist merge\"]\n    N40[\"(skiplist\"]\n    N41[\"merge)\"]\n    N42[\"compute\"]\n    N43[\"BM25\"]\n    N44[\"score\"]\n    N45[\"doc\"]\n    N46[\"size=20\"]\n    N47[\"return\"]\n    N48[\"top\"]\n    N49[\"(size\"]\n    N50[\"20)\"]\n    N51[\"top-K hits\"]\n    N52[\"[top\"]\n    N53[\"hits]\"]\n    N54[\"Coordinator Merge\"]\n    N55[\"Merge]\"]\n    N56[\"heap\"]\n    N57[\"priority\"]\n    N58[\"queue\"]\n    N59[\"(heap)\"]\n    N60[\"global\"]\n    N61[\"across\"]\n    N62[\"apply\"]\n    N63[\"post\"]\n    N64[\"filters,\"]\n    N65[\"facets\"]\n    N66[\"Client response\"]\n    N67[\"[Client\"]\n    N68[\"response]\"]\n    N69[\"hits:\"]\n    N70[\"docs,\"]\n    N71[\"category counts\"]\n    N72[\"facets:\"]\n    N73[\"{category\"]\n    N74[\"counts}\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44\n    N44 --> N45\n    N45 --> N46\n    N46 --> N47\n    N47 --> N48\n    N48 --> N49\n    N49 --> N50\n    N50 --> N51\n    N51 --> N52\n    N52 --> N53\n    N53 --> N54\n    N54 --> N55\n    N55 --> N56\n    N56 --> N57\n    N57 --> N58\n    N58 --> N59\n    N59 --> N60\n    N60 --> N61\n    N61 --> N62\n    N62 --> N63\n    N63 --> N64\n    N64 --> N65\n    N65 --> N66\n    N66 --> N67\n    N67 --> N68\n    N68 --> N69\n    N69 --> N70\n    N70 --> N71\n    N71 --> N72\n    N72 --> N73\n    N73 --> N74",
+        "caption": "Search query flow: coordinator scatters a query to all shard primaries in parallel; each shard consults its local inverted index, intersects postings, scores by BM25, returns its local top-K; coordinator merges via a heap into global top-K.",
+        "alt_text": "Diagram of a distributed search query. The client POSTs a query to the coordinator node, which parses it and plans one sub-query per shard, scattering them in parallel. Each shard primary looks up postings lists for each query term in its local Lucene inverted index, intersects the postings for AND queries using a skiplist merge, computes a BM25 relevance score for each matching document, and returns its local top K results. The coordinator merges all shard top K results into a global top K via a heap-based priority queue, applies post-filters and facet counts, and returns the response to the client."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "inverted-index-deep",
+      "payload": {
+        "text": "**Deep dive: the inverted index and analyzer.**\n\n**The analyzer pipeline.** Before a document is indexed, its text fields pass through an analyzer:\n1. **Tokenizer** — split text into tokens (e.g. `StandardTokenizer` on Unicode whitespace + punctuation).\n2. **Lowercase filter** — case folding (\"Cat\" -> \"cat\").\n3. **Stop word filter** — drop \"the\", \"a\", \"of\" for English.\n4. **Stemmer filter** — Porter stemmer reduces \"running\" -> \"run\", \"mice\" -> \"mouse\".\n5. **Synonym filter** (optional) — \"car\" -> \"automobile\".\n\nThe same analyzer runs at query time, so query and document tokens live in the same space. Mismatched analyzers are the #1 bug in search systems (\"I searched for 'running' but got nothing because docs were stemmed to 'run' and my query wasn't\").\n\n**The postings list encoding.** A naive postings list of doc IDs would be huge. Lucene encodes postings as delta-encoded varints: `[5, 8, 12]` becomes `[5, +3, +4]` and each delta is varint-encoded (smaller deltas = 1 byte). Block-level encodings (PFor, PFOR-DELTA) compress 128-posting blocks with bit-packing. This is why Lucene indexes are smaller than the source text despite containing positional info.\n\n**The term dictionary (.tii).** The term dictionary maps term -> offset in postings file. Stored as a finite-state transducer (FST) — a prefix-compressed DAG. Memory-resident (a few MB per shard). Lookups are O(length of term). This is the magic that lets Lucene find any term in microseconds.\n\n**Segment immutability.** Lucene writes segments — each segment is a write-once inverted index. New documents create a new segment. Deleted documents are marked in a bitset (liveDocs). Periodically segments are merged (smaller -> larger) to reclaim space from deletes and improve query efficiency. This is why deletes are 'soft' until the next merge."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "sharding-ranking",
+      "payload": {
+        "text": "**Deep dive: sharding, ranking, and NRT.**\n\n**Shard by document (Elasticsearch default).** Random hash of doc_id to shard. Pros: simple, balanced, every shard is independent. Cons: every query fans out to all N shards. With N=1000 shards and 10K QPS, that's 10M shard queries/sec. Fine — but query latency = slowest shard's response time, so the tail is bounded by the slowest shard's GC pause.\n\n**Shard by term (alternative).** Partition the term space (e.g. hash(term) mod N). A query for \"distributed systems\" only hits the shards that own those terms — usually 1-2 shards instead of all 1000. Pros: dramatic query fan-out reduction (only relevant shards). Cons: term frequency is wildly skewed — \"the\" appears in 99% of docs, \"supercalifragilistic\" in 0.001%. The shard owning common terms becomes a hotspot. Used by some specialized systems (Google's old index used term-sharding); rare in practice for general-purpose search because of the skew.\n\n**Ranking: TF-IDF vs BM25.** Classical TF-IDF: score = tf * idf, where idf = log(N/df) (df = number of docs containing the term). Penalizes common terms, rewards rare-term matches. BM25 is the modern default: similar but with saturation (tf is capped by a k1 parameter so a term appearing 100 times in one doc doesn't dominate). BM25 also rewards shorter docs (b parameter) — all else equal, a 100-word doc matching is more relevant than a 10000-word doc matching.\n\n**PageRank and beyond.** Pure text relevance isn't enough; a spam page repeating keywords would score high. Production systems layer signals: PageRank-style link authority, freshness (recency boost for news), personalization (user's history), and ML rerankers (LambdaMART, BERT-based). All these are computed offline / asynchronously and merged at query time.\n\n**Near Real Time (NRT).** Lucene writes new docs to an in-memory buffer; every `refresh_interval` (default 1s) it flushes to a new segment and reopens the searcher. The new docs become visible. Every `translog_flush` (default 30 min or 5K docs) it fsyncs the segment to disk (durability). The 1s refresh is what makes ES 'near real time' rather than real time — and the source of the classic 'why isn't my doc searchable?' interview question.\n\n**Scatter-gather query.** Coordinator sends query to one replica of each shard (load-balanced). Each shard runs the query locally, returns top-K (just doc_id + score; source fields fetched lazily from coordinator if top-K). Coordinator merges with a heap of size K. With K=20 and 1000 shards, the merge is 20K entries — trivial."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "bottlenecks",
+      "payload": {
+        "text": "**Bottlenecks and failure modes.**\n\n- **Hot term.** A query for a popular term (\"python\") fans out to all shards, each loads a huge postings list. *Mitigation*: cache top-K postings for hot terms in JVM heap (LRU); use filter cache for repeated boolean filters.\n\n- **JVM GC pauses.** Lucene relies on JVM; large heap = long stop-the-world pauses = query tail latency spikes. *Mitigation*: keep heap < 32 GB (avoids compressed-oops break); use off-heap for postings (Lucene is mostly off-heap); use ZGC or Shenandoah for sub-ms pauses.\n\n- **Slow shard (tail latency).** Scatter-gather latency = slowest shard. One shard with a 500ms GC pause kills p99. *Mitigation*: query replicas in parallel and take first response (hedged requests); per-shard query timeout with partial-result return.\n\n- **Reindex on mapping change.** Changing a field's analyzer or type requires reindexing all docs (expensive). *Mitigation*: use aliases; reindex to a new index in the background; swap alias when done.\n\n- **Segment merge storm.** Heavy indexing creates many small segments; merges consume CPU and IO. *Mitigation*: tune `index.merge.policy` (tiered merge, max_merged_segment); backpressure on indexing throughput.\n\n- **Cluster split-brain.** Network partition between master and data nodes. *Mitigation*: require quorum of master-eligible nodes; use Elasticsearch's 7.x coordination (no more split-brain since they removed Zen1).\n\n- **Field data out-of-memory.** Sorting on a text field loads all values into heap (fielddata). *Mitigation*: use doc_values (on-disk column store) by default since Lucene 4 — no heap pressure."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "scaling",
+      "payload": {
+        "text": "**Scaling strategy and trade-offs.**\n\n*Shard count.* Pick shard count up front — too few = unbalanced, too many = overhead. Rule of thumb: shard size 30-50 GB. Re-sharding requires reindexing (expensive). Plan for 2x growth.\n\n*Replicas.* Each primary shard has 1-2 replicas. Reads go to any replica (load balancing). Writes go to primary then replicated. Replica also provides HA — lose a node, no data loss.\n\n*Hot-warm-cold architecture.* Time-series indices (logs): recent = hot (SSD, high CPU), older = warm (HDD, less CPU), ancient = cold (object storage, searchable snapshots). Saves cost massively.\n\n*Index per time period.* For logs: one index per day. Old indices can be deleted (drop the whole index, no GC). For product search: one index, sharded.\n\n*Trade-offs made explicit.*\n- We chose shard-by-document — **gained** simplicity and balanced load, **lost** query fan-out efficiency (every query hits every shard).\n- We chose 1s NRT refresh — **gained** near-real-time freshness, **lost** indexing throughput (segment creation has overhead) and strict consistency.\n- We chose BM25 over learned rankers — **gained** interpretability and zero training data, **lost** personalization (would require ML reranker).\n- We chose Lucene segments (immutable) — **gained** lock-free concurrent reads, **lost** cheap deletes (soft until merge).\n- We chose Elasticsearch-managed replicas — **gained** simplicity, **lost** the ability to do cross-datacenter synchronous writes (ES replication is async; cross-DC sync writes would murder latency)."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q1",
+      "payload": {
+        "question": "Why does Elasticsearch shard by document by default, instead of by term?",
+        "shape": "mcq",
+        "options": [
+          "Term-frequency skew (e.g. 'the' is in 99% of docs) would make the shard owning common terms a hotspot.",
+          "Term-based sharding requires synchronizing the term dictionary across all nodes on every change.",
+          "Term-based sharding doesn't support boolean queries.",
+          "Document-based sharding is the only way to support per-document stored fields."
+        ],
+        "answer_index": 0,
+        "rationale": "Term frequency follows a Zipf distribution: a few terms appear in nearly every document (the, of, a, in), while the long tail of terms appears in a handful. If you shard by term, the shard owning 'the' would handle every query that contains 'the' (most queries) — instant hotspot. Document-sharding spreads documents randomly, so every shard has roughly equal index size and query load. Option B is wrong — the term dictionary isn't synced across nodes either way; each shard has its own. Option C is wrong — term-sharding can support boolean queries by issuing subqueries to multiple term-shards in parallel. Option D is wrong — both sharding strategies can store per-document fields; the choice is orthogonal. Google's old index did use term-based sharding, but they had extreme scale and custom infrastructure to handle the skew.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q2",
+      "payload": {
+        "question": "A user indexes a document and immediately searches for it. The document isn't in the results. Why?",
+        "shape": "mcq",
+        "options": [
+          "Lucene writes new docs to an in-memory buffer; they're only visible after the periodic refresh (default 1s) reopens the searcher.",
+          "The document is in a different shard and the search didn't fan out to it.",
+          "The analyzer hadn't been reloaded on the data node.",
+          "Elasticsearch doesn't support near-real-time indexing — only batch indexing."
+        ],
+        "answer_index": 0,
+        "rationale": "Lucene is segment-based and segments are immutable. New docs go to an in-memory buffer; every refresh_interval (default 1s) Lucene flushes the buffer to a new on-disk segment and reopens the IndexSearcher — only then are the new docs visible to queries. This is what 'near real time' means: not instant, but a few seconds. Calling POST /_refresh forces a reopen immediately. Option B is wrong because queries always fan out to all shards (or all replicas of all shards) under document-sharding. Option C is wrong because analyzers are compiled at index creation, not per-document. Option D is wrong — ES absolutely supports NRT indexing; it just doesn't guarantee instant visibility.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-design-search-system-mental",
+      "payload": {
+        "text": "Engineering mental model",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-design-search-system-mental",
+      "payload": {
+        "text": "**Mental model.** Think of Design Search System as a deliberate boundary in a system. The boundary exists because something becomes harder to manage when everything is done in one place: latency, scale, failure isolation, consistency, cost, or team ownership. The useful question is not “what does Design Search System mean?” but “what pressure makes this boundary worth introducing, and what new failure mode does it create?”"
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-design-search-system-decision",
+      "payload": {
+        "title": "Design lens",
+        "body": "Before choosing Design Search System, name the workload, the critical user path, the dominant bottleneck, the failure you are trying to absorb, and the trade-off you are willing to accept. If you cannot name those five things, the design is probably premature.",
+        "kind": "info"
+      }
+    },
+    {
+      "type": "image",
+      "id": "upgrade-image-design-search-system",
+      "payload": {
+        "src": "/learning-visuals/design-search-system.svg",
+        "alt": "Original NO CAP systems visual for Design Search System.",
+        "caption": "Design Search System: a compact system-thinking visual.",
+        "credit": "Original NO CAP visual.",
+        "source_url": "https://github.com/donnemartin/system-design-primer"
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "upgrade-mermaid-design-search-system",
+      "payload": {
+        "code": "flowchart LR\n  A[Client] --> B[Gateway] --> C[Services] --> D[Data] --> E[Delivery]",
+        "caption": "Design Search System: a simplified system view showing the primary flow and the main state boundaries.",
+        "alt_text": "Design Search System: a simplified system view showing the primary flow and the main state boundaries."
+      }
+    },
+    {
+      "type": "code",
+      "id": "upgrade-code-design-search-system",
+      "payload": {
+        "language": "text",
+        "code": "// Pseudocode\nrequest = receive()\nresult = design_search_system(request)\nreturn result\n\n// Production questions:\n// 1. What happens on timeout?\n// 2. Can this operation be retried safely?\n// 3. What is the bottleneck?",
+        "caption": "A minimal engineering sketch for reasoning about Design Search System."
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-design-search-system-numbers",
+      "payload": {
+        "text": "Back-of-the-envelope reasoning",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-design-search-system-numbers",
+      "payload": {
+        "text": "Numerical lens: write down traffic, payload size, read/write ratio, peak multiplier and durability target before choosing a component. The numbers should justify the architecture."
+      }
+    },
+    {
+      "type": "simulation",
+      "id": "upgrade-sim-design-search-system",
+      "payload": {
+        "title": "Interactive thought experiment: Design Search System",
+        "description": "Change the variables below and predict what breaks first in Design Search System. The production lab can later reuse these same inputs.",
+        "variables": [
+          {
+            "name": "traffic",
+            "description": "Requests/events per second",
+            "default": "1000"
+          },
+          {
+            "name": "latency",
+            "description": "Dependency latency",
+            "default": "50ms"
+          },
+          {
+            "name": "failure_rate",
+            "description": "Injected failure rate",
+            "default": "0%"
+          }
+        ],
+        "placeholder_note": "Interactive controls are deterministic; use the linked Labs section when a dedicated lab exists."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-design-search-system-hint",
+      "payload": {
+        "title": "Hint",
+        "body": "If you are stuck on Design Search System, start by drawing the request path and marking every network hop, stateful component, queue, cache and failure boundary. Then estimate where the system will saturate.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-design-search-system-1",
+      "payload": {
+        "shape": "prediction",
+        "question": "You increase traffic by 10× in a system using Design Search System. What should you inspect first?",
+        "options": [
+          "The newest framework version",
+          "The dominant bottleneck and its saturation signal",
+          "Only the UI",
+          "Nothing; the architecture should absorb any traffic automatically"
+        ],
+        "answer_index": 1,
+        "rationale": "System design is a constraint-and-bottleneck exercise. Start with the resource or dependency that will saturate first, then choose the smallest change that removes that bottleneck.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-design-search-system-2",
+      "payload": {
+        "shape": "mcq",
+        "question": "Which statement is the safest engineering habit when using Design Search System?",
+        "options": [
+          "Choose it because it is popular",
+          "Add it before measuring the problem",
+          "State the workload, failure mode and trade-off it is solving",
+          "Use the most distributed design possible"
+        ],
+        "answer_index": 2,
+        "rationale": "Good architecture starts from requirements, workload and failure assumptions. The component is the consequence of that reasoning, not the starting point.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "scenario",
+      "id": "upgrade-scenario-design-search-system",
+      "payload": {
+        "prompt": "Production scenario: your system uses Design Search System, traffic suddenly spikes, and p99 latency doubles. What is your first move?",
+        "context": "You have dashboards for traffic, latency, errors and saturation. You can change the architecture, but every change has operational cost.",
+        "options": [
+          {
+            "id": "a",
+            "text": "Add more instances immediately",
+            "outcome": "This may help, but only if compute saturation is the bottleneck.",
+            "correct": false
+          },
+          {
+            "id": "b",
+            "text": "Inspect the bottleneck and its saturation signal first",
+            "outcome": "Correct: diagnose before scaling or introducing a new pattern.",
+            "correct": true
+          },
+          {
+            "id": "c",
+            "text": "Disable monitoring to reduce overhead",
+            "outcome": "This removes the evidence you need to diagnose the incident.",
+            "correct": false
+          }
+        ],
+        "rationale": "Measure the limiting resource or dependency first. A bottleneck can be compute, database I/O, network, cache misses, lock contention, downstream latency, or queue backlog.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-design-search-system-interview",
+      "payload": {
+        "text": "Interview drill",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-design-search-system-interview",
+      "payload": {
+        "text": "**Answer this without notes:** When would you choose Design Search System, and when would you intentionally avoid it? Mention at least one bottleneck it addresses, one failure mode it introduces, and one alternative. Then quantify the workload you are designing for."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "field-guide-design-search-system",
+      "payload": {
+        "title": "Engineering lens",
+        "body": "A useful engineering lens for Design Search System: define the problem it solves, the simpler design that fails first, the constraint that forces you to introduce this concept, and the new failure modes the concept creates.",
+        "kind": "tip"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "numerical-lens-design-search-system",
+      "payload": {
+        "text": "### Numerical sanity check\n\nBack-of-the-envelope reasoning beats fake precision. State your traffic, payload, concurrency and growth assumptions explicitly, then calculate enough to know whether the current architecture is orders of magnitude away from the target."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "field-question-design-search-system",
+      "payload": {
+        "shape": "prediction",
+        "question": "Imagine the simplest version of a system using Design Search System. What breaks first as traffic grows by 10×, and what would you change before reaching 100×?",
+        "context": "Do not optimize for a memorized definition. Reason from the workload and failure mode.",
+        "options": [
+          "Scale the same component immediately.",
+          "Measure the current bottleneck and state the assumption that changed.",
+          "Add more technologies until throughput improves.",
+          "Choose the most popular architecture."
+        ],
+        "answer_index": 1,
+        "rationale": "Good system design starts with the bottleneck and the changed constraint. The most popular or complex choice is not automatically correct.",
+        "difficulty": "interview"
+      }
+    }
+  ],
+  "trade_offs": {
+    "pros": [
+      "Inverted index + BM25 is fast, interpretable, and battle-tested (Lucene since 2000).",
+      "Scatter-gather across shards gives linear query scaling.",
+      "Segment immutability enables lock-free concurrent reads.",
+      "Hot-warm-cold architecture slashes storage cost for time-series data."
+    ],
+    "cons": [
+      "Every query fans out to all shards under document-sharding — wasteful for rare terms.",
+      "JVM GC pauses are the dominant source of tail latency.",
+      "Mapping changes require full reindex (expensive).",
+      "Cross-datacenter async replication trades consistency for latency."
+    ]
+  },
+  "failure_modes": [
+    "Hot term fan-out crushes shard CPU — needs term postings cache.",
+    "JVM GC pause spikes p99 query latency — needs <32GB heap, ZGC, off-heap postings.",
+    "Slow shard blocks scatter-gather — needs hedged requests and per-shard timeout.",
+    "Mapping change forces full reindex — use aliases and rolling reindex.",
+    "Segment merge storm under heavy indexing — tune merge policy and backpressure.",
+    "Field data OOM from text-field sort — use doc_values, not fielddata."
+  ],
+  "common_mistakes": [
+    "Sharding by term — hotspot from Zipf-distributed term frequencies.",
+    "Mismatched analyzers at index and query time — search returns nothing.",
+    "Expecting instant visibility of newly indexed docs — refresh interval is 1s by default.",
+    "Heap > 32 GB — breaks compressed oops, GC pauses explode.",
+    "Storing all fields as text (not keyword) — wasted space, breaks aggregations.",
+    "No replica — single shard failure loses data and availability.",
+    "Treating Elasticsearch as a primary datastore — it's a search engine; persist in SQL/NoSQL first."
+  ],
+  "where_you_see_it": [
+    "Elasticsearch / OpenSearch (general-purpose search + log analytics)",
+    "Apache Solr (enterprise search)",
+    "Wikipedia's CirrusSearch (built on Elasticsearch)",
+    "GitHub code search (custom built on Elasticsearch for years, now on a custom stack)",
+    "Log analytics: ELK stack, Datadog, Splunk"
+  ],
+  "interview_prompts": [
+    "Design a search system for 10B documents. How do you shard?",
+    "A user indexes a doc and immediately searches for it — no result. Why?",
+    "How does Lucene's inverted index work? Walk through a query.",
+    "A query is slow because one shard is in GC. How do you keep p99 under 200ms?",
+    "How would you add typo tolerance and autocomplete on top of this system?"
+  ],
+  "real_system_mappings": [
+    {
+      "system": "Elasticsearch / OpenSearch",
+      "how": "Built on Apache Lucene. Document-sharded by default. NRT refresh = 1s. BM25 default scorer. Coordinator scatter-gather. Rest API on top of Lucene's segment-based storage."
+    },
+    {
+      "system": "Apache Solr",
+      "how": "Also built on Lucene; older than Elasticsearch. Same core primitives (inverted index, segments, NRT). Different operational and sharding model."
+    },
+    {
+      "system": "Wikipedia CirrusSearch",
+      "how": "Elasticsearch cluster indexing all of Wikipedia. Document-sharded, with custom analyzers per language. Open-sourced as part of MediaWiki."
+    }
+  ],
+  "status": "published",
+  "sources": [
+    {
+      "title": "System Design Primer",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Open source"
+    },
+    {
+      "title": "ByteByteGo — Scale from zero to millions",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "ByteByteGo"
+    },
+    {
+      "title": "System Design Tutorial",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "GeeksforGeeks"
+    },
+    {
+      "title": "System Design Roadmap",
+      "url": "https://roadmap.sh/system-design",
+      "publisher": "roadmap.sh"
+    },
+    {
+      "title": "Case Studies reference",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Case Studies reference",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Case Studies reference",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "Reference"
+    }
+  ]
+}

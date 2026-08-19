@@ -1,0 +1,445 @@
+{
+  "slug": "grpc",
+  "version": 3,
+  "title": "gRPC — Google's RPC Framework",
+  "phase": "networking-communication",
+  "area": "Networking & Communication",
+  "estimated_minutes": 7,
+  "difficulty": "advanced",
+  "summary": "gRPC is a modern RPC framework built by Google on HTTP/2 and Protocol Buffers. It is typed, binary, streaming-capable, deadline-aware, and codegen-driven for a dozen languages. It is the de-facto standard for internal service-to-service communication at scale because it is dramatically faster and more expressive than JSON-over-HTTP, while still being a real protocol with real tooling.",
+  "why_it_matters": "gRPC is what most production microservice fleets actually use to talk to each other. It is the standard answer to 'how do services communicate internally' at Google, Netflix, Square, Dropbox, Slack, and many others. Knowing gRPC's four RPC types (unary, server-streaming, client-streaming, bidi), its deadlines-and-cancellation propagation, and its trade-offs vs REST/GraphQL is a baseline expectation for a backend or platform engineer today.",
+  "prerequisites": [
+    "rpc",
+    "http"
+  ],
+  "related": [
+    "rest",
+    "rpc",
+    "graphql",
+    "api-design"
+  ],
+  "used_in": [
+    "Internal microservice communication at Google, Netflix, Square, Dropbox, Slack.",
+    "Kubernetes APIs (the kube-apiserver speaks gRPC to internal components).",
+    "Envoy, gRPC-Gateway, service meshes (Istio, Linkerd)."
+  ],
+  "blocks": [
+    {
+      "type": "prose",
+      "id": "intro",
+      "payload": {
+        "text": "gRPC is RPC built on three modern foundations:\n\n**1. HTTP/2 as the transport.** HTTP/2 multiplexes many concurrent streams over a single TCP connection, supports binary framing, and has built-in flow control. This means a single client-server gRPC channel can carry thousands of concurrent RPCs without paying TCP handshake cost per call. The connection is long-lived and shared.\n\n**2. Protocol Buffers as the IDL and wire format.** You define your service and messages in a `.proto` file:\n```\nservice UserService {\n  rpc GetUser(GetUserRequest) returns (User);\n  rpc StreamUsers(ListUsersRequest) returns (stream User);\n}\nmessage GetUserRequest { int32 id = 1; }\nmessage User { int32 id = 1; string name = 2; }\n```\n\nThe `protoc` compiler generates client stubs and server interfaces in your language. Protobuf is a binary format with a typed schema — fields are numbered, not named, on the wire, so adding a new field is backward-compatible by default. Messages are 3-10x smaller than JSON and serialize/deserialize much faster.\n\n**3. Generated, typed code in many languages.** The same `.proto` file produces a Go client, a Java server, a Python client, a Rust client, and so on. Cross-language teams share one contract; the toolchain enforces it.\n\nTogether these give you an RPC framework that is fast, typed, polyglot, and streaming-native — properties no JSON-over-HTTP stack matches."
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "four-rpc-types",
+      "payload": {
+        "code": "flowchart TD\n    N0[\"gRPC\"]\n    N1[\"FOUR\"]\n    N2[\"RPC\"]\n    N3[\"TYPES\"]\n    N4[\"request -> response, like a normal function\"]\n    N5[\"UNARY\"]\n    N6[\"(request\"]\n    N7[\"response,\"]\n    N8[\"like\"]\n    N9[\"normal\"]\n    N10[\"function)\"]\n    N11[\"Client\"]\n    N12[\"request\"]\n    N13[\"Server\"]\n    N14[\"response\"]\n    N15[\"request -> stream of responses\"]\n    N16[\"SERVER\"]\n    N17[\"STREAMING\"]\n    N18[\"stream\"]\n    N19[\"responses)\"]\n    N20[\"message\"]\n    N21[\"end\"]\n    N22[\"(end)\"]\n    N23[\"e.g., subscribe to log lines, paginated result, live prices\"]\n    N24[\"(e.g.,\"]\n    N25[\"subscribe\"]\n    N26[\"log\"]\n    N27[\"lines,\"]\n    N28[\"paginated\"]\n    N29[\"result,\"]\n    N30[\"live\"]\n    N31[\"prices)\"]\n    N32[\"stream of requests -> single response\"]\n    N33[\"CLIENT\"]\n    N34[\"(stream\"]\n    N35[\"requests\"]\n    N36[\"single\"]\n    N37[\"response)\"]\n    N38[\"e.g., upload chunks, batch insert\"]\n    N39[\"upload\"]\n    N40[\"chunks,\"]\n    N41[\"batch\"]\n    N42[\"insert)\"]\n    N43[\"stream <-> stream\"]\n    N44[\"BIDIRECTIONAL\"]\n    N45[\"stream)\"]\n    N46[\"full duplex over one HTTP/2 stream\"]\n    N47[\"(full\"]\n    N48[\"duplex\"]\n    N49[\"over\"]\n    N50[\"one\"]\n    N51[\"HTTP\"]\n    N52[\"e.g., chat, real-time sync, collaborative editing\"]\n    N53[\"chat,\"]\n    N54[\"real\"]\n    N55[\"time\"]\n    N56[\"sync,\"]\n    N57[\"collaborative\"]\n    N58[\"editing)\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44\n    N44 --> N45\n    N45 --> N46\n    N46 --> N47\n    N47 --> N48\n    N48 --> N49\n    N49 --> N50\n    N50 --> N51\n    N51 --> N52\n    N52 --> N53\n    N53 --> N54\n    N54 --> N55\n    N55 --> N56\n    N56 --> N57\n    N57 --> N58",
+        "caption": "gRPC's four RPC types. Unary is a normal call; the other three are streaming variants that HTTP/1.1 REST cannot express.",
+        "alt_text": "A diagram of gRPC's four RPC types. Type one, unary: client sends a request, server sends a response. Type two, server streaming: client sends a request, server sends a stream of multiple messages then ends. Examples include subscribing to log lines, paginated results, live prices. Type three, client streaming: client sends a stream of requests, server sends a single response. Examples include uploading chunks and batch inserts. Type four, bidirectional streaming: client and server exchange messages in both directions over one HTTP/2 stream. Examples include chat, real-time sync, collaborative editing."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "why-http2",
+      "payload": {
+        "text": "HTTP/2 is the secret sauce. REST over HTTP/1.1 has a fundamental limit: one request per TCP connection at a time (unless you pipeline, which browsers abandoned). To get concurrency you open 6 connections per host — each one pays TCP and TLS handshake cost, each one has its own congestion window, each one is a separate head-of-line blocking domain.\n\nHTTP/2 multiplexes many streams over one connection. Every gRPC call is a stream with a stream ID; the client and server can have thousands of streams in flight on one TCP+TLS connection. This is much cheaper (one handshake, one congestion window, one TLS context) and much faster under load.\n\nThe downside is that HTTP/2 inherits TCP's head-of-line blocking: one lost TCP packet stalls every stream multiplexed over that connection. This is the motivation for HTTP/3 over QUIC (which fixes HOL blocking at the stream level). For internal service-to-service on a fast, low-loss datacenter network, HTTP/2 over TCP is excellent. For clients on flaky mobile networks, gRPC's head-of-line blocking is a real problem.\n\nThe other HTTP/2 win: **binary framing**. HTTP/1.1 is text (request line + headers + CRLF); HTTP/2 frames are length-prefixed binary, parsed faster and smaller on the wire. gRPC rides on these frames — a gRPC message is a length-prefixed protobuf inside an HTTP/2 DATA frame, with metadata (deadlines, auth, tracing) in HEADERS frames."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "deadlines-and-cancellation",
+      "payload": {
+        "text": "gRPC bakes in **deadlines and cancellation propagation**, which is the single feature that makes it production-grade.\n\nEvery gRPC call carries a deadline (an absolute timestamp by which the call must complete). If the deadline passes, the call is cancelled and the caller gets a `DEADLINE_EXCEEDED` error. Critically, the deadline **propagates**: when service A calls service B with 5 seconds remaining, A passes its remaining deadline to B, and B passes its remaining deadline to C. If A times out, B and C see the cancellation and abort their work too — they do not keep burning CPU on a request whose caller has given up.\n\nThis is a big deal. Without deadline propagation, a slow service causes cascading pile-ups: A waits for B, B waits for C, C takes 30s, A times out after 5s but B and C keep working uselessly. With propagation, the cancellation flows downstream the moment A gives up, freeing resources.\n\nOther gRPC features that matter in production:\n\n- **Metadata**: key-value headers (auth tokens, trace IDs, request IDs) that propagate through call chains. Distributed tracing libraries (OpenTelemetry) hook into these.\n- **Load balancing**: gRPC clients can do client-side load balancing via DNS or xDS (Envoy's discovery service) — every call can be routed to a different backend without a proxy.\n- **Health checking**: a standard `grpc.health.v1.Health` service that load balancers probe.\n- **Interceptors**: client- and server-side middleware for auth, logging, metrics, retries.\n- **Keepalives**: periodic pings to detect dead connections, important for long-lived channels behind load balancers."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "browser-note",
+      "payload": {
+        "title": "gRPC and browsers — the gRPC-Web workaround",
+        "body": "Browsers cannot speak HTTP/2 trailers, which gRPC requires. gRPC-Web is a proxy (Envoy or a small Go server) that translates between browser HTTP/1.1 and backend gRPC. It works, but adds a hop and limits some streaming modes. For browser-driven apps, REST or GraphQL at the edge is often simpler; gRPC stays internal.",
+        "kind": "warning"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "ecosystem",
+      "payload": {
+        "text": "Beyond the protocol, gRPC is an ecosystem that solves problems RPC frameworks historically left to the user.\n\n**Health checking** is a standardized service (`grpc.health.v1.Health`). Load balancers, k8s liveness probes, and service meshes probe it. A service that does not implement the health service is invisible to standard infrastructure.\n\n**Reflection** lets clients discover the schema of a running server. Tools like `grpcurl` work like `curl` for gRPC: `grpcurl -plaintext localhost:5000 list` enumerates services, `grpcurl ... UserService/GetUser` invokes a method, with type-checked argument completion. Without reflection, you must have the `.proto` file locally.\n\n**Interceptors** are middleware: client-side and server-side hooks for auth, logging, metrics, retries, tracing. Every gRPC server ships with interceptor chains; production setups compose 5-10 (auth, tracing, metrics, logging, rate limit, retry, deadline propagation).\n\n**Channel and connection management** matters in production. A gRPC channel is a logical connection to a target; under the hood it manages a pool of HTTP/2 connections. Channels are expensive to create; reuse them. Client-side load balancing happens inside the channel: `dns:///users-service:50051` makes the channel resolve DNS, pick a backend per RPC, and handle reconnection automatically. For more advanced routing (weighted, locality-aware), use xDS (Envoy's discovery service) which gRPC supports natively.\n\n**Observability tooling** is mature: OpenTelemetry has first-class gRPC instrumentation; metrics, traces, and logs flow through interceptors automatically. The gRPC ecosystem's strong opinions on health, reflection, interceptors, and channels are why gRPC 'just works' in k8s and service meshes — the toolchain expects every service to expose the same surfaces, and it does."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q1",
+      "payload": {
+        "question": "Why does gRPC use HTTP/2 instead of HTTP/1.1?",
+        "shape": "mcq",
+        "options": [
+          "HTTP/2 supports encryption by default; HTTP/1.1 does not.",
+          "HTTP/2 multiplexes many concurrent streams over a single TCP connection, eliminating per-call handshake cost and providing native streaming.",
+          "HTTP/2 has smaller headers, which is the main bottleneck for internal RPC.",
+          "HTTP/1.1 is deprecated and no longer supported by browsers."
+        ],
+        "answer_index": 1,
+        "rationale": "The killer feature of HTTP/2 for RPC is stream multiplexing: thousands of concurrent gRPC calls share one TCP+TLS connection. With HTTP/1.1, each concurrent call needs its own connection (or pipelining, which nobody uses) — each one paying TCP handshake, TLS handshake, and slow-start costs. HTTP/2 also gives binary framing, native flow control per stream, and the ability to express streaming RPCs (server, client, bidirectional) which HTTP/1.1 cannot. Option 1 is false — encryption is added by TLS, available for both. Option 3 is true but minor. Option 4 is false.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q2",
+      "payload": {
+        "question": "Service A calls service B with a 5-second deadline. B takes 2s to call service C, then 3 more seconds of local work, totaling 5s — but A's deadline has passed. What does gRPC do, and why does it matter?",
+        "shape": "mcq",
+        "options": [
+          "B finishes its work and discards the result because A's deadline has passed; the cancellation propagates to C too.",
+          "A waits until B finishes; deadlines are advisory, not enforced.",
+          "B gets a fresh 5-second deadline of its own, independent of A.",
+          "gRPC automatically retries the call with a longer deadline."
+        ],
+        "answer_index": 0,
+        "rationale": "gRPC deadlines propagate: A passes its remaining deadline to B, B passes its remaining deadline to C. When A's deadline fires, A cancels the call; that cancellation propagates down the chain to B and C, which abort their work. This matters because without propagation, B and C keep burning CPU on a request whose caller has already given up — a cascade of wasted work that can take down a fleet under load. Deadlines are not advisory; they are enforced and propagated. Option 2 describes what naive HTTP clients do. Option 3 would defeat the purpose. Option 4 — gRPC does not auto-retry; retries require explicit interceptor configuration and idempotency awareness.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q3",
+      "payload": {
+        "question": "Which is a real disadvantage of gRPC compared to REST?",
+        "shape": "mcq",
+        "options": [
+          "gRPC cannot be cached by HTTP caches.",
+          "gRPC does not support authentication.",
+          "Browsers cannot directly speak gRPC; you need gRPC-Web or a proxy, complicating browser-based clients.",
+          "gRPC is slower than REST for every workload."
+        ],
+        "answer_index": 2,
+        "rationale": "Browsers cannot natively speak gRPC because gRPC requires HTTP/2 trailers, which the browser fetch API does not expose. The workaround is gRPC-Web: a proxy that translates browser HTTP/1.1 into backend gRPC, with limitations on streaming modes. This is a real deployment cost for any product that has a browser client. For pure internal service-to-service (no browser), gRPC has no such problem. Option 1 is partially true but not the main disadvantage. Option 2 is false — gRPC supports auth via metadata. Option 4 is false — gRPC is faster than JSON-over-HTTP for nearly every workload.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-grpc-mental",
+      "payload": {
+        "text": "Engineering mental model",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-grpc-mental",
+      "payload": {
+        "text": "**Mental model.** Think of gRPC — Google's RPC Framework as a deliberate boundary in a system. The boundary exists because something becomes harder to manage when everything is done in one place: latency, scale, failure isolation, consistency, cost, or team ownership. The useful question is not “what does gRPC — Google's RPC Framework mean?” but “what pressure makes this boundary worth introducing, and what new failure mode does it create?”"
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-grpc-decision",
+      "payload": {
+        "title": "Design lens",
+        "body": "Before choosing gRPC — Google's RPC Framework, name the workload, the critical user path, the dominant bottleneck, the failure you are trying to absorb, and the trade-off you are willing to accept. If you cannot name those five things, the design is probably premature.",
+        "kind": "info"
+      }
+    },
+    {
+      "type": "image",
+      "id": "upgrade-image-grpc",
+      "payload": {
+        "src": "/learning-visuals/grpc.svg",
+        "alt": "Original NO CAP systems visual for gRPC — Google's RPC Framework.",
+        "caption": "gRPC — Google's RPC Framework: a compact system-thinking visual.",
+        "credit": "Original NO CAP visual.",
+        "source_url": "https://github.com/donnemartin/system-design-primer"
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "upgrade-mermaid-grpc",
+      "payload": {
+        "code": "flowchart LR\n  A[Client] --> B[Gateway] --> C[Service] --> D[State] --> E[Outcome]",
+        "caption": "gRPC — Google's RPC Framework: a simplified system view showing the primary flow and the main state boundaries.",
+        "alt_text": "gRPC — Google's RPC Framework: a simplified system view showing the primary flow and the main state boundaries."
+      }
+    },
+    {
+      "type": "code",
+      "id": "upgrade-code-grpc",
+      "payload": {
+        "language": "bash",
+        "code": "curl -i https://api.example.com/v1/grpc\n\n# Look for:\n# - status code\n# - latency\n# - retryability\n# - response size",
+        "caption": "A minimal engineering sketch for reasoning about gRPC — Google's RPC Framework."
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-grpc-numbers",
+      "payload": {
+        "text": "Back-of-the-envelope reasoning",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-grpc-numbers",
+      "payload": {
+        "text": "Numerical lens: write down traffic, payload size, read/write ratio, peak multiplier and durability target before choosing a component. The numbers should justify the architecture."
+      }
+    },
+    {
+      "type": "simulation",
+      "id": "upgrade-sim-grpc",
+      "payload": {
+        "title": "Interactive thought experiment: gRPC — Google's RPC Framework",
+        "description": "Change the variables below and predict what breaks first in gRPC — Google's RPC Framework. The production lab can later reuse these same inputs.",
+        "variables": [
+          {
+            "name": "traffic",
+            "description": "Requests/events per second",
+            "default": "1000"
+          },
+          {
+            "name": "latency",
+            "description": "Dependency latency",
+            "default": "50ms"
+          },
+          {
+            "name": "failure_rate",
+            "description": "Injected failure rate",
+            "default": "0%"
+          }
+        ],
+        "placeholder_note": "Interactive controls are deterministic; use the linked Labs section when a dedicated lab exists."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-grpc-hint",
+      "payload": {
+        "title": "Hint",
+        "body": "If you are stuck on gRPC — Google's RPC Framework, start by drawing the request path and marking every network hop, stateful component, queue, cache and failure boundary. Then estimate where the system will saturate.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-grpc-1",
+      "payload": {
+        "shape": "prediction",
+        "question": "You increase traffic by 10× in a system using gRPC — Google's RPC Framework. What should you inspect first?",
+        "options": [
+          "The newest framework version",
+          "The dominant bottleneck and its saturation signal",
+          "Only the UI",
+          "Nothing; the architecture should absorb any traffic automatically"
+        ],
+        "answer_index": 1,
+        "rationale": "System design is a constraint-and-bottleneck exercise. Start with the resource or dependency that will saturate first, then choose the smallest change that removes that bottleneck.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-grpc-2",
+      "payload": {
+        "shape": "mcq",
+        "question": "Which statement is the safest engineering habit when using gRPC — Google's RPC Framework?",
+        "options": [
+          "Choose it because it is popular",
+          "Add it before measuring the problem",
+          "State the workload, failure mode and trade-off it is solving",
+          "Use the most distributed design possible"
+        ],
+        "answer_index": 2,
+        "rationale": "Good architecture starts from requirements, workload and failure assumptions. The component is the consequence of that reasoning, not the starting point.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "scenario",
+      "id": "upgrade-scenario-grpc",
+      "payload": {
+        "prompt": "Production scenario: your system uses gRPC — Google's RPC Framework, traffic suddenly spikes, and p99 latency doubles. What is your first move?",
+        "context": "You have dashboards for traffic, latency, errors and saturation. You can change the architecture, but every change has operational cost.",
+        "options": [
+          {
+            "id": "a",
+            "text": "Add more instances immediately",
+            "outcome": "This may help, but only if compute saturation is the bottleneck.",
+            "correct": false
+          },
+          {
+            "id": "b",
+            "text": "Inspect the bottleneck and its saturation signal first",
+            "outcome": "Correct: diagnose before scaling or introducing a new pattern.",
+            "correct": true
+          },
+          {
+            "id": "c",
+            "text": "Disable monitoring to reduce overhead",
+            "outcome": "This removes the evidence you need to diagnose the incident.",
+            "correct": false
+          }
+        ],
+        "rationale": "Measure the limiting resource or dependency first. A bottleneck can be compute, database I/O, network, cache misses, lock contention, downstream latency, or queue backlog.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-grpc-interview",
+      "payload": {
+        "text": "Interview drill",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-grpc-interview",
+      "payload": {
+        "text": "**Answer this without notes:** When would you choose gRPC — Google's RPC Framework, and when would you intentionally avoid it? Mention at least one bottleneck it addresses, one failure mode it introduces, and one alternative. Then quantify the workload you are designing for."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "field-guide-grpc",
+      "payload": {
+        "title": "Engineering lens",
+        "body": "A useful engineering lens for gRPC - Google's RPC Framework: define the problem it solves, the simpler design that fails first, the constraint that forces you to introduce this concept, and the new failure modes the concept creates.",
+        "kind": "tip"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "numerical-lens-grpc",
+      "payload": {
+        "text": "### Numerical sanity check\n\nBack-of-the-envelope reasoning beats fake precision. State your traffic, payload, concurrency and growth assumptions explicitly, then calculate enough to know whether the current architecture is orders of magnitude away from the target."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "field-question-grpc",
+      "payload": {
+        "shape": "prediction",
+        "question": "Imagine the simplest version of a system using gRPC - Google's RPC Framework. What breaks first as traffic grows by 10×, and what would you change before reaching 100×?",
+        "context": "Do not optimize for a memorized definition. Reason from the workload and failure mode.",
+        "options": [
+          "Scale the same component immediately.",
+          "Measure the current bottleneck and state the assumption that changed.",
+          "Add more technologies until throughput improves.",
+          "Choose the most popular architecture."
+        ],
+        "answer_index": 1,
+        "rationale": "Good system design starts with the bottleneck and the changed constraint. The most popular or complex choice is not automatically correct.",
+        "difficulty": "interview"
+      }
+    }
+  ],
+  "trade_offs": {
+    "pros": [
+      "HTTP/2 multiplexing gives high concurrency on a single connection — no per-call handshake cost.",
+      "Protocol Buffers are 3-10x smaller than JSON and serialize/deserialize much faster.",
+      "Typed, code-generated stubs across many languages catch interface errors at compile time.",
+      "Four RPC types (unary + 3 streaming) cover nearly every service-to-service pattern.",
+      "Deadline and cancellation propagation prevents cascade failures.",
+      "Metadata, interceptors, and standard health checks make observability and ops tractable."
+    ],
+    "cons": [
+      "Requires IDL toolchain and codegen — operational complexity.",
+      "Browsers cannot speak gRPC natively — requires gRPC-Web proxy, limiting browser use.",
+      "Not human-readable on the wire (binary protobuf) — harder to debug without tooling.",
+      "Schema evolution requires IDL discipline (field numbers, reserved fields).",
+      "HTTP/2 inherits TCP head-of-line blocking across multiplexed streams (HTTP/3 fixes this)."
+    ]
+  },
+  "failure_modes": [
+    "Long-lived gRPC connections killed silently by load balancers or NATs with short idle timeouts — mitigated by keepalives.",
+    "Deadlines not set (or set to 0 = infinite) — a slow service takes down every caller.",
+    "Cancellation not propagated because interceptors do not pass context — wasted work downstream.",
+    "Single shared channel becomes a bottleneck when saturated — use channel pooling or per-target channels.",
+    "HTTP/2 head-of-line blocking across multiplexed streams on lossy links — fixed by HTTP/3 over QUIC.",
+    "Proto schema breakage deployed without coordination — old clients crash on new fields."
+  ],
+  "common_mistakes": [
+    "Forgetting to set deadlines — the default is no deadline, which is almost never what you want.",
+    "Not propagating trace IDs through metadata — distributed traces become useless.",
+    "Using a single TCP channel for everything — saturates under high load.",
+    "Treating gRPC like REST (one call per request) instead of streaming where streaming fits.",
+    "Breaking proto changes (renumbering fields, reusing field numbers) — corrupts old clients.",
+    "Not enabling keepalives — dead connections accumulate behind load balancers."
+  ],
+  "where_you_see_it": [
+    "Internal service-to-service calls at Google, Netflix, Square, Slack, Dropbox.",
+    "Kubernetes control plane (kube-apiserver, kubelet, etcd).",
+    "Service meshes — Istio, Linkerd proxy gRPC traffic and enforce policies.",
+    "Envoy's xDS configuration API is gRPC.",
+    "TiKV, CockroachDB, and many distributed databases use gRPC for inter-node communication."
+  ],
+  "interview_prompts": [
+    "gRPC vs REST vs GraphQL — when would you choose each?",
+    "Explain gRPC's four RPC types and give a realistic use case for each.",
+    "How does deadline propagation work in gRPC, and why does it matter for cascade failures?",
+    "Why does gRPC use HTTP/2? What does it gain over HTTP/1.1?",
+    "Your team has a browser-based client and an internal service. How do you architect the API tiers?"
+  ],
+  "real_system_mappings": [
+    {
+      "system": "Google internal services",
+      "how": "Originally built gRPC (as Stubby) for internal use. Billions of RPCs per second across tens of thousands of services, all deadline-propagated and trace-instrumented."
+    },
+    {
+      "system": "Netflix studio and streaming backend",
+      "how": "Migrated many internal service-to-service calls from HTTP/JSON to gRPC for the typed contracts and streaming support. Reduced latency and caught interface drift at compile time."
+    },
+    {
+      "system": "Kubernetes control plane",
+      "how": "kube-apiserver, kubelet, kube-proxy, and the scheduler all communicate via gRPC. Watch endpoints are server-streaming RPCs."
+    }
+  ],
+  "status": "published",
+  "sources": [
+    {
+      "title": "System Design Primer",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Open source"
+    },
+    {
+      "title": "ByteByteGo — Scale from zero to millions",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "ByteByteGo"
+    },
+    {
+      "title": "System Design Tutorial",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "GeeksforGeeks"
+    },
+    {
+      "title": "System Design Roadmap",
+      "url": "https://roadmap.sh/system-design",
+      "publisher": "roadmap.sh"
+    },
+    {
+      "title": "Networking & Communication reference",
+      "url": "https://www.rfc-editor.org/",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Networking & Communication reference",
+      "url": "https://developer.mozilla.org/en-US/docs/Web/HTTP",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Networking & Communication reference",
+      "url": "https://www.cloudflare.com/learning/network-layer/what-is-a-protocol/",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Cloudflare Learning Center",
+      "url": "https://www.cloudflare.com/learning/",
+      "publisher": "Cloudflare"
+    }
+  ]
+}

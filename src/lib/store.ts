@@ -16,6 +16,9 @@ import type {
   LearningEvent,
   MasteryState,
   FocusDuration,
+  Note,
+  Highlight,
+  Bookmark,
 } from './types';
 import { computeMasteryState } from './mastery';
 import { scheduleNextReview, qualityFromScore } from './review-scheduler';
@@ -23,7 +26,8 @@ import { scheduleNextReview, qualityFromScore } from './review-scheduler';
 interface StoreState {
   /* Identity */
   isAuthenticated: boolean;
-  user: { id: number; github_id: string; email: string; timezone: string } | null;
+  user: { id: number; github_id?: string; email: string; name?: string; avatar_url?: string; auth_provider?: 'google' | 'github'; timezone: string; onboarding_completed?: boolean; goals?: string[]; weekly_minutes?: number } | null;
+  auth_loaded: boolean;
 
   /* Mastery */
   mastery: Record<string, MasteryRecord>;
@@ -44,11 +48,19 @@ interface StoreState {
   focus_mode: boolean;
   focus_session: { duration: FocusDuration; remaining: number; running: boolean; started_at: string | null; concept_slug: string | null };
   last_visited_concept: string | null;
-  last_visited_position: number;
+  last_visited_positions: Record<string, number>;
   command_palette_open: boolean;
-  theme: 'system' | 'light' | 'dark';
+  theme: 'system' | 'light' | 'dark' | 'sage' | 'sand' | 'slate' | 'forest' | 'charcoal' | 'clay' | 'olive' | 'mist';
   /** Tracks concepts exposed this browser session to avoid duplicate writes. */
   exposed_session: string[];
+
+  /* Notes / Highlights / Bookmarks */
+  notes: Note[];
+  highlights: Highlight[];
+  bookmarks: Bookmark[];
+
+  /* Confusing concepts — concept slugs the user marked as confusing */
+  confusing_concepts: string[];
 
   /* Actions — domain events */
   startConcept: (concept_slug: string) => void;
@@ -57,6 +69,27 @@ interface StoreState {
   recordScenarioAttempt: (concept_slug: string, ref_id: string, score: number, response: unknown) => void;
   recordReview: (concept_slug: string, quality: 0 | 1 | 2 | 3 | 4 | 5) => void;
   setLastVisitedPosition: (concept_slug: string, position: number) => void;
+  getLastVisitedPosition: (concept_slug: string) => number;
+
+  /* Notes actions */
+  addNote: (concept_slug: string, title: string, body: string, block_id?: string, selected_text?: string, anchor_start?: number, anchor_end?: number) => string;
+  updateNote: (id: string, title: string, body: string) => void;
+  deleteNote: (id: string) => void;
+  getNotesForConcept: (concept_slug: string) => Note[];
+
+  /* Highlights actions */
+  addHighlight: (concept_slug: string, block_id: string, selected_text: string, color: Highlight['color']) => string;
+  removeHighlight: (id: string) => void;
+  getHighlightsForConcept: (concept_slug: string) => Highlight[];
+
+  /* Bookmarks actions */
+  addBookmark: (concept_slug: string, label: string, block_id?: string) => void;
+  removeBookmark: (id: string) => void;
+  getBookmarksForConcept: (concept_slug: string) => Bookmark[];
+
+  /* Confusing concepts */
+  toggleConfusing: (concept_slug: string) => void;
+  isConfusing: (concept_slug: string) => boolean;
 
   /* Focus mode */
   setFocusMode: (on: boolean) => void;
@@ -70,11 +103,17 @@ interface StoreState {
   setCommandPaletteOpen: (open: boolean) => void;
 
   /* Theme */
-  setTheme: (theme: 'system' | 'light' | 'dark') => void;
+  setTheme: (theme: 'system' | 'light' | 'dark' | 'sage' | 'sand' | 'slate' | 'forest' | 'charcoal' | 'clay' | 'olive' | 'mist') => void;
+  resetLearningProgress: () => void;
 
   /* Account */
+  setAuthState: (user: StoreState['user'] | null) => void;
+  setOnboarding: (payload: { completed?: boolean; goals?: string[]; weekly_minutes?: number }) => void;
   signIn: () => void;
   signOut: () => void;
+
+  /* Bulk state set (for sync) */
+  $setState: (partial: Partial<StoreState>) => void;
 
   /* Derived */
   getDueReviews: () => ReviewItem[];
@@ -179,6 +218,7 @@ export const useStore = create<StoreState>()(
     (set, get) => ({
       isAuthenticated: false,
       user: null,
+      auth_loaded: false,
       mastery: {},
       review_items: {},
       attempts: [],
@@ -187,10 +227,14 @@ export const useStore = create<StoreState>()(
       focus_mode: false,
       focus_session: DEFAULT_FOCUS_SESSION,
       last_visited_concept: null,
-      last_visited_position: 0,
+      last_visited_positions: {},
       command_palette_open: false,
       theme: 'system',
       exposed_session: [],
+      notes: [],
+      highlights: [],
+      bookmarks: [],
+      confusing_concepts: [],
 
       /* ── startConcept: records exposure exactly once ───────────── */
       startConcept: (concept_slug) =>
@@ -411,10 +455,87 @@ export const useStore = create<StoreState>()(
 
       /* ── last-visited position (debounced by caller) ────────────── */
       setLastVisitedPosition: (concept_slug, position) =>
-        set({
+        set((s) => ({
           last_visited_concept: concept_slug,
-          last_visited_position: position,
-        }),
+          last_visited_positions: { ...s.last_visited_positions, [concept_slug]: position },
+        })),
+
+      getLastVisitedPosition: (concept_slug) => {
+        const positions = get().last_visited_positions;
+        return positions[concept_slug] ?? 0;
+      },
+
+      /* ── Notes ──────────────────────────────────────────────────── */
+      addNote: (concept_slug, title, body, block_id, selected_text, anchor_start, anchor_end) => {
+        const id = genId('note');
+        const now = nowISO();
+        set((s) => ({
+          notes: [
+            { id, concept_slug, block_id, selected_text, anchor_start, anchor_end, title, body, created_at: now, updated_at: now },
+            ...s.notes,
+          ],
+        }));
+        return id;
+      },
+
+      updateNote: (id, title, body) =>
+        set((s) => ({
+          notes: s.notes.map((n) =>
+            n.id === id ? { ...n, title, body, updated_at: nowISO() } : n
+          ),
+        })),
+
+      deleteNote: (id) =>
+        set((s) => ({ notes: s.notes.filter((n) => n.id !== id) })),
+
+      getNotesForConcept: (concept_slug) =>
+        get().notes.filter((n) => n.concept_slug === concept_slug),
+
+      /* ── Highlights ──────────────────────────────────────────────── */
+      addHighlight: (concept_slug, block_id, selected_text, color) => {
+        const id = genId('hl');
+        set((s) => ({
+          highlights: [{ id, concept_slug, block_id, selected_text, color, created_at: nowISO() }, ...s.highlights],
+        }));
+        return id;
+      },
+
+      removeHighlight: (id) =>
+        set((s) => ({ highlights: s.highlights.filter((h) => h.id !== id) })),
+
+      getHighlightsForConcept: (concept_slug) =>
+        get().highlights.filter((h) => h.concept_slug === concept_slug),
+
+      /* ── Bookmarks ───────────────────────────────────────────────── */
+      addBookmark: (concept_slug, label, block_id) =>
+        set((s) => ({
+          bookmarks: [
+            {
+              id: genId('bm'),
+              concept_slug,
+              block_id,
+              label,
+              created_at: nowISO(),
+            },
+            ...s.bookmarks,
+          ],
+        })),
+
+      removeBookmark: (id) =>
+        set((s) => ({ bookmarks: s.bookmarks.filter((b) => b.id !== id) })),
+
+      getBookmarksForConcept: (concept_slug) =>
+        get().bookmarks.filter((b) => b.concept_slug === concept_slug),
+
+      /* ── Confusing concepts ───────────────────────────────────────── */
+      toggleConfusing: (concept_slug) =>
+        set((s) => ({
+          confusing_concepts: s.confusing_concepts.includes(concept_slug)
+            ? s.confusing_concepts.filter((c) => c !== concept_slug)
+            : [concept_slug, ...s.confusing_concepts],
+        })),
+
+      isConfusing: (concept_slug) => get().confusing_concepts.includes(concept_slug),
 
       /* ── Focus mode ──────────────────────────────────────────────── */
       setFocusMode: (on) => set({ focus_mode: on }),
@@ -477,20 +598,80 @@ export const useStore = create<StoreState>()(
       setCommandPaletteOpen: (open) => set({ command_palette_open: open }),
 
       setTheme: (theme) => set({ theme }),
+      resetLearningProgress: () => set({
+        mastery: {},
+        review_items: {},
+        attempts: [],
+        events: [],
+        streak: { current: 0, longest: 0, last_active: '', recovery_tokens: 0 },
+        last_visited_concept: null,
+        last_visited_positions: {},
+        exposed_session: [],
+        confusing_concepts: [],
+        focus_session: { duration: 25, remaining: 25 * 60, running: false, started_at: null, concept_slug: null },
+      }),
 
-      /* ── Auth (local-only in v0.1) ───────────────────────────────── */
-      signIn: () =>
-        set({
-          isAuthenticated: true,
-          user: {
-            id: 1,
-            github_id: 'local',
-            email: 'you@local.nocap',
-            timezone: userTimezone(),
-          },
-        }),
+      /* ── Auth ─────────────────────────────────────────────────────── */
+      setAuthState: (user) => set((state) => {
+        const previousId = state.user?.id ?? null;
+        const nextId = user?.id ?? null;
+        // Prevent cross-account leakage when switching authenticated users.
+        // Anonymous local progress is retained on the first sign-in so it can be
+        // merged into the new account during initial sync. Once an authenticated
+        // user switches or signs out, account-owned learning state is cleared and
+        // will be restored from D1 on the next sign-in.
+        const switchedAccount = Boolean(previousId && nextId && previousId !== nextId);
+        const signedOut = Boolean(previousId && !nextId);
+        if (switchedAccount || signedOut) {
+          return {
+            ...state,
+            isAuthenticated: Boolean(user),
+            user,
+            auth_loaded: true,
+            mastery: {},
+            review_items: {},
+            attempts: [],
+            events: [],
+            streak: { current: 0, longest: 0, last_active: '', recovery_tokens: 3 },
+            last_visited_concept: null,
+            last_visited_positions: {},
+            notes: [],
+            highlights: [],
+            bookmarks: [],
+            confusing_concepts: [],
+            exposed_session: [],
+          };
+        }
+        return { ...state, isAuthenticated: Boolean(user), user, auth_loaded: true };
+      }),
+      setOnboarding: (payload) => set((state) => ({
+        user: state.user ? { ...state.user, ...payload, onboarding_completed: payload.completed ?? state.user.onboarding_completed } : state.user,
+      })),
+      signIn: () => set({ auth_loaded: true }),
+      signOut: () => {
+        // Cloud data is authoritative after sign-in, so remove account-owned
+        // client state before the session ends.
+        set((state) => ({
+          ...state,
+          isAuthenticated: false,
+          user: null,
+          auth_loaded: true,
+          mastery: {},
+          review_items: {},
+          attempts: [],
+          events: [],
+          streak: { current: 0, longest: 0, last_active: '', recovery_tokens: 3 },
+          last_visited_concept: null,
+          last_visited_positions: {},
+          notes: [],
+          highlights: [],
+          bookmarks: [],
+          confusing_concepts: [],
+          exposed_session: [],
+        }));
+      },
 
-      signOut: () => set({ isAuthenticated: false, user: null }),
+      $setState: (partial) => set((s) => ({ ...s, ...partial })),
 
       /* ── Derived ─────────────────────────────────────────────────── */
       getDueReviews: () => {
@@ -511,8 +692,6 @@ export const useStore = create<StoreState>()(
       name: 'nocap-state-v0.2',
       version: 2,
       partialize: (s) => ({
-        isAuthenticated: s.isAuthenticated,
-        user: s.user,
         mastery: s.mastery,
         review_items: s.review_items,
         attempts: s.attempts,
@@ -520,7 +699,11 @@ export const useStore = create<StoreState>()(
         streak: s.streak,
         focus_mode: s.focus_mode,
         last_visited_concept: s.last_visited_concept,
-        last_visited_position: s.last_visited_position,
+        last_visited_positions: s.last_visited_positions,
+        notes: s.notes,
+        highlights: s.highlights,
+        bookmarks: s.bookmarks,
+        confusing_concepts: s.confusing_concepts,
         theme: s.theme,
         // exposed_session deliberately NOT persisted — we want a fresh
         // exposure count on each app launch.
@@ -534,17 +717,15 @@ export const useStore = create<StoreState>()(
    system fallback. Runs in a single hook (useThemeBootstrap) to avoid
    hydration flash. */
 
-export function applyTheme(theme: 'system' | 'light' | 'dark') {
+export function applyTheme(theme: StoreState['theme']) {
   if (typeof document === 'undefined') return;
   const root = document.documentElement;
-  let resolved: 'light' | 'dark';
+  let resolved = theme;
   if (theme === 'system') {
     resolved = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-  } else {
-    resolved = theme;
   }
   root.setAttribute('data-theme', resolved);
-  root.style.colorScheme = resolved;
+  root.style.colorScheme = ['dark','charcoal'].includes(resolved) ? 'dark' : 'light';
 }
 
 export function userTimezoneLabel(): string {

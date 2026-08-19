@@ -1,0 +1,448 @@
+{
+  "slug": "capacity-estimation",
+  "version": 4,
+  "title": "Capacity Estimation",
+  "phase": "interview-preparation",
+  "area": "Interview Preparation",
+  "estimated_minutes": 7,
+  "difficulty": "core",
+  "summary": "Capacity estimation is the back-of-the-envelope math that turns \"design Twitter\" into concrete numbers: 200M DAU × 50 reads/day = 10B reads/day ≈ 115k QPS average, 5-10x peak. You estimate QPS, storage, bandwidth, and cache size from user counts and behavior, then size each system component accordingly. The math is approximate (order-of-magnitude is the goal), but it is the single most distinguishing skill in system design interviews — it separates hand-waving from engineering.",
+  "why_it_matters": "Capacity estimation is the bridge between abstract design and concrete engineering. A design without numbers is a sketch; a design with numbers is a system. In interviews, candidates who can estimate capacity demonstrate that they can reason about scale, recognize bottlenecks, and size infrastructure. In production, capacity estimation is how you decide between one Redis instance and a Redis cluster, between a 100 GB database and a sharded cluster, between 1 Gbps and 10 Gbps network egress. The numbers do not need to be exact — they need to be close enough to drive architecture decisions, and that requires disciplined approximations and unit awareness.",
+  "prerequisites": [
+    "latency-vs-throughput",
+    "performance-vs-scalability"
+  ],
+  "related": [
+    "qps-estimation",
+    "storage-estimation",
+    "bandwidth-estimation",
+    "cache-sizing"
+  ],
+  "used_in": [
+    "Every system design interview (Twitter, YouTube, WhatsApp, Uber, etc.).",
+    "Production capacity planning (sizing instances, DBs, caches).",
+    "Cost estimation for cloud infrastructure.",
+    "On-call: predicting when the system will hit its limits."
+  ],
+  "blocks": [
+    {
+      "type": "prose",
+      "id": "intro",
+      "payload": {
+        "text": "**Capacity estimation** is the practice of computing approximate values for QPS, storage, bandwidth, and cache size from a small set of inputs: number of users, daily activity per user, read/write ratio, payload sizes, retention period. The goal is not precision — it is order-of-magnitude correctness, enough to drive architecture decisions.\n\nIn a system design interview, capacity estimation typically follows the high-level design and precedes the deep-dive. After you sketch the boxes and arrows, you compute the numbers and use them to decide: \"at 100k QPS we need a load balancer + 20 app servers + a 3-node Redis cluster + a sharded PostgreSQL.\" Without these numbers, the design is unbounded; with them, you can defend every component choice.\n\nThe discipline has three core skills:\n\n1. **Unit awareness.** Know that 1 GB = 10^9 bytes, 1 GiB = 2^30 bytes, 1 Gbps = 10^9 bits/sec = 125 MB/sec. Mixing these up is the most common mistake.\n2. **Reasonable assumptions.** You will not be given every number; you must assume. State assumptions explicitly: \"assume 200M DAU, 50 reads/user/day, 1 KB average payload.\"\n3. **Back-of-the-envelope arithmetic.** Round aggressively. 200M × 50 = 10B ≈ 10^10 reads/day. 10B / 86400 sec ≈ 115k QPS average. Peak 3-5x average = 350-575k peak QPS. Done in 30 seconds.\n\nThe four sub-estimations cover the system end-to-end:\n- **QPS** — how many requests per second, split read vs write.\n- **Storage** — how much disk over time (with retention).\n- **Bandwidth** — how much network egress per second.\n- **Cache size** — how big the hot set is, in RAM.\n\nEach is covered in its own dedicated concept; this concept ties them together as a single interview exercise."
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "flow",
+      "payload": {
+        "code": "flowchart TD\n    N0[\"Twitter example\"]\n    N1[\"CAPACITY\"]\n    N2[\"ESTIMATION\"]\n    N3[\"FLOW\"]\n    N4[\"(Twitter\"]\n    N5[\"example)\"]\n    N6[\"state assumptions explicitly\"]\n    N7[\"Inputs\"]\n    N8[\"(state\"]\n    N9[\"assumptions\"]\n    N10[\"explicitly):\"]\n    N11[\"DAU\"]\n    N12[\"200\"]\n    N13[\"writes\"]\n    N14[\"Tweets\"]\n    N15[\"per\"]\n    N16[\"user\"]\n    N17[\"day\"]\n    N18[\"(writes)\"]\n    N19[\"reads\"]\n    N20[\"Timeline\"]\n    N21[\"(reads)\"]\n    N22[\"text + metadata\"]\n    N23[\"Average\"]\n    N24[\"tweet\"]\n    N25[\"size\"]\n    N26[\"500\"]\n    N27[\"(text\"]\n    N28[\"metadata)\"]\n    N29[\"Media\"]\n    N30[\"fraction\"]\n    N31[\"20%,\"]\n    N32[\"avg\"]\n    N33[\"media\"]\n    N34[\"Retention\"]\n    N35[\"years\"]\n    N36[\"STEP\"]\n    N37[\"QPS\"]\n    N38[\"Writes\"]\n    N39[\"200M\"]\n    N40[\"Reads\"]\n    N41[\"10B\"]\n    N42[\"Write\"]\n    N43[\"86400\"]\n    N44[\"11.5k\"]\n    N45[\"write\"]\n    N46[\"(avg)\"]\n    N47[\"Read\"]\n    N48[\"115k\"]\n    N49[\"read\"]\n    N50[\"peak\"]\n    N51[\"Peak\"]\n    N52[\"350k\"]\n    N53[\"575k\"]\n    N54[\"(peak)\"]\n    N55[\"Read:Write\"]\n    N56[\"ratio\"]\n    N57[\"100:1\"]\n    N58[\"cache\"]\n    N59[\"friendly,\"]\n    N60[\"aside\"]\n    N61[\"through\"]\n    N62[\"5-year retention\"]\n    N63[\"STORAGE\"]\n    N64[\"year\"]\n    N65[\"retention)\"]\n    N66[\"Text\"]\n    N67[\"media dominates!\"]\n    N68[\"20%\"]\n    N69[\"(media\"]\n    N70[\"dominates!)\"]\n    N71[\"5yr\"]\n    N72[\"365\"]\n    N73[\"900\"]\n    N74[\"S3\"]\n    N75[\"~1 PB after replicas/indexes\"]\n    N76[\"Object\"]\n    N77[\"storage\"]\n    N78[\"(S3)\"]\n    N79[\"for\"]\n    N80[\"media;\"]\n    N81[\"metadata\"]\n    N82[\"small\"]\n    N83[\"(~1\"]\n    N84[\"after\"]\n    N85[\"replicas\"]\n    N86[\"indexes)\"]\n    N87[\"BANDWIDTH\"]\n    N88[\"egress\"]\n    N89[\"timeline\"]\n    N90[\"payload\"]\n    N91[\"115\"]\n    N92[\"Gbps\"]\n    N93[\"assume 10% of reads include media\"]\n    N94[\"(assume\"]\n    N95[\"10%\"]\n    N96[\"include\"]\n    N97[\"media)\"]\n    N98[\"11.5\"]\n    N99[\"CDN\"]\n    N100[\"mandatory\"]\n    N101[\"origin\"]\n    N102[\"can\"]\n    N103[\"handle\"]\n    N104[\"text\"]\n    N105[\"but\"]\n    N106[\"not\"]\n    N107[\"hot set\"]\n    N108[\"CACHE\"]\n    N109[\"SIZING\"]\n    N110[\"(hot\"]\n    N111[\"set)\"]\n    N112[\"Hot\"]\n    N113[\"users\"]\n    N114[\"generate\"]\n    N115[\"50%\"]\n    N116[\"top\"]\n    N117[\"timelines\"]\n    N118[\"Cache\"]\n    N119[\"entries\"]\n    N120[\"tweets\"]\n    N121[\"Plus\"]\n    N122[\"feed\"]\n    N123[\"trending\"]\n    N124[\"100\"]\n    N125[\"Redis\"]\n    N126[\"cluster\"]\n    N127[\"handles\"]\n    N128[\"the\"]\n    N129[\"hot\"]\n    N130[\"set\"]\n    N131[\"with\"]\n    N132[\"headroom\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44\n    N44 --> N45\n    N45 --> N46\n    N46 --> N47\n    N47 --> N48\n    N48 --> N49\n    N49 --> N50\n    N50 --> N51\n    N51 --> N52\n    N52 --> N53\n    N53 --> N54\n    N54 --> N55\n    N55 --> N56\n    N56 --> N57\n    N57 --> N58\n    N58 --> N59\n    N59 --> N60\n    N60 --> N61\n    N61 --> N62\n    N62 --> N63\n    N63 --> N64\n    N64 --> N65\n    N65 --> N66\n    N66 --> N67\n    N67 --> N68\n    N68 --> N69\n    N69 --> N70\n    N70 --> N71\n    N71 --> N72\n    N72 --> N73\n    N73 --> N74\n    N74 --> N75\n    N75 --> N76\n    N76 --> N77\n    N77 --> N78\n    N78 --> N79\n    N79 --> N80\n    N80 --> N81\n    N81 --> N82\n    N82 --> N83\n    N83 --> N84\n    N84 --> N85\n    N85 --> N86\n    N86 --> N87\n    N87 --> N88\n    N88 --> N89\n    N89 --> N90\n    N90 --> N91\n    N91 --> N92\n    N92 --> N93\n    N93 --> N94\n    N94 --> N95\n    N95 --> N96\n    N96 --> N97\n    N97 --> N98\n    N98 --> N99\n    N99 --> N100\n    N100 --> N101\n    N101 --> N102\n    N102 --> N103\n    N103 --> N104\n    N104 --> N105\n    N105 --> N106\n    N106 --> N107\n    N107 --> N108\n    N108 --> N109\n    N109 --> N110\n    N110 --> N111\n    N111 --> N112\n    N112 --> N113\n    N113 --> N114\n    N114 --> N115\n    N115 --> N116\n    N116 --> N117\n    N117 --> N118\n    N118 --> N119\n    N119 --> N120\n    N120 --> N121\n    N121 --> N122\n    N122 --> N123\n    N123 --> N124\n    N124 --> N125\n    N125 --> N126\n    N126 --> N127\n    N127 --> N128\n    N128 --> N129\n    N129 --> N130\n    N130 --> N131\n    N131 --> N132",
+        "caption": "Capacity estimation for Twitter: QPS, storage, bandwidth, cache size from DAU and behavior.",
+        "alt_text": "Capacity estimation flow for a Twitter-like system. Inputs: 200 million DAU, 5 tweets per user per day as writes, 50 timeline reads per day, average tweet size 500 bytes, media fraction 20 percent with average media size 1 megabyte, retention 5 years. Step 1 QPS: writes per day equals 1 billion, reads per day equals 10 billion, write QPS average equals 11.5 thousand, read QPS average equals 115 thousand, peak 3 to 5x equals 350 to 575 thousand read QPS, read to write ratio 100 to 1, cache-friendly. Step 2 Storage: text per day 500 GB, media per day 200 TB (media dominates), text 5 years 900 TB, media 5 years 365 PB — use object storage for media, metadata DB around 1 PB after replicas and indexes. Step 3 Bandwidth: read egress 115 MB per second or 1 Gbps, media egress 11.5 GB per second or 92 Gbps — CDN is mandatory for media. Step 4 Cache sizing: hot 1 percent of users generate 50 percent of reads, cache top 1 percent timelines equals 2 million users times 50 tweets times 500 bytes around 50 GB, plus feed cache for trending 10 GB, a 100 GB Redis cluster handles the hot set with headroom."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "units",
+      "payload": {
+        "text": "**Units — the source of all estimation mistakes.**\n\nCapacity estimation has one recurring bug: unit confusion. Memorize these conversions before any interview:\n\n**Storage:**\n- 1 KB = 10^3 bytes (kilobyte, decimal)\n- 1 KiB = 2^10 bytes = 1024 bytes (kibibyte, binary)\n- 1 MB = 10^6 bytes, 1 MiB = 2^20 ≈ 1.05 MB\n- 1 GB = 10^9 bytes, 1 GiB = 2^30 ≈ 1.07 GB\n- 1 TB = 10^12 bytes, 1 TiB = 2^40 ≈ 1.10 TB\n- 1 PB = 10^15 bytes\n\nFor estimation, treat 1 KB ≈ 10^3 and 1 KiB ≈ 10^3 — close enough.\n\n**Network / throughput:**\n- 1 Gbps = 10^9 bits/sec = 125 MB/sec (note: bits, not bytes — 8 bits per byte)\n- 1 GB/sec = 8 Gbps\n- A 1 Gbps network connection can transfer ~125 MB/sec.\n\n**Time:**\n- 1 day = 86,400 seconds ≈ 100,000 seconds (round up by 15% for estimation)\n- 1 year = 365 days ≈ 31.5 million seconds\n\n**Requests:**\n- 1 million requests/day ≈ 11.6 requests/sec (divide by 86,400)\n- 1 billion requests/day ≈ 11,600 requests/sec\n\nThe most common interview mistake: confusing bits and bytes for bandwidth. \"1 Gbps\" is gigabits per second, not gigabytes. A 1 Gbps network transfers ~125 MB/sec, not 1 GB/sec. Get this wrong and your bandwidth estimates are off by 8x.\n\nThe second most common mistake: forgetting to convert daily to per-second. \"1 billion reads/day\" is not \"1 billion QPS\" — it is ~11,600 QPS. The conversion is divide by 86,400 (or ~100,000 for rough estimation)."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "peak-vs-average",
+      "payload": {
+        "title": "Always estimate peak, not just average",
+        "body": "Traffic is never uniform. Peak QPS is typically 2-5x average for normal workloads, and 10-100x for event-driven spikes (Super Bowl, Black Friday, breaking news). If you size for average, you will fail at peak. The standard approach: estimate average, multiply by 3-5x for peak (normal), and reserve headroom above that (design for 2x peak). So if average is 100k QPS, design for 500k-1M QPS. This is why interviewers love follow-ups like \"what if a tweet goes viral\" — they want to see peak thinking, not just average.",
+        "kind": "warning"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "use",
+      "payload": {
+        "text": "**Using the numbers — driving architecture decisions.**\n\nThe point of capacity estimation is not the numbers themselves; it is the architecture decisions they drive. After computing QPS, storage, bandwidth, and cache size, you translate each into a system design decision:\n\n- **QPS > 1k**: Load balancer + multiple app instances (single server cannot keep up).\n- **QPS > 100k**: Add caching aggressively; a single Redis may not suffice (cluster).\n- **Read:Write ratio > 10:1**: Cache-friendly design; cache-aside or write-through.\n- **Storage > 1 TB**: Plan for backup/restore times, IOPS, and possibly sharding.\n- **Storage > 10 TB (media)**: Use object storage (S3), not a database.\n- **Bandwidth > 1 Gbps**: CDN mandatory for static/media content.\n- **Hot set < available RAM**: Cache fits in one Redis; simple architecture.\n- **Hot set > 10 GB**: Redis cluster or sharded cache.\n- **Write QPS > 10k**: Database write scaling (sharding, federation) becomes necessary.\n\nThe exercise also reveals non-obvious bottlenecks. In the Twitter example, the bandwidth estimate (92 Gbps for media) dwarfs everything else — this immediately tells you that the CDN is the most critical component, not the database or the cache. Without capacity estimation, you might spend the interview discussing database sharding when the real bottleneck is media egress.\n\nThis is the deeper skill: capacity estimation surfaces the bottleneck that drives the entire design. The component with the largest number is the component the design must optimize for."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "interview-flow",
+      "payload": {
+        "text": "**How to do capacity estimation in an interview (30 seconds to 2 minutes).**\n\n1. **State your inputs and assumptions explicitly.** \"Assume 200M DAU, 5 tweets/user/day, 50 reads/user/day, 500 B per tweet, 5-year retention.\" The interviewer can correct any of these; you do not have to be right, just explicit.\n\n2. **Compute QPS first.** Reads/day ÷ 86400 = average read QPS. Writes/day ÷ 86400 = average write QPS. Multiply by 3-5x for peak.\n\n3. **Compute storage.** Per-day storage × 365 × retention years = total storage. Don't forget replicas (×3) and indexes (~30% overhead).\n\n4. **Compute bandwidth.** Average QPS × payload size = average bandwidth. Multiply by peak factor.\n\n5. **Compute cache size.** Estimate the hot set: 1% of users generating 50% of reads is a common assumption. Cache = hot set size.\n\n6. **Translate each number into a design decision.** \"At 500k peak QPS, we need a load balancer + 50 app servers + a 3-node Redis cluster + a CDN for static.\"\n\n7. **Call out the dominant constraint.** \"Bandwidth is 92 Gbps, so the CDN is the most critical component. Database sharding matters less.\"\n\nThe goal is not precision — interviewers know your numbers are approximate. The goal is to demonstrate that you can reason about scale and connect numbers to architecture. A candidate who does this in 2 minutes stands out from one who waves hands for 30 minutes."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q1",
+      "payload": {
+        "question": "You estimate a system at 200M DAU, 50 reads/user/day, average payload 1 KB. What is the average read bandwidth in Gbps?",
+        "shape": "mcq",
+        "options": [
+          "0.01 Gbps",
+          "1 Gbps (200M × 50 × 1 KB / 86400 sec ≈ 115 MB/s = 0.92 Gbps ≈ 1 Gbps)",
+          "10 Gbps",
+          "100 Gbps"
+        ],
+        "answer_index": 1,
+        "rationale": "Compute step by step. Reads/day = 200M × 50 = 10B reads. Bytes/day = 10B × 1 KB = 10 TB. Bytes/sec = 10 TB / 86400 sec ≈ 115 MB/s. Convert to bits: 115 MB/s × 8 = 920 Mb/s ≈ 0.92 Gbps ≈ 1 Gbps. The key conversions: 1 Gbps = 10^9 bits/sec = 125 MB/sec. So 115 MB/sec ≈ 0.92 Gbps. The common mistakes: forgetting to convert bytes to bits (would give 115 Gbps — 100x too high), or using 1 GB/sec = 1 Gbps (also wrong — 1 GB/sec = 8 Gbps). Get the byte/bit conversion right and the answer is roughly 1 Gbps.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q2",
+      "payload": {
+        "question": "Why does the standard interview practice include \"multiply average QPS by 3-5x for peak\"?",
+        "shape": "mcq",
+        "options": [
+          "Because interviewers expect larger numbers.",
+          "Because real traffic is never uniform — peak is typically 2-5x average for normal workloads, and the system must handle peak without degradation, not just average.",
+          "Because the servers run slower at peak.",
+          "To account for backend retries."
+        ],
+        "answer_index": 1,
+        "rationale": "Real-world traffic has natural peaks: morning/evening rush hours, weekend patterns, breaking-news spikes. Peak QPS is typically 2-5x average for normal workloads, and 10-100x for event-driven spikes. If you size for average, the system degrades or fails at peak — which is when users notice. The standard practice is to estimate average, multiply by 3-5x for normal peak, and reserve 2x headroom above that (design for 2x peak). This is why follow-up questions like \"what if a tweet goes viral\" matter — they test whether you design for peak, not just average.",
+        "difficulty": "core"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q3",
+      "payload": {
+        "question": "After computing capacity estimates, you find that bandwidth is 92 Gbps but database write QPS is only 11k. What does this tell you about the system's primary constraint, and how should you prioritize design effort?",
+        "shape": "mcq",
+        "options": [
+          "Database is the bottleneck — focus on sharding.",
+          "Bandwidth is the bottleneck — focus on CDN and edge caching. The component with the largest number is the one the design must optimize for.",
+          "Both are equally important.",
+          "Neither matters; focus on the API design."
+        ],
+        "answer_index": 1,
+        "rationale": "Capacity estimation's deepest value is identifying the dominant constraint. A 92 Gbps egress means the network and CDN are the primary bottleneck — a single origin cannot serve that. The 11k write QPS, by contrast, is well within what one beefy PostgreSQL instance can handle. Design effort should focus on the bandwidth problem: aggressive CDN caching, edge POPs, possibly peer-to-peer distribution. The database sharding question can wait. This is the skill interviewers are testing: not just computing the numbers, but recognizing which number drives the design. A candidate who spends the interview on database sharding when bandwidth is the bottleneck has missed the point of capacity estimation.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-capacity-estimation-mental",
+      "payload": {
+        "text": "Engineering mental model",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-capacity-estimation-mental",
+      "payload": {
+        "text": "**Mental model.** Think of Capacity Estimation as a deliberate boundary in a system. The boundary exists because something becomes harder to manage when everything is done in one place: latency, scale, failure isolation, consistency, cost, or team ownership. The useful question is not “what does Capacity Estimation mean?” but “what pressure makes this boundary worth introducing, and what new failure mode does it create?”"
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-capacity-estimation-decision",
+      "payload": {
+        "title": "Design lens",
+        "body": "Before choosing Capacity Estimation, name the workload, the critical user path, the dominant bottleneck, the failure you are trying to absorb, and the trade-off you are willing to accept. If you cannot name those five things, the design is probably premature.",
+        "kind": "info"
+      }
+    },
+    {
+      "type": "image",
+      "id": "upgrade-image-capacity-estimation",
+      "payload": {
+        "src": "/learning-visuals/capacity-estimation.svg",
+        "alt": "Original NO CAP systems visual for Capacity Estimation.",
+        "caption": "Capacity Estimation: a compact system-thinking visual.",
+        "credit": "Original NO CAP visual.",
+        "source_url": "https://github.com/donnemartin/system-design-primer"
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "upgrade-mermaid-capacity-estimation",
+      "payload": {
+        "code": "flowchart LR\n  A[Client] --> B[Gateway] --> C[Service] --> D[State] --> E[Outcome]",
+        "caption": "Capacity Estimation: a simplified system view showing the primary flow and the main state boundaries.",
+        "alt_text": "Capacity Estimation: a simplified system view showing the primary flow and the main state boundaries."
+      }
+    },
+    {
+      "type": "code",
+      "id": "upgrade-code-capacity-estimation",
+      "payload": {
+        "language": "text",
+        "code": "// Pseudocode\nrequest = receive()\nresult = capacity_estimation(request)\nreturn result\n\n// Production questions:\n// 1. What happens on timeout?\n// 2. Can this operation be retried safely?\n// 3. What is the bottleneck?",
+        "caption": "A minimal engineering sketch for reasoning about Capacity Estimation."
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-capacity-estimation-numbers",
+      "payload": {
+        "text": "Back-of-the-envelope reasoning",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-capacity-estimation-numbers",
+      "payload": {
+        "text": "Example: 10M requests/day ÷ 86,400 ≈ 116 requests/s average. Design for peak rather than average; a 10× peak is ≈ 1,160 requests/s."
+      }
+    },
+    {
+      "type": "simulation",
+      "id": "upgrade-sim-capacity-estimation",
+      "payload": {
+        "title": "Interactive thought experiment: Capacity Estimation",
+        "description": "Change the variables below and predict what breaks first in Capacity Estimation. The production lab can later reuse these same inputs.",
+        "variables": [
+          {
+            "name": "traffic",
+            "description": "Requests/events per second",
+            "default": "1000"
+          },
+          {
+            "name": "latency",
+            "description": "Dependency latency",
+            "default": "50ms"
+          },
+          {
+            "name": "failure_rate",
+            "description": "Injected failure rate",
+            "default": "0%"
+          }
+        ],
+        "placeholder_note": "Interactive controls are deterministic; use the linked Labs section when a dedicated lab exists."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-capacity-estimation-hint",
+      "payload": {
+        "title": "Hint",
+        "body": "If you are stuck on Capacity Estimation, start by drawing the request path and marking every network hop, stateful component, queue, cache and failure boundary. Then estimate where the system will saturate.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-capacity-estimation-1",
+      "payload": {
+        "shape": "prediction",
+        "question": "You increase traffic by 10× in a system using Capacity Estimation. What should you inspect first?",
+        "options": [
+          "The newest framework version",
+          "The dominant bottleneck and its saturation signal",
+          "Only the UI",
+          "Nothing; the architecture should absorb any traffic automatically"
+        ],
+        "answer_index": 1,
+        "rationale": "System design is a constraint-and-bottleneck exercise. Start with the resource or dependency that will saturate first, then choose the smallest change that removes that bottleneck.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-capacity-estimation-2",
+      "payload": {
+        "shape": "mcq",
+        "question": "Which statement is the safest engineering habit when using Capacity Estimation?",
+        "options": [
+          "Choose it because it is popular",
+          "Add it before measuring the problem",
+          "State the workload, failure mode and trade-off it is solving",
+          "Use the most distributed design possible"
+        ],
+        "answer_index": 2,
+        "rationale": "Good architecture starts from requirements, workload and failure assumptions. The component is the consequence of that reasoning, not the starting point.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "scenario",
+      "id": "upgrade-scenario-capacity-estimation",
+      "payload": {
+        "prompt": "Production scenario: your system uses Capacity Estimation, traffic suddenly spikes, and p99 latency doubles. What is your first move?",
+        "context": "You have dashboards for traffic, latency, errors and saturation. You can change the architecture, but every change has operational cost.",
+        "options": [
+          {
+            "id": "a",
+            "text": "Add more instances immediately",
+            "outcome": "This may help, but only if compute saturation is the bottleneck.",
+            "correct": false
+          },
+          {
+            "id": "b",
+            "text": "Inspect the bottleneck and its saturation signal first",
+            "outcome": "Correct: diagnose before scaling or introducing a new pattern.",
+            "correct": true
+          },
+          {
+            "id": "c",
+            "text": "Disable monitoring to reduce overhead",
+            "outcome": "This removes the evidence you need to diagnose the incident.",
+            "correct": false
+          }
+        ],
+        "rationale": "Measure the limiting resource or dependency first. A bottleneck can be compute, database I/O, network, cache misses, lock contention, downstream latency, or queue backlog.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-capacity-estimation-interview",
+      "payload": {
+        "text": "Interview drill",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-capacity-estimation-interview",
+      "payload": {
+        "text": "**Answer this without notes:** When would you choose Capacity Estimation, and when would you intentionally avoid it? Mention at least one bottleneck it addresses, one failure mode it introduces, and one alternative. Then quantify the workload you are designing for."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "field-guide-capacity-estimation",
+      "payload": {
+        "title": "Engineering lens",
+        "body": "A useful engineering lens for Capacity Estimation: define the problem it solves, the simpler design that fails first, the constraint that forces you to introduce this concept, and the new failure modes the concept creates.",
+        "kind": "tip"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "numerical-lens-capacity-estimation",
+      "payload": {
+        "text": "### Numerical sanity check\n\nBack-of-the-envelope reasoning beats fake precision. State your traffic, payload, concurrency and growth assumptions explicitly, then calculate enough to know whether the current architecture is orders of magnitude away from the target."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "field-question-capacity-estimation",
+      "payload": {
+        "shape": "prediction",
+        "question": "Imagine the simplest version of a system using Capacity Estimation. What breaks first as traffic grows by 10×, and what would you change before reaching 100×?",
+        "context": "Do not optimize for a memorized definition. Reason from the workload and failure mode.",
+        "options": [
+          "Scale the same component immediately.",
+          "Measure the current bottleneck and state the assumption that changed.",
+          "Add more technologies until throughput improves.",
+          "Choose the most popular architecture."
+        ],
+        "answer_index": 1,
+        "rationale": "Good system design starts with the bottleneck and the changed constraint. The most popular or complex choice is not automatically correct.",
+        "difficulty": "interview"
+      }
+    }
+  ],
+  "trade_offs": {
+    "pros": [
+      "Turns abstract design into concrete numbers that drive architecture.",
+      "Identifies the dominant constraint (the bottleneck that drives the design).",
+      "Surfaces non-obvious bottlenecks (e.g., media bandwidth dwarfing database load).",
+      "Enables cost estimation — instances, storage, bandwidth all cost money.",
+      "Standardized methodology works across any system (Twitter, YouTube, Uber, ...)."
+    ],
+    "cons": [
+      "Numbers are approximate — order-of-magnitude only; do not over-index on precision.",
+      "Assumptions can be wrong — state them explicitly so the interviewer can correct.",
+      "Easy to confuse units (bits vs bytes, KB vs KiB) — memorize conversions.",
+      "Captures steady-state, not failure modes (cache crash, network partition).",
+      "Does not capture latency — QPS says nothing about per-request latency without further analysis."
+    ]
+  },
+  "failure_modes": [
+    "Unit confusion — bits vs bytes (8x error), KB vs KiB (small but compounds).",
+    "Forgetting to convert daily to per-second (86400x error).",
+    "Sizing for average instead of peak — system fails at peak.",
+    "Mistaking the dominant constraint — spending design effort on the wrong bottleneck.",
+    "Forgetting replicas and indexes in storage estimates (off by 3-4x).",
+    "Treating estimates as exact — building infrastructure \"for 115k QPS\" when 100k-130k is the actual range."
+  ],
+  "common_mistakes": [
+    "Not stating assumptions explicitly — interviewer cannot correct silent wrong assumptions.",
+    "Confusing bits and bytes for bandwidth.",
+    "Forgetting the peak factor (3-5x average).",
+    "Spending design effort on the wrong bottleneck after computing numbers.",
+    "Not translating numbers into architecture decisions — numbers without design are useless.",
+    "Trying to be too precise — round aggressively; order-of-magnitude is the goal."
+  ],
+  "where_you_see_it": [
+    "Every system design interview (Twitter, YouTube, WhatsApp, Uber, Instagram).",
+    "Production capacity planning — sizing instances, DBs, caches.",
+    "Cost estimation for cloud infrastructure (instances, storage, bandwidth all priced).",
+    "On-call: predicting when the system will hit its limits."
+  ],
+  "interview_prompts": [
+    "Estimate the QPS, storage, and bandwidth for Twitter with 200M DAU.",
+    "Estimate the storage required for YouTube for 5 years of video retention.",
+    "Your system has 100k average QPS. What peak QPS do you design for, and why?",
+    "After computing capacity estimates, you find bandwidth is 10x the database load. How does this change your design?",
+    "Estimate the cache size needed for a news feed with 100M DAU and an 80/20 access pattern."
+  ],
+  "real_system_mappings": [
+    {
+      "system": "Twitter / X scale estimates",
+      "how": "Public engineering estimates: ~500M DAU, ~6,000 tweets/sec average, ~8,000+ peak (events), ~300k QPS for timeline reads. Storage dominated by media. These are the canonical numbers interviewers reference."
+    },
+    {
+      "system": "WhatsApp scale estimates",
+      "how": "WhatsApp at 1B users handled ~50B messages/day with ~50 engineers. Their architecture was driven by capacity estimation: 1B × 50 = 50B/day ≈ 580k QPS, served by Erlang on vertically scaled machines."
+    },
+    {
+      "system": "AWS / cloud capacity planning",
+      "how": "Cloud cost estimation tools (AWS Calculator, Cloudflare pricing) all reduce to the same four estimations: QPS (request pricing), storage (GB-month), bandwidth (GB egress), cache size (RAM-hour). The same math, applied to billing."
+    },
+    {
+      "system": "Netflix Open Connect capacity planning",
+      "how": "Netflix sizes Open Connect Appliances (OCAs) at ISP points-of-presence based on estimated peak bandwidth per region. Their capacity planning is bandwidth-first, exactly the dominant-constraint methodology."
+    }
+  ],
+  "status": "published",
+  "sources": [
+    {
+      "title": "System Design Primer",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Open source"
+    },
+    {
+      "title": "ByteByteGo — Scale from zero to millions",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "ByteByteGo"
+    },
+    {
+      "title": "System Design Tutorial",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "GeeksforGeeks"
+    },
+    {
+      "title": "System Design Roadmap",
+      "url": "https://roadmap.sh/system-design",
+      "publisher": "roadmap.sh"
+    },
+    {
+      "title": "Interview Preparation reference",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Interview Preparation reference",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Interview Preparation reference",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "Reference"
+    },
+    {
+      "title": "ByteByteGo — Scaling Websites",
+      "url": "https://bytebytego.com/guides/how-to-scale-a-website-to-support-millions-of-users/",
+      "publisher": "ByteByteGo"
+    }
+  ]
+}

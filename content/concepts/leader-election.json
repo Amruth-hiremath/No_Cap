@@ -1,0 +1,441 @@
+{
+  "slug": "leader-election",
+  "version": 4,
+  "title": "Leader Election",
+  "phase": "distributed-systems",
+  "area": "Distributed Systems",
+  "estimated_minutes": 7,
+  "difficulty": "advanced",
+  "summary": "Leader election is the process by which a set of distributed nodes choose exactly one of themselves to act as the coordinator — the leader that accepts writes, drives replication, or makes scheduling decisions. Having a single leader avoids the cost of full consensus on every operation: once elected, the leader can act unilaterally until it fails. The hard parts are detecting failure reliably, preventing split-brain (two leaders), and ensuring the new leader sees all committed data before serving traffic. Algorithms include Bully, Ring, and the term-based voting used in Raft.",
+  "why_it_matters": "Almost every distributed system that needs strong consistency has a leader: PostgreSQL streaming replication has a primary, Kafka partitions have a leader broker, MongoDB replica sets have a primary, Redis has a master. Leader election is the mechanism that makes failover automatic — without it, every primary failure is a human-paged incident. Get it wrong and you get split-brain (two primaries accepting conflicting writes) or stuck-cluster (no primary, no writes accepted). Both are catastrophic. The classic patterns — heartbeat-based failure detection, term-based voting, fencing tokens on every transition — are the foundation of reliable failover.",
+  "prerequisites": [
+    "distributed-systems-intro"
+  ],
+  "related": [
+    "consensus",
+    "distributed-locks",
+    "quorum"
+  ],
+  "used_in": [
+    "Database primaries (PostgreSQL, MongoDB, MySQL InnoDB Cluster).",
+    "Message broker partition leaders (Kafka, RabbitMQ mirror queue master).",
+    "Cluster controllers (Kubernetes, HDFS NameNode, Kafka controller).",
+    "Redis master in a Redis Sentinel / Cluster setup."
+  ],
+  "blocks": [
+    {
+      "type": "prose",
+      "id": "intro",
+      "payload": {
+        "text": "A leader is the single node authorized to make a decision — accept writes, sequence operations, drive replication, or own a partition. The benefit is simplicity: instead of running consensus on every write, the system runs consensus once (the election), then the leader acts unilaterally until it fails. This is why every strongly consistent distributed system has a leader per shard or per cluster.\n\nThe leader election problem is: given N nodes, agree on which one is the leader, and detect when that leader has failed so a new one can be chosen. Three properties make this hard:\n\n1. **Failure detection is unreliable.** You cannot distinguish a crashed node from a slow one. Heartbeats time out, but a timeout could be caused by network delay, GC pause, or actual crash.\n2. **Split-brain prevention.** Two nodes must not both believe they are leader. This requires a quorum — only the side with quorum can elect a leader.\n3. **Committed data preservation.** The new leader must have all writes the old leader acknowledged. If not, an acknowledged write can vanish — a data-loss bug. This is why Raft's election rule restricts leadership to nodes whose logs are at least as up-to-date as a quorum."
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "raft-election",
+      "payload": {
+        "code": "flowchart TD\n    N0[\"term-based, randomized timeouts\"]\n    N1[\"Raft\"]\n    N2[\"leader\"]\n    N3[\"election\"]\n    N4[\"(term\"]\n    N5[\"based,\"]\n    N6[\"randomized\"]\n    N7[\"timeouts)\"]\n    N8[\"healthy\"]\n    N9[\"cluster:\"]\n    N10[\"AppendEntries\"]\n    N11[\"Leader\"]\n    N12[\"heartbeats\"]\n    N13[\"Follower\"]\n    N14[\"term 1\"]\n    N15[\"crashes\"]\n    N16[\"gone,\"]\n    N17[\"followers\"]\n    N18[\"stop\"]\n    N19[\"receiving\"]\n    N20[\"heartbeats:\"]\n    N21[\"crashed\"]\n    N22[\"(crashed)\"]\n    N23[\"timeout\"]\n    N24[\"expires\"]\n    N25[\"150-300ms\"]\n    N26[\"(150\"]\n    N27[\"300ms)\"]\n    N28[\"one\"]\n    N29[\"node\"]\n    N30[\"term=2\"]\n    N31[\"RequestVote(term\"]\n    N32[\"Candidate\"]\n    N33[\"term 2\"]\n    N34[\"vote\"]\n    N35[\"yes\"]\n    N36[\"majority\"]\n    N37[\"votes\"]\n    N38[\"received\"]\n    N39[\"becomes\"]\n    N40[\"for\"]\n    N41[\"term\"]\n    N42[\"sends\"]\n    N43[\"assert\"]\n    N44[\"leadership\"]\n    N45[\"new\"]\n    N46[\"leader:\"]\n    N47[\"Note:\"]\n    N48[\"any\"]\n    N49[\"RPC\"]\n    N50[\"carrying\"]\n    N51[\"higher\"]\n    N52[\"forces\"]\n    N53[\"the\"]\n    N54[\"recipient\"]\n    N55[\"step\"]\n    N56[\"down.\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44\n    N44 --> N45\n    N45 --> N46\n    N46 --> N47\n    N47 --> N48\n    N48 --> N49\n    N49 --> N50\n    N50 --> N51\n    N51 --> N52\n    N52 --> N53\n    N53 --> N54\n    N54 --> N55\n    N55 --> N56",
+        "caption": "Raft election: randomized timeouts trigger candidate state; majority vote wins leadership; terms prevent split-brain.",
+        "alt_text": "A diagram of Raft leader election. Initially, in term 1, a leader sends AppendEntries heartbeats to followers. When the leader crashes, followers stop receiving heartbeats. After a randomized election timeout (150 to 300 milliseconds) expires on one follower, it becomes a candidate, increments the term to 2, and sends RequestVote RPCs. If a majority votes yes, it becomes the leader for term 2 and resumes heartbeats. Any RPC carrying a higher term forces the recipient to step down — this prevents two leaders from existing in different terms (split-brain)."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "algorithms",
+      "payload": {
+        "text": "Several leader election algorithms exist, with different trade-offs:\n\n- **Bully algorithm**: the node with the highest ID becomes leader. Simple, but requires every node to know every other node's ID, and a single rejoin can disrupt leadership. Used in teaching; rarely in production.\n- **Ring algorithm**: nodes are arranged in a logical ring; an election message circulates. The highest-ID node in the message becomes leader. More fault-tolerant than Bully but slower (O(N) message hops).\n- **Raft voting**: every node has a randomized election timeout; the first to time out starts a new term and asks for votes. A node votes for at most one candidate per term; the candidate with a majority wins. Term numbers prevent stale leaders from staying in power.\n- **Lease-based election**: a leader holds a time-bounded lease (e.g., 10 seconds). It must renew before expiry. If it fails to renew, anyone can take over. Used in Chubby and GFS master election. Requires bounded clock skew (TrueTime in Spanner).\n\nIn modern systems, **Raft voting and lease-based election dominate**. Bully and Ring are mostly of historical interest."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "split-brain",
+      "payload": {
+        "title": "Split-brain is the worst failure mode",
+        "body": "If two nodes both believe they are leader and both accept writes, you have split-brain. When the partition heals, you have two divergent histories with no safe way to merge. Every leader election algorithm must prevent this. The mechanism is always some form of quorum: only a group with a majority of nodes can elect a leader, so two partitions cannot both have leaders. Systems that violate this rule (older versions of Redis Sentinel, some early NoSQL databases) have shipped with split-brain bugs that caused production data loss. Fencing tokens — a monotonically increasing number stamped on every leader transition — are the final defense: even if a stale leader tries to write, downstream systems reject the write because the token is too old.",
+        "kind": "warning"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "fencing",
+      "payload": {
+        "text": "Election alone is not enough. After a new leader is elected, the old leader might still believe it is in charge — packets from it might be in flight, or it might have been paused (GC, VM stop) and resumed after the new leader took over. The standard defense is the **fencing token** (a.k.a. **leader epoch**).\n\nThe token is a monotonically increasing integer, incremented on every leader transition. Every write from the leader carries the current token. Downstream systems (storage, replicas, lock services) remember the highest token they have seen and reject any write with a lower token. So if the old leader (epoch=5) tries to write after the new leader (epoch=6) has been acknowledged, the storage rejects the write. This is the foundation of safe leader election in Kafka (leader epochs), Spanner (epoch numbers), and CockroachDB (epoch-based leases).\n\nWithout fencing tokens, a paused-and-resumed old leader can cause silent data loss — the classic 'stale leader' bug that affected early MongoDB and Redis setups."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "leases",
+      "payload": {
+        "text": "**Lease-based leadership** is an alternative to constant heartbeats. The leader holds a lease for a fixed duration (e.g., 10 seconds). It must renew before expiry. If it fails to renew (because it crashed or network partitioned), the lease expires and another node can take over.\n\nLeases work only if clock skew is bounded — if the leader's clock jumps, it might think it still has time when the lease has already expired elsewhere. Google's Chubby and Spanner use TrueTime (atomic clocks + GPS) to bound skew to ~7ms, which makes leases safe. On commodity hardware with NTP, you must add a safety margin: a leader that thinks its lease expires at T should stop serving at T - margin (e.g., 1 second before) to avoid operating on a possibly-expired lease.\n\nLeases are more efficient than heartbeat-based election because they require less chatter, but they are harder to get right. Most production systems use Raft-style heartbeat election by default."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q1",
+      "payload": {
+        "question": "Why do Raft and other consensus-based leader elections use randomized election timeouts?",
+        "shape": "mcq",
+        "options": [
+          "To distribute load evenly across nodes.",
+          "To prevent multiple candidates from starting elections simultaneously and causing livelock.",
+          "To enforce fairness — every node gets a turn at being leader.",
+          "To reduce the number of messages needed for an election."
+        ],
+        "answer_index": 1,
+        "rationale": "If every follower's election timeout expired at exactly the same instant after the leader crashed, all of them would become candidates simultaneously, all would increment the term, all would vote for themselves, and none would win a majority. The result is livelock: the term goes up but no leader is elected, the cycle repeats. Randomized timeouts (typically 150-300ms with jitter) make it overwhelmingly likely that one node times out first, asks for votes, and wins before the others time out. This is the standard trick to escape FLP-style livelock: add randomness to break symmetry.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q2",
+      "payload": {
+        "question": "A new leader is elected after the old leader was paused for 10 seconds (long GC). The old leader resumes and tries to commit a write it received before the pause. What prevents this stale write from succeeding?",
+        "shape": "mcq",
+        "options": [
+          "The old leader's followers refuse to replicate the write because their logs are ahead.",
+          "Fencing tokens / leader epochs: the old leader's writes carry a stale epoch and are rejected by quorum or downstream systems.",
+          "The old leader cannot send messages because its TCP connection was reset.",
+          "The new leader has not committed anything, so the old leader's write is still valid."
+        ],
+        "answer_index": 1,
+        "rationale": "Fencing tokens (leader epochs) are the mechanism. On every leader transition, the epoch increments. The new leader's writes carry epoch N+1; the old leader's writes still carry epoch N. When the old leader tries to commit a write via AppendEntries, followers reject it because they have already seen epoch N+1 from the new leader. When the old leader tries to write to storage (e.g., a shared disk or object store), the storage rejects the write because the token is stale. This is the classic 'stale leader' problem that fencing tokens solve. Without fencing, a paused old leader could overwrite newer writes — silent data loss. Kafka leader epochs and Spanner epochs are exactly this pattern.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q3",
+      "payload": {
+        "question": "Why is the Bully algorithm rarely used in production, despite being simple to implement?",
+        "shape": "mcq",
+        "options": [
+          "It requires more messages than Raft.",
+          "It does not prevent split-brain — multiple nodes can claim leadership without quorum.",
+          "It is patented.",
+          "It cannot handle node restarts."
+        ],
+        "answer_index": 1,
+        "rationale": "The Bully algorithm elects the highest-ID node as leader. Without a quorum requirement, this can lead to split-brain: in a partition, both sides can independently run the algorithm and each elects a leader (the highest ID on their side). There is no safety mechanism to prevent two leaders. Modern systems require a majority quorum for election, which the Bully algorithm lacks. Additionally, the Bully algorithm is sensitive to node churn — every join/leave can trigger a re-election. Raft and lease-based elections are more robust because they tie leadership to quorum and use term numbers for safety. The Bully algorithm is useful for teaching the basics, but not for production systems.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-leader-election-mental",
+      "payload": {
+        "text": "Engineering mental model",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-leader-election-mental",
+      "payload": {
+        "text": "**Mental model.** Think of Leader Election as a deliberate boundary in a system. The boundary exists because something becomes harder to manage when everything is done in one place: latency, scale, failure isolation, consistency, cost, or team ownership. The useful question is not “what does Leader Election mean?” but “what pressure makes this boundary worth introducing, and what new failure mode does it create?”"
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-leader-election-decision",
+      "payload": {
+        "title": "Design lens",
+        "body": "Before choosing Leader Election, name the workload, the critical user path, the dominant bottleneck, the failure you are trying to absorb, and the trade-off you are willing to accept. If you cannot name those five things, the design is probably premature.",
+        "kind": "info"
+      }
+    },
+    {
+      "type": "image",
+      "id": "upgrade-image-leader-election",
+      "payload": {
+        "src": "/learning-visuals/leader-election.svg",
+        "alt": "Original NO CAP systems visual for Leader Election.",
+        "caption": "Leader Election: a compact system-thinking visual.",
+        "credit": "Original NO CAP visual.",
+        "source_url": "https://github.com/donnemartin/system-design-primer"
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "upgrade-mermaid-leader-election",
+      "payload": {
+        "code": "flowchart LR\n N1[Node A] <-->|vote| N2[Node B]\n N2 <-->|vote| N3[Node C]\n N1 --> L[Leader]",
+        "caption": "Leader election selects one coordinator for operations that benefit from a single authority.",
+        "alt_text": "Leader election selects one coordinator for operations that benefit from a single authority."
+      }
+    },
+    {
+      "type": "code",
+      "id": "upgrade-code-leader-election",
+      "payload": {
+        "language": "text",
+        "code": "// Pseudocode\nrequest = receive()\nresult = leader_election(request)\nreturn result\n\n// Production questions:\n// 1. What happens on timeout?\n// 2. Can this operation be retried safely?\n// 3. What is the bottleneck?",
+        "caption": "A minimal engineering sketch for reasoning about Leader Election."
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-leader-election-numbers",
+      "payload": {
+        "text": "Back-of-the-envelope reasoning",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-leader-election-numbers",
+      "payload": {
+        "text": "Numerical lens: write down traffic, payload size, read/write ratio, peak multiplier and durability target before choosing a component. The numbers should justify the architecture."
+      }
+    },
+    {
+      "type": "simulation",
+      "id": "upgrade-sim-leader-election",
+      "payload": {
+        "title": "Interactive thought experiment: Leader Election",
+        "description": "Change the variables below and predict what breaks first in Leader Election. The production lab can later reuse these same inputs.",
+        "variables": [
+          {
+            "name": "traffic",
+            "description": "Requests/events per second",
+            "default": "1000"
+          },
+          {
+            "name": "latency",
+            "description": "Dependency latency",
+            "default": "50ms"
+          },
+          {
+            "name": "failure_rate",
+            "description": "Injected failure rate",
+            "default": "0%"
+          }
+        ],
+        "placeholder_note": "Interactive controls are deterministic; use the linked Labs section when a dedicated lab exists."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-leader-election-hint",
+      "payload": {
+        "title": "Hint",
+        "body": "If you are stuck on Leader Election, start by drawing the request path and marking every network hop, stateful component, queue, cache and failure boundary. Then estimate where the system will saturate.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-leader-election-1",
+      "payload": {
+        "shape": "prediction",
+        "question": "You increase traffic by 10× in a system using Leader Election. What should you inspect first?",
+        "options": [
+          "The newest framework version",
+          "The dominant bottleneck and its saturation signal",
+          "Only the UI",
+          "Nothing; the architecture should absorb any traffic automatically"
+        ],
+        "answer_index": 1,
+        "rationale": "System design is a constraint-and-bottleneck exercise. Start with the resource or dependency that will saturate first, then choose the smallest change that removes that bottleneck.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-leader-election-2",
+      "payload": {
+        "shape": "mcq",
+        "question": "Which statement is the safest engineering habit when using Leader Election?",
+        "options": [
+          "Choose it because it is popular",
+          "Add it before measuring the problem",
+          "State the workload, failure mode and trade-off it is solving",
+          "Use the most distributed design possible"
+        ],
+        "answer_index": 2,
+        "rationale": "Good architecture starts from requirements, workload and failure assumptions. The component is the consequence of that reasoning, not the starting point.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "scenario",
+      "id": "upgrade-scenario-leader-election",
+      "payload": {
+        "prompt": "Production scenario: your system uses Leader Election, traffic suddenly spikes, and p99 latency doubles. What is your first move?",
+        "context": "You have dashboards for traffic, latency, errors and saturation. You can change the architecture, but every change has operational cost.",
+        "options": [
+          {
+            "id": "a",
+            "text": "Add more instances immediately",
+            "outcome": "This may help, but only if compute saturation is the bottleneck.",
+            "correct": false
+          },
+          {
+            "id": "b",
+            "text": "Inspect the bottleneck and its saturation signal first",
+            "outcome": "Correct: diagnose before scaling or introducing a new pattern.",
+            "correct": true
+          },
+          {
+            "id": "c",
+            "text": "Disable monitoring to reduce overhead",
+            "outcome": "This removes the evidence you need to diagnose the incident.",
+            "correct": false
+          }
+        ],
+        "rationale": "Measure the limiting resource or dependency first. A bottleneck can be compute, database I/O, network, cache misses, lock contention, downstream latency, or queue backlog.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-leader-election-interview",
+      "payload": {
+        "text": "Interview drill",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-leader-election-interview",
+      "payload": {
+        "text": "**Answer this without notes:** When would you choose Leader Election, and when would you intentionally avoid it? Mention at least one bottleneck it addresses, one failure mode it introduces, and one alternative. Then quantify the workload you are designing for."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "field-guide-leader-election",
+      "payload": {
+        "title": "Engineering lens",
+        "body": "A useful engineering lens for Leader Election: define the problem it solves, the simpler design that fails first, the constraint that forces you to introduce this concept, and the new failure modes the concept creates.",
+        "kind": "tip"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "numerical-lens-leader-election",
+      "payload": {
+        "text": "### Numerical sanity check\n\nBack-of-the-envelope reasoning beats fake precision. State your traffic, payload, concurrency and growth assumptions explicitly, then calculate enough to know whether the current architecture is orders of magnitude away from the target."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "field-question-leader-election",
+      "payload": {
+        "shape": "prediction",
+        "question": "Imagine the simplest version of a system using Leader Election. What breaks first as traffic grows by 10×, and what would you change before reaching 100×?",
+        "context": "Do not optimize for a memorized definition. Reason from the workload and failure mode.",
+        "options": [
+          "Scale the same component immediately.",
+          "Measure the current bottleneck and state the assumption that changed.",
+          "Add more technologies until throughput improves.",
+          "Choose the most popular architecture."
+        ],
+        "answer_index": 1,
+        "rationale": "Good system design starts with the bottleneck and the changed constraint. The most popular or complex choice is not automatically correct.",
+        "difficulty": "interview"
+      }
+    }
+  ],
+  "trade_offs": {
+    "pros": [
+      "Single-writer simplicity — the leader acts unilaterally; no per-write consensus needed.",
+      "Strong consistency — all writes flow through the leader, so ordering is guaranteed.",
+      "Efficient reads — reads on the leader are strongly consistent without a quorum round (with read-index caveat).",
+      "Predictable behavior — easier to reason about than leaderless (Dynamo-style) systems."
+    ],
+    "cons": [
+      "Leader is a bottleneck for writes — throughput is bounded by one node.",
+      "Failover takes time — election timeout (typically 150-300ms) plus new leader warm-up.",
+      "Single point of write failure — if the leader is unreachable, the cluster cannot accept writes until a new leader is elected.",
+      "Risk of split-brain if quorum rules are violated — must be carefully designed.",
+      "Geographic latency — writes must round-trip to the leader, which is painful if users are far from it."
+    ]
+  },
+  "failure_modes": [
+    "Split-brain — two leaders elected without quorum; mitigated by Raft-style term-based voting with majority requirement.",
+    "Stale leader writes — paused-and-resumed old leader writes after new leader took over; mitigated by fencing tokens / leader epochs.",
+    "Endless elections — livelock from candidate collisions; mitigated by randomized timeouts.",
+    "False failure detection — slow node (GC pause) mistaken for crashed; triggers unnecessary elections; mitigated by longer timeouts and graceful shutdown.",
+    "Leader with stale log — new leader does not have all committed data; mitigated by Raft's election rule (vote only for candidates whose log is at least as up-to-date).",
+    "Network partition with quorum loss — both halves block; correct behavior but visible as downtime."
+  ],
+  "common_mistakes": [
+    "Treating leader election as a separate concern from consensus — they are the same problem.",
+    "Forgetting fencing tokens — stale leader writes cause silent data loss.",
+    "Setting election timeouts too short — false elections under load spike or GC pause.",
+    "Running leader-based clusters with even node count — partitions can leave no quorum on either side.",
+    "Placing the leader far from the writers — geo-distributed writes pay full RTT to leader.",
+    "Not handling leader election during deployment — rolling deploys can trigger elections; design for graceful leader step-down."
+  ],
+  "where_you_see_it": [
+    "Database primaries (PostgreSQL streaming replication, MongoDB replica sets, MySQL InnoDB Cluster).",
+    "Kafka partition leaders and the Kafka controller (now KRaft).",
+    "Kubernetes control plane (etcd elects a leader per key; only one API server writes at a time).",
+    "HDFS NameNode HA (active/standby with ZooKeeper-based election).",
+    "Redis Sentinel / Cluster master election."
+  ],
+  "interview_prompts": [
+    "Walk me through what happens when a Raft leader crashes. How is split-brain prevented?",
+    "What is a fencing token / leader epoch, and why is it necessary? What bug does it prevent?",
+    "Why are leader elections based on randomized timeouts rather than deterministic rules?",
+    "What is split-brain, and how do production systems prevent it?",
+    "Your database cluster has 4 nodes. Why might this be worse than 3 nodes for leader election?"
+  ],
+  "real_system_mappings": [
+    {
+      "system": "MongoDB Replica Set",
+      "how": "A replica set has a primary (leader) and secondaries. Election uses a Raft variant. If the primary becomes unreachable, the secondaries elect a new primary in 10-12 seconds by default. Term numbers (term) prevent split-brain; only a majority can elect."
+    },
+    {
+      "system": "Kafka partition leader / KRaft controller",
+      "how": "Each Kafka partition has a leader broker that handles all writes for that partition. Broker failures trigger leader re-election via the controller (formerly ZooKeeper, now KRaft — Raft-based). Leader epochs fence off stale ISR writes."
+    },
+    {
+      "system": "Google Chubby",
+      "how": "Distributed lock service built on Paxos. A single master per cell holds a lease that must be renewed. Clients cache the master's identity; if the lease expires, a new master is elected. Used by GFS, Bigtable, and many Google internal systems."
+    },
+    {
+      "system": "PostgreSQL streaming replication with Patroni",
+      "how": "Patroni manages a Postgres cluster: one primary, N replicas. Uses etcd or Consul for leader election. On primary failure, the replica with the most advanced WAL position wins the election and is promoted."
+    }
+  ],
+  "status": "published",
+  "sources": [
+    {
+      "title": "System Design Primer",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Open source"
+    },
+    {
+      "title": "ByteByteGo — Scale from zero to millions",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "ByteByteGo"
+    },
+    {
+      "title": "System Design Tutorial",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "GeeksforGeeks"
+    },
+    {
+      "title": "System Design Roadmap",
+      "url": "https://roadmap.sh/system-design",
+      "publisher": "roadmap.sh"
+    },
+    {
+      "title": "Distributed Systems reference",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Distributed Systems reference",
+      "url": "https://raft.github.io/",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Distributed Systems reference",
+      "url": "https://www.usenix.org/",
+      "publisher": "Reference"
+    }
+  ]
+}

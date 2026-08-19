@@ -1,36 +1,280 @@
 [
   {
-    "slug": "system-design-foundations",
-    "title": "System Design Foundations",
-    "description": "The complete learning path from fundamentals to interview readiness.",
+    "slug": "system-design-curriculum",
+    "title": "System Design Curriculum",
+    "description": "The complete learning path from foundations to interview readiness.",
     "phases": [
       {
-        "slug": "fundamentals",
-        "title": "Fundamentals",
-        "description": "How the internet works, DNS, request-response, client-server.",
-        "concepts": ["how-the-internet-works", "dns"],
+        "slug": "foundations",
+        "title": "Foundations",
+        "description": "What system design is, how to reason about it, and the core trade-offs that shape every decision.",
+        "concepts": [
+          "what-is-system-design",
+          "how-to-approach-system-design",
+          "performance-vs-scalability",
+          "latency-vs-throughput",
+          "availability-vs-consistency",
+          "cap-theorem",
+          "consistency-patterns",
+          "availability-patterns"
+        ],
         "order": 1
       },
       {
-        "slug": "scaling",
-        "title": "Scaling",
-        "description": "Vertical vs horizontal, load balancing, bottlenecks, statelessness.",
-        "concepts": ["load-balancing"],
+        "slug": "architecture-infrastructure",
+        "title": "Architecture & Infrastructure",
+        "description": "The building blocks every system sits on: DNS, CDN, load balancers, app layers, microservices.",
+        "concepts": [
+          "how-the-internet-works",
+          "dns",
+          "cdn",
+          "load-balancers",
+          "application-layer",
+          "microservices",
+          "service-discovery",
+          "background-jobs"
+        ],
         "order": 2
+      },
+      {
+        "slug": "networking-communication",
+        "title": "Networking & Communication",
+        "description": "How machines talk to each other: HTTP, TCP/UDP, REST, gRPC, and the trade-offs between them.",
+        "concepts": [
+          "http",
+          "tcp",
+          "udp",
+          "rest",
+          "graphql",
+          "rpc",
+          "grpc",
+          "websockets",
+          "server-sent-events",
+          "webrtc",
+          "tls",
+          "quic"
+        ],
+        "order": 3
+      },
+      {
+        "slug": "databases-data-systems",
+        "title": "Databases & Data Systems",
+        "description": "How data is stored, queried, replicated, and partitioned. The heart of almost every system.",
+        "concepts": [
+          "sql-vs-nosql",
+          "key-value-stores",
+          "document-stores",
+          "wide-column-stores",
+          "graph-databases",
+          "replication",
+          "sharding",
+          "federation",
+          "denormalization",
+          "sql-tuning",
+          "transactions",
+          "isolation-levels",
+          "mvcc",
+          "wal"
+        ],
+        "order": 4
+      },
+      {
+        "slug": "scaling-performance",
+        "title": "Scaling & Performance",
+        "description": "How systems handle more traffic, more data, and more users without falling over.",
+        "concepts": [
+          "horizontal-scaling",
+          "vertical-scaling",
+          "back-pressure",
+          "task-queues",
+          "message-queues",
+          "idempotent-operations",
+          "consistent-hashing",
+          "rate-limiting"
+        ],
+        "order": 5
       },
       {
         "slug": "caching",
         "title": "Caching",
-        "description": "Strategies, cache-aside, invalidation, stampede control.",
-        "concepts": ["caching"],
-        "order": 3
+        "description": "The single most impactful performance optimization in most systems \u2014 and the source of most consistency bugs.",
+        "concepts": [
+          "caching-strategies",
+          "cache-aside",
+          "write-through",
+          "write-behind",
+          "refresh-ahead",
+          "client-caching",
+          "cdn-caching",
+          "web-server-caching",
+          "database-caching",
+          "application-caching"
+        ],
+        "order": 6
+      },
+      {
+        "slug": "asynchronous-systems",
+        "title": "Asynchronous Systems",
+        "description": "Decoupling producers from consumers so the system survives bursts, failures, and slow downstream deps.",
+        "concepts": [
+          "message-queues-async",
+          "event-driven-architecture",
+          "pub-sub",
+          "competing-consumers",
+          "async-request-reply"
+        ],
+        "order": 7
       },
       {
         "slug": "distributed-systems",
         "title": "Distributed Systems",
-        "description": "Consistency, CAP, quorum, consensus, partitions.",
-        "concepts": ["cap-theorem"],
-        "order": 4
+        "description": "The hard problems: consistency, consensus, clocks, partitions, and the myths about exactly-once.",
+        "concepts": [
+          "distributed-systems-intro",
+          "consensus",
+          "leader-election",
+          "quorum",
+          "logical-clocks",
+          "distributed-locks",
+          "distributed-transactions",
+          "two-phase-commit",
+          "saga-pattern"
+        ],
+        "order": 8
+      },
+      {
+        "slug": "reliability-resilience",
+        "title": "Reliability & Resilience",
+        "description": "Patterns that keep systems working when things fail \u2014 because things always fail.",
+        "concepts": [
+          "retry",
+          "circuit-breaker",
+          "bulkhead",
+          "throttling",
+          "timeout",
+          "graceful-degradation",
+          "failover",
+          "disaster-recovery",
+          "multi-region",
+          "compensating-transaction"
+        ],
+        "order": 9
+      },
+      {
+        "slug": "observability",
+        "title": "Observability",
+        "description": "Knowing what your system is doing, what it did, and why it broke.",
+        "concepts": [
+          "metrics-logs-traces",
+          "slo-sla-sli",
+          "health-monitoring",
+          "availability-monitoring",
+          "performance-monitoring",
+          "instrumentation",
+          "alerts-visualization"
+        ],
+        "order": 10
+      },
+      {
+        "slug": "design-patterns",
+        "title": "Design Patterns",
+        "description": "Reusable architectural patterns for evolving, decomposing, and protecting systems.",
+        "concepts": [
+          "strangler-fig",
+          "sidecar",
+          "cqrs",
+          "pipes-and-filters",
+          "api-gateway",
+          "reverse-proxy",
+          "external-config-store",
+          "anti-corruption-layer",
+          "service-mesh"
+        ],
+        "order": 11
+      },
+      {
+        "slug": "cloud-architecture",
+        "title": "Cloud Architecture",
+        "description": "Cloud-specific patterns: valet keys, materialized views, index tables, event sourcing, queue-based load leveling.",
+        "concepts": [
+          "valet-key",
+          "materialized-view",
+          "index-table",
+          "event-sourcing",
+          "claim-check",
+          "sequential-convoy",
+          "priority-queue",
+          "queue-based-load-leveling",
+          "deployment-stamps",
+          "geodes",
+          "object-storage"
+        ],
+        "order": 12
+      },
+      {
+        "slug": "security",
+        "title": "Security",
+        "description": "Authentication, authorization, and the patterns that keep systems safe.",
+        "concepts": [
+          "authentication",
+          "authorization",
+          "oauth",
+          "federated-identity",
+          "gatekeeper"
+        ],
+        "order": 13
+      },
+      {
+        "slug": "real-time-systems",
+        "title": "Real-Time Systems",
+        "description": "Push-based communication: WebSockets, SSE, WebRTC, and the trade-offs between them.",
+        "concepts": [
+          "real-time-overview"
+        ],
+        "order": 14
+      },
+      {
+        "slug": "interview-preparation",
+        "title": "Interview Preparation",
+        "description": "The meta-skills: capacity estimation, API design, bottleneck identification, and how to think out loud.",
+        "concepts": [
+          "capacity-estimation",
+          "qps-estimation",
+          "storage-estimation",
+          "bandwidth-estimation",
+          "cache-sizing",
+          "api-design",
+          "data-modeling",
+          "failure-analysis",
+          "single-points-of-failure",
+          "bottleneck-identification"
+        ],
+        "order": 15
+      },
+      {
+        "slug": "case-studies",
+        "title": "Case Studies",
+        "description": "End-to-end system designs. Where everything you learned comes together.",
+        "concepts": [
+          "design-url-shortener",
+          "design-key-value-store",
+          "design-rate-limiter",
+          "design-instagram",
+          "design-twitter",
+          "design-news-feed",
+          "design-whatsapp",
+          "design-chat-system",
+          "design-uber",
+          "design-netflix",
+          "design-youtube",
+          "design-notification-system",
+          "design-file-storage",
+          "design-search-system",
+          "design-ride-matching",
+          "design-hotel-reservation",
+          "design-video-streaming"
+        ],
+        "order": 16
       }
     ]
   }

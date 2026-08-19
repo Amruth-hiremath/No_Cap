@@ -1,0 +1,435 @@
+{
+  "slug": "design-twitter",
+  "version": 3,
+  "title": "Design Twitter",
+  "phase": "case-studies",
+  "area": "Case Studies",
+  "estimated_minutes": 12,
+  "difficulty": "interview",
+  "summary": "Design Twitter (now X) at 250M DAU, 500M tweets/day. Covers the celebrity fan-out problem (Elon's tweet to 150M followers), hybrid fan-out-on-write with celebrity bypass, Snowflake IDs for time-sortable globally-unique tweet IDs, Cassandra for tweet storage, Redis ZSET timeline caches, and Elasticsearch search fed asynchronously by Kafka.",
+  "why_it_matters": "Twitter is the canonical 'celebrity problem' design — the system that originated the hybrid fan-out pattern in production. Almost every social timeline system in use today (Instagram, Facebook, Threads, Bluesky) is a variant of this design. The celebrity bypass (>10K followers switches to pull-on-read) is one of the most-asked interview questions and one of the most-cited engineering blog posts in the industry.",
+  "prerequisites": [
+    "cache-aside",
+    "sharding",
+    "pub-sub"
+  ],
+  "related": [
+    "design-instagram",
+    "design-news-feed"
+  ],
+  "used_in": [
+    "Twitter / X (now X Corp)",
+    "Mastodon / fediverse (similar fan-out, federated)",
+    "Bluesky (AT Protocol, similar fan-out-on-write)",
+    "Threads (Meta, similar architecture to Instagram)"
+  ],
+  "blocks": [
+    {
+      "type": "prose",
+      "id": "problem",
+      "payload": {
+        "text": "**What are we designing?** Twitter (now X). Users post short text messages (tweets, up to 280 chars), optionally with images or video. They follow other users and see a reverse-chronological (or ranked) timeline of tweets from people they follow. They can retweet, quote-tweet, reply, and like. The defining challenge is the same as Instagram's — fan-out — but at much higher text volume (tweets are tiny, so users post far more often than photos), with the added complication of the 'celebrity problem' at extreme scale (a single tweet from Elon Musk reaches 150M+ followers instantly)."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "requirements",
+      "payload": {
+        "text": "**Functional requirements.**\n- Post a tweet (text + optional media).\n- Follow / unfollow users.\n- Browse the home timeline (tweets from followed users).\n- Browse the user timeline (a specific user's tweets).\n- Retweet, quote, reply, like.\n- Search tweets (full-text).\n\n**Non-functional requirements.**\n- **Timeline read latency**: p99 < 100 ms (Twitter's actual SLO).\n- **Tweet post latency**: < 500 ms until the tweet is visible to the poster.\n- **Availability**: 99.99% (Twitter outages make global headlines).\n- **Scale**: 250M DAU, 500M tweets/day, 100B+ timeline reads/day.\n- **Search**: < 500 ms for full-text search across the entire tweet corpus.\n\n**Non-goals.** No DM (separate system), no Moments, no algorithmic ranking in v1."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "capacity",
+      "payload": {
+        "text": "**Capacity estimation.**\n\n*Tweets.* 500M tweets/day, each ~300 bytes (text + metadata, media stored separately). 500M x 300 B = 150 GB/day of tweet text = ~55 GB/year. Tiny by storage standards; a single Cassandra node could hold years of text. With media (10% of tweets have images, avg 500KB), 50M x 500KB = 25 TB/day of media.\n\n*Timeline reads.* 250M DAU x ~50 refreshes/day = 12.5B timeline reads/day = ~145K reads/sec average, peak ~700K/sec.\n\n*Fan-out.* Average user follows ~200 people and is followed by ~200. 500M tweets/day x 200 = 100B fan-out writes/day = 1.15M writes/sec. This is the real load: writes, not reads, because of fan-out-on-write.\n\n*Celebrity fan-out.* Elon Musk (150M followers) tweeting once = 150M fan-out writes. At Twitter's peak, ~20 such celebrity tweets/day = 3B writes/day = ~35K writes/sec just from celebrities. This is why celebrities need pull-on-read.\n\n*Storage.* Timeline cache: 250M users x 800 tweet_ids (last 3 days) x 8 bytes = 1.6 TB in Redis. Fits in a medium Redis cluster.\n\n*Bandwidth.* 145K reads/sec x 5KB (response = 20 tweets x 250 bytes) = 725 MB/s = 5.8 Gbps egress. With media served from CDN, origin egress is mostly text."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "apis",
+      "payload": {
+        "text": "**APIs.**\n\n```\nPOST /v1/tweets                    (text, media_ids[])\nGET  /v1/tweets/:id\nDELETE /v1/tweets/:id\nPOST /v1/tweets/:id/retweet\nPOST /v1/tweets/:id/like\n\nGET  /v1/timeline/home?cursor=...  -> reverse-chrono tweets from followed users\nGET  /v1/timeline/user/:id?cursor   -> a specific user's tweets\n\nPOST /v1/users/:id/follow\nDELETE /v1/users/:id/follow\n\nGET  /v1/search?q=...&type=latest   -> full-text search\n```\n\nTweets are written via a single `POST /tweets`. The service inserts the tweet into the store and fires a fan-out job asynchronously so the poster's request returns immediately."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "data-model",
+      "payload": {
+        "text": "**Data model.**\n\n*Tweets* (Cassandra, partitioned by tweet_id, replicated RF=3):\n```\ntweets (\n  tweet_id    TIMEUUID,        -- Snowflake ID, sortable by time\n  user_id     BIGINT,\n  text        TEXT,\n  media_urls  LIST<TEXT>,\n  reply_to    BIGINT NULL,\n  retweet_of  BIGINT NULL,\n  created_at  TIMESTAMP,\n  PRIMARY KEY (tweet_id)\n)\n```\nPartitioned by `tweet_id` (Snowflake). A secondary index by `user_id` supports user-timeline queries.\n\n*Follows* (Cassandra, partitioned both ways):\n```\nfollows (\n  follower_id BIGINT,\n  followee_id BIGINT,\n  created_at  TIMESTAMP,\n  PRIMARY KEY (follower_id, followee_id)\n)\nfollowers_by_followee (followee_id, follower_id, ...)   -- materialized inverse\n```\n\n*Timeline cache* (Redis, sorted set per user):\n```\nkey: tl:{user_id}\nvalue: ZSET member=tweet_id, score=created_at_timestamp\n       capped at 800 entries (last ~3 days)\n```\n\n*Tweet IDs* are Snowflake: 64 bits = 41-bit millisecond timestamp + 10-bit worker_id + 12-bit sequence. Globally unique, sortable by time, no coordinator."
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "arch",
+      "payload": {
+        "code": "flowchart TD\n    N0[\"LB\"]\n    N1[\"API Gateway\"]\n    N2[\"Client\"]\n    N3[\"[LB]\"]\n    N4[\"[API\"]\n    N5[\"Gateway]\"]\n    N6[\"Tweet Service\"]\n    N7[\"Timeline Service\"]\n    N8[\"Search Service\"]\n    N9[\"[Tweet\"]\n    N10[\"Service]\"]\n    N11[\"[Timeline\"]\n    N12[\"[Search\"]\n    N13[\"1\"]\n    N14[\"user_id\"]\n    N15[\"(1)\"]\n    N16[\"insert\"]\n    N17[\"GET\"]\n    N18[\"tl:{user_id}\"]\n    N19[\"query\"]\n    N20[\"Elasticsearch\"]\n    N21[\"tweet\"]\n    N22[\"from\"]\n    N23[\"Redis\"]\n    N24[\"Cassandra\"]\n    N25[\"Redis Cluster\"]\n    N26[\"ES Cluster\"]\n    N27[\"[Cassandra]\"]\n    N28[\"[Redis\"]\n    N29[\"Cluster]\"]\n    N30[\"[ES\"]\n    N31[\"tweets RF=3\"]\n    N32[\"(tweets\"]\n    N33[\"(timeline\"]\n    N34[\"cache,\"]\n    N35[\"(inverted\"]\n    N36[\"index,\"]\n    N37[\"sharded\"]\n    N38[\"user_id)\"]\n    N39[\"hash)\"]\n    N40[\"2\"]\n    N41[\"2a\"]\n    N42[\"(2)\"]\n    N43[\"fan\"]\n    N44[\"out\"]\n    N45[\"(2a)\"]\n    N46[\"cache\"]\n    N47[\"miss\"]\n    N48[\"fetch\"]\n    N49[\"user-timeline query\"]\n    N50[\"(user\"]\n    N51[\"timeline\"]\n    N52[\"query)\"]\n    N53[\"Fan-out Worker\"]\n    N54[\"[Fan\"]\n    N55[\"Worker]\"]\n    N56[\"followers_by_followee table\"]\n    N57[\"reads\"]\n    N58[\"tweet.user_id's\"]\n    N59[\"followers\"]\n    N60[\"(followers_by_followee\"]\n    N61[\"table)\"]\n    N62[\"follower_id\"]\n    N63[\"ZADD\"]\n    N64[\"tl:{follower_id}\"]\n    N65[\"tweet_id\"]\n    N66[\"for\"]\n    N67[\"each\"]\n    N68[\"follower\"]\n    N69[\"mark tweet for pull\"]\n    N70[\"has\"]\n    N71[\">10K\"]\n    N72[\"followers,\"]\n    N73[\"SKIP\"]\n    N74[\"(mark\"]\n    N75[\"pull)\"]\n    N76[\"3\"]\n    N77[\"(3)\"]\n    N78[\"async\"]\n    N79[\"publish\"]\n    N80[\"Kafka\"]\n    N81[\"ingestion\"]\n    N82[\"Search Indexer\"]\n    N83[\"Indexer]\"]\n    N84[\"consumes\"]\n    N85[\"indexes\"]\n    N86[\"into\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44\n    N44 --> N45\n    N45 --> N46\n    N46 --> N47\n    N47 --> N48\n    N48 --> N49\n    N49 --> N50\n    N50 --> N51\n    N51 --> N52\n    N52 --> N53\n    N53 --> N54\n    N54 --> N55\n    N55 --> N56\n    N56 --> N57\n    N57 --> N58\n    N58 --> N59\n    N59 --> N60\n    N60 --> N61\n    N61 --> N62\n    N62 --> N63\n    N63 --> N64\n    N64 --> N65\n    N65 --> N66\n    N66 --> N67\n    N67 --> N68\n    N68 --> N69\n    N69 --> N70\n    N70 --> N71\n    N71 --> N72\n    N72 --> N73\n    N73 --> N74\n    N74 --> N75\n    N75 --> N76\n    N76 --> N77\n    N77 --> N78\n    N78 --> N79\n    N79 --> N80\n    N80 --> N81\n    N81 --> N82\n    N82 --> N83\n    N83 --> N84\n    N84 --> N85\n    N85 --> N86",
+        "caption": "Twitter: tweet write fans out into follower Redis timelines (with celebrity bypass), timeline reads hit Redis cache, search runs against Elasticsearch fed by Kafka.",
+        "alt_text": "A diagram of Twitter's architecture. The client hits a load balancer and API gateway, which routes to one of three services. The Tweet Service inserts the tweet into Cassandra and publishes a fan-out job; the fan-out worker reads the poster's followers from the followers-by-followee table and ZADDs the tweet_id into each follower's Redis sorted-set timeline, unless the poster has more than 10K followers, in which case the tweet is marked for pull-on-read instead. The Timeline Service serves reads by ZRANGing the user's Redis timeline, falling through to Cassandra by user_id on a cache miss. The Search Service runs queries against an Elasticsearch cluster, which is fed by a Kafka topic that the tweet-write path publishes to asynchronously."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "deep-dive",
+      "payload": {
+        "text": "**Deep dive: the celebrity problem and hybrid fan-out.**\n\nTwitter is the system that *invented* the celebrity-fan-out problem in production. The naive fan-out-on-write model says: when a user tweets, push the tweet_id into every follower's timeline cache. For a normal user (avg 200 followers) this is 200 writes. For Lady Gaga (80M followers) it's 80M writes per tweet. With ~30 celebrity tweets/day at that scale, you spend more writes on celebrities than on the entire rest of the user base.\n\n**Twitter's solution (and ours).** Detect celebrity accounts at the write path (>10K followers) and SKIP fan-out for them. Their tweets stay only in their own user-timeline shard. When a normal user reads their timeline, the system checks: which of the users-they-follow are celebrities? For each celebrity, fetch their recent tweets (one Cassandra query each, batched), merge with the cached timeline, sort, return. Most users follow 1-5 celebrities, so this adds 1-5 extra queries — still fast (<100 ms).\n\n**Snowflake IDs.** Tweet IDs must be sortable by time AND globally unique AND assignable without a coordinator. Twitter's Snowflake scheme packs a 41-bit millisecond timestamp + 10-bit worker_id + 12-bit sequence into a 64-bit integer. Each worker generates IDs independently; the timestamp gives sortability; the worker_id gives uniqueness across workers; the sequence gives uniqueness within a millisecond on a single worker.\n\n**Tweet ID encoding.** Snowflake IDs are 64-bit ints, but URLs use base-62 encoded strings to keep them short (~11 chars).\n\n**Retweets.** A retweet is a separate tweet row that references the original via `retweet_of`. Fan-out pushes the retweet_id, not the original. On timeline read, we hydrate retweets by fetching the original tweet (one batched Cassandra call).\n\n**Search indexing.** Every tweet publish also goes to a Kafka topic `tweets.v1`. A consumer indexes each tweet into Elasticsearch for full-text search. The search path is decoupled from the write path — a search outage doesn't break tweeting.\n\n**Tombstones and delete.** Deletes write a tombstone row in Cassandra. Timeline reads filter deleted tweet_ids at hydration. Old timeline entries are evicted by the ZSET cap (ZREMRANGEBYRANK)."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "bottlenecks",
+      "payload": {
+        "text": "**Bottlenecks and failure modes.**\n\n- **Celebrity fan-out collapse.** Without the celebrity bypass, Lady Gaga's tweet would write 80M Redis entries and saturate the timeline cluster. *Mitigation*: celebrity detection at >10K followers; pull-on-read for them.\n\n- **Hot tweet.** A viral tweet gets 1M likes/sec; the like-counter row is a write hotspot. *Mitigation*: shard the counter (e.g. 16 shards, sum on read) or use Cassandra counters (which are sharded by the DB itself).\n\n- **Fan-out worker backlog.** If Kafka or the worker pool falls behind, tweets take minutes to appear in timelines. *Mitigation*: autoscale workers on queue depth; alert if a tweet is >30s old before fan-out.\n\n- **Redis timeline cluster failure.** Without the cache, every timeline read becomes a fan-out-on-read across the user's followed accounts — Cassandra gets crushed. *Mitigation*: Redis cluster with replicas + circuit breaker that returns stale timelines or 503-with-retry.\n\n- **Cassandra compaction spikes.** Tweets generate huge write volume; compaction spikes cause p99 latency spikes. *Mitigation*: tiered compaction for tweets, leveled for the smaller tables; bound compaction throughput.\n\n- **Search index lag.** The Kafka -> ES pipeline has 5-30s lag; searching for a tweet you just posted may miss it. *Mitigation*: accept it (most search is for older content); show 'this tweet was just posted, indexing in progress'.\n\n- **Snowflake clock skew.** If a worker's clock jumps backward, Snowflake emits duplicate or out-of-order IDs. *Mitigation*: NTP with bounded slew; reject IDs with timestamps in the past.\n\n- **Reply threading.** Replies are stored as tweets with `reply_to`. Fetching a conversation thread requires fetching all tweets with `reply_to = X`, which is a secondary index lookup. *Mitigation*: maintain a separate `replies` materialized view keyed by the root tweet."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "scaling",
+      "payload": {
+        "text": "**Scaling strategy and trade-offs.**\n\n*Sharding.* Tweet storage is sharded by `tweet_id` (which is itself a Snowflake ID, so the shard hash is uniform). Follows are sharded both ways (followers-by-follower and followers-by-followee materialized views).\n\n*Timeline cache.* Redis cluster sharded by `user_id`. Each user's timeline is a ZSET of the last 800 tweet_ids. The cap bounds memory (250M users x 800 x 8B = 1.6 TB) and forces pull-on-read for older content.\n\n*Multi-region.* Timeline cache is per-region; the Cassandra tweet store is globally replicated. Writes go to a single primary region (the tweet itself is small; cross-region replication is cheap).\n\n*Search scale.* Elasticsearch cluster sharded by tweet hash. For very large clusters (>1B docs), use ES's rollover indices (one index per day, alias points to latest) so old indices can be searched less aggressively.\n\n*Trade-offs made explicit.*\n- We chose hybrid fan-out — **gained** cheap celebrity tweets, **lost** uniform read latency (celebrity-following users pay extra query cost).\n- We chose Cassandra for tweets — **gained** write throughput and time-series friendliness, **lost** JOINs (hydrating a timeline requires a multi-get, not a JOIN).\n- We chose Snowflake IDs — **gained** no-coordinator uniqueness + sortability, **lost** any ordering guarantee across workers in the same millisecond.\n- We chose Elasticsearch for search — **gained** flexible full-text search, **lost** a separate operational system to run (ES clusters are notoriously finicky).\n- We chose async fan-out (return 200 before fan-out completes) — **gained** fast post latency for the user, **lost** immediate visibility to followers (a tweet may take 1-2s to appear in a follower's timeline)."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q1",
+      "payload": {
+        "question": "Elon Musk tweets. With pure fan-out-on-write and 150M followers, how many Redis writes happen, and what's the problem?",
+        "shape": "mcq",
+        "options": [
+          "150 writes (one per shard) — fine, no problem.",
+          "150M writes, which saturates the Redis timeline cluster and degrades every other user's experience. Solution: bypass fan-out for celebrities (>10K followers) and pull their tweets at read time.",
+          "0 writes — celebrity tweets are broadcast separately.",
+          "150M writes, but Redis handles 1M+ writes/sec so this is fine."
+        ],
+        "answer_index": 1,
+        "rationale": "A single Elon tweet triggers 150M ZADD operations across the Redis cluster. Even sharded across 100 shards, that's 1.5M writes per shard in a burst, which saturates them and slows every other user's timeline reads. Twitter's solution (and ours): detect celebrity accounts at >10K followers and skip fan-out for them. Their tweets stay in their own user-timeline shard; at read time, the timeline service fetches recent tweets from each celebrity the user follows (typically 1-5) and merges them into the cached timeline. This caps per-tweet fan-out at 10K writes.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q2",
+      "payload": {
+        "question": "Why use Snowflake IDs (timestamp + worker_id + sequence) instead of a global auto-increment counter?",
+        "shape": "mcq",
+        "options": [
+          "Snowflake IDs are smaller than a UUID.",
+          "Snowflake IDs are globally unique without a coordinator AND sortable by time, so timeline merges don't need a separate sort field and there's no SPOF.",
+          "Auto-increment counters are unreliable in distributed systems.",
+          "Snowflake IDs compress better in Redis."
+        ],
+        "answer_index": 1,
+        "rationale": "A global auto-increment counter requires a coordinator (a single point of failure) or a distributed consensus protocol on every write (slow). Snowflake IDs encode a 41-bit millisecond timestamp + 10-bit worker_id + 12-bit sequence, so each worker generates IDs independently (no coordinator), the IDs are globally unique (different worker_ids), and they're sortable by time (the timestamp is the high bits). Timeline merges then sort by tweet_id, which is also time-sort, avoiding a separate sort field. The cost: clock skew can cause out-of-order IDs, mitigated by NTP and rejecting past-timestamp IDs.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-design-twitter-mental",
+      "payload": {
+        "text": "Engineering mental model",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-design-twitter-mental",
+      "payload": {
+        "text": "**Mental model.** Think of Design Twitter as a deliberate boundary in a system. The boundary exists because something becomes harder to manage when everything is done in one place: latency, scale, failure isolation, consistency, cost, or team ownership. The useful question is not “what does Design Twitter mean?” but “what pressure makes this boundary worth introducing, and what new failure mode does it create?”"
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-design-twitter-decision",
+      "payload": {
+        "title": "Design lens",
+        "body": "Before choosing Design Twitter, name the workload, the critical user path, the dominant bottleneck, the failure you are trying to absorb, and the trade-off you are willing to accept. If you cannot name those five things, the design is probably premature.",
+        "kind": "info"
+      }
+    },
+    {
+      "type": "image",
+      "id": "upgrade-image-design-twitter",
+      "payload": {
+        "src": "/learning-visuals/design-twitter.svg",
+        "alt": "Original NO CAP systems visual for Design Twitter.",
+        "caption": "Design Twitter: a compact system-thinking visual.",
+        "credit": "Original NO CAP visual.",
+        "source_url": "https://github.com/donnemartin/system-design-primer"
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "upgrade-mermaid-design-twitter",
+      "payload": {
+        "code": "flowchart LR\n  A[Client] --> B[Gateway] --> C[Services] --> D[Data] --> E[Delivery]",
+        "caption": "Design Twitter: a simplified system view showing the primary flow and the main state boundaries.",
+        "alt_text": "Design Twitter: a simplified system view showing the primary flow and the main state boundaries."
+      }
+    },
+    {
+      "type": "code",
+      "id": "upgrade-code-design-twitter",
+      "payload": {
+        "language": "text",
+        "code": "// Pseudocode\nrequest = receive()\nresult = design_twitter(request)\nreturn result\n\n// Production questions:\n// 1. What happens on timeout?\n// 2. Can this operation be retried safely?\n// 3. What is the bottleneck?",
+        "caption": "A minimal engineering sketch for reasoning about Design Twitter."
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-design-twitter-numbers",
+      "payload": {
+        "text": "Back-of-the-envelope reasoning",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-design-twitter-numbers",
+      "payload": {
+        "text": "Numerical lens: write down traffic, payload size, read/write ratio, peak multiplier and durability target before choosing a component. The numbers should justify the architecture."
+      }
+    },
+    {
+      "type": "simulation",
+      "id": "upgrade-sim-design-twitter",
+      "payload": {
+        "title": "Interactive thought experiment: Design Twitter",
+        "description": "Change the variables below and predict what breaks first in Design Twitter. The production lab can later reuse these same inputs.",
+        "variables": [
+          {
+            "name": "traffic",
+            "description": "Requests/events per second",
+            "default": "1000"
+          },
+          {
+            "name": "latency",
+            "description": "Dependency latency",
+            "default": "50ms"
+          },
+          {
+            "name": "failure_rate",
+            "description": "Injected failure rate",
+            "default": "0%"
+          }
+        ],
+        "placeholder_note": "Interactive controls are deterministic; use the linked Labs section when a dedicated lab exists."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-design-twitter-hint",
+      "payload": {
+        "title": "Hint",
+        "body": "If you are stuck on Design Twitter, start by drawing the request path and marking every network hop, stateful component, queue, cache and failure boundary. Then estimate where the system will saturate.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-design-twitter-1",
+      "payload": {
+        "shape": "prediction",
+        "question": "You increase traffic by 10× in a system using Design Twitter. What should you inspect first?",
+        "options": [
+          "The newest framework version",
+          "The dominant bottleneck and its saturation signal",
+          "Only the UI",
+          "Nothing; the architecture should absorb any traffic automatically"
+        ],
+        "answer_index": 1,
+        "rationale": "System design is a constraint-and-bottleneck exercise. Start with the resource or dependency that will saturate first, then choose the smallest change that removes that bottleneck.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-design-twitter-2",
+      "payload": {
+        "shape": "mcq",
+        "question": "Which statement is the safest engineering habit when using Design Twitter?",
+        "options": [
+          "Choose it because it is popular",
+          "Add it before measuring the problem",
+          "State the workload, failure mode and trade-off it is solving",
+          "Use the most distributed design possible"
+        ],
+        "answer_index": 2,
+        "rationale": "Good architecture starts from requirements, workload and failure assumptions. The component is the consequence of that reasoning, not the starting point.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "scenario",
+      "id": "upgrade-scenario-design-twitter",
+      "payload": {
+        "prompt": "Production scenario: your system uses Design Twitter, traffic suddenly spikes, and p99 latency doubles. What is your first move?",
+        "context": "You have dashboards for traffic, latency, errors and saturation. You can change the architecture, but every change has operational cost.",
+        "options": [
+          {
+            "id": "a",
+            "text": "Add more instances immediately",
+            "outcome": "This may help, but only if compute saturation is the bottleneck.",
+            "correct": false
+          },
+          {
+            "id": "b",
+            "text": "Inspect the bottleneck and its saturation signal first",
+            "outcome": "Correct: diagnose before scaling or introducing a new pattern.",
+            "correct": true
+          },
+          {
+            "id": "c",
+            "text": "Disable monitoring to reduce overhead",
+            "outcome": "This removes the evidence you need to diagnose the incident.",
+            "correct": false
+          }
+        ],
+        "rationale": "Measure the limiting resource or dependency first. A bottleneck can be compute, database I/O, network, cache misses, lock contention, downstream latency, or queue backlog.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-design-twitter-interview",
+      "payload": {
+        "text": "Interview drill",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-design-twitter-interview",
+      "payload": {
+        "text": "**Answer this without notes:** When would you choose Design Twitter, and when would you intentionally avoid it? Mention at least one bottleneck it addresses, one failure mode it introduces, and one alternative. Then quantify the workload you are designing for."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "field-guide-design-twitter",
+      "payload": {
+        "title": "Engineering lens",
+        "body": "A useful engineering lens for Design Twitter: define the problem it solves, the simpler design that fails first, the constraint that forces you to introduce this concept, and the new failure modes the concept creates.",
+        "kind": "tip"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "numerical-lens-design-twitter",
+      "payload": {
+        "text": "### Numerical sanity check\n\nBack-of-the-envelope reasoning beats fake precision. State your traffic, payload, concurrency and growth assumptions explicitly, then calculate enough to know whether the current architecture is orders of magnitude away from the target."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "field-question-design-twitter",
+      "payload": {
+        "shape": "prediction",
+        "question": "Imagine the simplest version of a system using Design Twitter. What breaks first as traffic grows by 10×, and what would you change before reaching 100×?",
+        "context": "Do not optimize for a memorized definition. Reason from the workload and failure mode.",
+        "options": [
+          "Scale the same component immediately.",
+          "Measure the current bottleneck and state the assumption that changed.",
+          "Add more technologies until throughput improves.",
+          "Choose the most popular architecture."
+        ],
+        "answer_index": 1,
+        "rationale": "Good system design starts with the bottleneck and the changed constraint. The most popular or complex choice is not automatically correct.",
+        "difficulty": "interview"
+      }
+    }
+  ],
+  "trade_offs": {
+    "pros": [
+      "Snowflake IDs give globally-unique, time-sortable tweet IDs with no coordinator.",
+      "Hybrid fan-out (push normal, pull celebrity) bounds per-tweet write amplification.",
+      "Redis ZSET timeline cache gives sub-100ms reads for the common case.",
+      "Async Kafka -> Elasticsearch pipeline decouples search from the write path."
+    ],
+    "cons": [
+      "Celebrity tweets still stress the pull path — needs celebrity post caching.",
+      "Cassandra compaction causes latency spikes — needs careful compaction strategy.",
+      "Snowflake clock skew causes duplicate / out-of-order IDs.",
+      "Timeline cache death cascades into DB collapse without a circuit breaker."
+    ]
+  },
+  "failure_modes": [
+    "Celebrity fan-out collapse without the >10K bypass.",
+    "Like-counter hotspot on viral tweets — needs counter sharding.",
+    "Fan-out worker backlog delays tweet visibility — needs autoscaling.",
+    "Search index lag (5-30s) — recently posted tweets may be unsearchable briefly.",
+    "Snowflake clock skew causing out-of-order IDs."
+  ],
+  "common_mistakes": [
+    "Pure fan-out-on-write for everyone — crushed by celebrity tweets.",
+    "Using a global auto-increment counter for tweet IDs — single point of failure.",
+    "Synchronous fan-out (blocking the tweet POST until fan-out completes) — slow posts.",
+    "Storing timeline as the full tweet text instead of just tweet_ids — wastes cache.",
+    "Single Elasticsearch cluster for everything — no sharding strategy."
+  ],
+  "where_you_see_it": [
+    "Twitter / X (now X Corp)",
+    "Mastodon / fediverse (similar fan-out, federated)",
+    "Bluesky (AT Protocol, similar fan-out-on-write)",
+    "Threads (Meta, similar architecture to Instagram)"
+  ],
+  "interview_prompts": [
+    "Design Twitter. How do you handle a tweet from a celebrity with 100M followers?",
+    "How do you generate unique, sortable tweet IDs without a coordinator?",
+    "Your timeline Redis cluster dies. What's the impact?",
+    "How do you make search not block the tweet write path?"
+  ],
+  "real_system_mappings": [
+    {
+      "system": "Twitter / X",
+      "how": "Hybrid fan-out with celebrity bypass at ~10K followers. Snowflake IDs. Cassandra for tweet store, Redis (Gemini) for timelines. Documented in their engineering blog 'Timeline scalability at Twitter'."
+    },
+    {
+      "system": "Bluesky (AT Protocol)",
+      "how": "Federated fan-out-on-write via PDS -> BGS -> AppView. Each user has a personal data server that fans out their writes to a relay that subscribers poll."
+    },
+    {
+      "system": "Mastodon",
+      "how": "ActivityPub-based federated fan-out: each instance pushes new posts to followers' instances via HTTP."
+    }
+  ],
+  "status": "published",
+  "sources": [
+    {
+      "title": "System Design Primer",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Open source"
+    },
+    {
+      "title": "ByteByteGo — Scale from zero to millions",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "ByteByteGo"
+    },
+    {
+      "title": "System Design Tutorial",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "GeeksforGeeks"
+    },
+    {
+      "title": "System Design Roadmap",
+      "url": "https://roadmap.sh/system-design",
+      "publisher": "roadmap.sh"
+    },
+    {
+      "title": "Case Studies reference",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Case Studies reference",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Case Studies reference",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "Reference"
+    }
+  ]
+}

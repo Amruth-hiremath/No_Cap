@@ -1,0 +1,447 @@
+{
+  "slug": "webrtc",
+  "version": 3,
+  "title": "WebRTC — Peer-to-Peer Real-Time Media and Data",
+  "phase": "networking-communication",
+  "area": "Networking & Communication",
+  "estimated_minutes": 7,
+  "difficulty": "expert",
+  "summary": "WebRTC is a free, open framework for real-time voice, video, and data communication between browsers, mobile apps, and IoT devices — often directly peer-to-peer, without routing media through a server. It bundles a media engine (codecs, echo cancellation, jitter buffers), a secure transport (DTLS over SRTP), and a NAT-traversal toolkit (ICE, STUN, TURN) into one browser-native API. It is the technology behind Google Meet, Zoom's web client, Discord voice, and every in-browser video call.",
+  "why_it_matters": "WebRTC is how the web does real-time media. It is one of the most complex browser APIs because it has to solve, simultaneously, media capture and processing, secure transport, peer-to-peer NAT traversal, and congestion control — all under hard real-time latency budgets (under 150ms one-way for voice). Knowing WebRTC means understanding STUN, TURN, ICE, SDP, signaling, and the trade-offs that make peer-to-peer media work at internet scale.",
+  "prerequisites": [
+    "udp",
+    "websockets"
+  ],
+  "related": [
+    "websockets",
+    "udp",
+    "tls"
+  ],
+  "used_in": [
+    "Video conferencing (Google Meet, Zoom web, Teams web, Discord voice).",
+    "Browser-based screen sharing and remote desktop.",
+    "In-browser multiplayer games and collaborative tools.",
+    "Live streaming (e.g., Cloudflare Stream, Twitch browser-based ingest)."
+  ],
+  "blocks": [
+    {
+      "type": "prose",
+      "id": "intro",
+      "payload": {
+        "text": "WebRTC's design goal is brutal: sub-second, often sub-150ms, bidirectional media between two browsers across the open internet, ideally without paying for a media server. To do this it bundles four distinct subsystems:\n\n**1. Media engine.** Captures audio/video from the device, encodes it (Opus, VP8/VP9, H.264, AV1), applies echo cancellation, noise suppression, and automatic gain control on audio, and tunes the bitrate to network conditions. The browser ships a full media pipeline — this is why WebRTC is 'heavy' to enable.\n\n**2. Secure transport.** Audio and video go over SRTP (Secure RTP); data channels go over SCTP over DTLS. DTLS is TLS-over-UDP — same crypto, different transport. Every WebRTC connection is encrypted end-to-end by default.\n\n**3. NAT traversal.** Most peers are behind NATs and firewalls; they cannot directly address each other. ICE (Interactive Connectivity Establishment) uses STUN servers to discover public addresses and NAT types, and falls back to TURN servers (relay) when direct connection fails. This is the hardest part to get right in production.\n\n**4. Peer connection API.** The browser exposes `RTCPeerConnection` — the orchestration layer that ties signaling, ICE, media, and transport together. The application creates a peer connection, adds media tracks, exchanges SDP offers/answers over a signaling channel, and the API handles the rest."
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "webrtc-flow",
+      "payload": {
+        "code": "flowchart TD\n    N0[\"out of band — WebRTC does not define it\"]\n    N1[\"SIGNALLING\"]\n    N2[\"(out\"]\n    N3[\"band\"]\n    N4[\"WebRTC\"]\n    N5[\"does\"]\n    N6[\"not\"]\n    N7[\"define\"]\n    N8[\"it)\"]\n    N9[\"Browser\"]\n    N10[\"Signaling\"]\n    N11[\"Server\"]\n    N12[\"SDP\"]\n    N13[\"createOffer\"]\n    N14[\"(SDP)\"]\n    N15[\"offer\"]\n    N16[\"answer\"]\n    N17[\"ICE\"]\n    N18[\"candidates\"]\n    N19[\"exchanged\"]\n    N20[\"via\"]\n    N21[\"signaling\"]\n    N22[\"host, srflx via STUN, relay via TURN\"]\n    N23[\"(host,\"]\n    N24[\"srflx\"]\n    N25[\"STUN,\"]\n    N26[\"relay\"]\n    N27[\"TURN)\"]\n    N28[\"peer-to-peer, encrypted\"]\n    N29[\"MEDIA\"]\n    N30[\"DATA\"]\n    N31[\"(peer\"]\n    N32[\"peer,\"]\n    N33[\"encrypted)\"]\n    N34[\"SRTP\"]\n    N35[\"DTLS\"]\n    N36[\"over UDP, via ICE-selected path\"]\n    N37[\"(over\"]\n    N38[\"UDP,\"]\n    N39[\"selected\"]\n    N40[\"path)\"]\n    N41[\"NAT\"]\n    N42[\"TRAVERSAL\"]\n    N43[\"tries\"]\n    N44[\"each\"]\n    N45[\"candidate\"]\n    N46[\"pair:\"]\n    N47[\"direct, LAN only\"]\n    N48[\"host\"]\n    N49[\"(direct,\"]\n    N50[\"LAN\"]\n    N51[\"only)\"]\n    N52[\"different networks\"]\n    N53[\"fails\"]\n    N54[\"(different\"]\n    N55[\"networks)\"]\n    N56[\"STUN-discovered public addr\"]\n    N57[\"(STUN\"]\n    N58[\"discovered\"]\n    N59[\"public\"]\n    N60[\"addr)\"]\n    N61[\"symmetric NAT\"]\n    N62[\"(symmetric\"]\n    N63[\"NAT)\"]\n    N64[\"TURN server, fallback\"]\n    N65[\"(TURN\"]\n    N66[\"server,\"]\n    N67[\"fallback)\"]\n    N68[\"always\"]\n    N69[\"works,\"]\n    N70[\"costs\"]\n    N71[\"bandwidth\"]\n    N72[\"P2P if possible, relayed if not\"]\n    N73[\"Media\"]\n    N74[\"flows\"]\n    N75[\"(P2P\"]\n    N76[\"possible,\"]\n    N77[\"relayed\"]\n    N78[\"not)\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44\n    N44 --> N45\n    N45 --> N46\n    N46 --> N47\n    N47 --> N48\n    N48 --> N49\n    N49 --> N50\n    N50 --> N51\n    N51 --> N52\n    N52 --> N53\n    N53 --> N54\n    N54 --> N55\n    N55 --> N56\n    N56 --> N57\n    N57 --> N58\n    N58 --> N59\n    N59 --> N60\n    N60 --> N61\n    N61 --> N62\n    N62 --> N63\n    N63 --> N64\n    N64 --> N65\n    N65 --> N66\n    N66 --> N67\n    N67 --> N68\n    N68 --> N69\n    N69 --> N70\n    N70 --> N71\n    N71 --> N72\n    N72 --> N73\n    N73 --> N74\n    N74 --> N75\n    N75 --> N76\n    N76 --> N77\n    N77 --> N78",
+        "caption": "WebRTC separates signaling (out of band) from media (peer-to-peer, encrypted). ICE picks the best reachable path: direct, STUN-assisted, or TURN-relayed.",
+        "alt_text": "A diagram showing the WebRTC flow split into two phases. The top half shows signaling: Browser A creates an SDP offer, sends it through a signaling server to Browser B, which sends an answer SDP back. ICE candidates are exchanged via signaling, listing host, server-reflexive via STUN, and relay via TURN addresses. The middle shows media and data flowing peer-to-peer between the two browsers over UDP, encrypted as SRTP or DTLS. The bottom shows NAT traversal: ICE tries the host candidate first (LAN only, fails on different networks), then the server-reflexive candidate discovered via STUN (fails on symmetric NAT), then falls back to a TURN relay server, which always works but costs bandwidth. Media flows peer-to-peer if possible, relayed if not."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "signaling-and-sdp",
+      "payload": {
+        "text": "A surprising fact about WebRTC: the spec does not define signaling. The peers need to exchange two pieces of information before media can flow — an SDP offer/answer (describing codecs, formats, encryption keys) and a set of ICE candidates (network paths). WebRTC leaves it to the application to transport these. Almost always, this means WebSocket or HTTP to a signaling server, which relays messages between the two browsers.\n\nThis design choice is deliberate: it keeps WebRTC flexible. You can use any signaling protocol — your own WebSocket server, a third-party service like PubNub, even copy-paste SDP between two laptops for debugging. The signaling server is only needed during setup; once the peer connection is established, media flows directly between browsers and the signaling server can step away.\n\nSDP (Session Description Protocol) is a text format describing the session: which codecs the browser supports, the encryption fingerprint, the media types. It looks like line noise — `a=rtpmap:111 opus/48000/2` means payload type 111 is Opus at 48000Hz stereo. Most developers never read SDP directly; the browser parses it. But knowing it exists (and that WebRTC's `setLocalDescription` and `setRemoteDescription` consume it) is essential when debugging."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "stun-turn-ice",
+      "payload": {
+        "text": "The hard problem WebRTC solves is **NAT traversal**. Two browsers on home Wi-Fi cannot address each other directly — their private IPs (192.168.x.x) are not routable. ICE (Interactive Connectivity Establishment) is the algorithm that finds a path between them.\n\nICE tries three classes of candidates, in order:\n\n**1. Host candidates.** The browser's local network interfaces. Direct LAN connection works only if both peers are on the same network (rare in production).\n\n**2. Server-reflexive (srflx) candidates, via STUN.** The browser sends a request to a public STUN server; the server replies with the source IP and port it observed. That is the browser's public address as seen through its NAT. ICE then tries connecting from each peer's srflx address. This works for many NAT types (full-cone, restricted-cone) but fails for symmetric NATs (where the source port differs per destination, so the STUN-discovered port is not the one the peer will see).\n\n**3. Relay candidates, via TURN.** If direct connection fails, the browser allocates a relay on a TURN server. Media is sent from Browser A to the TURN server to Browser B. The TURN server is essentially a media relay — always works, but it costs bandwidth and adds latency. TURN is the fallback that makes WebRTC 'just work' on hostile networks.\n\nIn production, you need both STUN (cheap, public servers exist like Google's `stun.l.google.com`) and TURN (expensive, you operate your own, authenticates clients with short-lived credentials). A common production metric is the TURN relay percentage: if 80% of connections are TURN-relayed, your users are paying for bandwidth on both ends. Reducing this through better STUN, IPv6, or different NATs is a real engineering goal."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "sfu-and-scale",
+      "payload": {
+        "text": "Pure peer-to-peer WebRTC works for 1-to-1 calls. For N participants (group video), peer-to-peer-mesh becomes O(N²) connections and O(N²) uplink bandwidth from each client — a 10-person call means each participant uploads 10 video streams. This does not scale.\n\nThe production architectures for group calls:\n\n- **Mesh**: every peer connects to every other. Works for ~4 participants. No server media cost; each client does N encodes.\n\n- **SFU (Selective Forwarding Unit)**: each participant uploads one encoded stream to the SFU; the SFU forwards selected streams to each participant. Each client uploads 1 stream (cheap) and downloads N-1 (the others). This is what Google Meet, Jitsi, and most group calls use.\n\n- **MCU (Multipoint Control Unit)**: the server decodes, composites, and re-encodes one stream per participant. CPU-intensive on the server, but cheapest for the clients. Used in older systems and some legacy enterprise conferencing.\n\nThe SFU is the modern sweet spot: server-side forwarding is cheap (no decode/encode), clients only upload once, and the SFU can selectively forward (send only the active speaker's video, or low-resolution for non-speakers — 'simulcast'). Simulcast is the trick that makes 30-person calls work: each client sends 3 resolutions, the SFU forwards high-res to visible tiles and low-res to hidden ones.\n\nWebRTC's congestion control adapts the bitrate to the network in real time using GCC (Google Congestion Control) — a congestion control algorithm designed for media, not bulk transfer. If the network degrades, the encoder drops resolution or framerate to keep latency under control. This is why video calls 'get blurry' instead of 'lagging' when your network is bad."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "data-channels",
+      "payload": {
+        "title": "Data channels — not just media",
+        "body": "WebRTC is not only for voice/video. `RTCDataChannel` provides a reliable (or unreliable) ordered (or unordered) message channel over SCTP/DTLS, with the same NAT-traversal benefits. Use cases: in-browser multiplayer games, low-latency file transfer, collaborative editing, P2P file sharing (WebTorrent). Data channels are an underrated feature — they give browsers a true low-latency peer-to-peer messaging path that WebSocket (which goes through a server) cannot match.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q1",
+      "payload": {
+        "question": "Two browsers want to establish a WebRTC connection. Why can they not simply open a TCP connection to each other, like a normal client-server request?",
+        "shape": "mcq",
+        "options": [
+          "Browsers cannot make TCP connections; they only do HTTP.",
+          "Both browsers are typically behind NATs and firewalls; their private IPs are not routable from the public internet, so direct connection fails without NAT traversal via ICE/STUN/TURN.",
+          "WebRTC mandates UDP only; TCP is forbidden.",
+          "Direct browser-to-browser connections are illegal under net neutrality rules."
+        ],
+        "answer_index": 1,
+        "rationale": "The core problem WebRTC solves is NAT traversal. A browser on home Wi-Fi has a private IP (192.168.x.x); the router's NAT translates outbound connections to a public IP and a port, but does not allow inbound connections from arbitrary external hosts. So Browser A cannot 'connect' to Browser B — it does not even know Browser B's public IP, and even if it did, B's NAT would reject the inbound packet. ICE solves this by discovering each peer's public-facing address (via STUN), trying to punch a hole through the NATs, and falling back to a relay (TURN) when direct connection is impossible. Option 2 is false — browsers can do TCP, but TCP does not help with NAT traversal. Option 3 is half-true — WebRTC mandates UDP for media, but data channels are SCTP-over-DTLS-over-UDP. Option 4 is nonsense.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q2",
+      "payload": {
+        "question": "You are building a 20-person video conferencing app. Which media architecture is most appropriate, and why?",
+        "shape": "mcq",
+        "options": [
+          "Mesh — each peer connects to every other; no server needed.",
+          "SFU — each client uploads one stream to the server, which forwards selected streams to others; scales linearly with participants instead of quadratically.",
+          "MCU — server composites all streams into one; simplest for clients.",
+          "Pure peer-to-peer with a TURN relay per pair.",
+          "Let me think..."
+        ],
+        "answer_index": 1,
+        "rationale": "A 20-person mesh would have each client uploading 19 streams — most home uplinks cannot handle 19 simultaneous video encodes. That is O(N²) uplink, fatal at N=20. The SFU is the modern answer: each client uploads one stream (cheap, one encode), and downloads the streams of the others (downlink is usually the bottleneck, but the SFU can use simulcast to send low-res for non-speaking tiles, dramatically reducing downlink). The SFU server does not decode or re-encode — it forwards, which is CPU-cheap. MCU (option 3) is viable but the server-side decode/composite/re-encode is expensive and limits the UI (clients see one composited video, not selectable tiles). TURN relay per pair (option 4) is just mesh with a server in the middle — same O(N²) problem. The SFU is what Google Meet, Jitsi, and most modern group video systems use.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q3",
+      "payload": {
+        "question": "A WebRTC call is established via TURN relay. What does that mean, and what are the implications?",
+        "shape": "mcq",
+        "options": [
+          "TURN means the call is encrypted twice — once by WebRTC, once by TURN — adding overhead.",
+          "TURN is a relay server: media goes from Browser A to TURN to Browser B because direct connection failed (typically due to symmetric NAT). The call still works, but TURN bandwidth is expensive and adds latency.",
+          "TURN is the signaling server; without it, no call can be set up.",
+          "TURN means the call is now server-side, not peer-to-peer, so quality drops."
+        ],
+        "answer_index": 1,
+        "rationale": "TURN (Traversal Using Relays around NAT) is the last-resort fallback in ICE. When STUN-discovered candidates cannot establish a direct peer-to-peer path (common with symmetric NATs, carrier-grade NATs, and strict corporate firewalls), the browser allocates a relay on a TURN server. Media then flows from Browser A to the TURN server to Browser B — the call still works, but TURN bandwidth is expensive (you pay for every byte of media in both directions) and the relay adds latency proportional to the detour. Production teams monitor the TURN-relay percentage of their calls; high rates suggest NATs that cannot be punched through and may justify additional TURN capacity in different regions. TURN is not a signaling server (option 3) and not double encryption (option 1) — the media is still end-to-end encrypted; TURN just relays encrypted bytes."
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-webrtc-mental",
+      "payload": {
+        "text": "Engineering mental model",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-webrtc-mental",
+      "payload": {
+        "text": "**Mental model.** Think of WebRTC — Peer-to-Peer Real-Time Media and Data as a deliberate boundary in a system. The boundary exists because something becomes harder to manage when everything is done in one place: latency, scale, failure isolation, consistency, cost, or team ownership. The useful question is not “what does WebRTC — Peer-to-Peer Real-Time Media and Data mean?” but “what pressure makes this boundary worth introducing, and what new failure mode does it create?”"
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-webrtc-decision",
+      "payload": {
+        "title": "Design lens",
+        "body": "Before choosing WebRTC — Peer-to-Peer Real-Time Media and Data, name the workload, the critical user path, the dominant bottleneck, the failure you are trying to absorb, and the trade-off you are willing to accept. If you cannot name those five things, the design is probably premature.",
+        "kind": "info"
+      }
+    },
+    {
+      "type": "image",
+      "id": "upgrade-image-webrtc",
+      "payload": {
+        "src": "/learning-visuals/webrtc.svg",
+        "alt": "Original NO CAP systems visual for WebRTC — Peer-to-Peer Real-Time Media and Data.",
+        "caption": "WebRTC — Peer-to-Peer Real-Time Media and Data: a compact system-thinking visual.",
+        "credit": "Original NO CAP visual.",
+        "source_url": "https://github.com/donnemartin/system-design-primer"
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "upgrade-mermaid-webrtc",
+      "payload": {
+        "code": "flowchart LR\n  A[Client] --> B[Connection] --> C[Channel] --> D[Peer] --> E[Media]",
+        "caption": "WebRTC — Peer-to-Peer Real-Time Media and Data: a simplified system view showing the primary flow and the main state boundaries.",
+        "alt_text": "WebRTC — Peer-to-Peer Real-Time Media and Data: a simplified system view showing the primary flow and the main state boundaries."
+      }
+    },
+    {
+      "type": "code",
+      "id": "upgrade-code-webrtc",
+      "payload": {
+        "language": "text",
+        "code": "// Pseudocode\nrequest = receive()\nresult = webrtc(request)\nreturn result\n\n// Production questions:\n// 1. What happens on timeout?\n// 2. Can this operation be retried safely?\n// 3. What is the bottleneck?",
+        "caption": "A minimal engineering sketch for reasoning about WebRTC — Peer-to-Peer Real-Time Media and Data."
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-webrtc-numbers",
+      "payload": {
+        "text": "Back-of-the-envelope reasoning",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-webrtc-numbers",
+      "payload": {
+        "text": "Numerical lens: write down traffic, payload size, read/write ratio, peak multiplier and durability target before choosing a component. The numbers should justify the architecture."
+      }
+    },
+    {
+      "type": "simulation",
+      "id": "upgrade-sim-webrtc",
+      "payload": {
+        "title": "Interactive thought experiment: WebRTC — Peer-to-Peer Real-Time Media and Data",
+        "description": "Change the variables below and predict what breaks first in WebRTC — Peer-to-Peer Real-Time Media and Data. The production lab can later reuse these same inputs.",
+        "variables": [
+          {
+            "name": "traffic",
+            "description": "Requests/events per second",
+            "default": "1000"
+          },
+          {
+            "name": "latency",
+            "description": "Dependency latency",
+            "default": "50ms"
+          },
+          {
+            "name": "failure_rate",
+            "description": "Injected failure rate",
+            "default": "0%"
+          }
+        ],
+        "placeholder_note": "Interactive controls are deterministic; use the linked Labs section when a dedicated lab exists."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-webrtc-hint",
+      "payload": {
+        "title": "Hint",
+        "body": "If you are stuck on WebRTC — Peer-to-Peer Real-Time Media and Data, start by drawing the request path and marking every network hop, stateful component, queue, cache and failure boundary. Then estimate where the system will saturate.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-webrtc-1",
+      "payload": {
+        "shape": "prediction",
+        "question": "You increase traffic by 10× in a system using WebRTC — Peer-to-Peer Real-Time Media and Data. What should you inspect first?",
+        "options": [
+          "The newest framework version",
+          "The dominant bottleneck and its saturation signal",
+          "Only the UI",
+          "Nothing; the architecture should absorb any traffic automatically"
+        ],
+        "answer_index": 1,
+        "rationale": "System design is a constraint-and-bottleneck exercise. Start with the resource or dependency that will saturate first, then choose the smallest change that removes that bottleneck.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-webrtc-2",
+      "payload": {
+        "shape": "mcq",
+        "question": "Which statement is the safest engineering habit when using WebRTC — Peer-to-Peer Real-Time Media and Data?",
+        "options": [
+          "Choose it because it is popular",
+          "Add it before measuring the problem",
+          "State the workload, failure mode and trade-off it is solving",
+          "Use the most distributed design possible"
+        ],
+        "answer_index": 2,
+        "rationale": "Good architecture starts from requirements, workload and failure assumptions. The component is the consequence of that reasoning, not the starting point.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "scenario",
+      "id": "upgrade-scenario-webrtc",
+      "payload": {
+        "prompt": "Production scenario: your system uses WebRTC — Peer-to-Peer Real-Time Media and Data, traffic suddenly spikes, and p99 latency doubles. What is your first move?",
+        "context": "You have dashboards for traffic, latency, errors and saturation. You can change the architecture, but every change has operational cost.",
+        "options": [
+          {
+            "id": "a",
+            "text": "Add more instances immediately",
+            "outcome": "This may help, but only if compute saturation is the bottleneck.",
+            "correct": false
+          },
+          {
+            "id": "b",
+            "text": "Inspect the bottleneck and its saturation signal first",
+            "outcome": "Correct: diagnose before scaling or introducing a new pattern.",
+            "correct": true
+          },
+          {
+            "id": "c",
+            "text": "Disable monitoring to reduce overhead",
+            "outcome": "This removes the evidence you need to diagnose the incident.",
+            "correct": false
+          }
+        ],
+        "rationale": "Measure the limiting resource or dependency first. A bottleneck can be compute, database I/O, network, cache misses, lock contention, downstream latency, or queue backlog.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-webrtc-interview",
+      "payload": {
+        "text": "Interview drill",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-webrtc-interview",
+      "payload": {
+        "text": "**Answer this without notes:** When would you choose WebRTC — Peer-to-Peer Real-Time Media and Data, and when would you intentionally avoid it? Mention at least one bottleneck it addresses, one failure mode it introduces, and one alternative. Then quantify the workload you are designing for."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "field-guide-webrtc",
+      "payload": {
+        "title": "Engineering lens",
+        "body": "A useful engineering lens for WebRTC - Peer-to-Peer Real-Time Media and Data: define the problem it solves, the simpler design that fails first, the constraint that forces you to introduce this concept, and the new failure modes the concept creates.",
+        "kind": "tip"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "numerical-lens-webrtc",
+      "payload": {
+        "text": "### Numerical sanity check\n\nBack-of-the-envelope reasoning beats fake precision. State your traffic, payload, concurrency and growth assumptions explicitly, then calculate enough to know whether the current architecture is orders of magnitude away from the target."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "field-question-webrtc",
+      "payload": {
+        "shape": "prediction",
+        "question": "Imagine the simplest version of a system using WebRTC - Peer-to-Peer Real-Time Media and Data. What breaks first as traffic grows by 10×, and what would you change before reaching 100×?",
+        "context": "Do not optimize for a memorized definition. Reason from the workload and failure mode.",
+        "options": [
+          "Scale the same component immediately.",
+          "Measure the current bottleneck and state the assumption that changed.",
+          "Add more technologies until throughput improves.",
+          "Choose the most popular architecture."
+        ],
+        "answer_index": 1,
+        "rationale": "Good system design starts with the bottleneck and the changed constraint. The most popular or complex choice is not automatically correct.",
+        "difficulty": "interview"
+      }
+    }
+  ],
+  "trade_offs": {
+    "pros": [
+      "Peer-to-peer media — no media server cost for 1-to-1 calls.",
+      "Sub-second latency, designed for real-time voice and video.",
+      "Browser-native — no plugin or app install required.",
+      "End-to-end encrypted by default (DTLS/SRTP).",
+      "Data channels give browsers a low-latency P2P messaging path beyond media.",
+      "Adaptive bitrate and congestion control keep calls usable on flaky networks."
+    ],
+    "cons": [
+      "Extremely complex API surface — signaling, ICE, SDP, codecs, simulcast.",
+      "NAT traversal is unreliable without TURN — which costs bandwidth.",
+      "Scales poorly beyond 1-to-1 without an SFU — which adds server cost.",
+      "Browser implementations vary subtly; cross-browser debugging is painful.",
+      "Codec support differs by browser (Safari vs Chrome vs Firefox — especially VP9, AV1).",
+      "TURN bandwidth and SFU compute are real operational costs at scale."
+    ]
+  },
+  "failure_modes": [
+    "TURN relay percentage too high — users on carrier-grade NATs cannot connect directly; bandwidth bill spikes.",
+    "Symmetric NAT blocks STUN-discovered candidates; only TURN works.",
+    "Signaling server is a single point of failure — if it is down, no new calls can be set up.",
+    "SFU overloaded on large calls — CPU saturates, frames drop, calls degrade.",
+    "Codec mismatch — one browser supports only H.264, another only VP8; transcoding is required or call fails.",
+    "Network jitter exceeds jitter buffer — audio glitching, video freezing."
+  ],
+  "common_mistakes": [
+    "Treating signaling as part of WebRTC — it is not; you must build it (usually WebSocket).",
+    "Skipping TURN — 'most users have STUN-friendly NATs' is true until your enterprise customer's firewall blocks everything.",
+    "Using mesh topology for group calls — does not scale past ~4 participants.",
+    "Forgetting to negotiate ICE candidates after the offer/answer — 'trickle ICE' avoids blocking but is easy to skip.",
+    "Assuming video is video — codec, simulcast, and resolution negotiation are real and per-browser.",
+    "Forgetting to keep the signaling channel alive during the call — needed for renegotiation (adding a participant, muting).",
+    "Not monitoring TURN bandwidth — a silent cost driver."
+  ],
+  "where_you_see_it": [
+    "Google Meet, Zoom web client, Microsoft Teams web — browser-based video calls.",
+    "Discord voice and video — originally WebRTC, evolved their own client.",
+    "In-browser multiplayer games using RTCDataChannel.",
+    "Cloudflare Stream and Twitch browser-based live streaming ingest.",
+    "Telehealth platforms, customer support video chat widgets."
+  ],
+  "interview_prompts": [
+    "Walk through how two browsers establish a WebRTC peer connection. What is signaling, and why is it not part of the spec?",
+    "Explain STUN, TURN, and ICE. When does each one kick in?",
+    "You are building a 50-person video conferencing app. What media architecture do you use, and why?",
+    "Your users on corporate Wi-Fi cannot establish calls — they all hit TURN relay. What is happening, and what are your options?",
+    "WebRTC is encrypted by default. Walk through how DTLS/SRTP provides that, and what the threat model is."
+  ],
+  "real_system_mappings": [
+    {
+      "system": "Google Meet",
+      "how": "Browser-native video conferencing using WebRTC with a Google-operated SFU backend. Uses simulcast to scale to 100+ participant calls; adaptive bitrate via GCC keeps calls usable on flaky networks."
+    },
+    {
+      "system": "Jitsi Meet",
+      "how": "Open-source WebRTC video conferencing with a custom SFU (Jitsi Videobridge). Powers many self-hosted deployments and was the basis for 8x8's commercial service."
+    },
+    {
+      "system": "Discord voice",
+      "how": "Originally built on WebRTC for browser and desktop clients. Uses Opus audio codec with adaptive bitrate and a custom SFU for group voice channels."
+    }
+  ],
+  "status": "published",
+  "sources": [
+    {
+      "title": "System Design Primer",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Open source"
+    },
+    {
+      "title": "ByteByteGo — Scale from zero to millions",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "ByteByteGo"
+    },
+    {
+      "title": "System Design Tutorial",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "GeeksforGeeks"
+    },
+    {
+      "title": "System Design Roadmap",
+      "url": "https://roadmap.sh/system-design",
+      "publisher": "roadmap.sh"
+    },
+    {
+      "title": "Networking & Communication reference",
+      "url": "https://www.rfc-editor.org/",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Networking & Communication reference",
+      "url": "https://developer.mozilla.org/en-US/docs/Web/HTTP",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Networking & Communication reference",
+      "url": "https://www.cloudflare.com/learning/network-layer/what-is-a-protocol/",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Cloudflare Learning Center",
+      "url": "https://www.cloudflare.com/learning/",
+      "publisher": "Cloudflare"
+    }
+  ]
+}

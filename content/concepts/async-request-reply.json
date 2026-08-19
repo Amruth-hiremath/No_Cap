@@ -1,0 +1,442 @@
+{
+  "slug": "async-request-reply",
+  "version": 4,
+  "title": "Async Request-Reply",
+  "phase": "asynchronous-systems",
+  "area": "Asynchronous Systems",
+  "estimated_minutes": 7,
+  "difficulty": "advanced",
+  "summary": "Async request-reply decouples a slow operation from the client that initiated it. The client sends a request, immediately receives an identifier (a correlation ID or job ID), and later retrieves the result by polling a status endpoint or receiving a callback. The request never holds a connection open while the work happens; instead, the work proceeds on a queue and the result is materialized separately. This pattern is how every long-running API works — report generation, video transcode, model training, batch export.",
+  "why_it_matters": "Synchronous HTTP has a built-in death sentence for long-running operations: somewhere between 30 seconds and 5 minutes, an intermediary (load balancer, CDN, browser, mobile OS) will kill the connection. The client sees a 502 or a timeout and assumes failure, even though the work is still proceeding on the server. Async request-reply is the pattern that makes long-running operations viable on the web: it trades request simplicity for an ability to handle arbitrarily long workloads without dropping connections. Every Stripe API call that returns a PaymentIntent ID, every AWS API that returns a request ID, every Slides export that gives you a job ID — all are this pattern.",
+  "prerequisites": [
+    "message-queues"
+  ],
+  "related": [
+    "claim-check",
+    "message-queues-async",
+    "competing-consumers",
+    "background-jobs"
+  ],
+  "used_in": [
+    "Long-running API operations (video transcode, report export, model training).",
+    "Cloud provider APIs (AWS, GCP, Azure async operations).",
+    "Payment intent flows (Stripe, Adyen).",
+    "Background job status pages (CI builds, data pipeline runs)."
+  ],
+  "blocks": [
+    {
+      "type": "prose",
+      "id": "intro",
+      "payload": {
+        "text": "Async request-reply is the pattern you reach for whenever an operation might take longer than a request timeout. The flow has three phases:\n\n1. **Submit**: the client POSTs to a `/jobs` endpoint. The server validates the request, persists it as a job record with a unique `job_id`, enqueues a message onto a work queue, and immediately returns `202 Accepted` with the `job_id`.\n2. **Poll (or callback)**: the client periodically GETs `/jobs/{job_id}` to check the status — `pending`, `running`, `succeeded`, `failed`. Alternatively, the client registers a `callback_url` and the server POSTs to it when the job finishes.\n3. **Result retrieval**: once the job is `succeeded`, the client GETs `/jobs/{job_id}/result` (or the result URL provided in the status payload) to download the output.\n\nThe `job_id` is the **correlation ID** — the handle that ties the original request, the queue message, the worker, and the result together. Every log line, every metric, every status check should carry it, because it is the only way to trace an async operation end to end."
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "async-flow",
+      "payload": {
+        "code": "flowchart TD\n    N0[\"Client\"]\n    N1[\"API\"]\n    N2[\"server\"]\n    N3[\"Queue\"]\n    N4[\"Worker\"]\n    N5[\"POST\"]\n    N6[\"jobs\"]\n    N7[\"persist\"]\n    N8[\"job\"]\n    N9[\"record\"]\n    N10[\" params \"]\n    N11[\"params\"]\n    N12[\"job_id\"]\n    N13[\"uuid()\"]\n    N14[\"msg\"]\n    N15[\"job_id, params\"]\n    N16[\"enqueue(job_id,\"]\n    N17[\"params)\"]\n    N18[\"[msg]\"]\n    N19[\"id\"]\n    N20[\"202\"]\n    N21[\"Accepted\"]\n    N22[\"return\"]\n    N23[\"Location:\"]\n    N24[\"{id}\"]\n    N25[\" job_id \"]\n    N26[\"pop\"]\n    N27[\"process\"]\n    N28[\"update\"]\n    N29[\"state\"]\n    N30[\"GET\"]\n    N31[\"pending\"]\n    N32[\"running\"]\n    N33[\"(worker\"]\n    N34[\"updates\"]\n    N35[\"succeeded\"]\n    N36[\" result_url \"]\n    N37[\"result_url\"]\n    N38[\"progresses)\"]\n    N39[\"200\"]\n    N40[\"with\"]\n    N41[\"body\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41",
+        "caption": "Three-phase async flow: 202 with job_id, poll for status, retrieve result when ready.",
+        "alt_text": "A sequence diagram of asynchronous request-reply. The client POSTs to a /jobs endpoint. The API server persists a job record with a unique job_id, enqueues a message onto a queue, and returns HTTP 202 Accepted with the job_id. The client then polls GET /jobs/{id} to check status: pending, then running, then succeeded. A worker pulls the message from the queue, processes the job, and updates the job record at each stage. When the status is succeeded, the client fetches the result via a result URL. The job_id is the correlation ID that ties all stages together."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "poll-vs-callback",
+      "payload": {
+        "text": "There are two flavors of result delivery: **polling** and **callback**.\n\n**Polling**: the client periodically GETs the status endpoint. Simple, firewall-friendly (no inbound connection needed), and easy to implement. The cost is wasted requests (the client polls even when nothing has changed) and latency (the client sees results one polling interval after they happen). Mitigate by allowing the client to set a `wait` parameter (long polling on the server side) or by using exponential backoff with jitter.\n\n**Callback (webhook)**: the client provides a `callback_url` at submit time. The server POSTs the result there when the job finishes. Lower latency and zero wasted requests — but the client must operate an HTTP server, handle retries (the callback may fail), verify signatures (the client must prove the callback is from you), and deal with replay attacks. Stripe webhooks, GitHub webhooks, and AWS SNS notifications are all this pattern.\n\nIn practice, large systems offer both: polling for clients that cannot receive callbacks, webhooks for clients that can. Some add a third option — WebSocket or Server-Sent Events push — for low-latency real-time updates on top of the same job model."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "idempotency",
+      "payload": {
+        "title": "Submit must be idempotent",
+        "body": "If a client POSTs /jobs and the request times out before the 202 arrives, the client does not know whether the job was created. The natural reaction is to retry the POST — but if the server is not idempotent, this creates a duplicate job. The fix is the same as everywhere else: accept an Idempotency-Key header, dedupe on it within a TTL window, and return the existing job_id if the key has been seen. Stripe and AWS both do this.",
+        "kind": "warning"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "claim-check",
+      "payload": {
+        "text": "When the result is large (a multi-GB video file, a million-row CSV export), embedding the result in the status response is impractical. The **claim-check pattern** is the standard solution: the worker uploads the result to object storage (S3) and stores the URL (the 'claim check') in the job record. The status response then contains a `result_url` pointing to the object. The client downloads from object storage directly, bypassing the API tier — which keeps API response sizes small and lets the client use HTTP range requests, retries, and CDN caching.\n\nThis is also how cloud providers handle large async results: AWS operations return an S3 presigned URL where the output will appear once the job completes. The same pattern applies to inputs: if the request payload is large, the client uploads to S3 first and sends only the object key in the POST body."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "lifecycle",
+      "payload": {
+        "text": "A production-grade async job system needs explicit lifecycle handling:\n\n- **TTL on job records**: a succeeded job's status should expire after 7-30 days. Otherwise the jobs table grows forever and slows every query. After expiry, the result is gone; the client must re-submit if they want it again.\n- **Cancellation**: a `POST /jobs/{id}/cancel` endpoint that flips the state to `cancelling` and lets the worker check the flag periodically. Hard cancellation (killing the worker) is rarely clean — cooperative cancellation is the norm.\n- **Progress reporting**: workers update a `progress` field (0-100) and an `ETA` estimate. This is what users actually want — not just 'is it done' but 'how far along is it.'\n- **Failure visibility**: a `failed` state with an error message and a retry button. Do not return a 500 from the status endpoint — the API call to get status is succeeding; the job itself failed, which is a normal state, not an API error."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q1",
+      "payload": {
+        "question": "A client POSTs to /jobs and the request times out before the 202 arrives. The client retries the POST. What is the correct behavior?",
+        "shape": "mcq",
+        "options": [
+          "Create a second job — the first may have failed.",
+          "Return the original job_id if the same Idempotency-Key was used; do not create a duplicate.",
+          "Reject the second POST with 409 Conflict.",
+          "Return 500 because the client did not see the 202."
+        ],
+        "answer_index": 1,
+        "rationale": "Async submit endpoints must be idempotent, because the client cannot tell whether the original request was received before timing out. The standard pattern is the Idempotency-Key header: the server stores (key, job_id) for some TTL (e.g., 24 hours). If the same key is seen again, return the original job_id without creating a duplicate. Stripe and AWS both implement this. Without idempotency, retries create duplicate jobs — and duplicate charges, duplicate emails, duplicate side effects. Returning 409 is wrong because it forces the client to know about the duplicate; the goal is to make retries transparent.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q2",
+      "payload": {
+        "question": "Why does the worker store the result URL in the job record instead of embedding the result in the status response?",
+        "shape": "mcq",
+        "options": [
+          "To reduce the size of the status endpoint response and allow direct download from object storage.",
+          "Because the API server cannot read the result.",
+          "To force the client to make a second request, which improves observability.",
+          "Because object storage is faster than the API server."
+        ],
+        "answer_index": 0,
+        "rationale": "This is the claim-check pattern. Embedding large results (multi-GB exports, video files) in the status response bloats the API tier, breaks reverse proxy buffering, and prevents the client from using range requests, retries, and CDN caching. By uploading the result to S3 and storing only the URL in the job record, the status response stays small and the client downloads the actual bytes directly from object storage — which is built for large payload transfer, supports HTTP range requests, and can be fronted by a CDN. Cloud provider async APIs (AWS, GCP) follow this pattern: the result_uri appears in the status response once the job is done.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q3",
+      "payload": {
+        "question": "You are choosing between polling and webhooks for an async API. Which constraint most pushes you toward polling?",
+        "shape": "mcq",
+        "options": [
+          "The client needs sub-second latency from job completion to result delivery.",
+          "The client is a mobile app or browser that cannot receive inbound connections.",
+          "The client needs strong idempotency on the submit endpoint.",
+          "The server cannot persist job state."
+        ],
+        "answer_index": 1,
+        "rationale": "Webhooks require the client to operate a public HTTP endpoint that the server can POST to. Mobile apps, browsers, and clients behind NAT or firewalls cannot do this — they must poll. Polling is the universal fallback: any HTTP client can do it, it works through any firewall, and it needs no inbound connectivity. The cost is added latency (one polling interval after the job actually finishes) and wasted requests. For clients that can receive webhooks, callbacks are strictly better (lower latency, no wasted requests, but require signature verification and retry handling). Most production systems offer both and let the client choose.",
+        "difficulty": "core"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-async-request-reply-mental",
+      "payload": {
+        "text": "Engineering mental model",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-async-request-reply-mental",
+      "payload": {
+        "text": "**Mental model.** Think of Async Request-Reply as a deliberate boundary in a system. The boundary exists because something becomes harder to manage when everything is done in one place: latency, scale, failure isolation, consistency, cost, or team ownership. The useful question is not “what does Async Request-Reply mean?” but “what pressure makes this boundary worth introducing, and what new failure mode does it create?”"
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-async-request-reply-decision",
+      "payload": {
+        "title": "Design lens",
+        "body": "Before choosing Async Request-Reply, name the workload, the critical user path, the dominant bottleneck, the failure you are trying to absorb, and the trade-off you are willing to accept. If you cannot name those five things, the design is probably premature.",
+        "kind": "info"
+      }
+    },
+    {
+      "type": "image",
+      "id": "upgrade-image-async-request-reply",
+      "payload": {
+        "src": "/learning-visuals/async-request-reply.svg",
+        "alt": "Original NO CAP systems visual for Async Request-Reply.",
+        "caption": "Async Request-Reply: a compact system-thinking visual.",
+        "credit": "Original NO CAP visual.",
+        "source_url": "https://github.com/donnemartin/system-design-primer"
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "upgrade-mermaid-async-request-reply",
+      "payload": {
+        "code": "flowchart LR\n  A[Producer] --> B[Broker] --> C[Consumer] --> D[Retry] --> E[Outcome]",
+        "caption": "Async Request-Reply: a simplified system view showing the primary flow and the main state boundaries.",
+        "alt_text": "Async Request-Reply: a simplified system view showing the primary flow and the main state boundaries."
+      }
+    },
+    {
+      "type": "code",
+      "id": "upgrade-code-async-request-reply",
+      "payload": {
+        "language": "python",
+        "code": "message_id = queue.publish({\n    \"type\": \"async-request-reply\",\n    \"key\": resource_id\n})\n# Consumer must be safe to retry.",
+        "caption": "A minimal engineering sketch for reasoning about Async Request-Reply."
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-async-request-reply-numbers",
+      "payload": {
+        "text": "Back-of-the-envelope reasoning",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-async-request-reply-numbers",
+      "payload": {
+        "text": "Numerical lens: write down traffic, payload size, read/write ratio, peak multiplier and durability target before choosing a component. The numbers should justify the architecture."
+      }
+    },
+    {
+      "type": "simulation",
+      "id": "upgrade-sim-async-request-reply",
+      "payload": {
+        "title": "Interactive thought experiment: Async Request-Reply",
+        "description": "Change the variables below and predict what breaks first in Async Request-Reply. The production lab can later reuse these same inputs.",
+        "variables": [
+          {
+            "name": "traffic",
+            "description": "Requests/events per second",
+            "default": "1000"
+          },
+          {
+            "name": "latency",
+            "description": "Dependency latency",
+            "default": "50ms"
+          },
+          {
+            "name": "failure_rate",
+            "description": "Injected failure rate",
+            "default": "0%"
+          }
+        ],
+        "placeholder_note": "Interactive controls are deterministic; use the linked Labs section when a dedicated lab exists."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-async-request-reply-hint",
+      "payload": {
+        "title": "Hint",
+        "body": "If you are stuck on Async Request-Reply, start by drawing the request path and marking every network hop, stateful component, queue, cache and failure boundary. Then estimate where the system will saturate.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-async-request-reply-1",
+      "payload": {
+        "shape": "prediction",
+        "question": "You increase traffic by 10× in a system using Async Request-Reply. What should you inspect first?",
+        "options": [
+          "The newest framework version",
+          "The dominant bottleneck and its saturation signal",
+          "Only the UI",
+          "Nothing; the architecture should absorb any traffic automatically"
+        ],
+        "answer_index": 1,
+        "rationale": "System design is a constraint-and-bottleneck exercise. Start with the resource or dependency that will saturate first, then choose the smallest change that removes that bottleneck.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-async-request-reply-2",
+      "payload": {
+        "shape": "mcq",
+        "question": "Which statement is the safest engineering habit when using Async Request-Reply?",
+        "options": [
+          "Choose it because it is popular",
+          "Add it before measuring the problem",
+          "State the workload, failure mode and trade-off it is solving",
+          "Use the most distributed design possible"
+        ],
+        "answer_index": 2,
+        "rationale": "Good architecture starts from requirements, workload and failure assumptions. The component is the consequence of that reasoning, not the starting point.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "scenario",
+      "id": "upgrade-scenario-async-request-reply",
+      "payload": {
+        "prompt": "Production scenario: your system uses Async Request-Reply, traffic suddenly spikes, and p99 latency doubles. What is your first move?",
+        "context": "You have dashboards for traffic, latency, errors and saturation. You can change the architecture, but every change has operational cost.",
+        "options": [
+          {
+            "id": "a",
+            "text": "Add more instances immediately",
+            "outcome": "This may help, but only if compute saturation is the bottleneck.",
+            "correct": false
+          },
+          {
+            "id": "b",
+            "text": "Inspect the bottleneck and its saturation signal first",
+            "outcome": "Correct: diagnose before scaling or introducing a new pattern.",
+            "correct": true
+          },
+          {
+            "id": "c",
+            "text": "Disable monitoring to reduce overhead",
+            "outcome": "This removes the evidence you need to diagnose the incident.",
+            "correct": false
+          }
+        ],
+        "rationale": "Measure the limiting resource or dependency first. A bottleneck can be compute, database I/O, network, cache misses, lock contention, downstream latency, or queue backlog.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-async-request-reply-interview",
+      "payload": {
+        "text": "Interview drill",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-async-request-reply-interview",
+      "payload": {
+        "text": "**Answer this without notes:** When would you choose Async Request-Reply, and when would you intentionally avoid it? Mention at least one bottleneck it addresses, one failure mode it introduces, and one alternative. Then quantify the workload you are designing for."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "field-guide-async-request-reply",
+      "payload": {
+        "title": "Engineering lens",
+        "body": "For Async Request-Reply, separate producer speed from consumer speed. The key design question is what happens when production temporarily exceeds processing capacity: queue it, shed it, slow producers down, or degrade the feature.",
+        "kind": "tip"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "numerical-lens-async-request-reply",
+      "payload": {
+        "text": "### Numerical sanity check\n\nA simple queue sanity check: if producers create 8,000 messages/s and consumers process 6,000 messages/s, backlog grows at roughly 2,000 messages/s until the imbalance is corrected."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "field-question-async-request-reply",
+      "payload": {
+        "shape": "prediction",
+        "question": "A downstream service slows down while Async Request-Reply keeps accepting traffic. Would you rather apply backpressure, queue more work, shed load, or degrade? Explain the trade-off.",
+        "context": "Do not optimize for a memorized definition. Reason from the workload and failure mode.",
+        "options": [
+          "Scale the same component immediately.",
+          "Measure the current bottleneck and state the assumption that changed.",
+          "Add more technologies until throughput improves.",
+          "Choose the most popular architecture."
+        ],
+        "answer_index": 1,
+        "rationale": "Good system design starts with the bottleneck and the changed constraint. The most popular or complex choice is not automatically correct.",
+        "difficulty": "interview"
+      }
+    }
+  ],
+  "trade_offs": {
+    "pros": [
+      "Decouples request lifetime from work duration — no request timeouts on long operations.",
+      "Survives client disconnects — the job continues; the client can reconnect and check status.",
+      "Scales naturally — the worker pool is independent of the API tier; backpressure is built in via the queue.",
+      "Clean cancellation, progress reporting, and retry visibility as first-class concerns.",
+      "Result can be arbitrarily large — claim-check pattern lets the client pull from object storage directly."
+    ],
+    "cons": [
+      "More complex client — must handle polling, exponential backoff, and status state machine.",
+      "Requires server-side state for every job — a job record table that grows and must be TTL-cleaned.",
+      "Higher latency for short operations — async overhead is not worth it if the work takes 100ms.",
+      "Webhook variant requires the client to operate an HTTP server and verify signatures.",
+      "Harder to debug — correlation ID must be propagated across submit, queue, worker, and status endpoints."
+    ]
+  },
+  "failure_modes": [
+    "Job record table grows unbounded — mitigated by TTL cleanup on terminal states.",
+    "Submit endpoint not idempotent — duplicate jobs on client retry; mitigated by Idempotency-Key.",
+    "Worker dies mid-job — job stuck in `running` forever; mitigated by heartbeat + lease expiry + state recovery.",
+    "Callback URL fails — webhook must retry with exponential backoff; mitigated by dead-letter and visible 'failed delivery' state.",
+    "Status endpoint hot — millions of clients polling every second; mitigated by long polling, SSE push, or longer intervals."
+  ],
+  "common_mistakes": [
+    "Returning 500 from the status endpoint when the job failed — `failed` is a normal job state, not an API error.",
+    "Embedding large results in the status response — use claim-check with object storage instead.",
+    "Not propagating the job_id (correlation ID) through queue, worker, and logs — makes tracing impossible.",
+    "Forgetting TTL on terminal job records — the jobs table grows forever and slows everything.",
+    "Polling too aggressively — exponential backoff with jitter, or switch to long polling / SSE.",
+    "No cancellation endpoint — clients have no way to stop a runaway job."
+  ],
+  "where_you_see_it": [
+    "Cloud provider async APIs (AWS long-running operations, GCP LRO).",
+    "Payment intent flows (Stripe PaymentIntent — submit, poll, webhook).",
+    "Video / image transcode APIs (YouTube uploads, Cloudinary, Mux).",
+    "Background report / export generation (Salesforce, Stripe Sigma exports).",
+    "ML model training and batch inference (Hugging Face Inference Endpoints, SageMaker)."
+  ],
+  "interview_prompts": [
+    "Design an async API for generating a large CSV export. What endpoints, what status states, how does the client get the bytes?",
+    "Why must the submit endpoint be idempotent? How would you implement it?",
+    "Compare polling vs. webhooks for async result delivery. When do you choose each?",
+    "How do you prevent the jobs table from growing forever? What about workers that die mid-job?",
+    "How does the claim-check pattern work, and when do you use it?"
+  ],
+  "real_system_mappings": [
+    {
+      "system": "Stripe",
+      "how": "PaymentIntents are async request-reply: the client creates a PaymentIntent (gets an ID), the server processes asynchronously (3DS, network calls), and the client either polls or receives a webhook when status changes. Idempotency keys on the create call make retries safe."
+    },
+    {
+      "system": "AWS long-running operations",
+      "how": "Every AWS async API returns an operation ID; clients poll DescribeOperations or register an EventBridge rule to receive a callback. Large outputs (e.g., Athena query results) are written to S3 and the status response references the S3 URI — pure claim-check."
+    },
+    {
+      "system": "GitHub Actions / CI systems",
+      "how": "Pushing a commit kicks off a workflow run with a unique run ID. The UI polls for status (queued, in_progress, success, failure); webhooks notify on completion. Build artifacts are uploaded to object storage with claim-check URLs in the run record."
+    },
+    {
+      "system": "Slack / Discord slash commands",
+      "how": "A slash command returns an immediate 200 ACK with a deferred message; the actual response is later POSTed via webhook or via a follow-up API call. This avoids the 3-second Slack timeout for slow operations."
+    }
+  ],
+  "status": "published",
+  "sources": [
+    {
+      "title": "System Design Primer",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Open source"
+    },
+    {
+      "title": "ByteByteGo — Scale from zero to millions",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "ByteByteGo"
+    },
+    {
+      "title": "System Design Tutorial",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "GeeksforGeeks"
+    },
+    {
+      "title": "System Design Roadmap",
+      "url": "https://roadmap.sh/system-design",
+      "publisher": "roadmap.sh"
+    },
+    {
+      "title": "Asynchronous Systems reference",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Asynchronous Systems reference",
+      "url": "https://aws.amazon.com/message-queue/",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Asynchronous Systems reference",
+      "url": "https://martinfowler.com/articles/201701-event-driven.html",
+      "publisher": "Reference"
+    }
+  ]
+}

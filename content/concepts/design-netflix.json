@@ -1,0 +1,435 @@
+{
+  "slug": "design-netflix",
+  "version": 3,
+  "title": "Design Netflix",
+  "phase": "case-studies",
+  "area": "Case Studies",
+  "estimated_minutes": 12,
+  "difficulty": "interview",
+  "summary": "Design Netflix at 250M subscribers, 30% of US internet traffic. Covers the transcoding pipeline (master mezzanine -> 15 encodings per title -> HLS/DASH segments -> DRM), the Open Connect CDN (appliances inside ISPs), adaptive bitrate streaming (player switches bitrate per segment based on throughput), and pre-computed recommendations refreshed nightly. The deep dive walks through why Netflix built its own CDN and how ABR works.",
+  "why_it_matters": "Netflix is the canonical video-streaming design. The patterns — segment-based ABR, multi-codec transcoding, edge-appliance CDN, DRM — are reusable for any video product (Disney+, HBO Max, Prime Video). The Open Connect story is also a masterclass in scale economics: when you're a third of all internet traffic, the standard managed-CDN model stops working and you must build your own.",
+  "prerequisites": [
+    "cdn",
+    "object-storage"
+  ],
+  "related": [
+    "design-youtube"
+  ],
+  "used_in": [
+    "Netflix",
+    "Disney+",
+    "HBO Max / Max",
+    "Amazon Prime Video",
+    "Hulu"
+  ],
+  "blocks": [
+    {
+      "type": "prose",
+      "id": "problem",
+      "payload": {
+        "text": "**What are we designing?** Netflix — a global on-demand video streaming service. Users browse a catalog of movies/shows, click play, and the video starts streaming within 2 seconds and plays smoothly even on flaky mobile networks. Netflix must serve 250M+ subscribers across 190 countries, handle 30%+ of US peak internet traffic, and produce original content that must be ingested, transcoded, and delivered worldwide.\n\nThe defining challenges are **video at scale** (each stream is multi-Mbps, sustained for hours) and **adaptive playback** (the video must smoothly switch quality as the user's bandwidth fluctuates). The CDN strategy is the heart of this case study — Netflix famously built its own CDN (Open Connect) because generic CDNs couldn't handle the load."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "requirements",
+      "payload": {
+        "text": "**Functional requirements.**\n- Browse catalog (titles, posters, metadata).\n- Search titles.\n- Play a video on demand; supports resume, scrub, skip intro.\n- Adaptive bitrate: video quality adjusts to network conditions.\n- Subtitles / audio tracks in multiple languages.\n- Continue-watching, personalized recommendations.\n\n**Non-functional requirements.**\n- **Time-to-first-frame**: < 2 s (longer = users abandon).\n- **Rebuffer ratio**: < 1% of play time (rebuffering causes churn).\n- **Availability**: 99.99% (Saturday-night outages are news).\n- **Catalog size**: 100K+ titles, each in 5+ bitrates and 5+ resolutions.\n- **Scale**: 250M subscribers, 200M+ hours streamed/day.\n\n**Non-goals.** No live streaming, no user-generated content (that's YouTube)."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "capacity",
+      "payload": {
+        "text": "**Capacity estimation.**\n\n*Streaming volume.* 250M subscribers, average 2 hours/day viewing = 500M hours/day = ~6 TB/day compressed at 5 Mbps = ~30 PB/day of egress. Netflix is ~15% of global internet traffic.\n\n*Storage.* Each title is encoded in ~5 bitrates (240p to 4K) and multiple codecs (H.264, HEVC, AV1). A 2-hour movie at 4K = ~7 GB per encoding; 5 encodings x 3 codecs = ~100 GB per title. 100K titles x 100 GB = 10 PB of media storage. Stored on object storage (S3) and pushed to CDN edges.\n\n*Catalog metadata.* Each title ~10KB (title, synopsis, cast, posters, etc.). 100K titles x 10 KB = 1 GB. Trivial — fits in a single database.\n\n*CDN edge capacity.* Netflix Open Connect Appliance (OCA) caches sit inside ISPs. Each OCA holds ~100 TB-2 PB. There are 1000+ OCAs globally.\n\n*Recommendations.* Pre-compute top-N recommendations per user, refreshed daily. 250M users x 100 recs x 8 bytes = 200 GB in Redis.\n\n*Watch history.* 250M users x ~1000 watched items x 100 bytes = 25 GB in Cassandra."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "apis",
+      "payload": {
+        "text": "**APIs.**\n\n```\nGET  /v1/catalog?genre=...               -> titles list (paginated)\nGET  /v1/titles/:id                       -> metadata + available encodings\nGET  /v1/search?q=...                     -> search results\nPOST /v1/playback/start                   (title_id, device, bitrate_hint)\n  -> { manifest_url, license_url, cdn_node }    (HLS/DASH manifest URL)\nPOST /v1/playback/progress                (every 30s, for resume + analytics)\nGET  /v1/recommendations                  -> personalized top-N\n```\n\nPlayback is HLS or DASH: the player fetches a manifest (m3u8 or mpd) listing available bitrates; the player requests segments (2-10s video chunks) and decides which bitrate to fetch based on observed throughput."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "data-model",
+      "payload": {
+        "text": "**Data model.**\n\n*Titles* (sharded SQL):\n```\ntitles (id BIGINT PK, name, synopsis, runtime_sec, release_year,\n       maturity_rating, default_poster_url)\ntitle_genres (title_id, genre)\ntitle_cast (title_id, actor_id, role)\n```\n\n*Encodings* (object storage S3 + CDN edge):\n```\nencodings (id, title_id, resolution ENUM('240p','480p','720p','1080p','4K'),\n           codec ENUM('h264','hevc','av1'), bitrate_kbps, manifest_url)\n```\n\n*Watch progress* (Cassandra, partitioned by user_id):\n```\nwatch_progress (user_id, title_id, position_sec, ts, PRIMARY KEY ((user_id), title_id))\n```\n\n*Recommendations* (Redis, pre-computed):\n```\nkey: recs:{user_id}\nvalue: LIST of title_ids, top 100\nTTL:   24h (refreshed daily)\n```\n\n*Manifest* (HLS m3u8 file, served from CDN):\n```\n#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=5000000,RESOLUTION=1920x1080\n1080p/playlist.m3u8\n#EXT-X-STREAM-INF:BANDWIDTH=1000000,RESOLUTION=640x360\n360p/playlist.m3u8\n```\nEach sub-playlist lists 10s .ts segments."
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "arch",
+      "payload": {
+        "code": "flowchart TD\n    N0[\"INGESTION\"]\n    N1[\"TRANSCODING\"]\n    N2[\"PIPELINE\"]\n    N3[\"Studio / Original Content\"]\n    N4[\"[Studio\"]\n    N5[\"Original\"]\n    N6[\"Content]\"]\n    N7[\"S3 source bucket\"]\n    N8[\"master mezzanine file, ~10s of GB\"]\n    N9[\"[S3\"]\n    N10[\"source\"]\n    N11[\"bucket]\"]\n    N12[\"(master\"]\n    N13[\"mezzanine\"]\n    N14[\"file,\"]\n    N15[\"~10s\"]\n    N16[\"GB)\"]\n    N17[\"Transcode Workers\"]\n    N18[\"[Transcode\"]\n    N19[\"Workers]\"]\n    N20[\"(parallel\"]\n    N21[\"FFmpeg\"]\n    N22[\"jobs:\"]\n    N23[\"resolutions\"]\n    N24[\"codecs\"]\n    N25[\"encodings\"]\n    N26[\"segment\"]\n    N27[\"into\"]\n    N28[\"10s\"]\n    N29[\"chunks\"]\n    N30[\"Widevine / FairPlay\"]\n    N31[\"DRM\"]\n    N32[\"encrypt\"]\n    N33[\"(Widevine\"]\n    N34[\"FairPlay)\"]\n    N35[\"package\"]\n    N36[\"HLS\"]\n    N37[\"DASH\"]\n    N38[\"manifests)\"]\n    N39[\"S3 encoding bucket\"]\n    N40[\"Open Connect Appliance (OCA)\"]\n    N41[\"OCA\"]\n    N42[\"pushed to ISP edges\"]\n    N43[\"encoding\"]\n    N44[\"[Open\"]\n    N45[\"Connect\"]\n    N46[\"Appliance\"]\n    N47[\"(OCA)]\"]\n    N48[\"(pushed\"]\n    N49[\"ISP\"]\n    N50[\"edges)\"]\n    N51[\"PLAYBACK\"]\n    N52[\"PATH\"]\n    N53[\"Device\"]\n    N54[\"Playback Service\"]\n    N55[\"1\"]\n    N56[\"[Device]\"]\n    N57[\"(1)\"]\n    N58[\"GET\"]\n    N59[\"playback\"]\n    N60[\"start\"]\n    N61[\"[Playback\"]\n    N62[\"Service]\"]\n    N63[\"manifest_url\"]\n    N64[\"cdn_node\"]\n    N65[\"2\"]\n    N66[\"DNS-based routing\"]\n    N67[\"(2)\"]\n    N68[\"device\"]\n    N69[\"chooses\"]\n    N70[\"nearest\"]\n    N71[\"(DNS\"]\n    N72[\"based\"]\n    N73[\"routing)\"]\n    N74[\"OCA at ISP\"]\n    N75[\"[OCA\"]\n    N76[\"ISP]\"]\n    N77[\"serves\"]\n    N78[\"segments\"]\n    N79[\"device's\"]\n    N80[\"ABR\"]\n    N81[\"algorithm:\"]\n    N82[\"probe\"]\n    N83[\"bandwidth\"]\n    N84[\"with\"]\n    N85[\"1st\"]\n    N86[\"fetch\"]\n    N87[\"240p\"]\n    N88[\"segment,\"]\n    N89[\"switch\"]\n    N90[\"throughput\"]\n    N91[\"5Mbps\"]\n    N92[\"down\"]\n    N93[\"rebuffers\"]\n    N94[\"Smooth\"]\n    N95[\"flaky\"]\n    N96[\"networks\"]\n    N97[\"METADATA\"]\n    N98[\"RECS\"]\n    N99[\"Catalog API\"]\n    N100[\"Cassandra\"]\n    N101[\"[Catalog\"]\n    N102[\"API]\"]\n    N103[\"[Cassandra]\"]\n    N104[\"Redis recommendations\"]\n    N105[\"[Redis\"]\n    N106[\"recommendations]\"]\n    N107[\"Batch job nightly\"]\n    N108[\"[Batch\"]\n    N109[\"job\"]\n    N110[\"nightly]\"]\n    N111[\"computes\"]\n    N112[\"recs\"]\n    N113[\"per\"]\n    N114[\"user\"]\n    N115[\"from\"]\n    N116[\"watch\"]\n    N117[\"history\"]\n    N118[\"writes\"]\n    N119[\"Redis\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44\n    N44 --> N45\n    N45 --> N46\n    N46 --> N47\n    N47 --> N48\n    N48 --> N49\n    N49 --> N50\n    N50 --> N51\n    N51 --> N52\n    N52 --> N53\n    N53 --> N54\n    N54 --> N55\n    N55 --> N56\n    N56 --> N57\n    N57 --> N58\n    N58 --> N59\n    N59 --> N60\n    N60 --> N61\n    N61 --> N62\n    N62 --> N63\n    N63 --> N64\n    N64 --> N65\n    N65 --> N66\n    N66 --> N67\n    N67 --> N68\n    N68 --> N69\n    N69 --> N70\n    N70 --> N71\n    N71 --> N72\n    N72 --> N73\n    N73 --> N74\n    N74 --> N75\n    N75 --> N76\n    N76 --> N77\n    N77 --> N78\n    N78 --> N79\n    N79 --> N80\n    N80 --> N81\n    N81 --> N82\n    N82 --> N83\n    N83 --> N84\n    N84 --> N85\n    N85 --> N86\n    N86 --> N87\n    N87 --> N88\n    N88 --> N89\n    N89 --> N90\n    N90 --> N91\n    N91 --> N92\n    N92 --> N93\n    N93 --> N94\n    N94 --> N95\n    N95 --> N96\n    N96 --> N97\n    N97 --> N98\n    N98 --> N99\n    N99 --> N100\n    N100 --> N101\n    N101 --> N102\n    N102 --> N103\n    N103 --> N104\n    N104 --> N105\n    N105 --> N106\n    N106 --> N107\n    N107 --> N108\n    N108 --> N109\n    N109 --> N110\n    N110 --> N111\n    N111 --> N112\n    N112 --> N113\n    N113 --> N114\n    N114 --> N115\n    N115 --> N116\n    N116 --> N117\n    N117 --> N118\n    N118 --> N119",
+        "caption": "Netflix: ingestion transcodes master files into multi-bitrate HLS/DASH segments, pushes to ISP-edge OCAs; playback fetches segments from the nearest OCA with adaptive bitrate switching.",
+        "alt_text": "A diagram of Netflix's architecture. The ingestion and transcoding pipeline: studios upload master mezzanine files to an S3 source bucket; transcode workers run parallel FFmpeg jobs producing 15 encodings (5 resolutions x 3 codecs), segment them into 10-second chunks, DRM-encrypt them with Widevine or FairPlay, and package them as HLS or DASH manifests. The encodings are stored in an S3 bucket and pushed to Open Connect Appliances (OCAs) located inside ISP networks. The playback path: a device requests playback start from the Playback Service, receiving a manifest URL and CDN node hint; the device's player uses DNS-based routing to choose the nearest OCA, then fetches HLS segments. The adaptive bitrate algorithm probes bandwidth with the first segment, fetches a low-resolution segment, switches up if throughput is high, and switches down on rebuffers. A separate metadata path serves catalog and pre-computed recommendations, with a nightly batch job computing personalized top-N recommendations per user from watch history and writing them to Redis."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "deep-dive",
+      "payload": {
+        "text": "**Deep dive: adaptive bitrate streaming and the Open Connect CDN.**\n\n**Why ABR exists.** A user's bandwidth fluctuates constantly — WiFi interference, cellular handoff, household members streaming. If Netflix sent a fixed 5 Mbps stream and the user's throughput dropped to 2 Mbps, the player would rebuffer (stall). ABR (Adaptive Bitrate) solves this by splitting the video into 2-10s segments at multiple bitrates (240p, 480p, 720p, 1080p, 4K) and letting the player switch on the fly.\n\n**ABR algorithm.** A typical ABR player (e.g. dash.js, Shaka):\n1. Fetch the manifest, list available bitrates.\n2. Start with the lowest bitrate segment (fast time-to-first-frame).\n3. Measure throughput while fetching.\n4. Estimate next-segment bandwidth = EWMA of recent throughput.\n5. Pick the highest bitrate whose bandwidth <= 0.7 x estimated throughput (0.7 buffer factor avoids edge-of-cliff rebuffers).\n6. Maintain a buffer of ~10s ahead so brief throughput dips don't rebuffer.\n\n**Why Netflix built Open Connect.** In 2011-2012, Netflix used third-party CDNs (Akamai, Limelight, Level3). At Netflix's scale (~30% of US internet traffic), generic CDNs couldn't economically deliver, and Netflix wanted more control over where bytes were cached (e.g. pre-position new episodes on edges before release). Open Connect: Netflix ships physical appliances (OCAs) into ISP data centers. Each OCA holds 100 TB - 2 PB. ISPs get free peering (Netflix traffic doesn't traverse their paid transit); Netflix gets free edge capacity. Win-win.\n\n**OCA fill strategy.** New content is pushed to OCAs proactively (before release) based on predicted demand. Popular content is on every OCA; long-tail content is served from regional origins on cache miss.\n\n**Transcoding pipeline.** Master mezzanine files (huge, ~10s of GB per title) are transcoded in parallel on AWS EC2 spot instances. Each encoding is a separate FFmpeg job; 15 encodings per title takes hours but is done once at ingestion. AV1 codec (newer, ~30% smaller than HEVC) is transcoded last because it's 10x slower.\n\n**DRM.** Every segment is encrypted (Widevine for Android/Chrome, FairPlay for iOS/Safari, PlayReady for Windows). The Playback Service issues a short-TTL license to the device; the device decrypts on playback. Without a license, segments are useless bytes."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "bottlenecks",
+      "payload": {
+        "text": "**Bottlenecks and failure modes.**\n\n- **OCA cache miss.** A user requests a long-tail title not on their local OCA. *Mitigation*: OCA fetches from regional origin (adds 50-200ms latency for the first segment); after that, cached.\n\n- **ISP outage.** An ISP's OCA goes offline; users in that ISP fall back to a regional origin. *Mitigation*: regional origins have capacity; DNS health checks redirect users.\n\n- **Release-day spike.** A new Stranger Things episode drops; everyone tries to watch at once. *Mitigation*: pre-position the episode on every OCA 24h before release; warm edge caches.\n\n- **ABR over-reaction.** The player sees a brief throughput dip and switches down to 240p, then back up — visible quality flicker. *Mitigation*: ABR algorithms (e.g. BOLA, MPC) use buffer-aware logic to avoid flapping.\n\n- **DRM license server failure.** Without a license, no playback. *Mitigation*: license servers are HA multi-region; client caches license for the session.\n\n- **Transcoding bottleneck.** AV1 transcode is 10x slower than HEVC; a new title can take days to fully transcode. *Mitigation*: parallelize across thousands of spot instances; accept that AV1 lags other codecs by weeks.\n\n- **Recommendations freshness.** Recs are recomputed nightly; a user who binge-watches a show may see stale recs the next day. *Mitigation*: trigger a rec recompute on significant watch events.\n\n- **Subtitle / audio track load.** A title with 30 subtitle languages and 10 audio tracks has 300 track combinations. *Mitigation*: subtitles and audio are stored as separate tracks; the player fetches only the one selected."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "scaling",
+      "payload": {
+        "text": "**Scaling strategy and trade-offs.**\n\n*CDN scaling.* Open Connect scales by adding more OCAs inside ISPs. Each OCA is a commodity x86 server with disks; Netflix ships them free to ISPs.\n\n*Transcoding scaling.* Parallelize per (title, resolution, codec) job on spot instances. Cost-optimized: run on spot, retry on eviction.\n\n*Catalog scaling.* 100K titles is small for a database; even 10M titles would fit in a sharded Postgres. The bottleneck is search and discovery, not storage.\n\n*Recommendations scaling.* Pre-compute top-N per user nightly using Spark. 250M users x 1000 watched items x cosine similarity = trillions of operations, but Spark handles it in hours.\n\n*Multi-region.* Catalog and metadata are globally replicated. Streaming is inherently regional (each user's nearest OCA).\n\n*Trade-offs made explicit.*\n- We chose Open Connect (own CDN) — **gained** cost control and edge caching policy, **lost** the operational simplicity of a managed CDN.\n- We chose HLS/DASH segments of 10s — **gained** fine-grained ABR switching, **lost** segment overhead (more HTTP requests) and slight latency.\n- We chose multi-codec (H.264 + HEVC + AV1) — **gained** bandwidth savings (AV1 is 30% smaller), **lost** transcoding cost and storage.\n- We chose pre-computed recommendations nightly — **gained** fast reads, **lost** freshness (recs up to 24h stale).\n- We chose DRM on every segment — **gained** content protection (studios require it), **lost** license-server dependency for playback."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q1",
+      "payload": {
+        "question": "Why does Netflix split videos into 10-second segments at multiple bitrates?",
+        "shape": "mcq",
+        "options": [
+          "To make seek/scrub responsive — only the segments after the seek point need to be re-fetched.",
+          "To allow adaptive bitrate streaming — the player switches bitrate per segment based on observed throughput, preventing rebuffers on flaky networks.",
+          "To reduce storage cost.",
+          "To make transcoding parallelizable."
+        ],
+        "answer_index": 1,
+        "rationale": "Adaptive Bitrate Streaming (ABR) splits video into 2-10s segments, each available at multiple bitrates (240p to 4K). The player continuously measures throughput and picks the highest bitrate it can sustain without rebuffers. Without segments, a 2-hour movie is one giant file; the player can't switch quality mid-stream. Segments also make seek responsive (only fetch segments after the seek point) and make transcoding parallelizable (each segment is an independent FFmpeg job). The PRIMARY reason for ABR is bandwidth adaptation; the other benefits are side effects.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q2",
+      "payload": {
+        "question": "Why did Netflix build its own CDN (Open Connect) instead of using Akamai/Cloudflare?",
+        "shape": "mcq",
+        "options": [
+          "Generic CDNs were too slow for video.",
+          "At ~30% of US internet traffic, generic CDNs were uneconomical; Netflix wanted control over edge caching (e.g. pre-positioning new episodes) and got free ISP peering by placing appliances inside ISPs.",
+          "Open Connect is cheaper to operate than paying Akamai.",
+          "Akamai refused to serve Netflix."
+        ],
+        "answer_index": 1,
+        "rationale": "Netflix's traffic is so large that commercial CDN pricing was prohibitive — they would have been Akamai's largest customer by far, with little negotiation leverage. By building Open Connect, Netflix (a) pays only for the hardware (a one-time cost), (b) gets free peering with ISPs (because the OCA is INSIDE the ISP, traffic doesn't transit paid links), (c) controls caching policy (can pre-position a new Stranger Things episode on every edge 24h before release), and (d) eliminates a single-vendor risk. Generic CDNs are NOT slower (option A is wrong); they just don't make economic sense at this scale.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-design-netflix-mental",
+      "payload": {
+        "text": "Engineering mental model",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-design-netflix-mental",
+      "payload": {
+        "text": "**Mental model.** Think of Design Netflix as a deliberate boundary in a system. The boundary exists because something becomes harder to manage when everything is done in one place: latency, scale, failure isolation, consistency, cost, or team ownership. The useful question is not “what does Design Netflix mean?” but “what pressure makes this boundary worth introducing, and what new failure mode does it create?”"
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-design-netflix-decision",
+      "payload": {
+        "title": "Design lens",
+        "body": "Before choosing Design Netflix, name the workload, the critical user path, the dominant bottleneck, the failure you are trying to absorb, and the trade-off you are willing to accept. If you cannot name those five things, the design is probably premature.",
+        "kind": "info"
+      }
+    },
+    {
+      "type": "image",
+      "id": "upgrade-image-design-netflix",
+      "payload": {
+        "src": "/learning-visuals/design-netflix.svg",
+        "alt": "Original NO CAP systems visual for Design Netflix.",
+        "caption": "Design Netflix: a compact system-thinking visual.",
+        "credit": "Original NO CAP visual.",
+        "source_url": "https://github.com/donnemartin/system-design-primer"
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "upgrade-mermaid-design-netflix",
+      "payload": {
+        "code": "flowchart LR\n  A[Client] --> B[Gateway] --> C[Services] --> D[Data] --> E[Delivery]",
+        "caption": "Design Netflix: a simplified system view showing the primary flow and the main state boundaries.",
+        "alt_text": "Design Netflix: a simplified system view showing the primary flow and the main state boundaries."
+      }
+    },
+    {
+      "type": "code",
+      "id": "upgrade-code-design-netflix",
+      "payload": {
+        "language": "text",
+        "code": "// Pseudocode\nrequest = receive()\nresult = design_netflix(request)\nreturn result\n\n// Production questions:\n// 1. What happens on timeout?\n// 2. Can this operation be retried safely?\n// 3. What is the bottleneck?",
+        "caption": "A minimal engineering sketch for reasoning about Design Netflix."
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-design-netflix-numbers",
+      "payload": {
+        "text": "Back-of-the-envelope reasoning",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-design-netflix-numbers",
+      "payload": {
+        "text": "Numerical lens: write down traffic, payload size, read/write ratio, peak multiplier and durability target before choosing a component. The numbers should justify the architecture."
+      }
+    },
+    {
+      "type": "simulation",
+      "id": "upgrade-sim-design-netflix",
+      "payload": {
+        "title": "Interactive thought experiment: Design Netflix",
+        "description": "Change the variables below and predict what breaks first in Design Netflix. The production lab can later reuse these same inputs.",
+        "variables": [
+          {
+            "name": "traffic",
+            "description": "Requests/events per second",
+            "default": "1000"
+          },
+          {
+            "name": "latency",
+            "description": "Dependency latency",
+            "default": "50ms"
+          },
+          {
+            "name": "failure_rate",
+            "description": "Injected failure rate",
+            "default": "0%"
+          }
+        ],
+        "placeholder_note": "Interactive controls are deterministic; use the linked Labs section when a dedicated lab exists."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-design-netflix-hint",
+      "payload": {
+        "title": "Hint",
+        "body": "If you are stuck on Design Netflix, start by drawing the request path and marking every network hop, stateful component, queue, cache and failure boundary. Then estimate where the system will saturate.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-design-netflix-1",
+      "payload": {
+        "shape": "prediction",
+        "question": "You increase traffic by 10× in a system using Design Netflix. What should you inspect first?",
+        "options": [
+          "The newest framework version",
+          "The dominant bottleneck and its saturation signal",
+          "Only the UI",
+          "Nothing; the architecture should absorb any traffic automatically"
+        ],
+        "answer_index": 1,
+        "rationale": "System design is a constraint-and-bottleneck exercise. Start with the resource or dependency that will saturate first, then choose the smallest change that removes that bottleneck.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-design-netflix-2",
+      "payload": {
+        "shape": "mcq",
+        "question": "Which statement is the safest engineering habit when using Design Netflix?",
+        "options": [
+          "Choose it because it is popular",
+          "Add it before measuring the problem",
+          "State the workload, failure mode and trade-off it is solving",
+          "Use the most distributed design possible"
+        ],
+        "answer_index": 2,
+        "rationale": "Good architecture starts from requirements, workload and failure assumptions. The component is the consequence of that reasoning, not the starting point.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "scenario",
+      "id": "upgrade-scenario-design-netflix",
+      "payload": {
+        "prompt": "Production scenario: your system uses Design Netflix, traffic suddenly spikes, and p99 latency doubles. What is your first move?",
+        "context": "You have dashboards for traffic, latency, errors and saturation. You can change the architecture, but every change has operational cost.",
+        "options": [
+          {
+            "id": "a",
+            "text": "Add more instances immediately",
+            "outcome": "This may help, but only if compute saturation is the bottleneck.",
+            "correct": false
+          },
+          {
+            "id": "b",
+            "text": "Inspect the bottleneck and its saturation signal first",
+            "outcome": "Correct: diagnose before scaling or introducing a new pattern.",
+            "correct": true
+          },
+          {
+            "id": "c",
+            "text": "Disable monitoring to reduce overhead",
+            "outcome": "This removes the evidence you need to diagnose the incident.",
+            "correct": false
+          }
+        ],
+        "rationale": "Measure the limiting resource or dependency first. A bottleneck can be compute, database I/O, network, cache misses, lock contention, downstream latency, or queue backlog.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-design-netflix-interview",
+      "payload": {
+        "text": "Interview drill",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-design-netflix-interview",
+      "payload": {
+        "text": "**Answer this without notes:** When would you choose Design Netflix, and when would you intentionally avoid it? Mention at least one bottleneck it addresses, one failure mode it introduces, and one alternative. Then quantify the workload you are designing for."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "field-guide-design-netflix",
+      "payload": {
+        "title": "Engineering lens",
+        "body": "A useful engineering lens for Design Netflix: define the problem it solves, the simpler design that fails first, the constraint that forces you to introduce this concept, and the new failure modes the concept creates.",
+        "kind": "tip"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "numerical-lens-design-netflix",
+      "payload": {
+        "text": "### Numerical sanity check\n\nBack-of-the-envelope reasoning beats fake precision. State your traffic, payload, concurrency and growth assumptions explicitly, then calculate enough to know whether the current architecture is orders of magnitude away from the target."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "field-question-design-netflix",
+      "payload": {
+        "shape": "prediction",
+        "question": "Imagine the simplest version of a system using Design Netflix. What breaks first as traffic grows by 10×, and what would you change before reaching 100×?",
+        "context": "Do not optimize for a memorized definition. Reason from the workload and failure mode.",
+        "options": [
+          "Scale the same component immediately.",
+          "Measure the current bottleneck and state the assumption that changed.",
+          "Add more technologies until throughput improves.",
+          "Choose the most popular architecture."
+        ],
+        "answer_index": 1,
+        "rationale": "Good system design starts with the bottleneck and the changed constraint. The most popular or complex choice is not automatically correct.",
+        "difficulty": "interview"
+      }
+    }
+  ],
+  "trade_offs": {
+    "pros": [
+      "Adaptive bitrate (segment switching) handles flaky networks gracefully.",
+      "Open Connect (appliances inside ISPs) gives free peering and edge caching control.",
+      "Multi-codec (H.264/HEVC/AV1) saves 30% bandwidth for capable devices.",
+      "Pre-computed nightly recommendations keep reads fast."
+    ],
+    "cons": [
+      "Open Connect is operationally complex — physical appliances, ISP relationships.",
+      "AV1 transcoding is 10x slower than HEVC — new titles lag in AV1 by weeks.",
+      "Recommendations are up to 24h stale.",
+      "DRM license server is a playback dependency."
+    ]
+  },
+  "failure_modes": [
+    "OCA cache miss on long-tail titles — needs regional origin fallback.",
+    "ISP / OCA outage — needs DNS health-check redirect to regional origin.",
+    "Release-day spike — needs proactive pre-positioning on edges 24h before.",
+    "ABR over-reaction causing quality flicker — needs buffer-aware algorithms (BOLA/MPC).",
+    "DRM license server failure — needs multi-region HA + client-side license cache."
+  ],
+  "common_mistakes": [
+    "Serving a single giant video file instead of segmented HLS/DASH — no ABR possible.",
+    "Using a managed CDN at Netflix's scale — uneconomical.",
+    "Single-codec encoding — wastes bandwidth for capable devices.",
+    "Computing recommendations on read — blows latency budget.",
+    "Single-region DRM license server — playback breaks on regional outage."
+  ],
+  "where_you_see_it": [
+    "Netflix",
+    "Disney+",
+    "HBO Max / Max",
+    "Amazon Prime Video",
+    "Hulu"
+  ],
+  "interview_prompts": [
+    "Design Netflix. How do you handle 30% of US internet traffic?",
+    "Why does Netflix use 10-second video segments at multiple bitrates?",
+    "Why did Netflix build Open Connect instead of using Akamai?",
+    "How does the player switch video quality during playback?"
+  ],
+  "real_system_mappings": [
+    {
+      "system": "Netflix Open Connect",
+      "how": "Custom CDN with physical appliances (OCAs) inside ISP data centers. Netflix handles origin and transcoding on AWS; OCAs serve bytes from inside ISPs. Documented in their tech blog."
+    },
+    {
+      "system": "HLS / DASH",
+      "how": "Open standards for ABR streaming. HLS (HTTP Live Streaming, Apple) uses .m3u8 manifests + .ts segments. DASH (Dynamic Adaptive Streaming over HTTP, MPEG) uses .mpd manifests + .m4s segments."
+    },
+    {
+      "system": "Disney+ Hotstar",
+      "how": "India-scale streaming (100M+ concurrent viewers for cricket). Uses Akamai + multi-CDN strategy and aggressive pre-warming for live events."
+    }
+  ],
+  "status": "published",
+  "sources": [
+    {
+      "title": "System Design Primer",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Open source"
+    },
+    {
+      "title": "ByteByteGo — Scale from zero to millions",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "ByteByteGo"
+    },
+    {
+      "title": "System Design Tutorial",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "GeeksforGeeks"
+    },
+    {
+      "title": "System Design Roadmap",
+      "url": "https://roadmap.sh/system-design",
+      "publisher": "roadmap.sh"
+    },
+    {
+      "title": "Case Studies reference",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Case Studies reference",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Case Studies reference",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "Reference"
+    }
+  ]
+}

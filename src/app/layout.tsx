@@ -11,6 +11,7 @@ export const metadata: Metadata = {
   applicationName: 'NO CAP',
   authors: [{ name: 'NO CAP' }],
   keywords: ['system design', 'learning', 'interview prep', 'architecture', 'distributed systems'],
+  icons: { icon: '/icons/icon-192.png', apple: '/icons/icon-192.png' },
 };
 
 export const viewport: Viewport = {
@@ -30,7 +31,7 @@ export default function RootLayout({
 }) {
   // Inline script applies the saved theme BEFORE React hydrates.
   // Prevents the flash of the wrong theme on first paint.
-  const themeBoot = `(function(){try{var s=localStorage.getItem('nocap-state-v0.2');var t='system';if(s){var p=JSON.parse(s);t=p?.state?.theme||'system'}var r=t;if(r==='system'){r=window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'}document.documentElement.setAttribute('data-theme',r);document.documentElement.style.colorScheme=r}catch(e){}})();`;
+  const themeBoot = `(function(){try{var s=localStorage.getItem('nocap-state-v0.2');var t='system';if(s){var p=JSON.parse(s);t=p?.state?.theme||'system'}var r=t;if(r==='system'){r=window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'}document.documentElement.setAttribute('data-theme',r);document.documentElement.style.colorScheme=(r==='dark'||r==='charcoal')?'dark':'light'}catch(e){}})();`;
   return (
     <html lang="en" suppressHydrationWarning>
       <body>

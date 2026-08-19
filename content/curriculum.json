@@ -1,0 +1,278 @@
+{
+  "version": 1,
+  "description": "NO CAP complete curriculum registry. One canonical concept per slug; roadmap sections reference them. Status: published = full content; draft = stub with metadata; planned = placeholder only.",
+  "sections": [
+    {
+      "slug": "foundations",
+      "title": "Foundations",
+      "description": "What system design is, how to reason about it, and the core trade-offs that shape every decision.",
+      "order": 1,
+      "concepts": [
+        { "slug": "what-is-system-design", "title": "What is System Design", "status": "published", "estimated_minutes": 8, "difficulty": "core", "prerequisites": [], "related": ["how-to-approach-system-design"] },
+        { "slug": "how-to-approach-system-design", "title": "How to Approach System Design", "status": "published", "estimated_minutes": 10, "difficulty": "core", "prerequisites": ["what-is-system-design"], "related": ["performance-vs-scalability", "latency-vs-throughput"] },
+        { "slug": "performance-vs-scalability", "title": "Performance vs Scalability", "status": "published", "estimated_minutes": 8, "difficulty": "core", "prerequisites": ["what-is-system-design"], "related": ["latency-vs-throughput"] },
+        { "slug": "latency-vs-throughput", "title": "Latency vs Throughput", "status": "published", "estimated_minutes": 9, "difficulty": "core", "prerequisites": ["performance-vs-scalability"], "related": ["availability-vs-consistency"] },
+        { "slug": "availability-vs-consistency", "title": "Availability vs Consistency", "status": "published", "estimated_minutes": 10, "difficulty": "core", "prerequisites": ["latency-vs-throughput"], "related": ["cap-theorem"] },
+        { "slug": "cap-theorem", "title": "CAP Theorem", "status": "published", "estimated_minutes": 14, "difficulty": "core", "prerequisites": ["availability-vs-consistency"], "related": ["consistency-patterns", "availability-patterns"] },
+        { "slug": "consistency-patterns", "title": "Consistency Patterns", "status": "draft", "estimated_minutes": 10, "difficulty": "advanced", "prerequisites": ["cap-theorem"], "related": ["availability-patterns"] },
+        { "slug": "availability-patterns", "title": "Availability Patterns", "status": "draft", "estimated_minutes": 10, "difficulty": "advanced", "prerequisites": ["cap-theorem"], "related": ["consistency-patterns"] }
+      ]
+    },
+    {
+      "slug": "architecture-infrastructure",
+      "title": "Architecture & Infrastructure",
+      "description": "The building blocks every system sits on: DNS, CDN, load balancers, app layers, microservices.",
+      "order": 2,
+      "concepts": [
+        { "slug": "how-the-internet-works", "title": "How the Internet Works", "status": "published", "estimated_minutes": 10, "difficulty": "core", "prerequisites": [], "related": ["dns", "http"] },
+        { "slug": "dns", "title": "DNS", "status": "published", "estimated_minutes": 12, "difficulty": "core", "prerequisites": ["how-the-internet-works"], "related": ["cdn", "load-balancers"] },
+        { "slug": "cdn", "title": "Content Delivery Networks", "status": "draft", "estimated_minutes": 11, "difficulty": "core", "prerequisites": ["dns"], "related": ["caching-strategies", "web-server-caching"] },
+        { "slug": "load-balancers", "title": "Load Balancers", "status": "published", "estimated_minutes": 14, "difficulty": "core", "prerequisites": ["how-the-internet-works"], "related": ["horizontal-scaling", "reverse-proxy"] },
+        { "slug": "application-layer", "title": "Application Layer", "status": "draft", "estimated_minutes": 10, "difficulty": "core", "prerequisites": ["load-balancers"], "related": ["microservices"] },
+        { "slug": "microservices", "title": "Microservices", "status": "draft", "estimated_minutes": 13, "difficulty": "advanced", "prerequisites": ["application-layer", "horizontal-scaling"], "related": ["service-discovery", "api-gateway"] },
+        { "slug": "service-discovery", "title": "Service Discovery", "status": "draft", "estimated_minutes": 9, "difficulty": "advanced", "prerequisites": ["microservices"], "related": ["load-balancers"] },
+        { "slug": "background-jobs", "title": "Background Jobs", "status": "draft", "estimated_minutes": 10, "difficulty": "core", "prerequisites": ["application-layer"], "related": ["task-queues", "message-queues"] }
+      ]
+    },
+    {
+      "slug": "networking-communication",
+      "title": "Networking & Communication",
+      "description": "How machines talk to each other: HTTP, TCP/UDP, REST, gRPC, and the trade-offs between them.",
+      "order": 3,
+      "concepts": [
+        { "slug": "http", "title": "HTTP", "status": "published", "estimated_minutes": 11, "difficulty": "core", "prerequisites": ["how-the-internet-works"], "related": ["tcp", "rest"] },
+        { "slug": "tcp", "title": "TCP", "status": "draft", "estimated_minutes": 12, "difficulty": "core", "prerequisites": ["http"], "related": ["udp"] },
+        { "slug": "udp", "title": "UDP", "status": "draft", "estimated_minutes": 8, "difficulty": "core", "prerequisites": ["tcp"], "related": ["quic"] },
+        { "slug": "rest", "title": "REST", "status": "published", "estimated_minutes": 12, "difficulty": "core", "prerequisites": ["http"], "related": ["graphql", "rpc"] },
+        { "slug": "graphql", "title": "GraphQL", "status": "draft", "estimated_minutes": 11, "difficulty": "advanced", "prerequisites": ["rest"], "related": ["rpc"] },
+        { "slug": "rpc", "title": "RPC", "status": "draft", "estimated_minutes": 9, "difficulty": "advanced", "prerequisites": ["rest"], "related": ["grpc"] },
+        { "slug": "grpc", "title": "gRPC", "status": "draft", "estimated_minutes": 10, "difficulty": "advanced", "prerequisites": ["rpc", "http"], "related": ["rest"] },
+        { "slug": "websockets", "title": "WebSockets", "status": "draft", "estimated_minutes": 10, "difficulty": "advanced", "prerequisites": ["http"], "related": ["server-sent-events", "webrtc"] },
+        { "slug": "server-sent-events", "title": "Server-Sent Events (SSE)", "status": "draft", "estimated_minutes": 7, "difficulty": "advanced", "prerequisites": ["http"], "related": ["websockets"] },
+        { "slug": "webrtc", "title": "WebRTC", "status": "draft", "estimated_minutes": 11, "difficulty": "expert", "prerequisites": ["udp", "websockets"], "related": [] },
+        { "slug": "tls", "title": "TLS", "status": "draft", "estimated_minutes": 10, "difficulty": "advanced", "prerequisites": ["http", "tcp"], "related": ["oauth"] },
+        { "slug": "quic", "title": "QUIC", "status": "draft", "estimated_minutes": 9, "difficulty": "advanced", "prerequisites": ["udp", "tls"], "related": ["http"] }
+      ]
+    },
+    {
+      "slug": "databases-data-systems",
+      "title": "Databases & Data Systems",
+      "description": "How data is stored, queried, replicated, and partitioned. The heart of almost every system.",
+      "order": 4,
+      "concepts": [
+        { "slug": "sql-vs-nosql", "title": "SQL vs NoSQL", "status": "published", "estimated_minutes": 13, "difficulty": "core", "prerequisites": ["what-is-system-design"], "related": ["key-value-stores", "document-stores"] },
+        { "slug": "key-value-stores", "title": "Key-Value Stores", "status": "draft", "estimated_minutes": 9, "difficulty": "core", "prerequisites": ["sql-vs-nosql"], "related": ["document-stores", "wide-column-stores"] },
+        { "slug": "document-stores", "title": "Document Stores", "status": "draft", "estimated_minutes": 10, "difficulty": "core", "prerequisites": ["sql-vs-nosql"], "related": ["key-value-stores"] },
+        { "slug": "wide-column-stores", "title": "Wide Column Stores", "status": "draft", "estimated_minutes": 11, "difficulty": "advanced", "prerequisites": ["sql-vs-nosql"], "related": ["key-value-stores"] },
+        { "slug": "graph-databases", "title": "Graph Databases", "status": "draft", "estimated_minutes": 9, "difficulty": "advanced", "prerequisites": ["sql-vs-nosql"], "related": [] },
+        { "slug": "replication", "title": "Replication", "status": "published", "estimated_minutes": 13, "difficulty": "core", "prerequisites": ["sql-vs-nosql"], "related": ["sharding", "cap-theorem"] },
+        { "slug": "sharding", "title": "Sharding", "status": "published", "estimated_minutes": 14, "difficulty": "advanced", "prerequisites": ["replication", "consistent-hashing"], "related": ["federation"] },
+        { "slug": "federation", "title": "Federation", "status": "draft", "estimated_minutes": 9, "difficulty": "advanced", "prerequisites": ["sharding"], "related": [] },
+        { "slug": "denormalization", "title": "Denormalization", "status": "draft", "estimated_minutes": 9, "difficulty": "advanced", "prerequisites": ["sql-vs-nosql"], "related": ["materialized-view"] },
+        { "slug": "sql-tuning", "title": "SQL Tuning", "status": "draft", "estimated_minutes": 12, "difficulty": "advanced", "prerequisites": ["sql-vs-nosql"], "related": ["index-table"] },
+        { "slug": "transactions", "title": "Transactions & ACID", "status": "draft", "estimated_minutes": 12, "difficulty": "advanced", "prerequisites": ["sql-vs-nosql"], "related": ["isolation-levels", "mvcc"] },
+        { "slug": "isolation-levels", "title": "Isolation Levels", "status": "draft", "estimated_minutes": 11, "difficulty": "expert", "prerequisites": ["transactions"], "related": ["mvcc"] },
+        { "slug": "mvcc", "title": "MVCC", "status": "draft", "estimated_minutes": 10, "difficulty": "expert", "prerequisites": ["isolation-levels"], "related": ["transactions"] },
+        { "slug": "wal", "title": "Write-Ahead Log (WAL)", "status": "draft", "estimated_minutes": 9, "difficulty": "expert", "prerequisites": ["transactions"], "related": ["event-sourcing"] }
+      ]
+    },
+    {
+      "slug": "scaling-performance",
+      "title": "Scaling & Performance",
+      "description": "How systems handle more traffic, more data, and more users without falling over.",
+      "order": 5,
+      "concepts": [
+        { "slug": "horizontal-scaling", "title": "Horizontal Scaling", "status": "published", "estimated_minutes": 11, "difficulty": "core", "prerequisites": ["load-balancers"], "related": ["vertical-scaling"] },
+        { "slug": "vertical-scaling", "title": "Vertical Scaling", "status": "draft", "estimated_minutes": 7, "difficulty": "core", "prerequisites": ["horizontal-scaling"], "related": [] },
+        { "slug": "back-pressure", "title": "Back Pressure", "status": "published", "estimated_minutes": 10, "difficulty": "advanced", "prerequisites": ["horizontal-scaling"], "related": ["rate-limiting", "task-queues"] },
+        { "slug": "task-queues", "title": "Task Queues", "status": "published", "estimated_minutes": 11, "difficulty": "core", "prerequisites": ["background-jobs"], "related": ["message-queues"] },
+        { "slug": "message-queues", "title": "Message Queues", "status": "published", "estimated_minutes": 13, "difficulty": "core", "prerequisites": ["task-queues"], "related": ["pub-sub", "competing-consumers"] },
+        { "slug": "idempotent-operations", "title": "Idempotent Operations", "status": "published", "estimated_minutes": 10, "difficulty": "core", "prerequisites": ["rest"], "related": ["retry"] },
+        { "slug": "consistent-hashing", "title": "Consistent Hashing", "status": "published", "estimated_minutes": 12, "difficulty": "advanced", "prerequisites": ["sharding"], "related": ["sharding", "replication"] },
+        { "slug": "rate-limiting", "title": "Rate Limiting", "status": "published", "estimated_minutes": 12, "difficulty": "core", "prerequisites": ["back-pressure"], "related": ["throttling"] }
+      ]
+    },
+    {
+      "slug": "caching",
+      "title": "Caching",
+      "description": "The single most impactful performance optimization in most systems — and the source of most consistency bugs.",
+      "order": 6,
+      "concepts": [
+        { "slug": "caching-strategies", "title": "Caching Strategies", "status": "published", "estimated_minutes": 10, "difficulty": "core", "prerequisites": ["latency-vs-throughput"], "related": ["cache-aside"] },
+        { "slug": "cache-aside", "title": "Cache Aside", "status": "published", "estimated_minutes": 13, "difficulty": "core", "prerequisites": ["caching-strategies"], "related": ["write-through", "write-behind"] },
+        { "slug": "write-through", "title": "Write Through", "status": "draft", "estimated_minutes": 9, "difficulty": "advanced", "prerequisites": ["cache-aside"], "related": ["write-behind", "refresh-ahead"] },
+        { "slug": "write-behind", "title": "Write Behind", "status": "draft", "estimated_minutes": 10, "difficulty": "advanced", "prerequisites": ["write-through"], "related": ["cache-aside"] },
+        { "slug": "refresh-ahead", "title": "Refresh Ahead", "status": "draft", "estimated_minutes": 8, "difficulty": "advanced", "prerequisites": ["cache-aside"], "related": ["write-through"] },
+        { "slug": "client-caching", "title": "Client Caching", "status": "draft", "estimated_minutes": 8, "difficulty": "core", "prerequisites": ["caching-strategies"], "related": ["cdn-caching"] },
+        { "slug": "cdn-caching", "title": "CDN Caching", "status": "draft", "estimated_minutes": 10, "difficulty": "core", "prerequisites": ["cdn", "caching-strategies"], "related": ["web-server-caching"] },
+        { "slug": "web-server-caching", "title": "Web Server Caching", "status": "draft", "estimated_minutes": 9, "difficulty": "core", "prerequisites": ["caching-strategies"], "related": ["database-caching"] },
+        { "slug": "database-caching", "title": "Database Caching", "status": "draft", "estimated_minutes": 9, "difficulty": "advanced", "prerequisites": ["caching-strategies"], "related": ["application-caching"] },
+        { "slug": "application-caching", "title": "Application Caching", "status": "draft", "estimated_minutes": 9, "difficulty": "core", "prerequisites": ["caching-strategies"], "related": ["database-caching"] }
+      ]
+    },
+    {
+      "slug": "asynchronous-systems",
+      "title": "Asynchronous Systems",
+      "description": "Decoupling producers from consumers so the system survives bursts, failures, and slow downstream deps.",
+      "order": 7,
+      "concepts": [
+        { "slug": "message-queues-async", "title": "Message Queues (Async)", "status": "published", "estimated_minutes": 11, "difficulty": "core", "prerequisites": ["message-queues"], "related": ["event-driven-architecture"] },
+        { "slug": "event-driven-architecture", "title": "Event-Driven Architecture", "status": "published", "estimated_minutes": 12, "difficulty": "advanced", "prerequisites": ["message-queues-async"], "related": ["pub-sub"] },
+        { "slug": "pub-sub", "title": "Publish/Subscribe", "status": "published", "estimated_minutes": 11, "difficulty": "advanced", "prerequisites": ["event-driven-architecture"], "related": ["competing-consumers"] },
+        { "slug": "competing-consumers", "title": "Competing Consumers", "status": "draft", "estimated_minutes": 9, "difficulty": "advanced", "prerequisites": ["pub-sub"], "related": ["message-queues"] },
+        { "slug": "async-request-reply", "title": "Async Request-Reply", "status": "draft", "estimated_minutes": 9, "difficulty": "advanced", "prerequisites": ["message-queues"], "related": ["claim-check"] }
+      ]
+    },
+    {
+      "slug": "distributed-systems",
+      "title": "Distributed Systems",
+      "description": "The hard problems: consistency, consensus, clocks, partitions, and the myths about exactly-once.",
+      "order": 8,
+      "concepts": [
+        { "slug": "distributed-systems-intro", "title": "Distributed Systems Fundamentals", "status": "draft", "estimated_minutes": 12, "difficulty": "advanced", "prerequisites": ["cap-theorem"], "related": ["replication", "sharding"] },
+        { "slug": "consensus", "title": "Consensus (Paxos / Raft)", "status": "draft", "estimated_minutes": 14, "difficulty": "expert", "prerequisites": ["distributed-systems-intro", "leader-election"], "related": ["leader-election"] },
+        { "slug": "leader-election", "title": "Leader Election", "status": "draft", "estimated_minutes": 10, "difficulty": "advanced", "prerequisites": ["distributed-systems-intro"], "related": ["consensus"] },
+        { "slug": "quorum", "title": "Quorum", "status": "draft", "estimated_minutes": 9, "difficulty": "advanced", "prerequisites": ["replication"], "related": ["consensus", "cap-theorem"] },
+        { "slug": "logical-clocks", "title": "Logical Clocks (Lamport / Vector)", "status": "draft", "estimated_minutes": 11, "difficulty": "expert", "prerequisites": ["distributed-systems-intro"], "related": ["consensus"] },
+        { "slug": "distributed-locks", "title": "Distributed Locks", "status": "draft", "estimated_minutes": 10, "difficulty": "advanced", "prerequisites": ["consensus"], "related": ["leader-election"] },
+        { "slug": "distributed-transactions", "title": "Distributed Transactions", "status": "draft", "estimated_minutes": 13, "difficulty": "expert", "prerequisites": ["transactions", "consensus"], "related": ["two-phase-commit"] },
+        { "slug": "two-phase-commit", "title": "Two-Phase Commit", "status": "draft", "estimated_minutes": 10, "difficulty": "expert", "prerequisites": ["distributed-transactions"], "related": ["saga-pattern"] },
+        { "slug": "saga-pattern", "title": "Saga Pattern", "status": "draft", "estimated_minutes": 11, "difficulty": "advanced", "prerequisites": ["distributed-transactions"], "related": ["event-sourcing"] }
+      ]
+    },
+    {
+      "slug": "reliability-resilience",
+      "title": "Reliability & Resilience",
+      "description": "Patterns that keep systems working when things fail — because things always fail.",
+      "order": 9,
+      "concepts": [
+        { "slug": "retry", "title": "Retry", "status": "published", "estimated_minutes": 9, "difficulty": "core", "prerequisites": ["idempotent-operations"], "related": ["circuit-breaker", "back-pressure"] },
+        { "slug": "circuit-breaker", "title": "Circuit Breaker", "status": "published", "estimated_minutes": 11, "difficulty": "advanced", "prerequisites": ["retry"], "related": ["bulkhead", "rate-limiting"] },
+        { "slug": "bulkhead", "title": "Bulkhead", "status": "published", "estimated_minutes": 9, "difficulty": "advanced", "prerequisites": ["circuit-breaker"], "related": ["circuit-breaker"] },
+        { "slug": "throttling", "title": "Throttling", "status": "draft", "estimated_minutes": 9, "difficulty": "advanced", "prerequisites": ["rate-limiting"], "related": ["back-pressure"] },
+        { "slug": "timeout", "title": "Timeouts", "status": "draft", "estimated_minutes": 8, "difficulty": "core", "prerequisites": ["retry"], "related": ["circuit-breaker"] },
+        { "slug": "graceful-degradation", "title": "Graceful Degradation", "status": "draft", "estimated_minutes": 9, "difficulty": "advanced", "prerequisites": ["circuit-breaker"], "related": ["bulkhead"] },
+        { "slug": "failover", "title": "Failover", "status": "draft", "estimated_minutes": 10, "difficulty": "advanced", "prerequisites": ["replication"], "related": ["disaster-recovery"] },
+        { "slug": "disaster-recovery", "title": "Disaster Recovery", "status": "draft", "estimated_minutes": 12, "difficulty": "advanced", "prerequisites": ["failover"], "related": ["multi-region"] },
+        { "slug": "multi-region", "title": "Multi-Region Architecture", "status": "draft", "estimated_minutes": 13, "difficulty": "expert", "prerequisites": ["disaster-recovery", "replication"], "related": ["cap-theorem"] },
+        { "slug": "compensating-transaction", "title": "Compensating Transaction", "status": "draft", "estimated_minutes": 10, "difficulty": "advanced", "prerequisites": ["saga-pattern"], "related": ["saga-pattern"] }
+      ]
+    },
+    {
+      "slug": "observability",
+      "title": "Observability",
+      "description": "Knowing what your system is doing, what it did, and why it broke.",
+      "order": 10,
+      "concepts": [
+        { "slug": "metrics-logs-traces", "title": "Metrics, Logs, Traces", "status": "draft", "estimated_minutes": 12, "difficulty": "core", "prerequisites": ["what-is-system-design"], "related": ["slo-sla-sli"] },
+        { "slug": "slo-sla-sli", "title": "SLO / SLA / SLI", "status": "draft", "estimated_minutes": 10, "difficulty": "advanced", "prerequisites": ["metrics-logs-traces"], "related": ["metrics-logs-traces"] },
+        { "slug": "health-monitoring", "title": "Health Monitoring", "status": "draft", "estimated_minutes": 8, "difficulty": "core", "prerequisites": ["metrics-logs-traces"], "related": ["availability-monitoring"] },
+        { "slug": "availability-monitoring", "title": "Availability Monitoring", "status": "draft", "estimated_minutes": 8, "difficulty": "core", "prerequisites": ["health-monitoring"], "related": ["performance-monitoring"] },
+        { "slug": "performance-monitoring", "title": "Performance Monitoring", "status": "draft", "estimated_minutes": 9, "difficulty": "core", "prerequisites": ["health-monitoring"], "related": ["alerts-visualization"] },
+        { "slug": "instrumentation", "title": "Instrumentation", "status": "draft", "estimated_minutes": 10, "difficulty": "advanced", "prerequisites": ["metrics-logs-traces"], "related": ["alerts-visualization"] },
+        { "slug": "alerts-visualization", "title": "Alerts & Visualization", "status": "draft", "estimated_minutes": 9, "difficulty": "advanced", "prerequisites": ["instrumentation"], "related": [] }
+      ]
+    },
+    {
+      "slug": "design-patterns",
+      "title": "Design Patterns",
+      "description": "Reusable architectural patterns for evolving, decomposing, and protecting systems.",
+      "order": 11,
+      "concepts": [
+        { "slug": "strangler-fig", "title": "Strangler Fig", "status": "draft", "estimated_minutes": 10, "difficulty": "advanced", "prerequisites": ["microservices"], "related": ["anti-corruption-layer"] },
+        { "slug": "sidecar", "title": "Sidecar", "status": "draft", "estimated_minutes": 9, "difficulty": "advanced", "prerequisites": ["microservices"], "related": ["service-mesh"] },
+        { "slug": "cqrs", "title": "CQRS", "status": "draft", "estimated_minutes": 12, "difficulty": "advanced", "prerequisites": ["event-sourcing", "sql-vs-nosql"], "related": ["event-sourcing"] },
+        { "slug": "pipes-and-filters", "title": "Pipes & Filters", "status": "draft", "estimated_minutes": 9, "difficulty": "advanced", "prerequisites": ["message-queues"], "related": [] },
+        { "slug": "api-gateway", "title": "Gateway Routing", "status": "draft", "estimated_minutes": 10, "difficulty": "advanced", "prerequisites": ["load-balancers", "microservices"], "related": ["reverse-proxy"] },
+        { "slug": "reverse-proxy", "title": "Reverse Proxy", "status": "draft", "estimated_minutes": 9, "difficulty": "core", "prerequisites": ["load-balancers"], "related": ["api-gateway"] },
+        { "slug": "external-config-store", "title": "External Config Store", "status": "draft", "estimated_minutes": 8, "difficulty": "core", "prerequisites": ["application-layer"], "related": [] },
+        { "slug": "anti-corruption-layer", "title": "Anti-Corruption Layer", "status": "draft", "estimated_minutes": 9, "difficulty": "advanced", "prerequisites": ["microservices", "strangler-fig"], "related": ["strangler-fig"] },
+        { "slug": "service-mesh", "title": "Service Mesh", "status": "draft", "estimated_minutes": 11, "difficulty": "expert", "prerequisites": ["sidecar", "microservices"], "related": ["sidecar"] }
+      ]
+    },
+    {
+      "slug": "cloud-architecture",
+      "title": "Cloud Architecture",
+      "description": "Cloud-specific patterns: valet keys, materialized views, index tables, event sourcing, queue-based load leveling.",
+      "order": 12,
+      "concepts": [
+        { "slug": "valet-key", "title": "Valet Key", "status": "draft", "estimated_minutes": 9, "difficulty": "advanced", "prerequisites": ["object-storage"], "related": ["gatekeeper"] },
+        { "slug": "materialized-view", "title": "Materialized View", "status": "draft", "estimated_minutes": 10, "difficulty": "advanced", "prerequisites": ["denormalization", "cqrs"], "related": ["cqrs"] },
+        { "slug": "index-table", "title": "Index Table", "status": "draft", "estimated_minutes": 9, "difficulty": "advanced", "prerequisites": ["sql-tuning"], "related": [] },
+        { "slug": "event-sourcing", "title": "Event Sourcing", "status": "draft", "estimated_minutes": 12, "difficulty": "expert", "prerequisites": ["cqrs", "wal"], "related": ["cqrs"] },
+        { "slug": "claim-check", "title": "Claim Check", "status": "draft", "estimated_minutes": 8, "difficulty": "advanced", "prerequisites": ["message-queues", "object-storage"], "related": ["async-request-reply"] },
+        { "slug": "sequential-convoy", "title": "Sequential Convoy", "status": "draft", "estimated_minutes": 9, "difficulty": "expert", "prerequisites": ["message-queues"], "related": [] },
+        { "slug": "priority-queue", "title": "Priority Queue", "status": "draft", "estimated_minutes": 8, "difficulty": "advanced", "prerequisites": ["message-queues"], "related": ["queue-based-load-leveling"] },
+        { "slug": "queue-based-load-leveling", "title": "Queue-Based Load Leveling", "status": "draft", "estimated_minutes": 9, "difficulty": "advanced", "prerequisites": ["message-queues"], "related": ["back-pressure"] },
+        { "slug": "deployment-stamps", "title": "Deployment Stamps", "status": "draft", "estimated_minutes": 10, "difficulty": "advanced", "prerequisites": ["multi-region"], "related": ["geodes"] },
+        { "slug": "geodes", "title": "Geodes", "status": "draft", "estimated_minutes": 9, "difficulty": "advanced", "prerequisites": ["multi-region", "cdn"], "related": ["deployment-stamps"] },
+        { "slug": "object-storage", "title": "Object Storage", "status": "draft", "estimated_minutes": 9, "difficulty": "core", "prerequisites": ["cdn"], "related": ["cdn"] }
+      ]
+    },
+    {
+      "slug": "security",
+      "title": "Security",
+      "description": "Authentication, authorization, and the patterns that keep systems safe.",
+      "order": 13,
+      "concepts": [
+        { "slug": "authentication", "title": "Authentication", "status": "draft", "estimated_minutes": 10, "difficulty": "core", "prerequisites": ["http", "tls"], "related": ["authorization"] },
+        { "slug": "authorization", "title": "Authorization", "status": "draft", "estimated_minutes": 9, "difficulty": "core", "prerequisites": ["authentication"], "related": ["oauth"] },
+        { "slug": "oauth", "title": "OAuth 2.0", "status": "draft", "estimated_minutes": 12, "difficulty": "advanced", "prerequisites": ["authentication", "tls"], "related": ["federated-identity"] },
+        { "slug": "federated-identity", "title": "Federated Identity", "status": "draft", "estimated_minutes": 10, "difficulty": "advanced", "prerequisites": ["oauth"], "related": ["oauth"] },
+        { "slug": "gatekeeper", "title": "Gatekeeper", "status": "draft", "estimated_minutes": 8, "difficulty": "advanced", "prerequisites": ["api-gateway", "valet-key"], "related": ["valet-key"] }
+      ]
+    },
+    {
+      "slug": "real-time-systems",
+      "title": "Real-Time Systems",
+      "description": "Push-based communication: WebSockets, SSE, WebRTC, and the trade-offs between them.",
+      "order": 14,
+      "concepts": [
+        { "slug": "real-time-overview", "title": "Real-Time Communication Overview", "status": "draft", "estimated_minutes": 9, "difficulty": "advanced", "prerequisites": ["http"], "related": ["websockets", "server-sent-events"] }
+      ]
+    },
+    {
+      "slug": "interview-preparation",
+      "title": "Interview Preparation",
+      "description": "The meta-skills: capacity estimation, API design, bottleneck identification, and how to think out loud.",
+      "order": 15,
+      "concepts": [
+        { "slug": "capacity-estimation", "title": "Capacity Estimation", "status": "draft", "estimated_minutes": 12, "difficulty": "core", "prerequisites": ["latency-vs-throughput", "performance-vs-scalability"], "related": ["qps-estimation", "storage-estimation"] },
+        { "slug": "qps-estimation", "title": "QPS Estimation", "status": "draft", "estimated_minutes": 8, "difficulty": "core", "prerequisites": ["capacity-estimation"], "related": ["storage-estimation", "bandwidth-estimation"] },
+        { "slug": "storage-estimation", "title": "Storage Estimation", "status": "draft", "estimated_minutes": 8, "difficulty": "core", "prerequisites": ["capacity-estimation"], "related": ["bandwidth-estimation"] },
+        { "slug": "bandwidth-estimation", "title": "Bandwidth Estimation", "status": "draft", "estimated_minutes": 7, "difficulty": "core", "prerequisites": ["capacity-estimation"], "related": ["qps-estimation"] },
+        { "slug": "cache-sizing", "title": "Cache Sizing", "status": "draft", "estimated_minutes": 8, "difficulty": "advanced", "prerequisites": ["capacity-estimation", "cache-aside"], "related": ["cache-aside"] },
+        { "slug": "api-design", "title": "API Design", "status": "draft", "estimated_minutes": 11, "difficulty": "core", "prerequisites": ["rest"], "related": ["rest", "data-modeling"] },
+        { "slug": "data-modeling", "title": "Data Modeling", "status": "draft", "estimated_minutes": 12, "difficulty": "core", "prerequisites": ["sql-vs-nosql"], "related": ["api-design"] },
+        { "slug": "failure-analysis", "title": "Failure Analysis", "status": "draft", "estimated_minutes": 10, "difficulty": "advanced", "prerequisites": ["single-points-of-failure"], "related": ["bottleneck-identification"] },
+        { "slug": "single-points-of-failure", "title": "Single Points of Failure", "status": "draft", "estimated_minutes": 8, "difficulty": "core", "prerequisites": ["replication", "load-balancers"], "related": ["failure-analysis"] },
+        { "slug": "bottleneck-identification", "title": "Bottleneck Identification", "status": "draft", "estimated_minutes": 9, "difficulty": "advanced", "prerequisites": ["failure-analysis"], "related": [] }
+      ]
+    },
+    {
+      "slug": "case-studies",
+      "title": "Case Studies",
+      "description": "End-to-end system designs. Where everything you learned comes together.",
+      "order": 16,
+      "concepts": [
+        { "slug": "design-url-shortener", "title": "Design URL Shortener", "status": "draft", "estimated_minutes": 25, "difficulty": "interview", "prerequisites": ["consistent-hashing", "cache-aside", "load-balancers"], "related": ["design-key-value-store"] },
+        { "slug": "design-key-value-store", "title": "Design Key-Value Store", "status": "draft", "estimated_minutes": 30, "difficulty": "interview", "prerequisites": ["consistent-hashing", "replication", "sharding"], "related": ["design-url-shortener"] },
+        { "slug": "design-rate-limiter", "title": "Design Rate Limiter", "status": "draft", "estimated_minutes": 20, "difficulty": "interview", "prerequisites": ["rate-limiting", "redis-intro"], "related": ["design-notification-system"] },
+        { "slug": "design-instagram", "title": "Design Instagram", "status": "draft", "estimated_minutes": 35, "difficulty": "interview", "prerequisites": ["cdn", "object-storage", "cache-aside", "sql-vs-nosql"], "related": ["design-twitter", "design-news-feed"] },
+        { "slug": "design-twitter", "title": "Design Twitter", "status": "draft", "estimated_minutes": 35, "difficulty": "interview", "prerequisites": ["cache-aside", "sharding", "pub-sub"], "related": ["design-instagram", "design-news-feed"] },
+        { "slug": "design-news-feed", "title": "Design News Feed", "status": "draft", "estimated_minutes": 30, "difficulty": "interview", "prerequisites": ["cache-aside", "sharding", "pub-sub"], "related": ["design-instagram", "design-twitter"] },
+        { "slug": "design-whatsapp", "title": "Design WhatsApp", "status": "draft", "estimated_minutes": 35, "difficulty": "interview", "prerequisites": ["websockets", "replication", "sharding"], "related": ["design-chat-system"] },
+        { "slug": "design-chat-system", "title": "Design Chat System", "status": "draft", "estimated_minutes": 30, "difficulty": "interview", "prerequisites": ["websockets", "message-queues"], "related": ["design-whatsapp"] },
+        { "slug": "design-uber", "title": "Design Uber", "status": "draft", "estimated_minutes": 40, "difficulty": "interview", "prerequisites": ["websockets", "geospatial", "pub-sub"], "related": ["design-ride-matching"] },
+        { "slug": "design-netflix", "title": "Design Netflix", "status": "draft", "estimated_minutes": 35, "difficulty": "interview", "prerequisites": ["cdn", "object-storage", "transcoding"], "related": ["design-youtube"] },
+        { "slug": "design-youtube", "title": "Design YouTube", "status": "draft", "estimated_minutes": 35, "difficulty": "interview", "prerequisites": ["cdn", "object-storage", "transcoding"], "related": ["design-netflix"] },
+        { "slug": "design-notification-system", "title": "Design Notification System", "status": "draft", "estimated_minutes": 25, "difficulty": "interview", "prerequisites": ["message-queues", "pub-sub"], "related": ["design-rate-limiter"] },
+        { "slug": "design-file-storage", "title": "Design File Storage System", "status": "draft", "estimated_minutes": 30, "difficulty": "interview", "prerequisites": ["object-storage", "consistent-hashing"], "related": ["design-key-value-store"] },
+        { "slug": "design-search-system", "title": "Design Search System", "status": "draft", "estimated_minutes": 35, "difficulty": "interview", "prerequisites": ["inverted-index", "sharding"], "related": [] },
+        { "slug": "design-ride-matching", "title": "Design Ride Matching", "status": "draft", "estimated_minutes": 30, "difficulty": "interview", "prerequisites": ["geospatial", "pub-sub"], "related": ["design-uber"] },
+        { "slug": "design-hotel-reservation", "title": "Design Hotel Reservation", "status": "draft", "estimated_minutes": 30, "difficulty": "interview", "prerequisites": ["transactions", "sql-vs-nosql"], "related": [] },
+        { "slug": "design-video-streaming", "title": "Design Video Streaming", "status": "draft", "estimated_minutes": 35, "difficulty": "interview", "prerequisites": ["cdn", "transcoding"], "related": ["design-youtube", "design-netflix"] }
+      ]
+    }
+  ]
+}

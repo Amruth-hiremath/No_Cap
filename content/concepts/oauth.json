@@ -1,0 +1,426 @@
+{
+  "slug": "oauth",
+  "version": 4,
+  "title": "OAuth 2.0",
+  "phase": "security",
+  "area": "Security",
+  "estimated_minutes": 7,
+  "difficulty": "advanced",
+  "summary": "OAuth 2.0 is the standard for delegated authorization: letting a third-party app access a user's data on another service without sharing the user's password. The user authenticates with the provider (Google, GitHub), the provider issues a token to the app, the app uses the token to access the API. Key flows: authorization code (web apps), client credentials (service-to-service), PKCE (mobile/SPA). Tokens, not passwords, are the access mechanism.",
+  "why_it_matters": "Before OAuth, third-party apps that wanted to access your Twitter or Gmail needed your password — they stored it, used it for everything, and you had no way to revoke access without changing your password. OAuth fixed this: the app never sees your password; it gets a scoped token that grants only the permissions you approved; you can revoke it per-app at any time. Every \"Sign in with Google\" button is OAuth. Every integration that accesses your calendar, files, or messages on your behalf uses it. Understanding OAuth is essential for any modern web app.",
+  "prerequisites": [
+    "authentication",
+    "authorization"
+  ],
+  "related": [
+    "authentication",
+    "authorization",
+    "federated-identity",
+    "gatekeeper"
+  ],
+  "used_in": [
+    "\"Sign in with Google/GitHub/Facebook\" buttons.",
+    "Third-party integrations (Slack apps, GitHub Actions, Zapier).",
+    "Service-to-service API access (client credentials flow)."
+  ],
+  "blocks": [
+    {
+      "type": "prose",
+      "id": "intro",
+      "payload": {
+        "text": "OAuth 2.0 is a delegation protocol. The cast:\n\n- **Resource Owner (User)**: the person who owns the data.\n- **Client (App)**: the third-party app that wants to access the data.\n- **Authorization Server**: issues tokens after the user consents.\n- **Resource Server**: hosts the data; accepts tokens.\n\nThe flow: the client asks the user for permission. The user authenticates with the authorization server (Google, GitHub) and consents to the scopes requested. The authorization server gives the client an access token. The client uses the token to call the resource server's API. The user's password is never shared with the client.\n\nOAuth is **authorization**, not authentication — it grants access, it doesn't prove identity. (OpenID Connect, built on OAuth, adds authentication.)"
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "auth-code-flow",
+      "payload": {
+        "code": "flowchart TD\n    N0[\"web apps\"]\n    N1[\"AUTHORIZATION\"]\n    N2[\"CODE\"]\n    N3[\"FLOW\"]\n    N4[\"(web\"]\n    N5[\"apps)\"]\n    N6[\"User\"]\n    N7[\"Client:\"]\n    N8[\"'Sign\"]\n    N9[\"with\"]\n    N10[\"Google'\"]\n    N11[\"Client\"]\n    N12[\"Google:\"]\n    N13[\"redirect\"]\n    N14[\"auth?client_id\"]\n    N15[\"X&scope\"]\n    N16[\"email&redirect_uri\"]\n    N17[\"logs\"]\n    N18[\"in,\"]\n    N19[\"consents\"]\n    N20[\"scopes\"]\n    N21[\"Google\"]\n    N22[\"redirect_uri?code\"]\n    N23[\"ABC\"]\n    N24[\"code=ABC + client_secret\"]\n    N25[\"POST\"]\n    N26[\"token\"]\n    N27[\"(code\"]\n    N28[\"client_secret)\"]\n    N29[\"access_token\"]\n    N30[\"XYZ,\"]\n    N31[\"refresh_token\"]\n    N32[\"DEF\"]\n    N33[\"Authorization: Bearer XYZ\"]\n    N34[\"API:\"]\n    N35[\"GET\"]\n    N36[\"userinfo\"]\n    N37[\"(Authorization:\"]\n    N38[\"Bearer\"]\n    N39[\"XYZ)\"]\n    N40[\"Why\"]\n    N41[\"two\"]\n    N42[\"step?\"]\n    N43[\"The\"]\n    N44[\"code\"]\n    N45[\"exchanged\"]\n    N46[\"server\"]\n    N47[\"side\"]\n    N48[\"the\"]\n    N49[\"secret,\"]\n    N50[\"secret\"]\n    N51[\"isn't\"]\n    N52[\"exposed\"]\n    N53[\"browser.\"]\n    N54[\"service-to-service\"]\n    N55[\"CLIENT\"]\n    N56[\"CREDENTIALS\"]\n    N57[\"(service\"]\n    N58[\"service)\"]\n    N59[\"client_id + client_secret\"]\n    N60[\"Service\"]\n    N61[\"Auth\"]\n    N62[\"Server:\"]\n    N63[\"(client_id\"]\n    N64[\"Server\"]\n    N65[\"Service:\"]\n    N66[\"XYZ\"]\n    N67[\"Resource\"]\n    N68[\"API\"]\n    N69[\"call\"]\n    N70[\"user\"]\n    N71[\"involved.\"]\n    N72[\"Used\"]\n    N73[\"for\"]\n    N74[\"backend\"]\n    N75[\"access.\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44\n    N44 --> N45\n    N45 --> N46\n    N46 --> N47\n    N47 --> N48\n    N48 --> N49\n    N49 --> N50\n    N50 --> N51\n    N51 --> N52\n    N52 --> N53\n    N53 --> N54\n    N54 --> N55\n    N55 --> N56\n    N56 --> N57\n    N57 --> N58\n    N58 --> N59\n    N59 --> N60\n    N60 --> N61\n    N61 --> N62\n    N62 --> N63\n    N63 --> N64\n    N64 --> N65\n    N65 --> N66\n    N66 --> N67\n    N67 --> N68\n    N68 --> N69\n    N69 --> N70\n    N70 --> N71\n    N71 --> N72\n    N72 --> N73\n    N73 --> N74\n    N74 --> N75",
+        "caption": "Authorization code flow (web apps, with PKCE for SPAs). Client credentials flow for service-to-service.",
+        "alt_text": "Two flow diagrams. Authorization code flow for web apps: the user clicks Sign in with Google on the client, the client redirects to Google's auth endpoint with client ID, scope, and redirect URI, the user logs in and consents, Google redirects back with an authorization code, the client posts the code plus its client secret to the token endpoint, Google returns an access token and refresh token, and the client calls Google's API with the access token as a Bearer token. This is two-step so the client secret is exchanged server-side and never exposed to the browser. Client credentials flow for service-to-service: the service posts its client ID and secret directly to the token endpoint, receives an access token, and calls the resource server with it. No user is involved; this is for backend-to-backend API access."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "flows",
+      "payload": {
+        "text": "Different clients need different flows:\n\n- **Authorization Code (with PKCE)**: the standard for web apps, SPAs, and mobile apps. The user logs in via the provider, the app gets a code, exchanges it for a token. PKCE (Proof Key for Code Exchange) replaces the client secret with a dynamic challenge — essential for clients that can't keep a secret (SPAs, mobile).\n- **Client Credentials**: for service-to-service access with no user. The service authenticates with its own credentials and gets a token. Used by backend integrations, scheduled jobs.\n- **Device Code**: for devices without a browser (smart TVs, IoT). The device shows a code; the user goes to a URL on their phone and enters it.\n- **Resource Owner Password Credentials**: deprecated. The client takes the user's password directly. Only used for legacy migrations; removes OAuth's main security benefit.\n\nImplicit flow (formerly used for SPAs) is deprecated — use Authorization Code + PKCE instead. It returned the token directly in the URL fragment, which exposed it to attackers via referrer and other channels."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "tokens",
+      "payload": {
+        "text": "OAuth tokens:\n\n- **Access token**: short-lived (5 min – 1 hour), used to call the API. Sent in the `Authorization: Bearer ...` header.\n- **Refresh token**: long-lived (days – weeks), used to get new access tokens without re-prompting the user. Stored server-side; never sent to the browser in SPAs.\n- **Scopes**: permissions attached to the token. `read:user`, `write:repo`, etc. The resource server checks scopes on every request.\n\nAccess tokens can be opaque (a random string the server looks up) or JWTs (self-contained, signed). Opaque tokens allow easy revocation; JWTs are stateless. The trend is JWT access tokens + opaque refresh tokens.\n\nThe principle of least privilege applies: clients should request only the scopes they need. The user sees the scopes during consent and can decline. An app requesting `repo` (full read/write to all repos) when it only needs `read:user` is suspicious — and users should decline."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "not-authn",
+      "payload": {
+        "title": "OAuth is authorization, not authentication",
+        "body": "OAuth grants access; it doesn't prove who the user is. If you use OAuth for login (\"Sign in with Google\"), you're using OAuth to obtain an access token, then calling the provider's userinfo endpoint to get the user's identity. That second step is OpenID Connect (OIDC) — a thin layer on OAuth that adds an ID token (a JWT asserting the user's identity). Conflating OAuth with authentication is a common mistake that causes vulnerabilities (e.g., token substitution attacks). If you need authentication, use OIDC, not raw OAuth.",
+        "kind": "warning"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "security-pitfalls",
+      "payload": {
+        "text": "OAuth security pitfalls:\n\n- **Redirect URI validation**: the redirect_uri must be an exact match against registered URIs. Wildcard matching lets an attacker redirect the code to their own server.\n- **State parameter**: prevents CSRF. Without it, an attacker can inject their own authorization code into the user's session, linking the attacker's account to the user's session.\n- **Token storage**: don't store access tokens in localStorage (XSS-vulnerable). For SPAs, use HttpOnly cookies set by the backend, or in-memory storage with refresh-on-reload.\n- **PKCE for public clients**: SPAs and mobile apps can't keep a client secret. PKCE replaces it with a dynamic challenge, preventing code interception.\n- **Scope validation**: the resource server must validate scopes on every request. Skipping it lets a token with `read` scope call `write` endpoints.\n\nThe lesson: don't roll your own OAuth integration. Use a well-tested library (NextAuth, Passport, Auth0). The protocol has many footguns; the libraries handle them."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q1",
+      "payload": {
+        "question": "Why does the authorization code flow exchange the code for a token server-side, rather than returning the token directly to the browser?",
+        "shape": "mcq",
+        "options": [
+          "Server-side exchange is faster.",
+          "To keep the client_secret out of the browser. The code is useless without the secret, so intercepting the code (in the URL) doesn't compromise the token.",
+          "Browsers can't store tokens.",
+          "It's a legacy artifact; modern OAuth returns tokens directly."
+        ],
+        "answer_index": 1,
+        "rationale": "If the token were returned directly in the URL (the deprecated implicit flow), an attacker who intercepts the redirect (via referrer, browser history, or malicious browser extensions) gets the token. By returning an intermediate code instead, OAuth lets the client exchange the code server-side with the client_secret. The code is useless to an attacker without the secret. For clients that can't keep a secret (SPAs, mobile), PKCE replaces the secret with a dynamic challenge — proving the same property without a stored secret.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q2",
+      "payload": {
+        "question": "What's the role of the `state` parameter in OAuth?",
+        "shape": "mcq",
+        "options": [
+          "It identifies the user's session, preventing CSRF by linking the redirect-back to the original request.",
+          "It contains the user's password.",
+          "It's the access token.",
+          "It's optional and rarely used."
+        ],
+        "answer_index": 0,
+        "rationale": "The state parameter is a CSRF defense. The client generates a random state when sending the user to the authorization server. When the server redirects back with the code, it includes the same state. The client verifies the state matches the original. Without this check, an attacker can initiate the OAuth flow with their own account, then trick the victim into completing it — linking the attacker's OAuth account to the victim's session (\"account confusion\"). State ties the redirect-back to the original request, preventing this attack.",
+        "difficulty": "advanced"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q3",
+      "payload": {
+        "question": "You need a backend service to access Google Calendar on behalf of the company (not any individual user). Which OAuth flow do you use?",
+        "shape": "mcq",
+        "options": [
+          "Authorization code flow with a service account.",
+          "Client credentials flow — the service authenticates as itself and gets a token, no user involved.",
+          "Resource owner password flow.",
+          "Implicit flow."
+        ],
+        "answer_index": 1,
+        "rationale": "The client credentials flow is for service-to-service access with no user involvement. The service authenticates with its own credentials (client_id + client_secret, or in Google's case, a service account) and gets a token that grants the service its own permissions. For accessing a shared company calendar, this is the right choice — no user needs to consent. The authorization code flow would require a user to log in and consent each time; resource owner password flow is deprecated; implicit flow is deprecated and not appropriate for backend services.",
+        "difficulty": "core"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-oauth-mental",
+      "payload": {
+        "text": "Engineering mental model",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-oauth-mental",
+      "payload": {
+        "text": "**Mental model.** Think of OAuth 2.0 as a deliberate boundary in a system. The boundary exists because something becomes harder to manage when everything is done in one place: latency, scale, failure isolation, consistency, cost, or team ownership. The useful question is not “what does OAuth 2.0 mean?” but “what pressure makes this boundary worth introducing, and what new failure mode does it create?”"
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-oauth-decision",
+      "payload": {
+        "title": "Design lens",
+        "body": "Before choosing OAuth 2.0, name the workload, the critical user path, the dominant bottleneck, the failure you are trying to absorb, and the trade-off you are willing to accept. If you cannot name those five things, the design is probably premature.",
+        "kind": "info"
+      }
+    },
+    {
+      "type": "image",
+      "id": "upgrade-image-oauth",
+      "payload": {
+        "src": "/learning-visuals/oauth.svg",
+        "alt": "Original NO CAP systems visual for OAuth 2.0.",
+        "caption": "OAuth 2.0: a compact system-thinking visual.",
+        "credit": "Original NO CAP visual.",
+        "source_url": "https://github.com/donnemartin/system-design-primer"
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "upgrade-mermaid-oauth",
+      "payload": {
+        "code": "flowchart LR\n U[User] --> C[Client]\n C --> AS[Authorization Server]\n AS --> C\n C --> API[Resource Server]",
+        "caption": "OAuth delegates authorization to an authorization server without giving the client the user password.",
+        "alt_text": "OAuth delegates authorization to an authorization server without giving the client the user password."
+      }
+    },
+    {
+      "type": "code",
+      "id": "upgrade-code-oauth",
+      "payload": {
+        "language": "http",
+        "code": "Authorization: Bearer <access-token>\n\nGET /v1/oauth\nHost: api.example.com",
+        "caption": "A minimal engineering sketch for reasoning about OAuth 2.0."
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-oauth-numbers",
+      "payload": {
+        "text": "Back-of-the-envelope reasoning",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-oauth-numbers",
+      "payload": {
+        "text": "Numerical lens: write down traffic, payload size, read/write ratio, peak multiplier and durability target before choosing a component. The numbers should justify the architecture."
+      }
+    },
+    {
+      "type": "simulation",
+      "id": "upgrade-sim-oauth",
+      "payload": {
+        "title": "Interactive thought experiment: OAuth 2.0",
+        "description": "Change the variables below and predict what breaks first in OAuth 2.0. The production lab can later reuse these same inputs.",
+        "variables": [
+          {
+            "name": "traffic",
+            "description": "Requests/events per second",
+            "default": "1000"
+          },
+          {
+            "name": "latency",
+            "description": "Dependency latency",
+            "default": "50ms"
+          },
+          {
+            "name": "failure_rate",
+            "description": "Injected failure rate",
+            "default": "0%"
+          }
+        ],
+        "placeholder_note": "Interactive controls are deterministic; use the linked Labs section when a dedicated lab exists."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-oauth-hint",
+      "payload": {
+        "title": "Hint",
+        "body": "If you are stuck on OAuth 2.0, start by drawing the request path and marking every network hop, stateful component, queue, cache and failure boundary. Then estimate where the system will saturate.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-oauth-1",
+      "payload": {
+        "shape": "prediction",
+        "question": "You increase traffic by 10× in a system using OAuth 2.0. What should you inspect first?",
+        "options": [
+          "The newest framework version",
+          "The dominant bottleneck and its saturation signal",
+          "Only the UI",
+          "Nothing; the architecture should absorb any traffic automatically"
+        ],
+        "answer_index": 1,
+        "rationale": "System design is a constraint-and-bottleneck exercise. Start with the resource or dependency that will saturate first, then choose the smallest change that removes that bottleneck.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-oauth-2",
+      "payload": {
+        "shape": "mcq",
+        "question": "Which statement is the safest engineering habit when using OAuth 2.0?",
+        "options": [
+          "Choose it because it is popular",
+          "Add it before measuring the problem",
+          "State the workload, failure mode and trade-off it is solving",
+          "Use the most distributed design possible"
+        ],
+        "answer_index": 2,
+        "rationale": "Good architecture starts from requirements, workload and failure assumptions. The component is the consequence of that reasoning, not the starting point.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "scenario",
+      "id": "upgrade-scenario-oauth",
+      "payload": {
+        "prompt": "Production scenario: your system uses OAuth 2.0, traffic suddenly spikes, and p99 latency doubles. What is your first move?",
+        "context": "You have dashboards for traffic, latency, errors and saturation. You can change the architecture, but every change has operational cost.",
+        "options": [
+          {
+            "id": "a",
+            "text": "Add more instances immediately",
+            "outcome": "This may help, but only if compute saturation is the bottleneck.",
+            "correct": false
+          },
+          {
+            "id": "b",
+            "text": "Inspect the bottleneck and its saturation signal first",
+            "outcome": "Correct: diagnose before scaling or introducing a new pattern.",
+            "correct": true
+          },
+          {
+            "id": "c",
+            "text": "Disable monitoring to reduce overhead",
+            "outcome": "This removes the evidence you need to diagnose the incident.",
+            "correct": false
+          }
+        ],
+        "rationale": "Measure the limiting resource or dependency first. A bottleneck can be compute, database I/O, network, cache misses, lock contention, downstream latency, or queue backlog.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-oauth-interview",
+      "payload": {
+        "text": "Interview drill",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-oauth-interview",
+      "payload": {
+        "text": "**Answer this without notes:** When would you choose OAuth 2.0, and when would you intentionally avoid it? Mention at least one bottleneck it addresses, one failure mode it introduces, and one alternative. Then quantify the workload you are designing for."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "field-guide-oauth",
+      "payload": {
+        "title": "Engineering lens",
+        "body": "For OAuth 2.0, define the trust boundary first. Identify who is allowed to perform each action, where credentials live, how they expire, and what a compromised credential can reach.",
+        "kind": "tip"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "numerical-lens-oauth",
+      "payload": {
+        "text": "### Numerical sanity check\n\nA practical blast-radius question: if one credential is compromised, how many users, services, records or regions could it affect? Prefer designs where that number is deliberately bounded."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "field-question-oauth",
+      "payload": {
+        "shape": "prediction",
+        "question": "What is the smallest trust boundary you would enforce for OAuth 2.0, and what would you log so a suspicious action can be investigated later?",
+        "context": "Do not optimize for a memorized definition. Reason from the workload and failure mode.",
+        "options": [
+          "Scale the same component immediately.",
+          "Measure the current bottleneck and state the assumption that changed.",
+          "Add more technologies until throughput improves.",
+          "Choose the most popular architecture."
+        ],
+        "answer_index": 1,
+        "rationale": "Good system design starts with the bottleneck and the changed constraint. The most popular or complex choice is not automatically correct.",
+        "difficulty": "interview"
+      }
+    }
+  ],
+  "trade_offs": {
+    "pros": [
+      "Third-party apps never see the user's password.",
+      "Scoped tokens grant only the permissions the user approved.",
+      "Per-app revocation: users can revoke access without changing their password.",
+      "Standard protocol — supported by every major provider."
+    ],
+    "cons": [
+      "Complex protocol with many footguns (redirect URI, state, PKCE).",
+      "Tokens are bearer tokens — stolen = full access until expiry.",
+      "Many flows — choosing the wrong one creates vulnerabilities.",
+      "Not authentication; using it as such causes security bugs."
+    ]
+  },
+  "failure_modes": [
+    "Wildcard redirect URI validation lets attackers intercept codes.",
+    "Missing state parameter enables CSRF / account confusion.",
+    "Storing tokens in localStorage enables XSS theft.",
+    "Skipping PKCE on public clients (SPA, mobile) enables code interception."
+  ],
+  "common_mistakes": [
+    "Treating OAuth as authentication (use OIDC for that).",
+    "Not validating redirect_uri exactly.",
+    "Forgetting the state parameter (CSRF).",
+    "Using implicit flow instead of authorization code + PKCE."
+  ],
+  "where_you_see_it": [
+    "Every \"Sign in with Google/GitHub/Facebook\" button.",
+    "Slack and GitHub Apps that act on behalf of users.",
+    "Service-to-service API access (client credentials)."
+  ],
+  "interview_prompts": [
+    "Walk through the OAuth authorization code flow. Why is it two-step?",
+    "What is PKCE, and why is it required for SPAs and mobile apps?",
+    "Why is OAuth not authentication? What's the difference from OIDC?",
+    "What's the role of the state parameter?"
+  ],
+  "real_system_mappings": [
+    {
+      "system": "Google Sign-In",
+      "how": "OAuth 2.0 + OIDC for authentication. User consents to scopes; client gets access token + ID token. The ID token (JWT) asserts the user's identity — that's the OpenID Connect layer."
+    },
+    {
+      "system": "GitHub Apps",
+      "how": "OAuth-based. An app requests specific permissions (read repos, write issues). The user installs the app to specific repos. The app gets a token scoped to those repos and permissions, revocable per-installation."
+    }
+  ],
+  "status": "published",
+  "sources": [
+    {
+      "title": "System Design Primer",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Open source"
+    },
+    {
+      "title": "ByteByteGo — Scale from zero to millions",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "ByteByteGo"
+    },
+    {
+      "title": "System Design Tutorial",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "GeeksforGeeks"
+    },
+    {
+      "title": "System Design Roadmap",
+      "url": "https://roadmap.sh/system-design",
+      "publisher": "roadmap.sh"
+    },
+    {
+      "title": "Security reference",
+      "url": "https://www.rfc-editor.org/",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Security reference",
+      "url": "https://owasp.org/www-project-top-ten/",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Security reference",
+      "url": "https://oauth.net/2/",
+      "publisher": "Reference"
+    }
+  ]
+}

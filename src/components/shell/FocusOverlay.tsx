@@ -1,19 +1,37 @@
 'use client';
 
-import { useEffect } from 'react';
 import { Play, Pause, X, Clock, Coffee } from 'lucide-react';
 import { useStore } from '@/lib/store';
-import { Button } from '@/components/ui/Button';
 import { cn, formatTimer } from '@/lib/utils';
 import type { FocusDuration } from '@/lib/types';
 import type { ReactNode } from 'react';
 
 const DURATIONS: { value: FocusDuration; label: string }[] = [
-  { value: 5, label: '5 min' },
-  { value: 12, label: '12 min' },
-  { value: 25, label: '25 min' },
+  { value: 5, label: '5m' },
+  { value: 12, label: '12m' },
+  { value: 25, label: '25m' },
 ];
 
+/**
+ * FocusOverlay — distraction-free reading surface.
+ *
+ * Layout:
+ *   ┌───────────────────────────────────────────┐
+ *   │                          [timer widget]   │  ← top-right, compact
+ *   │                                           │
+ *   │       [article — max-w-3xl, centered]     │  ← scrollable main column
+ *   │       ...                                 │
+ *   │                                           │
+ *   │              [Exit focus (Esc)]           │  ← bottom-center pill
+ *   └───────────────────────────────────────────┘
+ *
+ * The reading-progress bar (rendered by ConceptView) stays at the very top
+ * of the viewport via `position: fixed` — see globals.css for the focus-mode
+ * override that makes it span the full width.
+ *
+ * Enter / leave transitions are handled by the `animate-focus-enter` class
+ * on the root. `prefers-reduced-motion` disables it (see globals.css).
+ */
 export function FocusOverlay({ children }: { children: ReactNode }) {
   const session = useStore((s) => s.focus_session);
   const setFocusMode = useStore((s) => s.setFocusMode);
@@ -22,132 +40,96 @@ export function FocusOverlay({ children }: { children: ReactNode }) {
   const resumeFocusTimer = useStore((s) => s.resumeFocusTimer);
   const stopFocusTimer = useStore((s) => s.stopFocusTimer);
 
-  const totalSeconds = session.duration * 60;
-  const progress = totalSeconds > 0 ? 1 - session.remaining / totalSeconds : 0;
-
-  useEffect(() => {
-    // If timer reached 0, surface completion.
-    if (session.remaining === 0 && session.duration > 0) {
-      // Auto-stop running when it hits 0 — handled in tickFocusTimer
-    }
-  }, [session.remaining, session.duration]);
-
-  const radius = 70;
-  const circumference = 2 * Math.PI * radius;
-  const dashOffset = circumference * (1 - progress);
+  const isComplete = session.remaining === 0 && session.duration > 0;
+  const hasStarted = session.duration > 0 && (session.running || session.remaining < session.duration * 60);
 
   return (
-    <div className="fixed inset-0 z-40 bg-grid">
-      <div className="mx-auto flex h-full max-w-3xl flex-col px-5 py-6">
-        {/* Header */}
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2 text-text-muted">
-            <Clock className="h-4 w-4" />
-            <span className="text-xs font-medium uppercase tracking-[0.12em]">Focus mode</span>
+    <div className="fixed inset-0 z-40 bg-grid animate-focus-enter">
+      {/* Top-right: compact timer widget. Stays out of the reading column. */}
+      <div className="absolute right-4 top-4 z-10 flex items-center gap-2">
+        {isComplete ? (
+          <div className="flex items-center gap-2 rounded-md border border-success/30 bg-success-soft px-2.5 py-1.5 text-xs animate-fade-in">
+            <Coffee className="h-3 w-3 text-success" aria-hidden />
+            <span className="font-medium text-success">Done</span>
+            <button
+              onClick={stopFocusTimer}
+              className="ml-1 text-text-muted hover:text-text-primary"
+              aria-label="Reset timer"
+            >
+              Reset
+            </button>
           </div>
-          <button
-            onClick={() => setFocusMode(false)}
-            className="flex items-center gap-1.5 rounded-md border border-border bg-surface px-2.5 py-1.5 text-xs text-text-secondary hover:bg-surface-subtle"
-            aria-label="Exit focus mode"
-          >
-            <X className="h-3.5 w-3.5" />
-            Exit
-            <kbd className="ml-1 hidden rounded border border-border bg-surface-subtle px-1 py-0.5 text-[10px] sm:inline">
-              Esc
-            </kbd>
-          </button>
-        </div>
-
-        {/* Timer */}
-        <div className="flex flex-1 flex-col items-center justify-center">
-          <div className="relative">
-            <svg width={180} height={180} className="rotate-[-90deg]">
-              <circle
-                cx={90}
-                cy={90}
-                r={radius}
-                stroke="var(--color-border)"
-                strokeWidth={4}
-                fill="none"
-              />
-              <circle
-                cx={90}
-                cy={90}
-                r={radius}
-                stroke="var(--color-accent)"
-                strokeWidth={4}
-                fill="none"
-                strokeLinecap="round"
-                strokeDasharray={circumference}
-                strokeDashoffset={dashOffset}
-                style={{ transition: 'stroke-dashoffset 1s linear' }}
-              />
-            </svg>
-            <div className="absolute inset-0 flex flex-col items-center justify-center">
-              <div className="tnum text-4xl font-bold text-text-primary">
-                {formatTimer(session.remaining)}
-              </div>
-              <div className="mt-1 text-[11px] uppercase tracking-[0.12em] text-text-muted">
-                {session.running ? 'in session' : session.remaining === 0 ? 'complete' : 'paused'}
-              </div>
-            </div>
+        ) : session.running ? (
+          <div className="flex items-center gap-2 rounded-md border border-border bg-surface px-2.5 py-1.5 text-xs animate-fade-in">
+            <span className="relative flex h-2 w-2" aria-hidden>
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-accent opacity-60" />
+              <span className="relative inline-flex h-2 w-2 rounded-full bg-accent" />
+            </span>
+            <span className="tnum font-medium text-text-primary">{formatTimer(session.remaining)}</span>
+            <button
+              onClick={pauseFocusTimer}
+              className="ml-1 flex items-center rounded p-1 text-text-muted hover:bg-surface-subtle hover:text-text-primary"
+              aria-label="Pause timer"
+            >
+              <Pause className="h-3 w-3" />
+            </button>
+            <button
+              onClick={stopFocusTimer}
+              className="flex items-center rounded p-1 text-text-muted hover:bg-surface-subtle hover:text-text-primary"
+              aria-label="End session"
+            >
+              <X className="h-3 w-3" />
+            </button>
           </div>
-
-          {session.remaining === 0 ? (
-            <div className="mt-6 flex flex-col items-center gap-2 text-center">
-              <Coffee className="h-6 w-6 text-success" />
-              <p className="text-sm font-medium text-text-primary">Locked in. Take a breath.</p>
-              <p className="text-xs text-text-muted">You can now mark this concept as understood.</p>
-              <Button
-                variant="secondary"
-                size="sm"
-                className="mt-3"
-                onClick={() => stopFocusTimer()}
+        ) : (
+          <div className="flex items-center gap-1 rounded-md border border-border bg-surface p-1 text-xs animate-fade-in">
+            <Clock className="ml-1 h-3 w-3 text-text-muted" aria-hidden />
+            {DURATIONS.map((d) => (
+              <button
+                key={d.value}
+                onClick={() => startFocusTimer(d.value)}
+                className={cn(
+                  'rounded px-2 py-1 text-xs font-medium transition-colors',
+                  hasStarted && session.duration === d.value
+                    ? 'bg-accent-soft text-accent'
+                    : 'text-text-secondary hover:bg-surface-subtle hover:text-text-primary'
+                )}
+                aria-label={`Start ${d.label} timer`}
               >
-                Reset timer
-              </Button>
-            </div>
-          ) : session.running ? (
-            <div className="mt-6 flex gap-2">
-              <Button variant="secondary" size="sm" onClick={pauseFocusTimer}>
-                <Pause className="h-3.5 w-3.5" />
-                Pause
-              </Button>
-              <Button variant="ghost" size="sm" onClick={stopFocusTimer}>
-                End session
-              </Button>
-            </div>
-          ) : (
-            <div className="mt-6 flex flex-col items-center gap-3">
-              <div className="flex gap-1.5">
-                {DURATIONS.map((d) => (
-                  <button
-                    key={d.value}
-                    onClick={() => startFocusTimer(d.value)}
-                    className={cn(
-                      'rounded-md border px-3 py-1.5 text-xs font-medium transition-colors',
-                      session.duration === d.value && session.remaining > 0
-                        ? 'border-accent bg-accent-soft text-accent'
-                        : 'border-border bg-surface text-text-secondary hover:bg-surface-subtle'
-                    )}
-                  >
-                    {d.label}
-                  </button>
-                ))}
-              </div>
-              {session.remaining > 0 && (
-                <Button variant="primary" size="sm" onClick={resumeFocusTimer}>
-                  <Play className="h-3.5 w-3.5" />
-                  Resume
-                </Button>
-              )}
-            </div>
-          )}
-        </div>
-
-        {/* Content */}
-        <div className="max-h-[40vh] overflow-y-auto">{children}</div>
+                {d.label}
+              </button>
+            ))}
+            {hasStarted && (
+              <button
+                onClick={resumeFocusTimer}
+                className="ml-0.5 flex items-center rounded bg-accent px-2 py-1 text-xs font-medium text-text-inverse hover:bg-accent-hover"
+                aria-label="Resume timer"
+              >
+                <Play className="h-3 w-3" />
+              </button>
+            )}
+          </div>
+        )}
       </div>
+
+      {/* Reading column — scrollable, centered at max-w-3xl.
+          Bottom padding leaves room for the exit pill. */}
+      <main className="h-full overflow-y-auto px-5 pb-24 pt-10">
+        <div className="mx-auto max-w-3xl">{children}</div>
+      </main>
+
+      {/* Exit button — pinned to bottom center, always reachable. */}
+      <button
+        onClick={() => setFocusMode(false)}
+        className="animate-fade-in fixed bottom-4 left-1/2 z-10 flex -translate-x-1/2 items-center gap-1.5 rounded-full border border-border bg-surface px-3 py-1.5 text-xs font-medium text-text-secondary shadow-md transition-colors hover:bg-surface-subtle hover:text-text-primary"
+        aria-label="Exit focus mode"
+      >
+        <X className="h-3 w-3" aria-hidden />
+        Exit focus
+        <kbd className="ml-0.5 rounded border border-border bg-surface-subtle px-1 py-0.5 text-[10px] font-medium text-text-muted">
+          Esc
+        </kbd>
+      </button>
     </div>
   );
 }

@@ -6,68 +6,60 @@ import { BottomNav } from './BottomNav';
 import { CommandPalette } from './CommandPalette';
 import { FocusOverlay } from './FocusOverlay';
 import { useStore } from '@/lib/store';
+import { useKeyboardShortcuts } from '@/lib/useKeyboardShortcuts';
+import { useAuthBootstrap } from '@/lib/useAuthBootstrap';
 import { cn } from '@/lib/utils';
 import { useEffect } from 'react';
+import { usePathname } from 'next/navigation';
 
-interface AppShellProps {
-  children: React.ReactNode;
-}
+interface AppShellProps { children: React.ReactNode; }
 
 export function AppShell({ children }: AppShellProps) {
   const focusMode = useStore((s) => s.focus_mode);
   const setFocusMode = useStore((s) => s.setFocusMode);
   const tickFocusTimer = useStore((s) => s.tickFocusTimer);
   const focusRunning = useStore((s) => s.focus_session.running);
+  const pathname = usePathname();
+  const bareAuthPage = pathname === '/login' || pathname === '/onboarding';
+  const plainPage = pathname === '/account' || pathname.startsWith('/account/') || pathname === '/settings' || pathname.startsWith('/settings/');
 
-  // Escape key — exits focus mode, closes command palette
+  useKeyboardShortcuts();
+  useAuthBootstrap();
+
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        if (useStore.getState().command_palette_open) {
-          useStore.getState().setCommandPaletteOpen(false);
-          return;
-        }
-        if (useStore.getState().focus_mode) {
-          setFocusMode(false);
-        }
-      }
+      if (e.key !== 'Escape') return;
+      if (useStore.getState().command_palette_open) return void useStore.getState().setCommandPaletteOpen(false);
+      if (useStore.getState().focus_mode) setFocusMode(false);
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
   }, [setFocusMode]);
 
-  // Focus timer tick — 1s
   useEffect(() => {
     if (!focusRunning) return;
     const id = setInterval(() => tickFocusTimer(), 1000);
     return () => clearInterval(id);
   }, [focusRunning, tickFocusTimer]);
 
+  if (bareAuthPage) return <>{children}</>;
+
   return (
-    <div className={cn('min-h-screen bg-grid', !focusMode && 'pb-16 md:pb-0')}>
-      {!focusMode && <Sidebar />}
-      {!focusMode && <TopBar />}
-      <CommandPalette />
-      {focusMode && <FocusOverlay>{children}</FocusOverlay>}
-
-      <main
-        className={cn(
-          'min-h-[calc(100vh-3.5rem)]',
-          focusMode ? 'pt-0' : 'md:pl-56 pt-14'
-        )}
-      >
-        <div
-          className={cn(
-            'mx-auto',
-            focusMode
-              ? 'max-w-3xl px-5 py-10'
-              : 'max-w-5xl px-4 py-8 md:px-8 md:py-10'
-          )}
-        >
-          {children}
+    <div className={cn('min-h-screen', plainPage ? 'bg-app' : 'bg-grid', !focusMode && 'pb-16 md:pb-0')} data-focus-mode={focusMode ? 'true' : undefined}>
+      {focusMode ? (
+        <FocusOverlay>{children}</FocusOverlay>
+      ) : (
+        <div className="flex min-h-screen">
+          <Sidebar />
+          <div className="flex min-w-0 flex-1 flex-col">
+            <TopBar />
+            <main className="flex-1">
+              <div key={pathname} className="route-enter mx-auto w-full max-w-6xl px-4 py-7 md:px-7 md:py-9">{children}</div>
+            </main>
+          </div>
         </div>
-      </main>
-
+      )}
+      <CommandPalette />
       {!focusMode && <BottomNav />}
     </div>
   );

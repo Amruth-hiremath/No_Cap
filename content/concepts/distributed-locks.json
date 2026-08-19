@@ -1,0 +1,439 @@
+{
+  "slug": "distributed-locks",
+  "version": 4,
+  "title": "Distributed Locks",
+  "phase": "distributed-systems",
+  "area": "Distributed Systems",
+  "estimated_minutes": 7,
+  "difficulty": "advanced",
+  "summary": "A distributed lock provides mutual exclusion across multiple processes running on different machines, so only one of them can perform a critical section at a time. The naive implementation — set a key in Redis with a TTL — is unsafe under GC pauses, network partitions, and clock skew. Safe distributed locking requires either a consensus-based lock service (etcd, ZooKeeper, Chubby) or the Redlock algorithm with fencing tokens to defend against stale-lock holders. The general lesson is that distributed locking is harder than it looks and should usually be avoided in favor of idempotency or single-leader designs.",
+  "why_it_matters": "Every distributed system eventually needs mutual exclusion: only one process should run a batch job at a time, only one pod should act as the leader, only one worker should pull from a queue, only one node should write to a file. Doing this wrong produces either double-execution (two processes both think they hold the lock) or stuck systems (the lock holder crashed and no one can take over). The most famous distributed-lock failure is the Redis-based cron that double-ran because of a long GC pause: the holder paused, the TTL expired, another process took the lock, the original resumed, and both executed. Martin Kleppmann's critique of Redlock made this a textbook case. The lesson: distributed locks should be the last resort, and when used, must include fencing tokens.",
+  "prerequisites": [
+    "consensus"
+  ],
+  "related": [
+    "leader-election",
+    "distributed-transactions"
+  ],
+  "used_in": [
+    "Leader election in distributed systems (etcd leases, Chubby locks).",
+    "Coordinating single-execution jobs (cron, batch processing, migrations).",
+    "Database-level advisory locks (Postgres advisory locks, MySQL GET_LOCK).",
+    "Deduplication of consumer-side processing (preventing double work across consumers)."
+  ],
+  "blocks": [
+    {
+      "type": "prose",
+      "id": "intro",
+      "payload": {
+        "text": "A distributed lock provides mutual exclusion across processes on different machines. The semantics:\n\n- **Acquire**: a process asks the lock service for the lock. If no one holds it, the process gets it; otherwise it waits (or fails).\n- **Hold**: the process performs its critical section. The lock has a TTL — if the holder crashes, the lock auto-expires so others can take over.\n- **Release**: when done, the process explicitly releases the lock.\n\nThe four safety properties a correct distributed lock must guarantee:\n\n1. **Mutual exclusion**: at any instant, at most one process holds the lock.\n2. **Termination**: if the holder crashes, the lock is eventually released (via TTL).\n3. **Fairness** (optional): locks are granted in request order (FIFO). Many systems skip this for performance.\n4. **Stale-holder safety**: even if the holder pauses (GC, VM suspend), its subsequent writes do not corrupt state. This requires **fencing tokens**."
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "stale-holder",
+      "payload": {
+        "code": "flowchart TD\n    N0[\"why naive TTL locks are unsafe\"]\n    N1[\"THE\"]\n    N2[\"PAUSE\"]\n    N3[\"BUG\"]\n    N4[\"(why\"]\n    N5[\"naive\"]\n    N6[\"TTL\"]\n    N7[\"locks\"]\n    N8[\"are\"]\n    N9[\"unsafe)\"]\n    N10[\"Time\"]\n    N11[\"STOP / GC pause for 15s\"]\n    N12[\"TTL=10s\"]\n    N13[\"Process\"]\n    N14[\"ACQUIRE\"]\n    N15[\"lock\"]\n    N16[\"(TTL\"]\n    N17[\"10s)\"]\n    N18[\"[STOP\"]\n    N19[\"pause\"]\n    N20[\"for\"]\n    N21[\"15s]\"]\n    N22[\"RESUME\"]\n    N23[\"Lock\"]\n    N24[\"service:\"]\n    N25[\"10s\"]\n    N26[\"expires\"]\n    N27[\"10s,\"]\n    N28[\"runs\"]\n    N29[\"critical\"]\n    N30[\"section\"]\n    N31[\"stale!\"]\n    N32[\"Storage\"]\n    N33[\"side\"]\n    N34[\"effect:\"]\n    N35[\"writes\"]\n    N36[\"(stale!)\"]\n    N37[\"CONFLICT!\"]\n    N38[\"Without\"]\n    N39[\"fencing,\"]\n    N40[\"A's\"]\n    N41[\"stale\"]\n    N42[\"write\"]\n    N43[\"succeeds\"]\n    N44[\"alongside\"]\n    N45[\"B's.\"]\n    N46[\"Data\"]\n    N47[\"corruption.\"]\n    N48[\"WITH\"]\n    N49[\"FENCING\"]\n    N50[\"TOKENS:\"]\n    N51[\"fencing\"]\n    N52[\"token\"]\n    N53[\"expires;\"]\n    N54[\"2\"]\n    N55[\"rejects\"]\n    N56[\"write:\"]\n    N57[\"current\"]\n    N58[\"highest\"]\n    N59[\"(2).\"]\n    N60[\"B's\"]\n    N61[\"succeeds.\"]\n    N62[\"The\"]\n    N63[\"monotonically\"]\n    N64[\"incremented\"]\n    N65[\"each\"]\n    N66[\"acquire.\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44\n    N44 --> N45\n    N45 --> N46\n    N46 --> N47\n    N47 --> N48\n    N48 --> N49\n    N49 --> N50\n    N50 --> N51\n    N51 --> N52\n    N52 --> N53\n    N53 --> N54\n    N54 --> N55\n    N55 --> N56\n    N56 --> N57\n    N57 --> N58\n    N58 --> N59\n    N59 --> N60\n    N60 --> N61\n    N61 --> N62\n    N62 --> N63\n    N63 --> N64\n    N64 --> N65\n    N65 --> N66",
+        "caption": "Without fencing tokens, a paused lock holder can corrupt state after the lock has been re-acquired.",
+        "alt_text": "Two diagrams. The first shows the GC-pause bug: Process A acquires a lock with a TTL of 10 seconds, then pauses for 15 seconds due to garbage collection. The lock expires at 10 seconds. Process B acquires the lock and runs its critical section. When Process A resumes after 15 seconds, it writes to storage as if it still holds the lock — corrupting state alongside Process B's writes. The second diagram shows the fix: each lock acquisition comes with a monotonically increasing fencing token. Process A gets token 1, Process B gets token 2. When Process A writes after resuming, storage rejects the write because token 1 is less than the current highest token 2. Only Process B's writes succeed."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "implementations",
+      "payload": {
+        "text": "Three implementations dominate production:\n\n1. **Consensus-based (etcd, ZooKeeper, Chubby)**: the lock is a key written via Raft/ZAB consensus. Acquisition succeeds only if the key does not exist; the holder keeps a session (heartbeat) alive; if the session dies, the key is deleted. Strong safety because every operation goes through consensus. The standard for Kubernetes leader election (etcd leases) and Hadoop (ZooKeeper).\n\n2. **Redis single-instance**: `SET key value NX PX ttl` atomically acquires if absent; the value is a unique ID so the holder can safely release (using a Lua script to check-and-delete). Simple, fast, but unsafe under partitions (Redis is AP — a partitioned slave can be promoted and reissue the lock).\n\n3. **Redlock (Salvatore Sanfilippo)**: acquire the lock on N (typically 5) independent Redis instances simultaneously; if a majority grants it within the TTL, the lock is held. Designed to fix the single-instance partition problem. **Martin Kleppmann's critique**: Redlock is still unsafe under GC pauses and clock skew because it relies on wall-clock TTL across independent nodes that may not share a clock.\n\nThe robust answer is: use consensus-based locks if you need strong safety; use Redis locks only for performance optimization (caching, dedup) where occasional double-execution is acceptable."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "fencing-tokens",
+      "payload": {
+        "title": "Fencing tokens are non-negotiable",
+        "body": "Any distributed lock that protects a side effect (write to storage, send email, charge card) must issue a fencing token — a monotonically increasing integer incremented on every acquisition. The holder includes the token on every side-effecting operation. Storage rejects writes with stale tokens. This defends against the GC-pause bug: even if a paused holder writes after its TTL expired, the storage layer refuses the stale token. Without fencing, distributed locks are unsafe under pause — and every process eventually pauses (GC, page fault, VM migration). Kleppmann's critique of Redlock is precisely that Redlock does not issue fencing tokens (Redis does not support them on writes).",
+        "kind": "warning"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "leases",
+      "payload": {
+        "text": "**Leases** are the time-bounded version of locks. The holder gets a lease for a fixed duration (e.g., 10 seconds) and must renew it before expiry. If the holder fails to renew (crashed, partitioned), the lease expires and another process can take it.\n\nLeases are how Chubby, etcd, and GFS master election work. They are more efficient than heartbeat-based locks because the holder does not need constant communication — it just needs to renew before the deadline. The risk: clock skew. If the holder's clock jumps (NTP step, VM migration), it may believe it has time when the lease has expired elsewhere. Mitigations:\n\n- Use a conservative margin: stop serving at `expiry - margin` (e.g., 1 second before).\n- Use bounded clock uncertainty (Spanner's TrueTime bounds skew to ~7ms).\n- Use a monotonic clock for measuring elapsed time, not wall clock.\n\nLease-based leadership is the dominant pattern in distributed systems today because it is simpler than constant heartbeats and handles failure cleanly via expiry."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "alternatives",
+      "payload": {
+        "text": "Before reaching for a distributed lock, consider alternatives — they are often better:\n\n- **Idempotency**: if the operation can be safely executed twice, you do not need a lock. Use an idempotency key on every side effect (Stripe's API does this). The first execution wins; duplicates no-op.\n- **Single leader**: route all writes for a key through a single leader (Kafka partition leader, database primary). The leader serializes operations natively, no distributed lock needed.\n- **Database transaction**: a row lock or SELECT FOR UPDATE serializes access within a single database. Cheaper and stronger than a distributed lock.\n- **Optimistic concurrency**: include a version field; the write fails if the version changed. Used by Figma, Google Docs, and most collaborative editors.\n\nDistributed locks are the right answer only when (a) the operation is not idempotent, (b) there is no single leader for the resource, and (c) the resource is not in a database that supports row locks. This is a narrow set of cases — most production uses of distributed locks are either unnecessary or could be replaced by a simpler primitive."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q1",
+      "payload": {
+        "question": "A process holds a Redis lock with TTL=10s. It pauses for 15s due to a GC pause. When it resumes, it performs a side effect. What went wrong, and how do you fix it?",
+        "shape": "mcq",
+        "options": [
+          "Nothing — the lock is still held because the process did not crash.",
+          "The TTL expired during the pause; another process acquired the lock and may have performed the same side effect. Fix: use fencing tokens so storage rejects the stale holder's writes.",
+          "The process should have renewed the lock before the GC pause. Fix: tune JVM GC settings.",
+          "Redlock prevents this scenario. Fix: switch to Redlock."
+        ],
+        "answer_index": 1,
+        "rationale": "The TTL on a lock is wall-clock-based; it expires regardless of what the holder is doing. A 15-second GC pause on a 10-second TTL lock means the lock expired mid-pause. The lock service released the lock, another process acquired it, and may have already performed the same side effect. When the original process resumes, it does not know it lost the lock — it just performs the side effect. The fix is fencing tokens: the original holder has token N, the new holder has token N+1. When the original holder writes to storage, the storage layer rejects the write because token N is stale. Redlock does not solve this — it has the same wall-clock TTL problem multiplied across instances. This is the core of Martin Kleppmann's critique.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q2",
+      "payload": {
+        "question": "Why does Martin Kleppmann argue that Redlock is unsafe even though it acquires the lock on a majority of independent Redis instances?",
+        "shape": "mcq",
+        "options": [
+          "Because Redis instances can lose data on crash.",
+          "Because Redlock relies on wall-clock TTLs across independent nodes that may have clock skew, and it does not issue fencing tokens to defend against GC-paused holders.",
+          "Because Redlock requires 5 Redis instances and that is too many to coordinate.",
+          "Because Redis does not support strong consistency."
+        ],
+        "answer_index": 1,
+        "rationale": "Redlock acquires the lock on a majority of independent Redis instances and uses wall-clock TTLs. The flaw: if a holder pauses (GC, VM suspend) for longer than the TTL, the lock expires on all instances, another process acquires it, and the original holder resumes and corrupts state. The fix requires fencing tokens — but Redis has no native fencing-token support on writes. The other problem is clock skew: if Redis instance A's clock is faster than instance B's, the TTLs expire at different wall-clock times, making the majority math fragile. The conclusion is not 'never use Redlock' but 'use it only for performance optimization where occasional double-execution is acceptable.' For correctness, use consensus-based locks with fencing tokens.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q3",
+      "payload": {
+        "question": "You need to ensure only one process runs a nightly batch job. The job is idempotent. Which approach is best?",
+        "shape": "mcq",
+        "options": [
+          "A distributed lock via etcd.",
+          "An idempotency key stored in the database — if the job already ran today, no-op.",
+          "Redlock across 5 Redis instances.",
+          "A cron job on every machine; rely on the cron scheduler to dedupe."
+        ],
+        "answer_index": 1,
+        "rationale": "If the job is idempotent, you do not need a distributed lock — you need an idempotency key. The job records 'I ran for date D' in the database; on startup it checks the key and no-ops if already present. This is simpler, more reliable, and immune to the GC-pause and partition issues that plague distributed locks. The database serializes the check-and-set, so even concurrent starts on two machines cannot both proceed. Distributed locks add complexity and failure modes (stale holders, fencing tokens) for no benefit when idempotency is available. The general principle: distributed locks should be the last resort, not the first tool.",
+        "difficulty": "core"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-distributed-locks-mental",
+      "payload": {
+        "text": "Engineering mental model",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-distributed-locks-mental",
+      "payload": {
+        "text": "**Mental model.** Think of Distributed Locks as a deliberate boundary in a system. The boundary exists because something becomes harder to manage when everything is done in one place: latency, scale, failure isolation, consistency, cost, or team ownership. The useful question is not “what does Distributed Locks mean?” but “what pressure makes this boundary worth introducing, and what new failure mode does it create?”"
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-distributed-locks-decision",
+      "payload": {
+        "title": "Design lens",
+        "body": "Before choosing Distributed Locks, name the workload, the critical user path, the dominant bottleneck, the failure you are trying to absorb, and the trade-off you are willing to accept. If you cannot name those five things, the design is probably premature.",
+        "kind": "info"
+      }
+    },
+    {
+      "type": "image",
+      "id": "upgrade-image-distributed-locks",
+      "payload": {
+        "src": "/learning-visuals/distributed-locks.svg",
+        "alt": "Original NO CAP systems visual for Distributed Locks.",
+        "caption": "Distributed Locks: a compact system-thinking visual.",
+        "credit": "Original NO CAP visual.",
+        "source_url": "https://github.com/donnemartin/system-design-primer"
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "upgrade-mermaid-distributed-locks",
+      "payload": {
+        "code": "flowchart LR\n  A[Client] --> B[Gateway] --> C[Service] --> D[State] --> E[Outcome]",
+        "caption": "Distributed Locks: a simplified system view showing the primary flow and the main state boundaries.",
+        "alt_text": "Distributed Locks: a simplified system view showing the primary flow and the main state boundaries."
+      }
+    },
+    {
+      "type": "code",
+      "id": "upgrade-code-distributed-locks",
+      "payload": {
+        "language": "text",
+        "code": "// Pseudocode\nrequest = receive()\nresult = distributed_locks(request)\nreturn result\n\n// Production questions:\n// 1. What happens on timeout?\n// 2. Can this operation be retried safely?\n// 3. What is the bottleneck?",
+        "caption": "A minimal engineering sketch for reasoning about Distributed Locks."
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-distributed-locks-numbers",
+      "payload": {
+        "text": "Back-of-the-envelope reasoning",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-distributed-locks-numbers",
+      "payload": {
+        "text": "Numerical lens: write down traffic, payload size, read/write ratio, peak multiplier and durability target before choosing a component. The numbers should justify the architecture."
+      }
+    },
+    {
+      "type": "simulation",
+      "id": "upgrade-sim-distributed-locks",
+      "payload": {
+        "title": "Interactive thought experiment: Distributed Locks",
+        "description": "Change the variables below and predict what breaks first in Distributed Locks. The production lab can later reuse these same inputs.",
+        "variables": [
+          {
+            "name": "traffic",
+            "description": "Requests/events per second",
+            "default": "1000"
+          },
+          {
+            "name": "latency",
+            "description": "Dependency latency",
+            "default": "50ms"
+          },
+          {
+            "name": "failure_rate",
+            "description": "Injected failure rate",
+            "default": "0%"
+          }
+        ],
+        "placeholder_note": "Interactive controls are deterministic; use the linked Labs section when a dedicated lab exists."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-distributed-locks-hint",
+      "payload": {
+        "title": "Hint",
+        "body": "If you are stuck on Distributed Locks, start by drawing the request path and marking every network hop, stateful component, queue, cache and failure boundary. Then estimate where the system will saturate.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-distributed-locks-1",
+      "payload": {
+        "shape": "prediction",
+        "question": "You increase traffic by 10× in a system using Distributed Locks. What should you inspect first?",
+        "options": [
+          "The newest framework version",
+          "The dominant bottleneck and its saturation signal",
+          "Only the UI",
+          "Nothing; the architecture should absorb any traffic automatically"
+        ],
+        "answer_index": 1,
+        "rationale": "System design is a constraint-and-bottleneck exercise. Start with the resource or dependency that will saturate first, then choose the smallest change that removes that bottleneck.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-distributed-locks-2",
+      "payload": {
+        "shape": "mcq",
+        "question": "Which statement is the safest engineering habit when using Distributed Locks?",
+        "options": [
+          "Choose it because it is popular",
+          "Add it before measuring the problem",
+          "State the workload, failure mode and trade-off it is solving",
+          "Use the most distributed design possible"
+        ],
+        "answer_index": 2,
+        "rationale": "Good architecture starts from requirements, workload and failure assumptions. The component is the consequence of that reasoning, not the starting point.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "scenario",
+      "id": "upgrade-scenario-distributed-locks",
+      "payload": {
+        "prompt": "Production scenario: your system uses Distributed Locks, traffic suddenly spikes, and p99 latency doubles. What is your first move?",
+        "context": "You have dashboards for traffic, latency, errors and saturation. You can change the architecture, but every change has operational cost.",
+        "options": [
+          {
+            "id": "a",
+            "text": "Add more instances immediately",
+            "outcome": "This may help, but only if compute saturation is the bottleneck.",
+            "correct": false
+          },
+          {
+            "id": "b",
+            "text": "Inspect the bottleneck and its saturation signal first",
+            "outcome": "Correct: diagnose before scaling or introducing a new pattern.",
+            "correct": true
+          },
+          {
+            "id": "c",
+            "text": "Disable monitoring to reduce overhead",
+            "outcome": "This removes the evidence you need to diagnose the incident.",
+            "correct": false
+          }
+        ],
+        "rationale": "Measure the limiting resource or dependency first. A bottleneck can be compute, database I/O, network, cache misses, lock contention, downstream latency, or queue backlog.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-distributed-locks-interview",
+      "payload": {
+        "text": "Interview drill",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-distributed-locks-interview",
+      "payload": {
+        "text": "**Answer this without notes:** When would you choose Distributed Locks, and when would you intentionally avoid it? Mention at least one bottleneck it addresses, one failure mode it introduces, and one alternative. Then quantify the workload you are designing for."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "field-guide-distributed-locks",
+      "payload": {
+        "title": "Engineering lens",
+        "body": "A useful engineering lens for Distributed Locks: define the problem it solves, the simpler design that fails first, the constraint that forces you to introduce this concept, and the new failure modes the concept creates.",
+        "kind": "tip"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "numerical-lens-distributed-locks",
+      "payload": {
+        "text": "### Numerical sanity check\n\nBack-of-the-envelope reasoning beats fake precision. State your traffic, payload, concurrency and growth assumptions explicitly, then calculate enough to know whether the current architecture is orders of magnitude away from the target."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "field-question-distributed-locks",
+      "payload": {
+        "shape": "prediction",
+        "question": "Imagine the simplest version of a system using Distributed Locks. What breaks first as traffic grows by 10×, and what would you change before reaching 100×?",
+        "context": "Do not optimize for a memorized definition. Reason from the workload and failure mode.",
+        "options": [
+          "Scale the same component immediately.",
+          "Measure the current bottleneck and state the assumption that changed.",
+          "Add more technologies until throughput improves.",
+          "Choose the most popular architecture."
+        ],
+        "answer_index": 1,
+        "rationale": "Good system design starts with the bottleneck and the changed constraint. The most popular or complex choice is not automatically correct.",
+        "difficulty": "interview"
+      }
+    }
+  ],
+  "trade_offs": {
+    "pros": [
+      "Mutual exclusion across processes on different machines — enables single-execution semantics.",
+      "Lease-based variants handle holder crashes cleanly via TTL expiry.",
+      "Consensus-based locks (etcd, Chubby) are as safe as the underlying consensus (Raft/Paxos).",
+      "Foundation for leader election and lease-based coordination."
+    ],
+    "cons": [
+      "Hard to get right — GC pauses, clock skew, and partitions cause subtle correctness bugs.",
+      "Fencing tokens are required for side-effect protection, but not all systems support them.",
+      "Adds latency and infrastructure — another moving part to deploy and monitor.",
+      "Often unnecessary — idempotency, single-leader designs, or database transactions are simpler.",
+      "Redlock-style TTL locks are unsafe under pause and clock skew (Kleppmann critique)."
+    ]
+  },
+  "failure_modes": [
+    "GC-pause or VM-suspend stale holder — writes after TTL expired; mitigated by fencing tokens.",
+    "Clock skew — lease holder believes it has time when lease has expired elsewhere; mitigated by conservative margin and bounded clocks.",
+    "Split-brain during partition — Redis single-instance slave promotion can reissue a held lock; mitigated by consensus-based locks.",
+    "Lock holder crash without releasing — TTL must be short enough for fast takeover but long enough to handle worst-case processing time.",
+    "Lock service outage — every lock-dependent operation blocks; mitigated by HA lock service and graceful degradation."
+  ],
+  "common_mistakes": [
+    "Using Redis SET NX for safety-critical locks without fencing tokens.",
+    "Forgetting that TTLs are wall-clock-based — GC pauses and clock skew break them.",
+    "Treating Redlock as 'safe' — it is performance-optimization-only.",
+    "Reaching for a distributed lock when idempotency or a database transaction would do.",
+    "Setting TTLs too short — lock expires during normal processing; too long — slow failover after holder crash.",
+    "Not renewing leases before expiry — common in long-running jobs."
+  ],
+  "where_you_see_it": [
+    "Kubernetes leader election (etcd leases — only one controller instance runs each controller).",
+    "Distributed cron schedulers (only one node runs each job; held via etcd or ZooKeeper lock).",
+    "Database-level advisory locks (Postgres pg_advisory_lock for cross-process coordination).",
+    "Cloud provider lock services (AWS DynamoDB conditional writes as a poor man's lock).",
+    "Hadoop NameNode HA (ZooKeeper lock for active NameNode)."
+  ],
+  "interview_prompts": [
+    "Explain the GC-pause bug in naive distributed locks. How do fencing tokens fix it?",
+    "Why is Redlock considered unsafe by Martin Kleppmann? When is it acceptable to use?",
+    "Compare etcd-based locks, Redis single-instance locks, and Redlock. Which would you use for what?",
+    "Your batch job is idempotent. Do you need a distributed lock? Why or why not?",
+    "What is a lease? How does it differ from a lock, and what are the failure modes?"
+  ],
+  "real_system_mappings": [
+    {
+      "system": "etcd (Kubernetes)",
+      "how": "Lease-based locks via Raft consensus. Used for Kubernetes leader election: only one instance of each controller (scheduler, controller-manager) is active at a time; the others standby. If the active instance fails to renew its lease, another takes over within seconds."
+    },
+    {
+      "system": "Google Chubby",
+      "how": "Paxos-based distributed lock service used internally at Google for leader election (GFS master, Bigtable master) and coarse-grained locking. Holds leases with bounded renewal; clients cache the lock state. The foundation of Google's distributed coordination."
+    },
+    {
+      "system": "Redis single-instance locks",
+      "how": "SET key value NX PX ttl atomically acquires if absent; Lua script releases only if value matches holder's unique ID. Common for performance optimization (cache stampede prevention, deduplication) but unsafe for correctness-critical use without fencing."
+    },
+    {
+      "system": "Postgres advisory locks",
+      "how": "pg_advisory_lock provides cooperative locking within a single Postgres cluster. Used for cross-process coordination (only one cron worker pulls from a queue, only one migration runs at a time). Not distributed across machines, but safe within a Postgres cluster."
+    }
+  ],
+  "status": "published",
+  "sources": [
+    {
+      "title": "System Design Primer",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Open source"
+    },
+    {
+      "title": "ByteByteGo — Scale from zero to millions",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "ByteByteGo"
+    },
+    {
+      "title": "System Design Tutorial",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "GeeksforGeeks"
+    },
+    {
+      "title": "System Design Roadmap",
+      "url": "https://roadmap.sh/system-design",
+      "publisher": "roadmap.sh"
+    },
+    {
+      "title": "Distributed Systems reference",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Distributed Systems reference",
+      "url": "https://raft.github.io/",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Distributed Systems reference",
+      "url": "https://www.usenix.org/",
+      "publisher": "Reference"
+    }
+  ]
+}

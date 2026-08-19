@@ -1,0 +1,430 @@
+{
+  "slug": "throttling",
+  "version": 4,
+  "title": "Throttling",
+  "phase": "reliability-resilience",
+  "area": "Reliability & Resilience",
+  "estimated_minutes": 7,
+  "difficulty": "advanced",
+  "summary": "Throttling is a server-side mechanism that limits how fast a client can send requests, smoothing bursts and protecting downstream resources. It uses the same algorithms as rate limiting (token bucket, leaky bucket) but is enforced at the consumer or service boundary, often dynamically based on system health. The key distinction: rate limiting rejects excess traffic with 429s; throttling delays or shapes it.",
+  "why_it_matters": "A service that accepts every request at peak load will eventually collapse under it. Throttling is the safety valve: instead of letting a flood of requests pile up queues, exhaust connections, and trigger cascading failures, it deliberately slows clients down to a rate the system can actually handle. Without throttling, a viral moment or a misbehaving upstream can turn into a multi-hour outage; with it, the system degrades gracefully and recovers as soon as the load drops.",
+  "prerequisites": [
+    "rate-limiting",
+    "back-pressure"
+  ],
+  "related": [
+    "circuit-breaker",
+    "timeout",
+    "graceful-degradation"
+  ],
+  "used_in": [
+    "API gateways and SDKs (AWS, GCP).",
+    "Database drivers and connection pools.",
+    "Streaming and ingestion pipelines (Kafka, Kinesis)."
+  ],
+  "blocks": [
+    {
+      "type": "prose",
+      "id": "intro",
+      "payload": {
+        "text": "Throttling means deliberately limiting the rate at which a client is allowed to do work. It is closely related to rate limiting and the terms are often used interchangeably, but the intent differs:\n\n- **Rate limiting** is a policy: \"you may send at most N requests per minute.\" Excess traffic is **rejected** with a 429.\n- **Throttling** is a control mechanism: \"I will process your requests at no more than R per second.\" Excess traffic is **delayed, queued, or shaped** rather than rejected outright.\n\nThrottling is what your AWS SDK does when it sees a `ThrottlingException`: it backs off and retries instead of failing. Throttling is what a Kafka consumer does when it pauses consumption to avoid overwhelming a downstream database."
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "algorithms",
+      "payload": {
+        "code": "flowchart TD\n    N0[\"bursty\"]\n    N1[\"TOKEN\"]\n    N2[\"BUCKET\"]\n    N3[\"(bursty)\"]\n    N4[\"Bucket\"]\n    N5[\"capacity\"]\n    N6[\"100\"]\n    N7[\"tokens\"]\n    N8[\"Refill\"]\n    N9[\"rate\"]\n    N10[\"sec\"]\n    N11[\"Each\"]\n    N12[\"request\"]\n    N13[\"token\"]\n    N14[\"Empty?\"]\n    N15[\"delay\"]\n    N16[\"reject\"]\n    N17[\"Allows\"]\n    N18[\"bursts\"]\n    N19[\"100,\"]\n    N20[\"then\"]\n    N21[\"steady\"]\n    N22[\"state.\"]\n    N23[\"smooth\"]\n    N24[\"LEAKY\"]\n    N25[\"(smooth)\"]\n    N26[\"Fixed\"]\n    N27[\"size\"]\n    N28[\"queue.\"]\n    N29[\"Output\"]\n    N30[\"drained\"]\n    N31[\"constant\"]\n    N32[\"sec.\"]\n    N33[\"back-pressure\"]\n    N34[\"Queue\"]\n    N35[\"full?\"]\n    N36[\"429\"]\n    N37[\"(back\"]\n    N38[\"pressure).\"]\n    N39[\"Bursty\"]\n    N40[\"input\"]\n    N41[\"output.\"]\n    N42[\"RATE\"]\n    N43[\"LIMITING\"]\n    N44[\"THROTTLING\"]\n    N45[\"drop\"]\n    N46[\"LIMIT:\"]\n    N47[\"over\"]\n    N48[\"budget?\"]\n    N49[\"(drop)\"]\n    N50[\"shape\"]\n    N51[\"THROTTLE:\"]\n    N52[\"wait\"]\n    N53[\"(shape)\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44\n    N44 --> N45\n    N45 --> N46\n    N46 --> N47\n    N47 --> N48\n    N48 --> N49\n    N49 --> N50\n    N50 --> N51\n    N51 --> N52\n    N52 --> N53",
+        "caption": "Token bucket allows bursts; leaky bucket smooths them; throttling delays where rate limiting drops.",
+        "alt_text": "Three diagrams. Token bucket: a bucket of capacity 100 refills at 10 tokens per second, each request consumes one token, and if empty the request is delayed or rejected. It allows bursts up to 100 then a steady 10 per second. Leaky bucket: a fixed-size queue drained at a constant rate, smoothing bursty input into steady output, with overflows rejected as 429. Rate limiting versus throttling: rate limiting drops excess requests with 429 errors; throttling delays excess requests, shaping traffic rather than dropping it."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "algorithms-deep",
+      "payload": {
+        "text": "Two algorithms dominate throttling:\n\n**Token bucket** gives the client an allowance of capacity that refills over time. If the bucket has tokens, the request goes through immediately; if not, the client waits or gets rejected. Token bucket is good when bursts are legitimate (a user clicking rapidly) but average load must be controlled.\n\n**Leaky bucket** turns a bursty input stream into a smooth output stream by queuing requests and processing them at a constant rate. It's good when downstream systems cannot tolerate bursts at all — for example, calling a third-party API that bills per second and has its own rate limits.\n\nBoth can be implemented per-client, per-tenant, or globally. Most production systems combine a per-client limit (fairness) with a global limit (protection)."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "dynamic",
+      "payload": {
+        "text": "Static limits are easy to reason about, but the right limit depends on system health. A common pattern is **adaptive throttling**: the service tracks its own latency, CPU, queue depth, or error rate, and tightens the limit as those signals degrade. AWS calls this the `adaptive` retry mode; gRPC's `bedrock` client does the same.\n\nAdaptive throttling prevents the failure mode where a fixed limit is too high during degradation (letting the system die) or too low during health (rejecting traffic the system could have handled). The downside is harder debugging: the limit changes, so a client might be accepted at 9am and rejected at 9pm for the same load."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "vs-rate-limit",
+      "payload": {
+        "title": "Rate limiting vs throttling, in one line",
+        "body": "Rate limiting is a policy enforced at the edge: \"no more than N per minute, else 429.\" Throttling is a control loop: \"slow down to R per second so the system can keep up.\" A rate limiter answers a yes/no question; a throttler answers a \"how fast\" question. Production systems usually run both: a rate limiter at the API gateway for fairness, and throttling inside the service to protect its own dependencies.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "client-side",
+      "payload": {
+        "text": "Throttling isn't only a server concern. **Client-side throttling** is when a client deliberately limits its own request rate to avoid being rejected. AWS SDKs do this automatically: when they get a `ThrottlingException`, they switch into throttled mode and cap their own request rate, using the token bucket and adaptive algorithms above. This avoids the retry storm pattern — the client never sends more than the server can absorb.\n\nClient-side throttling works because it's cooperative: the client and server agree on a rate. It doesn't work against adversarial clients (use rate limiting for those)."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q1",
+      "payload": {
+        "question": "An API gateway returns 429 to clients that exceed 100 req/min. A service behind it is being overwhelmed because legit clients retry immediately. What's a better approach?",
+        "shape": "mcq",
+        "options": [
+          "Increase the limit to 1000 req/min.",
+          "Replace rejection with throttling: delay excess requests in a queue and process them at the service's sustainable rate.",
+          "Remove the limit entirely and let the service handle it.",
+          "Block all retries at the gateway."
+        ],
+        "answer_index": 1,
+        "rationale": "Rejecting with 429 only works if clients back off gracefully. If they retry immediately, each rejected request multiplies into more load. Throttling shapes the traffic instead: excess requests are queued and processed at a rate the downstream can sustain, so legitimate work eventually completes rather than generating a retry storm. Increasing the limit lets the service die; removing it makes things worse; blocking retries breaks clients that have legitimate reason to retry idempotent operations.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q2",
+      "payload": {
+        "question": "You're writing a Kafka consumer that writes to a database which can sustain 500 inserts/sec. How should you throttle?",
+        "shape": "mcq",
+        "options": [
+          "Poll as many records as possible, then retry failed inserts forever.",
+          "Poll a batch, process it, and pace consumption so the insert rate stays at or below 500/sec, pausing consumption if the DB falls behind.",
+          "Rate-limit at the Kafka broker.",
+          "Don't throttle — the database will handle it."
+        ],
+        "answer_index": 1,
+        "rationale": "The right place to throttle is between Kafka consumption and DB insertion. Poll a batch, insert at a sustainable rate, and pause Kafka consumption if the database can't keep up (back-pressure). This keeps throughput at exactly the DB's sustainable rate without overwhelming it. Polling without limit leads to consumer lag and possible crashes; rate-limiting at the broker doesn't protect the DB; assuming the DB will handle it leads to a real outage under load.",
+        "difficulty": "core"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q3",
+      "payload": {
+        "question": "Token bucket allows bursts; leaky bucket smooths them. When do you prefer leaky bucket?",
+        "shape": "mcq",
+        "options": [
+          "When the downstream system tolerates bursts well.",
+          "When the downstream is a fragile third-party API with its own per-second limits and bursts cause billing spikes or failures.",
+          "When you want to maximize throughput at all costs.",
+          "When clients are adversarial."
+        ],
+        "answer_index": 1,
+        "rationale": "Leaky bucket enforces a constant output rate, which protects downstreams that can't tolerate bursts — fragile third-party APIs, billing-sensitive APIs, or APIs with their own per-second quotas. Token bucket is better when bursts are legitimate (a user clicking fast) and the average rate matters more than the instantaneous one. Neither handles adversarial clients; that's rate limiting's job.",
+        "difficulty": "advanced"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-throttling-mental",
+      "payload": {
+        "text": "Engineering mental model",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-throttling-mental",
+      "payload": {
+        "text": "**Mental model.** Think of Throttling as a deliberate boundary in a system. The boundary exists because something becomes harder to manage when everything is done in one place: latency, scale, failure isolation, consistency, cost, or team ownership. The useful question is not “what does Throttling mean?” but “what pressure makes this boundary worth introducing, and what new failure mode does it create?”"
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-throttling-decision",
+      "payload": {
+        "title": "Design lens",
+        "body": "Before choosing Throttling, name the workload, the critical user path, the dominant bottleneck, the failure you are trying to absorb, and the trade-off you are willing to accept. If you cannot name those five things, the design is probably premature.",
+        "kind": "info"
+      }
+    },
+    {
+      "type": "image",
+      "id": "upgrade-image-throttling",
+      "payload": {
+        "src": "/learning-visuals/throttling.svg",
+        "alt": "Original NO CAP systems visual for Throttling.",
+        "caption": "Throttling: a compact system-thinking visual.",
+        "credit": "Original NO CAP visual.",
+        "source_url": "https://github.com/donnemartin/system-design-primer"
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "upgrade-mermaid-throttling",
+      "payload": {
+        "code": "flowchart LR\n  A[Client] --> B[Gateway] --> C[Service] --> D[State] --> E[Outcome]",
+        "caption": "Throttling: a simplified system view showing the primary flow and the main state boundaries.",
+        "alt_text": "Throttling: a simplified system view showing the primary flow and the main state boundaries."
+      }
+    },
+    {
+      "type": "code",
+      "id": "upgrade-code-throttling",
+      "payload": {
+        "language": "text",
+        "code": "// Pseudocode\nrequest = receive()\nresult = throttling(request)\nreturn result\n\n// Production questions:\n// 1. What happens on timeout?\n// 2. Can this operation be retried safely?\n// 3. What is the bottleneck?",
+        "caption": "A minimal engineering sketch for reasoning about Throttling."
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-throttling-numbers",
+      "payload": {
+        "text": "Back-of-the-envelope reasoning",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-throttling-numbers",
+      "payload": {
+        "text": "Numerical lens: write down traffic, payload size, read/write ratio, peak multiplier and durability target before choosing a component. The numbers should justify the architecture."
+      }
+    },
+    {
+      "type": "simulation",
+      "id": "upgrade-sim-throttling",
+      "payload": {
+        "title": "Interactive thought experiment: Throttling",
+        "description": "Change the variables below and predict what breaks first in Throttling. The production lab can later reuse these same inputs.",
+        "variables": [
+          {
+            "name": "traffic",
+            "description": "Requests/events per second",
+            "default": "1000"
+          },
+          {
+            "name": "latency",
+            "description": "Dependency latency",
+            "default": "50ms"
+          },
+          {
+            "name": "failure_rate",
+            "description": "Injected failure rate",
+            "default": "0%"
+          }
+        ],
+        "placeholder_note": "Interactive controls are deterministic; use the linked Labs section when a dedicated lab exists."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-throttling-hint",
+      "payload": {
+        "title": "Hint",
+        "body": "If you are stuck on Throttling, start by drawing the request path and marking every network hop, stateful component, queue, cache and failure boundary. Then estimate where the system will saturate.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-throttling-1",
+      "payload": {
+        "shape": "prediction",
+        "question": "You increase traffic by 10× in a system using Throttling. What should you inspect first?",
+        "options": [
+          "The newest framework version",
+          "The dominant bottleneck and its saturation signal",
+          "Only the UI",
+          "Nothing; the architecture should absorb any traffic automatically"
+        ],
+        "answer_index": 1,
+        "rationale": "System design is a constraint-and-bottleneck exercise. Start with the resource or dependency that will saturate first, then choose the smallest change that removes that bottleneck.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-throttling-2",
+      "payload": {
+        "shape": "mcq",
+        "question": "Which statement is the safest engineering habit when using Throttling?",
+        "options": [
+          "Choose it because it is popular",
+          "Add it before measuring the problem",
+          "State the workload, failure mode and trade-off it is solving",
+          "Use the most distributed design possible"
+        ],
+        "answer_index": 2,
+        "rationale": "Good architecture starts from requirements, workload and failure assumptions. The component is the consequence of that reasoning, not the starting point.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "scenario",
+      "id": "upgrade-scenario-throttling",
+      "payload": {
+        "prompt": "Production scenario: your system uses Throttling, traffic suddenly spikes, and p99 latency doubles. What is your first move?",
+        "context": "You have dashboards for traffic, latency, errors and saturation. You can change the architecture, but every change has operational cost.",
+        "options": [
+          {
+            "id": "a",
+            "text": "Add more instances immediately",
+            "outcome": "This may help, but only if compute saturation is the bottleneck.",
+            "correct": false
+          },
+          {
+            "id": "b",
+            "text": "Inspect the bottleneck and its saturation signal first",
+            "outcome": "Correct: diagnose before scaling or introducing a new pattern.",
+            "correct": true
+          },
+          {
+            "id": "c",
+            "text": "Disable monitoring to reduce overhead",
+            "outcome": "This removes the evidence you need to diagnose the incident.",
+            "correct": false
+          }
+        ],
+        "rationale": "Measure the limiting resource or dependency first. A bottleneck can be compute, database I/O, network, cache misses, lock contention, downstream latency, or queue backlog.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-throttling-interview",
+      "payload": {
+        "text": "Interview drill",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-throttling-interview",
+      "payload": {
+        "text": "**Answer this without notes:** When would you choose Throttling, and when would you intentionally avoid it? Mention at least one bottleneck it addresses, one failure mode it introduces, and one alternative. Then quantify the workload you are designing for."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "field-guide-throttling",
+      "payload": {
+        "title": "Engineering lens",
+        "body": "A useful engineering lens for Throttling: define the problem it solves, the simpler design that fails first, the constraint that forces you to introduce this concept, and the new failure modes the concept creates.",
+        "kind": "tip"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "numerical-lens-throttling",
+      "payload": {
+        "text": "### Numerical sanity check\n\nBack-of-the-envelope reasoning beats fake precision. State your traffic, payload, concurrency and growth assumptions explicitly, then calculate enough to know whether the current architecture is orders of magnitude away from the target."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "field-question-throttling",
+      "payload": {
+        "shape": "prediction",
+        "question": "Imagine the simplest version of a system using Throttling. What breaks first as traffic grows by 10×, and what would you change before reaching 100×?",
+        "context": "Do not optimize for a memorized definition. Reason from the workload and failure mode.",
+        "options": [
+          "Scale the same component immediately.",
+          "Measure the current bottleneck and state the assumption that changed.",
+          "Add more technologies until throughput improves.",
+          "Choose the most popular architecture."
+        ],
+        "answer_index": 1,
+        "rationale": "Good system design starts with the bottleneck and the changed constraint. The most popular or complex choice is not automatically correct.",
+        "difficulty": "interview"
+      }
+    }
+  ],
+  "trade_offs": {
+    "pros": [
+      "Smooths bursts into sustainable load, protecting downstreams.",
+      "Cooperative — well-behaved clients get served, just slower.",
+      "Avoids retry storms that pure rate limiting can trigger.",
+      "Enables adaptive control: tighten the rate when the system is degraded."
+    ],
+    "cons": [
+      "Adds latency — throttled requests wait in queues.",
+      "Requires queue capacity: an unbounded queue is a memory leak under sustained overload.",
+      "Harder to reason about than a simple 429 — clients may not understand why they're slow.",
+      "Adaptive throttling is harder to debug: the limit moves."
+    ]
+  },
+  "failure_modes": [
+    "Unbounded queues — under sustained overload, queued requests grow until OOM.",
+    "Head-of-line blocking — one slow request behind a throttle holds up faster ones.",
+    "Fairness starvation — strict per-key throttling can starve small tenants when a hot key saturates the bucket.",
+    "Adaptive feedback oscillation — over-tightening and over-loosening causes throughput to swing wildly."
+  ],
+  "common_mistakes": [
+    "Confusing throttling with rate limiting — they have different intent (shape vs reject).",
+    "Setting a static limit and never revisiting it as the system's capacity changes.",
+    "Throttling at the wrong layer — e.g., per-instance instead of globally.",
+    "Not propagating throttle state across instances — needs shared state (Redis) for global limits."
+  ],
+  "where_you_see_it": [
+    "AWS SDK adaptive retry mode — dynamically caps request rate based on throttling feedback.",
+    "Kafka consumer lag management — pause/resume consumption to match downstream capacity.",
+    "gRPC client-side load balancing — retry budgets and hedging caps."
+  ],
+  "interview_prompts": [
+    "What's the difference between throttling and rate limiting? When do you use each?",
+    "Explain token bucket vs leaky bucket. Which would you choose for a third-party API that bills per request?",
+    "How does client-side adaptive throttling prevent retry storms?",
+    "How do you throttle across multiple instances of a service?"
+  ],
+  "real_system_mappings": [
+    {
+      "system": "AWS SDK adaptive retry mode",
+      "how": "Tracks throttling feedback from the service, maintains a token bucket, and dynamically caps the client's own request rate to avoid overwhelming the service — preventing retry storms."
+    },
+    {
+      "system": "gRPC client-side throttling",
+      "how": "Implements hedging and retry budgets that cap the percentage of in-flight requests that can be retries, preventing a slow upstream from cascading into a retry storm."
+    }
+  ],
+  "status": "published",
+  "sources": [
+    {
+      "title": "System Design Primer",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Open source"
+    },
+    {
+      "title": "ByteByteGo — Scale from zero to millions",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "ByteByteGo"
+    },
+    {
+      "title": "System Design Tutorial",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "GeeksforGeeks"
+    },
+    {
+      "title": "System Design Roadmap",
+      "url": "https://roadmap.sh/system-design",
+      "publisher": "roadmap.sh"
+    },
+    {
+      "title": "Reliability & Resilience reference",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Reliability & Resilience reference",
+      "url": "https://sre.google/sre-book/table-of-contents/",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Reliability & Resilience reference",
+      "url": "https://aws.amazon.com/builders-library/",
+      "publisher": "Reference"
+    },
+    {
+      "title": "AWS Well-Architected",
+      "url": "https://aws.amazon.com/architecture/well-architected/",
+      "publisher": "AWS"
+    }
+  ]
+}

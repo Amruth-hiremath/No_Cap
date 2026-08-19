@@ -1,0 +1,415 @@
+{
+  "slug": "queue-based-load-leveling",
+  "version": 3,
+  "title": "Queue-Based Load Leveling",
+  "phase": "cloud-architecture",
+  "area": "Cloud Architecture",
+  "estimated_minutes": 7,
+  "difficulty": "advanced",
+  "summary": "Queue-Based Load Leveling inserts a queue between a task producer and a task consumer to smooth traffic spikes. The producer writes to the queue at whatever rate it receives work; the consumer reads at a steady rate it can sustain. The queue absorbs the difference — bursts fill the queue, lulls drain it — so the consumer never sees the burst and never gets overwhelmed. The result: predictable load on the consumer, no resource over-provisioning for peak, and graceful degradation under sustained overload (queue grows, latency rises, but the system doesn't crash).",
+  "why_it_matters": "Without a queue, the producer and consumer are tightly coupled: a traffic spike hits the producer and the consumer simultaneously. If the consumer can't keep up, it crashes, retry storms cascade, and the system fails. With a queue, the producer keeps writing fast, the consumer keeps reading steady, and the queue absorbs the spike. The consumer can be sized for average load, not peak — saving cost — and overload manifests as growing queue depth (visible, debuggable) rather than cascading failure (opaque, fatal).",
+  "prerequisites": [
+    "message-queues"
+  ],
+  "related": [
+    "back-pressure",
+    "priority-queue",
+    "circuit-breaker"
+  ],
+  "used_in": [
+    "Background job processing — image processing, video transcoding, report generation.",
+    "Async API patterns — submit work, get a job ID, poll for results.",
+    "Batch processing — accumulate events for periodic batch jobs.",
+    "Decoupling producers from consumers with different capacities."
+  ],
+  "blocks": [
+    {
+      "type": "prose",
+      "id": "intro",
+      "payload": {
+        "text": "The pattern is simple in concept, powerful in effect:\n\n1. The producer receives work (HTTP request, user action, scheduled trigger).\n2. The producer writes a message describing the work to a queue.\n3. The producer returns immediately — it doesn't wait for the work to be done.\n4. The consumer reads messages from the queue at its own pace.\n5. The queue absorbs the difference between produce rate and consume rate.\n\nThe queue acts as a shock absorber. If the producer generates 1,000 tasks/second for 10 seconds (a burst of 10,000 tasks) and the consumer processes 100/second, the queue grows to 9,000 deep at peak, then drains over the next 90 seconds. The consumer never sees the spike — it processes a steady 100/second the whole time.\n\nKey benefits:\n- **Consumer sized for average, not peak.** If average load is 100/sec and peak is 1,000/sec for short bursts, you provision for 100/sec, not 1,000/sec. The queue handles the gap.\n- **Producer returns fast.** No waiting for the work to complete — the API responds in milliseconds, the work happens in the background.\n- **Decoupled failure modes.** If the consumer crashes, the producer still succeeds (messages queue up). If the producer spikes, the consumer still processes steadily.\n- **Overload is visible, not fatal.** Growing queue depth is a signal you can monitor and alert on; cascading failure is opaque.\n- **Back-pressure via queue depth.** If the queue grows too deep, you can shed load, scale consumers, or reject new producers — controlled degradation.\n\nWhen the queue grows, latency grows too: a task that's 5,000th in queue waits 50 seconds to start (at 100/sec consumer rate). This is the trade-off: load leveling trades latency under load for stability. For latency-sensitive work, you may need priority queues or reject-fast semantics."
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "burst",
+      "payload": {
+        "code": "flowchart TD\n    N0[\"tightly coupled\"]\n    N1[\"Without\"]\n    N2[\"queue\"]\n    N3[\"(tightly\"]\n    N4[\"coupled):\"]\n    N5[\"producer:\"]\n    N6[\"▁▁▁▁▁▁▁▁▁▁████████████▁▁▁▁▁▁▁▁▁\"]\n    N7[\"burst\"]\n    N8[\"1000\"]\n    N9[\"sec\"]\n    N10[\"consumer:\"]\n    N11[\"must\"]\n    N12[\"match,\"]\n    N13[\"crash\"]\n    N14[\"provisioned\"]\n    N15[\"for\"]\n    N16[\"peak\"]\n    N17[\"expensive\"]\n    N18[\"load-leveled\"]\n    N19[\"With\"]\n    N20[\"(load\"]\n    N21[\"leveled):\"]\n    N22[\"still\"]\n    N23[\"happens\"]\n    N24[\"queue:\"]\n    N25[\"▁▁▁▁▁▁▁▁▁▁▆▆▇▇█████▆▆▃▃▁▁▁▁▁▁▁\"]\n    N26[\"absorbs\"]\n    N27[\"the\"]\n    N28[\"▁▁▁▁▁▁▁▁▁▁▃▃▃▃▃▃▃▃▃▃▃▃▃▃▃▃▃▃▃\"]\n    N29[\"steady\"]\n    N30[\"100\"]\n    N31[\"avg\"]\n    N32[\"cheap\"]\n    N33[\"Result:\"]\n    N34[\"consumer\"]\n    N35[\"sees\"]\n    N36[\"load\"]\n    N37[\"even\"]\n    N38[\"under\"]\n    N39[\"burst.\"]\n    N40[\"a task 5000 deep waits 50s to start\"]\n    N41[\"Trade\"]\n    N42[\"off:\"]\n    N43[\"depth\"]\n    N44[\"latency\"]\n    N45[\"task\"]\n    N46[\"5000\"]\n    N47[\"deep\"]\n    N48[\"waits\"]\n    N49[\"50s\"]\n    N50[\"start).\"]\n    N51[\"Mitigation:\"]\n    N52[\"priority\"]\n    N53[\"queue,\"]\n    N54[\"autoscaling\"]\n    N55[\"consumers,\"]\n    N56[\"reject\"]\n    N57[\"fast\"]\n    N58[\"overload.\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44\n    N44 --> N45\n    N45 --> N46\n    N46 --> N47\n    N47 --> N48\n    N48 --> N49\n    N49 --> N50\n    N50 --> N51\n    N51 --> N52\n    N52 --> N53\n    N53 --> N54\n    N54 --> N55\n    N55 --> N56\n    N56 --> N57\n    N57 --> N58",
+        "caption": "Queue-Based Load Leveling: the queue absorbs bursts so the consumer sees steady load. Latency rises with queue depth, but the system doesn't crash.",
+        "alt_text": "A comparison diagram showing load over time. Without a queue, the producer and consumer both see the burst — the consumer must either match the producer's 1000 per second peak or crash, requiring expensive over-provisioning. With a queue, the producer still sees the burst, but the queue absorbs it, growing and then draining. The consumer sees a steady 100 per second throughout. The result is that the consumer sees steady load even under burst. The trade-off is that queue depth adds latency — a task 5000 deep waits 50 seconds to start. Mitigations include priority queues, autoscaling consumers, or reject-fast semantics under overload."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "design",
+      "payload": {
+        "text": "Design considerations:\n\n**Sizing the consumer pool.**\n- Provision for average load, not peak — that's the whole point of load leveling. But ensure consumers can drain the queue during lulls so it doesn't grow unbounded.\n- For long bursts, autoscale consumers based on queue depth (e.g., scale out when depth > 1000, scale in when depth < 100).\n- Beware of consumer startup time — if autoscaling takes 2 minutes to add capacity, the queue may have grown significantly by then. Pre-warm capacity.\n\n**Choosing the right queue.**\n- **At-least-once** (SQS standard, RabbitMQ) — most common; consumers must be idempotent.\n- **FIFO** (SQS FIFO, Kafka) — if ordering matters; combine with Sequential Convoy for per-key ordering.\n- **Priority queue** — if some tasks are more urgent than others.\n- **Delayed / scheduled** (SQS delay queues, RabbitMQ TTL) — for retries with backoff or scheduled jobs.\n\n**Back-pressure and rejection.**\n- What happens if the queue grows too deep? Options: (a) reject new tasks (return 429/503 to producers); (b) shed load (drop low-priority messages); (c) autoscale consumers harder; (d) accept the latency growth.\n- Always set a max queue depth or storage limit. An unbounded queue will eventually OOM the broker or exhaust storage.\n\n**Idempotency.**\n- At-least-once delivery means consumers will see duplicates (during redelivery after crash, consumer rebalance, network issues). Consumers must be idempotent — process each task exactly once semantically, even if the message is delivered multiple times.\n- Use deduplication keys, transactional outbox, or idempotent operations.\n\n**Visibility and monitoring.**\n- Queue depth is the key metric — alert on growth, not just current depth. Sustained growth means consumers can't keep up.\n- Consumer throughput, error rate, processing latency — standard RED metrics.\n- Producer submit rate vs consumer process rate — they should match on average; sustained mismatch indicates overload.\n- Per-message age — how long has the oldest message been waiting? Alerts when age exceeds SLA."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "vs-sync",
+      "payload": {
+        "title": "Sync vs Async with a Queue",
+        "body": "Synchronous APIs return the result of the work; asynchronous APIs return a job ID and the client polls for results. Queue-based load leveling pushes toward async: the producer submits work, gets a job ID, and the result is delivered later (via callback, polling, or a different channel). For long-running work (image processing, ML inference, report generation), async is the only option — the connection would time out otherwise. For short, latency-sensitive work, sync may be preferable even under load, accepting occasional overload errors.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "tradeoffs",
+      "payload": {
+        "text": "When to use Queue-Based Load Leveling:\n\n- **Workloads are bursty** — short spikes of high volume with idle periods in between.\n- **Consumer capacity is expensive** — databases, third-party APIs with rate limits, GPU-bound processing.\n- **Producer latency must be low** — the producer should respond immediately, not wait for the work.\n- **Work can be done asynchronously** — the user doesn't need the result synchronously.\n- **You need to absorb producer failures** — producer spike shouldn't take down the consumer.\n\nWhen NOT to use it:\n- **Latency-sensitive work** — if the user is waiting for the result, the queue adds unacceptable latency.\n- **Strict ordering required across all tasks** — FIFO queue serializes everything, killing the load-leveling benefit.\n- **Workload is steady and predictable** — no bursts to absorb; a queue adds indirection without value.\n- **The producer and consumer have the same capacity** — no benefit; the queue is just overhead.\n- **Tasks are very short (<10ms)** — queue overhead exceeds the work.\n\nCommon companion patterns:\n- **Auto-scaling** — scale consumers based on queue depth, so a growing queue triggers more capacity.\n- **Circuit breaker** — if a downstream the consumer calls is failing, the consumer breaks and stops, letting the queue absorb.\n- **Back-pressure** — when the queue is full, the producer slows down or rejects new work.\n- **Priority queue** — high-priority tasks jump the queue, low-priority may wait.\n- **Claim Check** — if task payloads are large, store in object storage and pass references."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q1",
+      "payload": {
+        "question": "Your system processes image uploads. Average load is 10/sec, but spikes reach 1,000/sec for short bursts. Without a queue, you provision 1,000/sec capacity. How does Queue-Based Load Leveling change this?",
+        "shape": "mcq",
+        "options": [
+          "It doesn't — you still need 1,000/sec capacity to handle bursts.",
+          "You provision the consumer for ~10/sec (average), and a queue absorbs the bursts. Cost drops dramatically; latency rises briefly during bursts but the system stays stable.",
+          "It eliminates all latency — work is processed instantly.",
+          "It only works if the bursts are predictable in advance."
+        ],
+        "answer_index": 1,
+        "rationale": "The whole point of Queue-Based Load Leveling is to provision for average, not peak. With a queue, you size the consumer for ~10/sec (the average load), and the queue absorbs bursts. A 1,000/sec burst for 10 seconds produces 10,000 tasks; at 10/sec consumer rate, the queue grows to ~9,900 deep and drains over ~16 minutes. The consumer never sees the burst — it processes steadily. Cost savings are significant: 1/100th the consumer capacity. The trade-off is latency: a task at position 5,000 in the queue waits 500 seconds (at 10/sec) to start. For image uploads where users expect ‘processed in a minute or two,’ that's acceptable; for a real-time API, it's not. Option (a) is wrong — the queue decouples producer rate from consumer rate. Option (c) is wrong — the queue adds latency, it doesn't eliminate it. Option (d) is wrong — the queue works regardless of burst predictability; that's the point.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q2",
+      "payload": {
+        "question": "Your queue depth has been growing for 30 minutes. Producer rate is steady at 100/sec; consumer rate has dropped to 50/sec. What's happening, and what should you do?",
+        "shape": "mcq",
+        "options": [
+          "Nothing is wrong — queues are supposed to grow.",
+          "The consumer is processing slower than the producer, so the queue grows. Investigate the consumer (errors? slow downstream? resource starvation?). Auto-scale consumers, fix the root cause, or shed load to prevent unbounded growth.",
+          "The producer is broken — reduce producer rate.",
+          "Switch to a different queue technology."
+        ],
+        "answer_index": 1,
+        "rationale": "Sustained queue growth means the consumer can't keep up with the producer. In this case, the producer is steady at 100/sec but the consumer dropped to 50/sec — so the queue grows by 50 tasks/second. This is a clear signal that something is wrong with the consumer: errors (raising error rate, retries consuming capacity), a slow downstream (the consumer is waiting on a database or API), resource starvation (CPU/memory pressure on the consumer), or a hot partition (if partitioned). Actions: (1) investigate the consumer — check error rate, downstream latency, resource utilization; (2) auto-scale consumers to add capacity; (3) if the consumer is fundamentally capacity-limited, shed load (reject low-priority producers) to prevent unbounded queue growth. Option (a) is wrong — queues growing without bound is a problem, not a feature. Option (c) is wrong — the producer isn't broken; the consumer is. Option (d) is wrong — switching queue tech doesn't fix the consumer being slow. The right answer is to investigate and address the consumer's capacity problem.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-queue-based-load-leveling-mental",
+      "payload": {
+        "text": "Engineering mental model",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-queue-based-load-leveling-mental",
+      "payload": {
+        "text": "**Mental model.** Think of Queue-Based Load Leveling as a deliberate boundary in a system. The boundary exists because something becomes harder to manage when everything is done in one place: latency, scale, failure isolation, consistency, cost, or team ownership. The useful question is not “what does Queue-Based Load Leveling mean?” but “what pressure makes this boundary worth introducing, and what new failure mode does it create?”"
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-queue-based-load-leveling-decision",
+      "payload": {
+        "title": "Design lens",
+        "body": "Before choosing Queue-Based Load Leveling, name the workload, the critical user path, the dominant bottleneck, the failure you are trying to absorb, and the trade-off you are willing to accept. If you cannot name those five things, the design is probably premature.",
+        "kind": "info"
+      }
+    },
+    {
+      "type": "image",
+      "id": "upgrade-image-queue-based-load-leveling",
+      "payload": {
+        "src": "/learning-visuals/queue-based-load-leveling.svg",
+        "alt": "Original NO CAP systems visual for Queue-Based Load Leveling.",
+        "caption": "Queue-Based Load Leveling: a compact system-thinking visual.",
+        "credit": "Original NO CAP visual.",
+        "source_url": "https://github.com/donnemartin/system-design-primer"
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "upgrade-mermaid-queue-based-load-leveling",
+      "payload": {
+        "code": "flowchart LR\n P[Producers] --> Q[(Queue)] --> W1[Worker 1]\n Q --> W2[Worker 2]\n Q --> W3[Worker 3]",
+        "caption": "A queue absorbs bursts and lets consumers process work at a sustainable rate.",
+        "alt_text": "A queue absorbs bursts and lets consumers process work at a sustainable rate."
+      }
+    },
+    {
+      "type": "code",
+      "id": "upgrade-code-queue-based-load-leveling",
+      "payload": {
+        "language": "python",
+        "code": "message_id = queue.publish({\n    \"type\": \"queue-based-load-leveling\",\n    \"key\": resource_id\n})\n# Consumer must be safe to retry.",
+        "caption": "A minimal engineering sketch for reasoning about Queue-Based Load Leveling."
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-queue-based-load-leveling-numbers",
+      "payload": {
+        "text": "Back-of-the-envelope reasoning",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-queue-based-load-leveling-numbers",
+      "payload": {
+        "text": "Numerical lens: write down traffic, payload size, read/write ratio, peak multiplier and durability target before choosing a component. The numbers should justify the architecture."
+      }
+    },
+    {
+      "type": "simulation",
+      "id": "upgrade-sim-queue-based-load-leveling",
+      "payload": {
+        "title": "Interactive thought experiment: Queue-Based Load Leveling",
+        "description": "Change the variables below and predict what breaks first in Queue-Based Load Leveling. The production lab can later reuse these same inputs.",
+        "variables": [
+          {
+            "name": "producer_rate",
+            "description": "Messages produced per second",
+            "default": "1000"
+          },
+          {
+            "name": "consumer_count",
+            "description": "Concurrent consumers",
+            "default": "4"
+          },
+          {
+            "name": "processing_rate",
+            "description": "Messages processed per consumer per second",
+            "default": "300"
+          }
+        ],
+        "placeholder_note": "Interactive controls are deterministic; use the linked Labs section when a dedicated lab exists."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-queue-based-load-leveling-hint",
+      "payload": {
+        "title": "Hint",
+        "body": "If you are stuck on Queue-Based Load Leveling, start by drawing the request path and marking every network hop, stateful component, queue, cache and failure boundary. Then estimate where the system will saturate.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-queue-based-load-leveling-1",
+      "payload": {
+        "shape": "prediction",
+        "question": "You increase traffic by 10× in a system using Queue-Based Load Leveling. What should you inspect first?",
+        "options": [
+          "The newest framework version",
+          "The dominant bottleneck and its saturation signal",
+          "Only the UI",
+          "Nothing; the architecture should absorb any traffic automatically"
+        ],
+        "answer_index": 1,
+        "rationale": "System design is a constraint-and-bottleneck exercise. Start with the resource or dependency that will saturate first, then choose the smallest change that removes that bottleneck.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-queue-based-load-leveling-2",
+      "payload": {
+        "shape": "mcq",
+        "question": "Which statement is the safest engineering habit when using Queue-Based Load Leveling?",
+        "options": [
+          "Choose it because it is popular",
+          "Add it before measuring the problem",
+          "State the workload, failure mode and trade-off it is solving",
+          "Use the most distributed design possible"
+        ],
+        "answer_index": 2,
+        "rationale": "Good architecture starts from requirements, workload and failure assumptions. The component is the consequence of that reasoning, not the starting point.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "scenario",
+      "id": "upgrade-scenario-queue-based-load-leveling",
+      "payload": {
+        "prompt": "Production scenario: your system uses Queue-Based Load Leveling, traffic suddenly spikes, and p99 latency doubles. What is your first move?",
+        "context": "You have dashboards for traffic, latency, errors and saturation. You can change the architecture, but every change has operational cost.",
+        "options": [
+          {
+            "id": "a",
+            "text": "Add more instances immediately",
+            "outcome": "This may help, but only if compute saturation is the bottleneck.",
+            "correct": false
+          },
+          {
+            "id": "b",
+            "text": "Inspect the bottleneck and its saturation signal first",
+            "outcome": "Correct: diagnose before scaling or introducing a new pattern.",
+            "correct": true
+          },
+          {
+            "id": "c",
+            "text": "Disable monitoring to reduce overhead",
+            "outcome": "This removes the evidence you need to diagnose the incident.",
+            "correct": false
+          }
+        ],
+        "rationale": "Measure the limiting resource or dependency first. A bottleneck can be compute, database I/O, network, cache misses, lock contention, downstream latency, or queue backlog.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-queue-based-load-leveling-interview",
+      "payload": {
+        "text": "Interview drill",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-queue-based-load-leveling-interview",
+      "payload": {
+        "text": "**Answer this without notes:** When would you choose Queue-Based Load Leveling, and when would you intentionally avoid it? Mention at least one bottleneck it addresses, one failure mode it introduces, and one alternative. Then quantify the workload you are designing for."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "field-guide-queue-based-load-leveling",
+      "payload": {
+        "title": "Engineering lens",
+        "body": "For Queue-Based Load Leveling, separate producer speed from consumer speed. The key design question is what happens when production temporarily exceeds processing capacity: queue it, shed it, slow producers down, or degrade the feature.",
+        "kind": "tip"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "numerical-lens-queue-based-load-leveling",
+      "payload": {
+        "text": "### Numerical sanity check\n\nA simple queue sanity check: if producers create 8,000 messages/s and consumers process 6,000 messages/s, backlog grows at roughly 2,000 messages/s until the imbalance is corrected."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "field-question-queue-based-load-leveling",
+      "payload": {
+        "shape": "prediction",
+        "question": "A downstream service slows down while Queue-Based Load Leveling keeps accepting traffic. Would you rather apply backpressure, queue more work, shed load, or degrade? Explain the trade-off.",
+        "context": "Do not optimize for a memorized definition. Reason from the workload and failure mode.",
+        "options": [
+          "Scale the same component immediately.",
+          "Measure the current bottleneck and state the assumption that changed.",
+          "Add more technologies until throughput improves.",
+          "Choose the most popular architecture."
+        ],
+        "answer_index": 1,
+        "rationale": "Good system design starts with the bottleneck and the changed constraint. The most popular or complex choice is not automatically correct.",
+        "difficulty": "interview"
+      }
+    }
+  ],
+  "trade_offs": {
+    "pros": [
+      "Consumer sees steady load — sized for average, not peak.",
+      "Producer returns immediately — low latency API responses.",
+      "Decoupled failure modes — consumer crash doesn't break producer.",
+      "Overload is visible (queue depth) — monitorable, alertable, debuggable.",
+      "Graceful degradation under sustained overload — latency grows, system doesn't crash.",
+      "Composes with autoscaling — scale consumers based on queue depth."
+    ],
+    "cons": [
+      "Latency grows with queue depth — unsuitable for latency-sensitive work.",
+      "Operational complexity — now you operate a queue, monitor depth, manage consumer autoscaling.",
+      "At-least-once delivery — consumers must be idempotent.",
+      "Ordering is generally FIFO across the queue — combine with Sequential Convoy for per-key ordering.",
+      "Unbounded queue growth can OOM the broker or exhaust storage — needs limits and back-pressure."
+    ]
+  },
+  "failure_modes": [
+    "Sustained producer > consumer rate — queue grows unbounded, latency grows without bound.",
+    "Consumer crash — messages queue up but no processing happens; needs autoscaling or alerting.",
+    "Poison message — bad message causes consumer to fail repeatedly; needs dead-letter queue.",
+    "Visibility timeout too short — message redelivered before consumer finishes, causing duplicates.",
+    "Queue broker failure — single point of failure; needs HA broker.",
+    "Hot partition (if partitioned) — one key dominates, that partition's queue grows while others idle."
+  ],
+  "common_mistakes": [
+    "Not monitoring queue depth — silent growth leads to surprise outages.",
+    "Not setting a max queue size — unbounded growth can OOM the broker.",
+    "Consumers not idempotent — at-least-once delivery causes duplicate effects.",
+    "Sizing consumers for peak anyway — defeats the cost benefit of load leveling.",
+    "Using a queue for latency-sensitive work — users see unacceptable delays.",
+    "Not handling consumer crashes — messages pile up while consumer is down; needs autoscaling or alerting."
+  ],
+  "where_you_see_it": [
+    "Background job systems (Sidekiq, Celery, SQS + Lambda) for async work.",
+    "Image / video / media processing pipelines — bursts absorbed by queue.",
+    "Email and notification systems — bursts (campaign sends) absorbed by queue.",
+    "Webhook delivery — bursts (many events at once) rate-limited through a queue.",
+    "Batch processing — accumulate events, process in batches at intervals."
+  ],
+  "interview_prompts": [
+    "What is Queue-Based Load Leveling, and what problem does it solve?",
+    "Your workload bursts to 100x average for short periods. How does a queue change your capacity planning?",
+    "Your queue depth has been growing for 30 minutes. What's happening, and what do you do?",
+    "When would you NOT use Queue-Based Load Leveling? Give concrete examples.",
+    "How does this pattern compose with autoscaling, circuit breakers, or priority queues?"
+  ],
+  "real_system_mappings": [
+    {
+      "system": "AWS SQS + Lambda / ECS consumers",
+      "how": "A canonical cloud pattern: producers write to SQS, consumers (Lambda functions or ECS tasks) read at their own pace. SQS absorbs bursts. Lambda's concurrency limits act as a natural consumer capacity cap; queue depth triggers auto-scaling."
+    },
+    {
+      "system": "Sidekiq / Celery (Ruby / Python background job systems)",
+      "how": "Application-level job queues for background processing. Producers enqueue jobs (Redis-backed); worker processes consume at their own rate. Used for email sends, report generation, image processing — classic load-leveling use cases."
+    },
+    {
+      "system": "Kafka as a load-leveling buffer",
+      "how": "Kafka topics act as durable, partitioned load-leveling buffers between producers and consumers. Producers write at any rate; consumers in a group read at their own pace. Used at scale by LinkedIn, Netflix, Uber for absorbing traffic spikes."
+    }
+  ],
+  "status": "published",
+  "sources": [
+    {
+      "title": "System Design Primer",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Open source"
+    },
+    {
+      "title": "ByteByteGo — Scale from zero to millions",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "ByteByteGo"
+    },
+    {
+      "title": "System Design Tutorial",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "GeeksforGeeks"
+    },
+    {
+      "title": "System Design Roadmap",
+      "url": "https://roadmap.sh/system-design",
+      "publisher": "roadmap.sh"
+    },
+    {
+      "title": "Cloud Architecture reference",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Cloud Architecture reference",
+      "url": "https://learn.microsoft.com/en-us/azure/architecture/",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Cloud Architecture reference",
+      "url": "https://aws.amazon.com/architecture/",
+      "publisher": "Reference"
+    }
+  ]
+}

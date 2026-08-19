@@ -1,0 +1,430 @@
+{
+  "slug": "health-monitoring",
+  "version": 4,
+  "title": "Health Monitoring",
+  "phase": "observability",
+  "area": "Observability",
+  "estimated_minutes": 7,
+  "difficulty": "core",
+  "summary": "Health monitoring continuously checks whether a service is functioning, typically via a /health endpoint that returns 200 OK or an error. The two probes — liveness (\"is the process alive?\") and readiness (\"is the process ready to serve traffic?\") — drive orchestration decisions: restarting a dead container vs removing a not-ready one from the load balancer. Confusing them is one of the most common causes of cascading failures in Kubernetes.",
+  "why_it_matters": "A service that's up but not functional is worse than one that's down — it accepts connections, holds resources, and produces bad responses. Health monitoring distinguishes the two: liveness probes catch deadlocked or zombie processes (restart them); readiness probes catch services that can't currently serve (remove them from rotation without restart). Without these distinctions, a downstream failure cascades through the load balancer, a slow startup causes request errors, or a zombie process consumes resources forever. With them, the orchestrator can keep the service healthy automatically.",
+  "prerequisites": [
+    "metrics-logs-traces",
+    "load-balancers"
+  ],
+  "related": [
+    "availability-monitoring",
+    "circuit-breaker",
+    "load-balancers"
+  ],
+  "used_in": [
+    "Every container orchestration system (Kubernetes, ECS, Nomad).",
+    "Every load balancer with active health checks.",
+    "Every cloud platform with managed services (AWS ALB, GCP LB)."
+  ],
+  "blocks": [
+    {
+      "type": "prose",
+      "id": "intro",
+      "payload": {
+        "text": "Health monitoring answers two questions continuously: is the process alive? Is the process ready to serve traffic? The two are distinct and require different probes.\n\n- **Liveness probe**: \"is the process running?\" If it fails, the orchestrator (Kubernetes) restarts the container. Use this to catch deadlocks, infinite loops, and memory leaks that leave the process running but non-functional.\n- **Readiness probe**: \"is the process ready to serve traffic?\" If it fails, the load balancer removes it from rotation but the orchestrator doesn't restart it. Use this for transient unavailability: waiting on a DB connection, warming a cache, or a downstream service being down.\n\nThe cardinal rule: liveness failures restart, readiness failures reroute. Confusing them causes problems."
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "probes",
+      "payload": {
+        "code": "flowchart TD\n    N0[\"restart on failure\"]\n    N1[\"LIVENESS\"]\n    N2[\"PROBE\"]\n    N3[\"(restart\"]\n    N4[\"failure)\"]\n    N5[\"Kubelet\"]\n    N6[\"GET\"]\n    N7[\"health\"]\n    N8[\"every\"]\n    N9[\"10s\"]\n    N10[\"non\"]\n    N11[\"200\"]\n    N12[\"kill\"]\n    N13[\"container,\"]\n    N14[\"restart.\"]\n    N15[\"Use:\"]\n    N16[\"catch\"]\n    N17[\"deadlocks,\"]\n    N18[\"OOM\"]\n    N19[\"zombies,\"]\n    N20[\"infinite\"]\n    N21[\"loops.\"]\n    N22[\"reroute on failure\"]\n    N23[\"READINESS\"]\n    N24[\"(reroute\"]\n    N25[\"ready\"]\n    N26[\"remove\"]\n    N27[\"pod\"]\n    N28[\"from\"]\n    N29[\"Service\"]\n    N30[\"endpoints.\"]\n    N31[\"Container\"]\n    N32[\"keeps\"]\n    N33[\"running.\"]\n    N34[\"cache\"]\n    N35[\"warming,\"]\n    N36[\"downstream\"]\n    N37[\"dep\"]\n    N38[\"down,\"]\n    N39[\"reconnect.\"]\n    N40[\"disable liveness during boot\"]\n    N41[\"STARTUP\"]\n    N42[\"(disable\"]\n    N43[\"liveness\"]\n    N44[\"during\"]\n    N45[\"boot)\"]\n    N46[\"startup\"]\n    N47[\"5min\"]\n    N48[\"keep\"]\n    N49[\"waiting;\"]\n    N50[\"don't\"]\n    N51[\"kill.\"]\n    N52[\"readiness\"]\n    N53[\"probes\"]\n    N54[\"take\"]\n    N55[\"over.\"]\n    N56[\"JVM, large caches\"]\n    N57[\"slow\"]\n    N58[\"starting\"]\n    N59[\"apps\"]\n    N60[\"(JVM,\"]\n    N61[\"large\"]\n    N62[\"caches).\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44\n    N44 --> N45\n    N45 --> N46\n    N46 --> N47\n    N47 --> N48\n    N48 --> N49\n    N49 --> N50\n    N50 --> N51\n    N51 --> N52\n    N52 --> N53\n    N53 --> N54\n    N54 --> N55\n    N55 --> N56\n    N56 --> N57\n    N57 --> N58\n    N58 --> N59\n    N59 --> N60\n    N60 --> N61\n    N61 --> N62",
+        "caption": "Liveness restarts, readiness reroutes, startup waits. Each probe has a different job.",
+        "alt_text": "Three probe types. Liveness probe: the kubelet calls GET slash health every ten seconds; if it returns non-200, the container is killed and restarted. Use it to catch deadlocks, out-of-memory zombies, and infinite loops. Readiness probe: the kubelet calls GET slash ready every five seconds; if it returns non-200, the pod is removed from the service endpoints but the container keeps running with no restart. Use it for cache warming, downstream dependencies down, and database reconnection. Startup probe: the kubelet calls GET slash startup every ten seconds for up to five minutes; while it returns non-200, the kubelet keeps waiting without killing. Use it for slow-starting applications like JVMs and large caches."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "implementation",
+      "payload": {
+        "text": "A typical health endpoint:\n\n- **GET /health (liveness)**: returns 200 if the process can answer HTTP at all. The simplest version just returns 200 unconditionally — \"the process is up.\" A better version checks that critical background threads are alive.\n\n- **GET /ready (readiness)**: returns 200 if the service can serve traffic. This typically checks downstream dependencies: can I reach the DB? Is the cache warm? Is the message queue reachable? If any critical dependency is down, return 503.\n\nThe trap: making /ready check too many things. If /ready depends on every downstream service, then any downstream outage takes your service out of the load balancer — even if your service could serve some requests degraded. Use graceful degradation instead: /ready should check *critical* dependencies, not all of them.\n\nAlso: don't make /ready do expensive work. A 200ms /ready check called every 5s by 100 pods is real load. Keep it fast (<10ms)."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "common-mistakes",
+      "payload": {
+        "text": "The most common mistake: using liveness for readiness, or vice versa. Example:\n\n- **Liveness checks the DB**: if the DB is down, the liveness probe fails, the orchestrator restarts the container. The container restarts, hits the same down DB, restarts again — a restart storm that does nothing to fix the problem and wastes resources.\n- **Readiness never fails**: the service stays in the load balancer even when it can't serve requests. Users see timeouts instead of being routed to a healthy replica.\n\nAnother classic: liveness probe with a too-short initial delay. The container hasn't finished starting; liveness fails; the orchestrator kills it before it's ready. This creates a CrashLoopBackOff. Use a startup probe instead — it tells the orchestrator to wait without killing.\n\nFinally: health endpoints that return 200 even when the service is broken. This happens when /health only checks \"can I respond to HTTP\" but not \"am I functional.\" The probe is a tautology. Always include real checks."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "vs-availability",
+      "payload": {
+        "title": "Health checks vs availability monitoring",
+        "body": "Health checks (liveness/readiness probes) are internal: the orchestrator asks the service if it's healthy. Availability monitoring is external: a synthetic probe from outside the data center asks if users can reach the service. Both are needed. Health checks catch container-level issues (zombie processes, broken dependencies). Availability monitoring catches network-level issues (DNS, load balancer, region routing). A service can pass its liveness probe but be unreachable from the internet — only availability monitoring catches that.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "self-healing",
+      "payload": {
+        "text": "Health monitoring is the foundation of self-healing: when the orchestrator detects a problem, it acts automatically — restarting containers, rerouting traffic, scaling up. This means most transient failures (a deadlocked thread, a memory spike, a brief downstream outage) are handled without human intervention.\n\nBut self-healing has limits:\n\n- It can't fix configuration bugs — restarting doesn't change the code.\n- It can mask underlying issues — if a service is constantly restarting, the symptom (low availability) is hidden but the root cause is still there.\n- It can cause cascading failures if misconfigured — e.g., aggressive liveness probes during a downstream outage cause restart storms.\n\nMonitor the monitors: track restart counts, readiness flaps, and liveness failures. If they're spiking, there's a problem to investigate — even if the service looks healthy from outside."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q1",
+      "payload": {
+        "question": "Your service depends on a downstream API. The downstream goes down. Your service can still serve cached responses but not fresh data. What should your readiness probe do?",
+        "shape": "mcq",
+        "options": [
+          "Return 503 — the dependency is down, so the service is not ready.",
+          "Return 200 — the service can still serve cached responses, so it's ready to handle some traffic.",
+          "Crash the container so it restarts.",
+          "Return 200 unconditionally — health probes shouldn't check dependencies."
+        ],
+        "answer_index": 1,
+        "rationale": "Readiness isn't binary; it's about whether the service can serve useful traffic. If the service can serve cached responses (graceful degradation), it's still useful and should stay in the load balancer. Returning 503 would remove all instances from rotation, causing a full outage — even though the service could still serve most requests. The right design: /ready returns 200 when the service can do its job (even degraded), and only returns 503 when the service genuinely cannot serve. This pairs with graceful degradation: the probe reflects the degraded state, not the binary dependency state.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q2",
+      "payload": {
+        "question": "What goes wrong if you use the liveness probe to check the database connection?",
+        "shape": "mcq",
+        "options": [
+          "Nothing — that's the recommended pattern.",
+          "When the DB goes down, every pod's liveness fails and the orchestrator restarts them. They restart, hit the same down DB, restart again — a restart storm that wastes resources and doesn't fix the problem.",
+          "The liveness probe becomes too slow.",
+          "The database connection will leak."
+        ],
+        "answer_index": 1,
+        "rationale": "Liveness failures cause restarts. If liveness depends on the DB, then a DB outage triggers a cascade of restarts across every pod that depends on it — accomplishing nothing, because the restarted pods still can't reach the DB, and wasting CPU/network during the restart cycle. The DB connection belongs in the readiness probe, not the liveness probe. Readiness failures reroute traffic without restarting, which is the right response: route around the broken service while it recovers. This is the most common Kubernetes misconfiguration.",
+        "difficulty": "core"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q3",
+      "payload": {
+        "question": "Your Java service takes 60 seconds to start (JVM warmup, cache loading). Liveness probe fails during startup. What's the right fix?",
+        "shape": "mcq",
+        "options": [
+          "Increase the liveness probe's failureThreshold and periodSeconds to give the app 90s before killing.",
+          "Use a startup probe that allows up to 5 minutes for startup, after which liveness takes over.",
+          "Remove the liveness probe entirely.",
+          "Make the liveness probe return 200 unconditionally."
+        ],
+        "answer_index": 1,
+        "rationale": "A startup probe is the Kubernetes-native solution for slow-starting applications. The kubelet polls /startup until it returns 200 (or the failure threshold is exceeded), and only then starts running liveness and readiness probes. This prevents the kubelet from killing the container during its slow boot, while still allowing liveness checks to catch deadlocks once it's running. Increasing the liveness failure threshold works but is hacky — it disables liveness protection during normal operation too. Removing liveness or making it tautological defeats the purpose entirely.",
+        "difficulty": "advanced"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-health-monitoring-mental",
+      "payload": {
+        "text": "Engineering mental model",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-health-monitoring-mental",
+      "payload": {
+        "text": "**Mental model.** Think of Health Monitoring as a deliberate boundary in a system. The boundary exists because something becomes harder to manage when everything is done in one place: latency, scale, failure isolation, consistency, cost, or team ownership. The useful question is not “what does Health Monitoring mean?” but “what pressure makes this boundary worth introducing, and what new failure mode does it create?”"
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-health-monitoring-decision",
+      "payload": {
+        "title": "Design lens",
+        "body": "Before choosing Health Monitoring, name the workload, the critical user path, the dominant bottleneck, the failure you are trying to absorb, and the trade-off you are willing to accept. If you cannot name those five things, the design is probably premature.",
+        "kind": "info"
+      }
+    },
+    {
+      "type": "image",
+      "id": "upgrade-image-health-monitoring",
+      "payload": {
+        "src": "/learning-visuals/health-monitoring.svg",
+        "alt": "Original NO CAP systems visual for Health Monitoring.",
+        "caption": "Health Monitoring: a compact system-thinking visual.",
+        "credit": "Original NO CAP visual.",
+        "source_url": "https://github.com/donnemartin/system-design-primer"
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "upgrade-mermaid-health-monitoring",
+      "payload": {
+        "code": "flowchart LR\n  A[Signal] --> B[Collector] --> C[Store] --> D[Rule] --> E[Alert]",
+        "caption": "Health Monitoring: a simplified system view showing the primary flow and the main state boundaries.",
+        "alt_text": "Health Monitoring: a simplified system view showing the primary flow and the main state boundaries."
+      }
+    },
+    {
+      "type": "code",
+      "id": "upgrade-code-health-monitoring",
+      "payload": {
+        "language": "text",
+        "code": "// Pseudocode\nrequest = receive()\nresult = health_monitoring(request)\nreturn result\n\n// Production questions:\n// 1. What happens on timeout?\n// 2. Can this operation be retried safely?\n// 3. What is the bottleneck?",
+        "caption": "A minimal engineering sketch for reasoning about Health Monitoring."
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-health-monitoring-numbers",
+      "payload": {
+        "text": "Back-of-the-envelope reasoning",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-health-monitoring-numbers",
+      "payload": {
+        "text": "Numerical lens: write down traffic, payload size, read/write ratio, peak multiplier and durability target before choosing a component. The numbers should justify the architecture."
+      }
+    },
+    {
+      "type": "simulation",
+      "id": "upgrade-sim-health-monitoring",
+      "payload": {
+        "title": "Interactive thought experiment: Health Monitoring",
+        "description": "Change the variables below and predict what breaks first in Health Monitoring. The production lab can later reuse these same inputs.",
+        "variables": [
+          {
+            "name": "traffic",
+            "description": "Requests/events per second",
+            "default": "1000"
+          },
+          {
+            "name": "latency",
+            "description": "Dependency latency",
+            "default": "50ms"
+          },
+          {
+            "name": "failure_rate",
+            "description": "Injected failure rate",
+            "default": "0%"
+          }
+        ],
+        "placeholder_note": "Interactive controls are deterministic; use the linked Labs section when a dedicated lab exists."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-health-monitoring-hint",
+      "payload": {
+        "title": "Hint",
+        "body": "If you are stuck on Health Monitoring, start by drawing the request path and marking every network hop, stateful component, queue, cache and failure boundary. Then estimate where the system will saturate.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-health-monitoring-1",
+      "payload": {
+        "shape": "prediction",
+        "question": "You increase traffic by 10× in a system using Health Monitoring. What should you inspect first?",
+        "options": [
+          "The newest framework version",
+          "The dominant bottleneck and its saturation signal",
+          "Only the UI",
+          "Nothing; the architecture should absorb any traffic automatically"
+        ],
+        "answer_index": 1,
+        "rationale": "System design is a constraint-and-bottleneck exercise. Start with the resource or dependency that will saturate first, then choose the smallest change that removes that bottleneck.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-health-monitoring-2",
+      "payload": {
+        "shape": "mcq",
+        "question": "Which statement is the safest engineering habit when using Health Monitoring?",
+        "options": [
+          "Choose it because it is popular",
+          "Add it before measuring the problem",
+          "State the workload, failure mode and trade-off it is solving",
+          "Use the most distributed design possible"
+        ],
+        "answer_index": 2,
+        "rationale": "Good architecture starts from requirements, workload and failure assumptions. The component is the consequence of that reasoning, not the starting point.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "scenario",
+      "id": "upgrade-scenario-health-monitoring",
+      "payload": {
+        "prompt": "Production scenario: your system uses Health Monitoring, traffic suddenly spikes, and p99 latency doubles. What is your first move?",
+        "context": "You have dashboards for traffic, latency, errors and saturation. You can change the architecture, but every change has operational cost.",
+        "options": [
+          {
+            "id": "a",
+            "text": "Add more instances immediately",
+            "outcome": "This may help, but only if compute saturation is the bottleneck.",
+            "correct": false
+          },
+          {
+            "id": "b",
+            "text": "Inspect the bottleneck and its saturation signal first",
+            "outcome": "Correct: diagnose before scaling or introducing a new pattern.",
+            "correct": true
+          },
+          {
+            "id": "c",
+            "text": "Disable monitoring to reduce overhead",
+            "outcome": "This removes the evidence you need to diagnose the incident.",
+            "correct": false
+          }
+        ],
+        "rationale": "Measure the limiting resource or dependency first. A bottleneck can be compute, database I/O, network, cache misses, lock contention, downstream latency, or queue backlog.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-health-monitoring-interview",
+      "payload": {
+        "text": "Interview drill",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-health-monitoring-interview",
+      "payload": {
+        "text": "**Answer this without notes:** When would you choose Health Monitoring, and when would you intentionally avoid it? Mention at least one bottleneck it addresses, one failure mode it introduces, and one alternative. Then quantify the workload you are designing for."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "field-guide-health-monitoring",
+      "payload": {
+        "title": "Engineering lens",
+        "body": "A useful engineering lens for Health Monitoring: define the problem it solves, the simpler design that fails first, the constraint that forces you to introduce this concept, and the new failure modes the concept creates.",
+        "kind": "tip"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "numerical-lens-health-monitoring",
+      "payload": {
+        "text": "### Numerical sanity check\n\nBack-of-the-envelope reasoning beats fake precision. State your traffic, payload, concurrency and growth assumptions explicitly, then calculate enough to know whether the current architecture is orders of magnitude away from the target."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "field-question-health-monitoring",
+      "payload": {
+        "shape": "prediction",
+        "question": "Imagine the simplest version of a system using Health Monitoring. What breaks first as traffic grows by 10×, and what would you change before reaching 100×?",
+        "context": "Do not optimize for a memorized definition. Reason from the workload and failure mode.",
+        "options": [
+          "Scale the same component immediately.",
+          "Measure the current bottleneck and state the assumption that changed.",
+          "Add more technologies until throughput improves.",
+          "Choose the most popular architecture."
+        ],
+        "answer_index": 1,
+        "rationale": "Good system design starts with the bottleneck and the changed constraint. The most popular or complex choice is not automatically correct.",
+        "difficulty": "interview"
+      }
+    }
+  ],
+  "trade_offs": {
+    "pros": [
+      "Self-healing: orchestrator restarts or reroutes automatically.",
+      "Catches zombie processes and deadlocks that metrics might miss.",
+      "Drives load balancer decisions without manual intervention.",
+      "Cheap to implement — one HTTP endpoint per service."
+    ],
+    "cons": [
+      "Misconfigured probes cause cascading failures (restart storms).",
+      "Probes that check too many dependencies amplify outages.",
+      "Adds load to the service (probe traffic).",
+      "Tautological probes (always return 200) give false confidence."
+    ]
+  },
+  "failure_modes": [
+    "Liveness probe that checks downstream → restart storm when downstream is down.",
+    "Readiness probe that never fails → broken service stays in rotation.",
+    "Probe with too-short initial delay → CrashLoopBackOff during slow startup.",
+    "Probe that does expensive work → contributes to the load it's monitoring."
+  ],
+  "common_mistakes": [
+    "Using liveness where readiness is needed (restarts vs reroutes).",
+    "Making /ready check every dependency — over-coupled.",
+    "Probes returning 200 unconditionally (tautology).",
+    "No startup probe for slow-starting apps (JVM, large cache warmups)."
+  ],
+  "where_you_see_it": [
+    "Kubernetes liveness, readiness, startup probes.",
+    "AWS ALB health checks (target group).",
+    "Envoy and Istio active health checks at the sidecar."
+  ],
+  "interview_prompts": [
+    "What's the difference between liveness and readiness probes? When do you use each?",
+    "Why is it a mistake to make the liveness probe check the database?",
+    "How do you handle a slow-starting service in Kubernetes?",
+    "What's the relationship between health checks and graceful degradation?"
+  ],
+  "real_system_mappings": [
+    {
+      "system": "Kubernetes",
+      "how": "Three probe types — liveness (restart), readiness (reroute), startup (wait) — defined in the pod spec. Standard pattern for self-healing container orchestration."
+    },
+    {
+      "system": "AWS ALB Target Group health checks",
+      "how": "Periodically calls a configured path on each target; failed targets are removed from routing automatically. Equivalent of Kubernetes readiness at the load balancer layer."
+    }
+  ],
+  "status": "published",
+  "sources": [
+    {
+      "title": "System Design Primer",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Open source"
+    },
+    {
+      "title": "ByteByteGo — Scale from zero to millions",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "ByteByteGo"
+    },
+    {
+      "title": "System Design Tutorial",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "GeeksforGeeks"
+    },
+    {
+      "title": "System Design Roadmap",
+      "url": "https://roadmap.sh/system-design",
+      "publisher": "roadmap.sh"
+    },
+    {
+      "title": "Observability reference",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Observability reference",
+      "url": "https://opentelemetry.io/docs/",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Observability reference",
+      "url": "https://sre.google/sre-book/monitoring-distributed-systems/",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Google SRE Book",
+      "url": "https://sre.google/sre-book/table-of-contents/",
+      "publisher": "Google"
+    }
+  ]
+}

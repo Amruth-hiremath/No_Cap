@@ -1,0 +1,442 @@
+{
+  "slug": "web-server-caching",
+  "version": 4,
+  "title": "Web Server Caching",
+  "phase": "cache-aside",
+  "area": "Caching",
+  "estimated_minutes": 7,
+  "difficulty": "core",
+  "summary": "Web server caching stores HTTP responses in a reverse proxy that sits in front of the application tier. NGINX, Varnish, and Apache Traffic Server intercept requests, check a local cache, and serve cached responses without involving the application at all. This drops application load dramatically, slashes latency for cacheable requests, and gives the application a graceful failure mode (serve stale when the app is down). It is the layer between the CDN and the application, governing how much read traffic ever reaches the app tier.",
+  "why_it_matters": "Web server caching is the workhorse of any moderately-sized web deployment. A single Varnish instance can serve 100,000+ req/sec from memory — far more than any application server. By absorbing cacheable traffic before it reaches the app, you free the app tier to do work that requires business logic (auth, writes, personalization). When the app goes down or becomes slow, the web server cache becomes the system's safety net, serving stale content and keeping users functional. Every backend engineer must understand how to configure NGINX `proxy_cache` and Varnish VCL, because this is the cache layer most under your direct control.",
+  "prerequisites": [
+    "caching-strategies"
+  ],
+  "related": [
+    "database-caching",
+    "cdn-caching",
+    "reverse-proxy"
+  ],
+  "used_in": [
+    "Every website with a reverse proxy (NGINX, Varnish).",
+    "WordPress and Drupal (Varnish is the standard cache).",
+    "API gateways (Kong, Tyk cache responses here).",
+    "Media-heavy sites serving images, videos, and large files."
+  ],
+  "blocks": [
+    {
+      "type": "prose",
+      "id": "intro",
+      "payload": {
+        "text": "**Web server caching** (also called reverse proxy caching) places a cache inside the reverse proxy that fronts the application tier. When a request arrives, the proxy checks its local cache; on a hit, it serves the cached response directly, never touching the application. On a miss, it forwards to the application, caches the response, and serves it.\n\nThis sits between the CDN (which is geographically distributed, at edge POPs) and the application cache (Redis, in-process). It is the layer that absorbs cacheable traffic that slipped past the CDN — typically because the user is in a region with no nearby POP, or because the CDN evicted the entry, or because the request was not CDN-eligible (e.g., it carried an authorization header).\n\n```\nclient → CDN edge → reverse proxy cache (NGINX/Varnish) → application tier → Redis → DB\n```\n\nThe classic tools are **NGINX** (with the `proxy_cache` directive), **Varnish** (purpose-built for HTTP caching, configured via VCL — Varnish Configuration Language), and **Apache Traffic Server**. Cloud variants include AWS CloudFront edge caches (which double as both CDN and web-cache) and managed offerings like Cloudflare Cache Reserve.\n\nThe two big differences from a CDN: (a) the web server cache is in your data center, so latency to it is the same as to your app tier (single-digit ms), and (b) you have full programmatic control — VCL lets you write logic that no CDN would let you deploy (e.g., strip cookies, rewrite URLs, vary cache key by user segment)."
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "flow",
+      "payload": {
+        "code": "flowchart TD\n    N0[\"REQUEST\"]\n    N1[\"FLOW\"]\n    N2[\"WITH\"]\n    N3[\"WEB\"]\n    N4[\"SERVER\"]\n    N5[\"CACHE\"]\n    N6[\"Client\"]\n    N7[\"[Client]\"]\n    N8[\"Reverse Proxy: NGINX/Varnish\"]\n    N9[\"[Reverse\"]\n    N10[\"Proxy:\"]\n    N11[\"NGINX\"]\n    N12[\"Varnish]\"]\n    N13[\"sub-ms\"]\n    N14[\"cache\"]\n    N15[\"HIT?\"]\n    N16[\"YES\"]\n    N17[\"serve\"]\n    N18[\"cached\"]\n    N19[\"response\"]\n    N20[\"(sub\"]\n    N21[\"ms)\"]\n    N22[\"miss\"]\n    N23[\"(miss)\"]\n    N24[\"Application Tier\"]\n    N25[\"Rails, Django, Node, Spring, ...\"]\n    N26[\"[Application\"]\n    N27[\"Tier]\"]\n    N28[\"(Rails,\"]\n    N29[\"Django,\"]\n    N30[\"Node,\"]\n    N31[\"Spring,\"]\n    N32[\"...)\"]\n    N33[\"Application\"]\n    N34[\"may\"]\n    N35[\"also\"]\n    N36[\"hit\"]\n    N37[\"Redis\"]\n    N38[\"its\"]\n    N39[\"own\"]\n    N40[\"miss.\"]\n    N41[\"return\"]\n    N42[\"proxy\"]\n    N43[\"caches\"]\n    N44[\"client\"]\n    N45[\"LAYERS\"]\n    N46[\"COMPARED\"]\n    N47[\"cache:\"]\n    N48[\"zero\"]\n    N49[\"network,\"]\n    N50[\"but\"]\n    N51[\"cannot\"]\n    N52[\"invalidate.\"]\n    N53[\"CDN\"]\n    N54[\"global,\"]\n    N55[\"edge\"]\n    N56[\"POPs,\"]\n    N57[\"limited\"]\n    N58[\"config.\"]\n    N59[\"Web\"]\n    N60[\"server\"]\n    N61[\"your\"]\n    N62[\"DC,\"]\n    N63[\"full\"]\n    N64[\"VCL\"]\n    N65[\"config\"]\n    N66[\"control.\"]\n    N67[\"App\"]\n    N68[\"Memcached,\"]\n    N69[\"per\"]\n    N70[\"object\"]\n    N71[\"TTL,\"]\n    N72[\"app\"]\n    N73[\"logic.\"]\n    N74[\"shared_buffers,\"]\n    N75[\"transparent\"]\n    N76[\"app.\"]\n    N77[\"THROUGHPUT\"]\n    N78[\"TYPICAL\"]\n    N79[\"proxy_cache:\"]\n    N80[\"~50,000\"]\n    N81[\"req\"]\n    N82[\"sec\"]\n    N83[\"node\"]\n    N84[\"in-memory\"]\n    N85[\"Varnish:\"]\n    N86[\"~100,000\"]\n    N87[\"(in\"]\n    N88[\"memory)\"]\n    N89[\"tier:\"]\n    N90[\"~1,000\"]\n    N91[\"5,000\"]\n    N92[\"One\"]\n    N93[\"Varnish\"]\n    N94[\"absorbs\"]\n    N95[\"100x\"]\n    N96[\"what\"]\n    N97[\"one\"]\n    N98[\"can\"]\n    N99[\"serve.\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44\n    N44 --> N45\n    N45 --> N46\n    N46 --> N47\n    N47 --> N48\n    N48 --> N49\n    N49 --> N50\n    N50 --> N51\n    N51 --> N52\n    N52 --> N53\n    N53 --> N54\n    N54 --> N55\n    N55 --> N56\n    N56 --> N57\n    N57 --> N58\n    N58 --> N59\n    N59 --> N60\n    N60 --> N61\n    N61 --> N62\n    N62 --> N63\n    N63 --> N64\n    N64 --> N65\n    N65 --> N66\n    N66 --> N67\n    N67 --> N68\n    N68 --> N69\n    N69 --> N70\n    N70 --> N71\n    N71 --> N72\n    N72 --> N73\n    N73 --> N74\n    N74 --> N75\n    N75 --> N76\n    N76 --> N77\n    N77 --> N78\n    N78 --> N79\n    N79 --> N80\n    N80 --> N81\n    N81 --> N82\n    N82 --> N83\n    N83 --> N84\n    N84 --> N85\n    N85 --> N86\n    N86 --> N87\n    N87 --> N88\n    N88 --> N89\n    N89 --> N90\n    N90 --> N91\n    N91 --> N92\n    N92 --> N93\n    N93 --> N94\n    N94 --> N95\n    N95 --> N96\n    N96 --> N97\n    N97 --> N98\n    N98 --> N99",
+        "caption": "Web server cache: the reverse proxy serves hits directly without involving the application tier.",
+        "alt_text": "Web server cache diagram. Request flow: client to reverse proxy (NGINX or Varnish). On a cache hit, the proxy serves the cached response in sub-millisecond time without touching the app. On a miss, it forwards to the application tier, which may itself hit Redis or the DB, then caches the response and returns. Cache layers compared: client cache has zero network but cannot invalidate; CDN cache is global at edge POPs but has limited config; web-server cache is in your data center with full VCL or NGINX config control; app cache is Redis or Memcached with per-object TTL and app logic; DB cache is shared_buffers, transparent to the app. Throughput typical: NGINX proxy_cache handles about 50,000 requests per second per node; Varnish handles over 100,000 per node in memory; the application tier handles 1,000 to 5,000 per node. One Varnish node absorbs 20 to 100 times what one app node can serve."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "varnish-vcl",
+      "payload": {
+        "text": "**VCL — the Varnish superpower.**\n\nVarnish Configuration Language (VCL) is what sets Varnish apart. VCL is a compiled DSL that lets you write arbitrary logic for every request and response — inspect headers, rewrite URLs, change cache keys, bypass the cache conditionally, purge by pattern, and more. NGINX has `proxy_cache` directives with similar (though less expressive) capabilities.\n\nTypical VCL patterns:\n\n- **Strip cookies from static asset requests** so that `Cookie: session=abc` does not bust the cache for `/static/app.js`.\n- **Vary cache key by user segment** — cache a different version for logged-in vs logged-out users, or for users in different countries.\n- **Bypass cache for POST/PUT/DELETE** — only cache idempotent requests.\n- **Grace mode** — serve stale content when the origin is slow or down (`stale-while-revalidate` baked in).\n- **Saint mode** — temporarily blacklist an unhealthy origin, preventing cache misses from reaching it.\n- **PURGE** — invalidate individual URLs by request from the application tier.\n\nThe key insight is that the web server cache is the most *programmable* cache layer. The CDN is at the edge but config-light (you mostly set headers and hope). The app cache is per-object but in your application code. The web server cache is in the data path and fully programmable, which is why Varnish is the favorite of high-traffic sites that need fine-grained caching logic."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "stale-on-error",
+      "payload": {
+        "title": "Grace mode saves the system during origin failure",
+        "body": "Varnish's `grace` mode lets the proxy serve a stale cached response when the origin is slow or down — for a configurable period after the TTL expires. If your origin crashes, Varnish keeps serving stale content from cache, buying you time to fix the origin without users seeing errors. This is the web-server cache's most operationally valuable property: it is a circuit breaker and a degradation strategy in one. NGINX has the equivalent with `proxy_cache_use_stale error timeout http_500 http_502 http_503 http_504`.",
+        "kind": "info"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "cache-key",
+      "payload": {
+        "text": "**Cache keys — what counts as the same request.**\n\nThe cache key determines whether two requests hit the same cached response. The default is `(method, host, URL)` — but this is rarely sufficient.\n\nCommon cache key considerations:\n\n- **Query parameters.** `?utm_source=email` should not bust the cache for a static page. VCL/NGINX config typically normalizes query params, stripping tracking params before computing the key.\n- **Cookies.** Logged-in users see different content, so cookies must be part of the key OR the response must not be cached. Static asset requests should have cookies stripped.\n- **Headers.** `Accept-Encoding: gzip` vs no-encoding produce different responses — the cache key must include encoding. So must `Accept-Language` if the response is localized.\n- **Authorization.** A request with `Authorization: Bearer ...` should NOT be cached by default (it is user-specific). Either bypass the cache for authed requests, or vary the cache key by user.\n\nThe most common web-cache bug: caching a logged-in user's response under a shared key, then serving it to a different user. The fix is either (a) strip cookies and only cache truly public responses, or (b) include the user ID in the cache key. Most production VCLs do both: cache aggressively for cookieless requests, bypass for authed requests."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "when-to-use",
+      "payload": {
+        "text": "**When to use web server caching:**\n- **Any website serving public, cacheable HTTP responses.** Default-on for most deployments.\n- **Sites with a heavy application tier** that you want to shield from cacheable traffic.\n- **APIs with idempotent GET endpoints** that return mostly-public data.\n- **When you need fine-grained caching logic** (per-segment cache keys, conditional purges) that the CDN does not allow.\n- **When you need a graceful failure mode** — `grace` mode serves stale content while the app recovers.\n\n**When NOT to use web server caching:**\n- **Personalized responses** (per-user dashboards, real-time data) — the cache hit rate will be near zero, and you risk cross-user leakage.\n- **POST/PUT/DELETE responses** — non-idempotent, must reach the app.\n- **Endpoints that require authentication and return user-specific data.** Bypass the cache or use per-user keys.\n- **Low-traffic internal services** where the app tier can handle all traffic directly. The proxy adds operational complexity."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q1",
+      "payload": {
+        "question": "A logged-in user's profile page gets cached by your Varnish server under the URL `/profile`. The next user to visit `/profile` sees the first user's profile. What went wrong, and what is the fix?",
+        "shape": "mcq",
+        "options": [
+          "Varnish has a bug — restart it.",
+          "The cache key was just the URL, so two different users' responses collided. Fix: either bypass the cache for authenticated requests, or include the user ID (from the session cookie) in the cache key.",
+          "The TTL was too short.",
+          "The CDN should be handling this, not Varnish."
+        ],
+        "answer_index": 1,
+        "rationale": "This is the most common web-server caching bug: caching a user-specific response under a shared key. The cache key was just the URL, so two different authenticated users got the same cached response. The fix is either (a) bypass the cache for any request with an Authorization header or a session cookie — these are inherently user-specific — or (b) include the user ID in the cache key, so each user gets their own cached entry. Approach (a) is simpler and safer for highly personalized data; (b) is appropriate when there is meaningful cacheable personalization (e.g., a per-user recommendations widget that is the same for 5 minutes). The deeper lesson: never cache a response without reasoning about what makes it user-specific.",
+        "difficulty": "core"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q2",
+      "payload": {
+        "question": "Your origin (application tier) goes down for 3 minutes. Users continue to see cached responses during the outage, with no errors. What feature made this possible, and why is it valuable?",
+        "shape": "mcq",
+        "options": [
+          "The CDN served from edge POPs.",
+          "Varnish's `grace` mode (or NGINX's `proxy_cache_use_stale`) served stale cached responses past their TTL while the origin was unreachable — a built-in circuit breaker and degradation strategy.",
+          "The browser cache served the responses.",
+          "The origin was never actually down."
+        ],
+        "answer_index": 1,
+        "rationale": "Varnish's `grace` mode and NGINX's `proxy_cache_use_stale` allow the proxy to serve stale cached responses past their TTL when the origin is unreachable or returns errors. This is the web-server cache's most operationally valuable property: it is both a circuit breaker (the origin stops getting traffic it cannot handle) and a graceful degradation strategy (users see slightly stale content instead of errors). During a 3-minute outage, grace mode keeps the site functional, buying the team time to fix the origin without user-visible impact. Without grace mode, every cache miss during the outage would have returned an error.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q3",
+      "payload": {
+        "question": "Why is Varnish's VCL more powerful than NGINX's `proxy_cache` directives for complex caching logic?",
+        "shape": "mcq",
+        "options": [
+          "VCL is faster because it is compiled C.",
+          "VCL is a programmable DSL that lets you write arbitrary logic per request and response — strip cookies, vary cache keys by segment, conditionally purge, etc. NGINX directives are declarative and limited to predefined options.",
+          "Varnish has more memory than NGINX.",
+          "VCL supports more HTTP headers."
+        ],
+        "answer_index": 1,
+        "rationale": "VCL is a compiled domain-specific language that lets you write arbitrary logic for every request and response — inspect and rewrite headers, vary cache keys by user segment or country, strip tracking query params, conditionally bypass the cache, purge by pattern, and more. NGINX's `proxy_cache` is declarative — you set directives like `proxy_cache_key` and `proxy_cache_valid`, but you cannot express arbitrary logic. For simple caching, NGINX is sufficient. For complex, fine-grained caching logic (the kind high-traffic sites need), Varnish + VCL is the standard. The compiled nature of VCL also makes it fast — but the power is in the programmability, not the performance.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-web-server-caching-mental",
+      "payload": {
+        "text": "Engineering mental model",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-web-server-caching-mental",
+      "payload": {
+        "text": "**Mental model.** Think of Web Server Caching as a deliberate boundary in a system. The boundary exists because something becomes harder to manage when everything is done in one place: latency, scale, failure isolation, consistency, cost, or team ownership. The useful question is not “what does Web Server Caching mean?” but “what pressure makes this boundary worth introducing, and what new failure mode does it create?”"
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-web-server-caching-decision",
+      "payload": {
+        "title": "Design lens",
+        "body": "Before choosing Web Server Caching, name the workload, the critical user path, the dominant bottleneck, the failure you are trying to absorb, and the trade-off you are willing to accept. If you cannot name those five things, the design is probably premature.",
+        "kind": "info"
+      }
+    },
+    {
+      "type": "image",
+      "id": "upgrade-image-web-server-caching",
+      "payload": {
+        "src": "/learning-visuals/web-server-caching.svg",
+        "alt": "Original NO CAP systems visual for Web Server Caching.",
+        "caption": "Web Server Caching: a compact system-thinking visual.",
+        "credit": "Original NO CAP visual.",
+        "source_url": "https://github.com/donnemartin/system-design-primer"
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "upgrade-mermaid-web-server-caching",
+      "payload": {
+        "code": "flowchart LR\n  A[Client] --> B[Gateway] --> C[Service] --> D[State] --> E[Outcome]",
+        "caption": "Web Server Caching: a simplified system view showing the primary flow and the main state boundaries.",
+        "alt_text": "Web Server Caching: a simplified system view showing the primary flow and the main state boundaries."
+      }
+    },
+    {
+      "type": "code",
+      "id": "upgrade-code-web-server-caching",
+      "payload": {
+        "language": "text",
+        "code": "// Pseudocode\nrequest = receive()\nresult = web_server_caching(request)\nreturn result\n\n// Production questions:\n// 1. What happens on timeout?\n// 2. Can this operation be retried safely?\n// 3. What is the bottleneck?",
+        "caption": "A minimal engineering sketch for reasoning about Web Server Caching."
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-web-server-caching-numbers",
+      "payload": {
+        "text": "Back-of-the-envelope reasoning",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-web-server-caching-numbers",
+      "payload": {
+        "text": "Numerical lens: write down traffic, payload size, read/write ratio, peak multiplier and durability target before choosing a component. The numbers should justify the architecture."
+      }
+    },
+    {
+      "type": "simulation",
+      "id": "upgrade-sim-web-server-caching",
+      "payload": {
+        "title": "Interactive thought experiment: Web Server Caching",
+        "description": "Change the variables below and predict what breaks first in Web Server Caching. The production lab can later reuse these same inputs.",
+        "variables": [
+          {
+            "name": "traffic",
+            "description": "Requests/events per second",
+            "default": "1000"
+          },
+          {
+            "name": "latency",
+            "description": "Dependency latency",
+            "default": "50ms"
+          },
+          {
+            "name": "failure_rate",
+            "description": "Injected failure rate",
+            "default": "0%"
+          }
+        ],
+        "placeholder_note": "Interactive controls are deterministic; use the linked Labs section when a dedicated lab exists."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-web-server-caching-hint",
+      "payload": {
+        "title": "Hint",
+        "body": "If you are stuck on Web Server Caching, start by drawing the request path and marking every network hop, stateful component, queue, cache and failure boundary. Then estimate where the system will saturate.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-web-server-caching-1",
+      "payload": {
+        "shape": "prediction",
+        "question": "You increase traffic by 10× in a system using Web Server Caching. What should you inspect first?",
+        "options": [
+          "The newest framework version",
+          "The dominant bottleneck and its saturation signal",
+          "Only the UI",
+          "Nothing; the architecture should absorb any traffic automatically"
+        ],
+        "answer_index": 1,
+        "rationale": "System design is a constraint-and-bottleneck exercise. Start with the resource or dependency that will saturate first, then choose the smallest change that removes that bottleneck.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-web-server-caching-2",
+      "payload": {
+        "shape": "mcq",
+        "question": "Which statement is the safest engineering habit when using Web Server Caching?",
+        "options": [
+          "Choose it because it is popular",
+          "Add it before measuring the problem",
+          "State the workload, failure mode and trade-off it is solving",
+          "Use the most distributed design possible"
+        ],
+        "answer_index": 2,
+        "rationale": "Good architecture starts from requirements, workload and failure assumptions. The component is the consequence of that reasoning, not the starting point.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "scenario",
+      "id": "upgrade-scenario-web-server-caching",
+      "payload": {
+        "prompt": "Production scenario: your system uses Web Server Caching, traffic suddenly spikes, and p99 latency doubles. What is your first move?",
+        "context": "You have dashboards for traffic, latency, errors and saturation. You can change the architecture, but every change has operational cost.",
+        "options": [
+          {
+            "id": "a",
+            "text": "Add more instances immediately",
+            "outcome": "This may help, but only if compute saturation is the bottleneck.",
+            "correct": false
+          },
+          {
+            "id": "b",
+            "text": "Inspect the bottleneck and its saturation signal first",
+            "outcome": "Correct: diagnose before scaling or introducing a new pattern.",
+            "correct": true
+          },
+          {
+            "id": "c",
+            "text": "Disable monitoring to reduce overhead",
+            "outcome": "This removes the evidence you need to diagnose the incident.",
+            "correct": false
+          }
+        ],
+        "rationale": "Measure the limiting resource or dependency first. A bottleneck can be compute, database I/O, network, cache misses, lock contention, downstream latency, or queue backlog.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-web-server-caching-interview",
+      "payload": {
+        "text": "Interview drill",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-web-server-caching-interview",
+      "payload": {
+        "text": "**Answer this without notes:** When would you choose Web Server Caching, and when would you intentionally avoid it? Mention at least one bottleneck it addresses, one failure mode it introduces, and one alternative. Then quantify the workload you are designing for."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "field-guide-web-server-caching",
+      "payload": {
+        "title": "Engineering lens",
+        "body": "For Web Server Caching, reason in this order: what data is hottest, where can it live closer to the caller, what makes it stale, and what happens on a miss or cache failure. A cache is an optimization boundary, not the source of truth.",
+        "kind": "tip"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "numerical-lens-web-server-caching",
+      "payload": {
+        "text": "### Numerical sanity check\n\nA useful first-order model is cache_load = request_rate × (1 - hit_rate). If traffic is 20,000 req/s and the hit rate is 90%, roughly 2,000 req/s still reaches the origin before considering misses caused by expiration or eviction."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "field-question-web-server-caching",
+      "payload": {
+        "shape": "prediction",
+        "question": "You have a read-heavy Web Server Caching path. Traffic doubles overnight. What metric would you inspect first, and what would convince you to add another cache layer?",
+        "context": "Do not optimize for a memorized definition. Reason from the workload and failure mode.",
+        "options": [
+          "Scale the same component immediately.",
+          "Measure the current bottleneck and state the assumption that changed.",
+          "Add more technologies until throughput improves.",
+          "Choose the most popular architecture."
+        ],
+        "answer_index": 1,
+        "rationale": "Good system design starts with the bottleneck and the changed constraint. The most popular or complex choice is not automatically correct.",
+        "difficulty": "interview"
+      }
+    }
+  ],
+  "trade_offs": {
+    "pros": [
+      "Drops application tier load 20-100x — one Varnish node absorbs what 20-100 app nodes could serve.",
+      "Sub-millisecond response on cache hits — far faster than the application tier.",
+      "Grace mode serves stale content during origin failure — built-in circuit breaker.",
+      "Full programmatic control via VCL — fine-grained caching logic no CDN allows.",
+      "In your data center — single-digit-ms latency to the app tier, full operator control."
+    ],
+    "cons": [
+      "Risk of cross-user data leakage if cache keys are not carefully designed.",
+      "In-memory storage means a restart loses the cache (warm-up period after restart).",
+      "Single point of failure unless deployed in HA pairs behind a load balancer.",
+      "Operational complexity — VCL is its own language to learn and maintain.",
+      "Does not help for non-cacheable traffic (POST, authed, personalized)."
+    ]
+  },
+  "failure_modes": [
+    "Cross-user data leakage — caching user-specific responses under shared keys.",
+    "Cache poisoning — caching a response that should not have been cached (e.g., an error page).",
+    "Warm-up after restart — a fresh Varnish has an empty cache; origin sees a burst of misses.",
+    "Cache key explosion — including too many headers/cookies in the key drops hit rate to zero.",
+    "Stale content served past origin recovery if `grace` mode is too aggressive.",
+    "Memory exhaustion — uncapped cache can grow until OOM; must configure LRU eviction."
+  ],
+  "common_mistakes": [
+    "Caching authenticated responses under URL-only keys — cross-user leakage.",
+    "Forgetting to strip tracking query params (`utm_*`) from the cache key — every variant busts the cache.",
+    "Not configuring `grace` mode — losing the most valuable failure-mode protection.",
+    "Treating Varnish as a black box — VCL is programmable; you should use it.",
+    "Restarting Varnish during peak traffic — the warm-up period can overwhelm the origin.",
+    "Single-instance deployment without HA — Varnish is a SPOF if not deployed in pairs."
+  ],
+  "where_you_see_it": [
+    "WordPress / Drupal sites (Varnish is the standard front-end cache).",
+    "News sites (BBC, NYT) — Varnish in front of the CMS to absorb read traffic.",
+    "API gateways (Kong, Tyk) — response caching implemented here.",
+    "Media-heavy sites — large file caching in Varnish or NGINX.",
+    "E-commerce (Magento, Shopify) — catalog and product page caching."
+  ],
+  "interview_prompts": [
+    "Design the caching layers for a high-traffic news site. Where does the web-server cache fit relative to the CDN and the app cache?",
+    "A user reports seeing another user's data on your site. Walk through every cache layer where the leak could have happened.",
+    "Your application tier goes down for 5 minutes but users see no errors. What made this possible, and how would you extend the window?",
+    "When would you choose Varnish over NGINX `proxy_cache`?",
+    "How do you invalidate a single URL in a web-server cache without restarting?"
+  ],
+  "real_system_mappings": [
+    {
+      "system": "Varnish at the BBC, NYT, Reddit",
+      "how": "These high-traffic sites run Varnish in front of their CMS or app tier, configured via VCL with per-segment cache keys, query param normalization, and aggressive grace mode. One Varnish node absorbs 100,000+ req/sec of cacheable traffic."
+    },
+    {
+      "system": "NGINX proxy_cache in standard deployments",
+      "how": "NGINX's `proxy_cache` directive is the default for any NGINX-fronted application — Rails, Django, Spring Boot, Node. Simpler than Varnish, sufficient for most sites. Configured via `proxy_cache_path`, `proxy_cache_key`, `proxy_cache_valid`."
+    },
+    {
+      "system": "Kong / Tyk API gateways",
+      "how": "API gateways implement response caching at the web-server layer, with TTLs and keys configured per-route. This absorbs idempotent GET traffic before it reaches the upstream service."
+    },
+    {
+      "system": "Cloudflare Cache Reserve / AWS CloudFront edge-to-shield",
+      "how": "Managed web-server cache layers that combine CDN and origin-shield caching. Cloudflare Cache Reserve extends edge caching with durable storage; CloudFront's edge + shield pattern collapses misses before they reach the origin."
+    }
+  ],
+  "status": "published",
+  "sources": [
+    {
+      "title": "System Design Primer",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Open source"
+    },
+    {
+      "title": "ByteByteGo — Scale from zero to millions",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "ByteByteGo"
+    },
+    {
+      "title": "System Design Tutorial",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "GeeksforGeeks"
+    },
+    {
+      "title": "System Design Roadmap",
+      "url": "https://roadmap.sh/system-design",
+      "publisher": "roadmap.sh"
+    },
+    {
+      "title": "Caching reference",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Caching reference",
+      "url": "https://aws.amazon.com/caching/",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Caching reference",
+      "url": "https://redis.io/docs/latest/develop/get-started/",
+      "publisher": "Reference"
+    }
+  ]
+}

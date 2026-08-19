@@ -1,0 +1,414 @@
+{
+  "slug": "geodes",
+  "version": 3,
+  "title": "Geodes",
+  "phase": "cloud-architecture",
+  "area": "Cloud Architecture",
+  "estimated_minutes": 7,
+  "difficulty": "advanced",
+  "summary": "The Geodes pattern deploys backends in multiple geographically distributed regions, all active simultaneously, with users routed to the nearest one. Unlike active-passive multi-region (where one region handles traffic and the other stands by), Geodes is active-active: every region serves users, every region has a full copy of the data, and a region failure just shifts its users to another region. The pattern gives low latency to global users, survives region outages, and scales linearly with the number of regions — at the cost of data replication complexity.",
+  "why_it_matters": "A single-region deployment serves global users poorly: a user in Tokyo hitting us-east-1 sees 200ms of network latency before the request even starts. Multi-region active-passive fixes latency only for failover, not for steady-state. Geodes solves both: every user is served by a nearby region, latency is low for everyone, and a region outage is a non-event (users shift to another region). This is the architecture behind global products like Netflix, Cloudflare, and Slack — though each pays significant complexity in data replication and consistency.",
+  "prerequisites": [
+    "multi-region",
+    "cdn"
+  ],
+  "related": [
+    "deployment-stamps",
+    "single-points-of-failure"
+  ],
+  "used_in": [
+    "Global consumer products (Netflix, Spotify, Slack) where users expect low latency worldwide.",
+    "CDN-fronted applications where the dynamic content also needs to be near the user.",
+    "Regulated industries where data must stay in-region (GDPR, data residency).",
+    "Systems that must survive full-region outages without user-visible impact."
+  ],
+  "blocks": [
+    {
+      "type": "prose",
+      "id": "intro",
+      "payload": {
+        "text": "The Geodes pattern, named after polyhedral structures that tile a sphere (like a geodesic dome), is the cloud-architecture pattern for globally distributed active-active backends. The name evokes the idea of tiling the planet with deployment regions, each serving nearby users.\n\nKey properties:\n- **Multiple regions, all active** — every region serves live user traffic. No stand-by regions waiting for failover.\n- **Full stack in each region** — application, database, cache, queues. Each region is self-sufficient.\n- **Data replication across regions** — writes in one region propagate to others. This is the hard part.\n- **User routing** — a global routing layer (DNS, anycast, latency-based routing) directs each user to the nearest active region.\n- **Region failure is graceful** — if a region dies, its users are redirected to other regions.\n\nThe routing layer is usually:\n- **Latency-based DNS** (Route 53 latency routing, Cloudflare load balancer) — picks the region with lowest latency to the user.\n- **Anycast** — the same IP is advertised from multiple regions; BGP routing sends the user to the nearest.\n- **Geo-DNS** — explicit geographic mapping (EU users go to EU regions).\n- **HTTP redirect** — a global front service redirects to a region-specific URL.\n\nThe critical challenge is data replication:\n- **Writes must propagate** between regions for the system to be globally consistent.\n- **Replication latency** introduces a window where two regions disagree.\n- **Conflict resolution** is required when two regions accept writes to the same data simultaneously.\n\nReplication strategies:\n- **Async multi-master** — each region accepts writes locally and replicates asynchronously. Eventually consistent. Conflicts possible.\n- **Sync multi-master** — writes are replicated synchronously before acknowledgement. Strong consistency but high write latency (cross-region round-trip).\n- **Single writer (leader)** — one region is the leader for writes; others are read replicas. Simpler consistency but write latency for non-leader regions.\n- **Per-partition leaders** — each partition has its own leader region (DynamoDB Global Tables, Spanner). Distributes write load.\n- **CRDTs / last-writer-wins** — application-level conflict resolution. Works for some data (counters, sets), not all."
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "topology",
+      "payload": {
+        "code": "flowchart TD\n    N0[\"Global\"]\n    N1[\"Users\"]\n    N2[\"Routing\"]\n    N3[\"latency\"]\n    N4[\"based\"]\n    N5[\"DNS,\"]\n    N6[\"anycast,\"]\n    N7[\"geo\"]\n    N8[\"DNS\"]\n    N9[\"must be HA, multi-region itself\"]\n    N10[\"Layer\"]\n    N11[\"(must\"]\n    N12[\"HA,\"]\n    N13[\"multi\"]\n    N14[\"region\"]\n    N15[\"itself)\"]\n    N16[\"Region\"]\n    N17[\"east\"]\n    N18[\"◀═════▶\"]\n    N19[\"west\"]\n    N20[\"tokyo\"]\n    N21[\"async\"]\n    N22[\"app\"]\n    N23[\"repl.\"]\n    N24[\"cache\"]\n    N25[\"queues\"]\n    N26[\"America\"]\n    N27[\"Europe\"]\n    N28[\"Asia\"]\n    N29[\"users\"]\n    N30[\"All\"]\n    N31[\"regions\"]\n    N32[\"active\"]\n    N33[\"simultaneously.\"]\n    N34[\"failure\"]\n    N35[\"routing\"]\n    N36[\"layer\"]\n    N37[\"redirects\"]\n    N38[\"its\"]\n    N39[\"another\"]\n    N40[\"region.\"]\n    N41[\"Replication\"]\n    N42[\"lag\"]\n    N43[\"eventual\"]\n    N44[\"consistency\"]\n    N45[\"across\"]\n    N46[\"regions.\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44\n    N44 --> N45\n    N45 --> N46",
+        "caption": "Geodes: multiple active regions, each serving nearby users, with data replication between them. Region failure shifts users to other regions.",
+        "alt_text": "A diagram with global users at the top, going through a routing layer using latency-based DNS, anycast, or geo-DNS. The routing layer must itself be highly available and multi-region. Below the routing layer are three active regions: us-east, eu-west, and ap-tokyo. Each region contains app, database, cache, and queues. The regions replicate data asynchronously between each other, indicated by bidirectional arrows. Each region serves users in its geography — North America, Europe, Asia. The caption notes that all regions are active simultaneously, a region failure causes the routing layer to redirect its users to another region, and replication lag results in eventual consistency across regions."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "replication",
+      "payload": {
+        "text": "Data replication is the crux of Geodes. Three models, each with trade-offs:\n\n**1. Asynchronous multi-master (eventual consistency)** — each region accepts writes locally, replicates async. Lowest write latency, but conflicts possible. Used by: DynamoDB Global Tables, Cassandra multi-region, CouchDB. Resolution: last-writer-wins, CRDTs, or application-level merge. Suitable for: counters, content (posts, comments), state where brief inconsistency is acceptable. Not suitable for: financial transactions, inventory, anything requiring strong consistency.\n\n**2. Synchronous multi-master (strong consistency)** — writes are committed across all regions before acknowledgement. Strong consistency, but write latency = cross-region round-trip (~100-300ms). Used by: Spanner, CockroachDB, FoundationDB. Suitable for: financial systems, anything requiring linearizability. Trade-off: write latency, throughput limits, complexity.\n\n**3. Single leader (leader-follower)** — one region is the leader for writes; others are read replicas. Writes go to the leader (high latency for non-leader regions), reads go to the local replica (low latency everywhere). Used by: Postgres with logical replication, Aurora Global Database, MongoDB replica sets. Trade-off: write latency for non-leader regions; leader is a SPOF (needs failover).\n\n**4. Per-partition leaders** — each partition has its own leader; different partitions can be led by different regions. Distributes write load. Used by: Spanner, DynamoDB Global Tables (with per-key leaders), Cassandra. Combines low write latency for most partitions with strong consistency.\n\nConflict resolution is the hard problem when async multi-master is used:\n- **Last-writer-wins** — simple but lossy; the losing write is silently overwritten.\n- **Vector clocks / version vectors** — detect concurrent writes; application resolves.\n- **CRDTs (Conflict-free Replicated Data Types)** — data structures that merge deterministically; counters, sets, maps. Used by: Riak, Redis CRDT, AntidoteDB.\n- **Application-level merge** — the application knows how to combine two versions (e.g., a shopping cart merges items).\n- **Avoid conflicts by design** — partition writes by user/tenant so each user only writes in one region at a time. Most practical systems do this."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "vs-deployment-stamps",
+      "payload": {
+        "title": "Geodes vs Deployment Stamps",
+        "body": "Geodes and Deployment Stamps both deploy multiple independent copies of a system, but for different reasons. Deployment Stamps partitions users for blast-radius isolation and scale-out — stamps are often in the same region. Geodes deploys copies in different regions for geographic latency and region-failure resilience. The two combine: each region's deployment is itself a stamp, with stamp-routing layered on top of region-routing. A user might be assigned to ‘us-east stamp 3’ for both geographic and blast-radius reasons.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "when",
+      "payload": {
+        "text": "When to use Geodes:\n\n- **Global user base with latency expectations** — users in Asia shouldn't wait 200ms to reach a us-east-1 backend.\n- **Region failure is unacceptable** — SLAs require surviving a region outage without user impact.\n- **Data residency requirements** — EU users' data must stay in EU; Geodes lets you keep each region's data local.\n- **Read-heavy workloads** — reads can be served from any region; Geodes works well for read-heavy traffic.\n- **Linear scale with regions** — adding a region adds capacity linearly.\n\nWhen NOT to use Geodes:\n\n- **Single-region user base** — if all your users are in one country, multi-region adds cost without benefit.\n- **Strong consistency required everywhere** — sync multi-master is expensive; sync leader writes have high latency for non-leader regions.\n- **Write-heavy workload** — writes are the hard problem; sync writes are slow, async writes risk conflicts.\n- **Small team** — operating multi-region active-active is complex and expensive. Most teams shouldn't.\n- **Cost-sensitive** — running multiple full stacks doubles or triples the bill.\n\nCommon operational concerns:\n- **Routing layer is a critical SPOF** — must be HA, multi-region, with DNS-level failover (Route 53, Cloudflare).\n- **Per-region monitoring** — each region needs its own dashboards, alerts, on-call rotation.\n- **Region failover** — when a region dies, its traffic shifts to others. The other regions must have headroom to absorb the extra load.\n- **Replication lag monitoring** — if lag grows, regions drift; user-visible inconsistency grows.\n- **Testing failover** — must be exercised regularly (GameDays, chaos engineering) to ensure it works when needed."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q1",
+      "payload": {
+        "question": "What is the key difference between Geodes and active-passive multi-region?",
+        "shape": "mcq",
+        "options": [
+          "Geodes uses more regions.",
+          "Geodes is active-active: every region serves live traffic, with data replication between regions. Active-passive has one region serving traffic and the other standing by for failover.",
+          "Geodes is cheaper to operate.",
+          "Active-passive doesn't require data replication."
+        ],
+        "answer_index": 1,
+        "rationale": "The defining difference is active-active vs active-passive. In active-passive multi-region, one region serves all traffic; the other stands by and only activates during failover. Users in distant regions suffer high latency in steady state. In Geodes (active-active), every region serves live user traffic; users are routed to the nearest region for low latency everywhere; data is replicated between regions so all regions have current data. A region failure just shifts its users to other active regions, with no role change required. Option (a) is wrong — both patterns can use any number of regions. Option (c) is wrong — Geodes is typically more expensive (operating N full stacks). Option (d) is wrong — active-passive still needs data replication to make failover possible. Active-active is the core feature of Geodes.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q2",
+      "payload": {
+        "question": "Two users, one in Tokyo and one in New York, simultaneously update the same record. With async multi-master replication in a Geodes deployment, what happens?",
+        "shape": "mcq",
+        "options": [
+          "Both writes succeed locally; replication eventually propagates them. A conflict occurs (the two regions have different versions). Resolution depends on strategy: last-writer-wins (one silently overwrites), CRDTs (deterministic merge), or application-level merge.",
+          "The system blocks both writes until they can be synchronized — strong consistency.",
+          "One write fails immediately to prevent conflict.",
+          "The writes are silently lost — async multi-master is unsafe."
+        ],
+        "answer_index": 0,
+        "rationale": "In async multi-master, both regions accept the write locally and return success to the user. The writes propagate asynchronously. When the two versions meet at replication time, a conflict is detected. The resolution depends on the conflict-resolution strategy: (1) last-writer-wins (LWW) — based on timestamp, one silently overwrites the other; simple but lossy; (2) CRDTs — if the data type supports it (counters, sets, maps), merge deterministically without loss; (3) application-level merge — the application knows how to combine (e.g., a shopping cart merges items); (4) vector clocks — detect concurrent writes and surface to the application for resolution. Option (b) is wrong — that would be synchronous multi-master (high write latency). Option (c) is wrong — async multi-master doesn't reject writes; it accepts them and resolves conflicts later. Option (d) is wrong — async multi-master is safe with appropriate conflict resolution; data isn't lost, but may be merged in surprising ways. The choice of conflict resolution strategy is the central design decision for async multi-master Geodes.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-geodes-mental",
+      "payload": {
+        "text": "Engineering mental model",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-geodes-mental",
+      "payload": {
+        "text": "**Mental model.** Think of Geodes as a deliberate boundary in a system. The boundary exists because something becomes harder to manage when everything is done in one place: latency, scale, failure isolation, consistency, cost, or team ownership. The useful question is not “what does Geodes mean?” but “what pressure makes this boundary worth introducing, and what new failure mode does it create?”"
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-geodes-decision",
+      "payload": {
+        "title": "Design lens",
+        "body": "Before choosing Geodes, name the workload, the critical user path, the dominant bottleneck, the failure you are trying to absorb, and the trade-off you are willing to accept. If you cannot name those five things, the design is probably premature.",
+        "kind": "info"
+      }
+    },
+    {
+      "type": "image",
+      "id": "upgrade-image-geodes",
+      "payload": {
+        "src": "/learning-visuals/geodes.svg",
+        "alt": "Original NO CAP systems visual for Geodes.",
+        "caption": "Geodes: a compact system-thinking visual.",
+        "credit": "Original NO CAP visual.",
+        "source_url": "https://github.com/donnemartin/system-design-primer"
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "upgrade-mermaid-geodes",
+      "payload": {
+        "code": "flowchart LR\n  A[Client] --> B[Gateway] --> C[Service] --> D[State] --> E[Outcome]",
+        "caption": "Geodes: a simplified system view showing the primary flow and the main state boundaries.",
+        "alt_text": "Geodes: a simplified system view showing the primary flow and the main state boundaries."
+      }
+    },
+    {
+      "type": "code",
+      "id": "upgrade-code-geodes",
+      "payload": {
+        "language": "text",
+        "code": "// Pseudocode\nrequest = receive()\nresult = geodes(request)\nreturn result\n\n// Production questions:\n// 1. What happens on timeout?\n// 2. Can this operation be retried safely?\n// 3. What is the bottleneck?",
+        "caption": "A minimal engineering sketch for reasoning about Geodes."
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-geodes-numbers",
+      "payload": {
+        "text": "Back-of-the-envelope reasoning",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-geodes-numbers",
+      "payload": {
+        "text": "Numerical lens: write down traffic, payload size, read/write ratio, peak multiplier and durability target before choosing a component. The numbers should justify the architecture."
+      }
+    },
+    {
+      "type": "simulation",
+      "id": "upgrade-sim-geodes",
+      "payload": {
+        "title": "Interactive thought experiment: Geodes",
+        "description": "Change the variables below and predict what breaks first in Geodes. The production lab can later reuse these same inputs.",
+        "variables": [
+          {
+            "name": "traffic",
+            "description": "Requests/events per second",
+            "default": "1000"
+          },
+          {
+            "name": "latency",
+            "description": "Dependency latency",
+            "default": "50ms"
+          },
+          {
+            "name": "failure_rate",
+            "description": "Injected failure rate",
+            "default": "0%"
+          }
+        ],
+        "placeholder_note": "Interactive controls are deterministic; use the linked Labs section when a dedicated lab exists."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-geodes-hint",
+      "payload": {
+        "title": "Hint",
+        "body": "If you are stuck on Geodes, start by drawing the request path and marking every network hop, stateful component, queue, cache and failure boundary. Then estimate where the system will saturate.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-geodes-1",
+      "payload": {
+        "shape": "prediction",
+        "question": "You increase traffic by 10× in a system using Geodes. What should you inspect first?",
+        "options": [
+          "The newest framework version",
+          "The dominant bottleneck and its saturation signal",
+          "Only the UI",
+          "Nothing; the architecture should absorb any traffic automatically"
+        ],
+        "answer_index": 1,
+        "rationale": "System design is a constraint-and-bottleneck exercise. Start with the resource or dependency that will saturate first, then choose the smallest change that removes that bottleneck.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-geodes-2",
+      "payload": {
+        "shape": "mcq",
+        "question": "Which statement is the safest engineering habit when using Geodes?",
+        "options": [
+          "Choose it because it is popular",
+          "Add it before measuring the problem",
+          "State the workload, failure mode and trade-off it is solving",
+          "Use the most distributed design possible"
+        ],
+        "answer_index": 2,
+        "rationale": "Good architecture starts from requirements, workload and failure assumptions. The component is the consequence of that reasoning, not the starting point.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "scenario",
+      "id": "upgrade-scenario-geodes",
+      "payload": {
+        "prompt": "Production scenario: your system uses Geodes, traffic suddenly spikes, and p99 latency doubles. What is your first move?",
+        "context": "You have dashboards for traffic, latency, errors and saturation. You can change the architecture, but every change has operational cost.",
+        "options": [
+          {
+            "id": "a",
+            "text": "Add more instances immediately",
+            "outcome": "This may help, but only if compute saturation is the bottleneck.",
+            "correct": false
+          },
+          {
+            "id": "b",
+            "text": "Inspect the bottleneck and its saturation signal first",
+            "outcome": "Correct: diagnose before scaling or introducing a new pattern.",
+            "correct": true
+          },
+          {
+            "id": "c",
+            "text": "Disable monitoring to reduce overhead",
+            "outcome": "This removes the evidence you need to diagnose the incident.",
+            "correct": false
+          }
+        ],
+        "rationale": "Measure the limiting resource or dependency first. A bottleneck can be compute, database I/O, network, cache misses, lock contention, downstream latency, or queue backlog.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-geodes-interview",
+      "payload": {
+        "text": "Interview drill",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-geodes-interview",
+      "payload": {
+        "text": "**Answer this without notes:** When would you choose Geodes, and when would you intentionally avoid it? Mention at least one bottleneck it addresses, one failure mode it introduces, and one alternative. Then quantify the workload you are designing for."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "field-guide-geodes",
+      "payload": {
+        "title": "Engineering lens",
+        "body": "A useful engineering lens for Geodes: define the problem it solves, the simpler design that fails first, the constraint that forces you to introduce this concept, and the new failure modes the concept creates.",
+        "kind": "tip"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "numerical-lens-geodes",
+      "payload": {
+        "text": "### Numerical sanity check\n\nBack-of-the-envelope reasoning beats fake precision. State your traffic, payload, concurrency and growth assumptions explicitly, then calculate enough to know whether the current architecture is orders of magnitude away from the target."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "field-question-geodes",
+      "payload": {
+        "shape": "prediction",
+        "question": "Imagine the simplest version of a system using Geodes. What breaks first as traffic grows by 10×, and what would you change before reaching 100×?",
+        "context": "Do not optimize for a memorized definition. Reason from the workload and failure mode.",
+        "options": [
+          "Scale the same component immediately.",
+          "Measure the current bottleneck and state the assumption that changed.",
+          "Add more technologies until throughput improves.",
+          "Choose the most popular architecture."
+        ],
+        "answer_index": 1,
+        "rationale": "Good system design starts with the bottleneck and the changed constraint. The most popular or complex choice is not automatically correct.",
+        "difficulty": "interview"
+      }
+    }
+  ],
+  "trade_offs": {
+    "pros": [
+      "Low latency for global users — every user served by a nearby region.",
+      "Survives region outages — users shift to other active regions.",
+      "Read-heavy workloads scale linearly with regions.",
+      "Data residency compliance — each region's data stays local.",
+      "No wasted standby capacity — every region is productive."
+    ],
+    "cons": [
+      "Data replication is complex — sync (high write latency) or async (conflict resolution).",
+      "Cost — running N full stacks multiplies the bill.",
+      "Operational complexity — per-region monitoring, failover testing, replication lag tracking.",
+      "Routing layer is a critical SPOF — must be HA, multi-region itself.",
+      "Cross-region consistency is hard — eventual consistency may surprise users."
+    ]
+  },
+  "failure_modes": [
+    "Replication lag grows — regions drift; users see inconsistent state across regions.",
+    "Routing layer failure — directs users to wrong region or no region; needs HA and DNS failover.",
+    "Region failover overwhelm — other regions lack headroom to absorb the failed region's traffic.",
+    "Conflict resolution bugs — bad merge logic silently loses or corrupts data.",
+    "Split-brain — a network partition makes regions think they're each the leader.",
+    "Cross-region dependency — a service in region A synchronously calls a service in region B, defeating the latency benefit."
+  ],
+  "common_mistakes": [
+    "Using async multi-master without thinking through conflict resolution — silent data loss.",
+    "Allowing synchronous cross-region calls in the request path — kills latency benefit.",
+    "Not testing region failover regularly — untested failover is no failover.",
+    "Not monitoring replication lag — silent drift causes user-visible bugs.",
+    "Underestimating operational cost — running N regions is N× the operations work.",
+    "Single routing layer SPOF — must be HA, multi-region, with DNS-level failover."
+  ],
+  "where_you_see_it": [
+    "Netflix — active-active across multiple AWS regions for streaming.",
+    "Cloudflare — anycast routing to globally distributed PoPs.",
+    "Slack — multi-region active-active for global collaboration.",
+    "DynamoDB Global Tables — managed multi-region active-active NoSQL.",
+    "CockroachDB / Spanner — geo-distributed strongly-consistent databases."
+  ],
+  "interview_prompts": [
+    "What is the Geodes pattern, and how does it differ from active-passive multi-region?",
+    "Two users in different regions simultaneously update the same record. Walk through what happens with async multi-master replication.",
+    "How do you choose between sync multi-master, async multi-master, and single-leader for a Geodes deployment?",
+    "What is the routing layer in a Geodes architecture, and why is it a critical SPOF?",
+    "When would you NOT use Geodes? Give concrete criteria."
+  ],
+  "real_system_mappings": [
+    {
+      "system": "DynamoDB Global Tables",
+      "how": "AWS's managed multi-region active-active NoSQL database. Each region accepts reads and writes; changes are replicated asynchronously to other regions within seconds. Conflict resolution is last-writer-wins by default. Used by customers needing low-latency global access without operating their own replication."
+    },
+    {
+      "system": "Cloudflare Anycast Network",
+      "how": "Cloudflare's global edge network uses anycast routing — the same IP is advertised from hundreds of PoPs. User traffic is routed to the nearest PoP by BGP. Each PoP serves live traffic; a PoP failure is invisible to users. This is Geodes at the edge: hundreds of regions, all active."
+    },
+    {
+      "system": "Google Cloud Spanner",
+      "how": "Spanner provides globally distributed, strongly consistent (sync multi-master via Paxos) relational database. Writes commit across regions synchronously — high write latency but strong consistency. Used by AdWords and other Google systems requiring global strong consistency."
+    }
+  ],
+  "status": "published",
+  "sources": [
+    {
+      "title": "System Design Primer",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Open source"
+    },
+    {
+      "title": "ByteByteGo — Scale from zero to millions",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "ByteByteGo"
+    },
+    {
+      "title": "System Design Tutorial",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "GeeksforGeeks"
+    },
+    {
+      "title": "System Design Roadmap",
+      "url": "https://roadmap.sh/system-design",
+      "publisher": "roadmap.sh"
+    },
+    {
+      "title": "Cloud Architecture reference",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Cloud Architecture reference",
+      "url": "https://learn.microsoft.com/en-us/azure/architecture/",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Cloud Architecture reference",
+      "url": "https://aws.amazon.com/architecture/",
+      "publisher": "Reference"
+    }
+  ]
+}

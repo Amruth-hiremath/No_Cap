@@ -1,0 +1,442 @@
+{
+  "slug": "message-queues-async",
+  "version": 4,
+  "title": "Message Queues (Async)",
+  "phase": "asynchronous-systems",
+  "area": "Asynchronous Systems",
+  "estimated_minutes": 7,
+  "difficulty": "core",
+  "summary": "A message queue decouples a producer from a consumer by inserting a durable buffer in between. Producers write messages and immediately return; consumers pull and process at their own pace. This buys you traffic smoothing, producer-consumer independence, retry semantics, and a dead-letter escape hatch for poison messages — at the cost of latency, infrastructure, and the obligation to make every consumer idempotent.",
+  "why_it_matters": "The synchronous call chain is the single biggest cause of cascading failures. A web request that synchronously fans out to five downstream services has a tail latency equal to the slowest of them and a failure probability equal to one minus the product of their availabilities. A message queue cuts that chain: the producer hands work to a broker and returns in single-digit milliseconds, while the consumer processes later at a rate the downstream can sustain. That is the difference between a flash sale taking down the site and a flash sale producing a thirty-second queue that drains quietly.",
+  "prerequisites": [
+    "message-queues"
+  ],
+  "related": [
+    "event-driven-architecture",
+    "competing-consumers",
+    "async-request-reply",
+    "back-pressure"
+  ],
+  "used_in": [
+    "Order processing in e-commerce (write to queue, charge card, ship).",
+    "Email and notification fan-out (welcome email, receipts, push).",
+    "Image and video transcoding pipelines (upload -> transcode -> publish).",
+    "Background report generation and batch jobs."
+  ],
+  "blocks": [
+    {
+      "type": "prose",
+      "id": "intro",
+      "payload": {
+        "text": "The foundational `message-queues` concept introduced the broker as a buffer. This lesson zooms in on what makes a queue actually work in production: the mechanics of at-least-once delivery, visibility timeouts, retry policies, and the dead-letter queue. These are the four knobs an engineer turns when a queue starts misbehaving at 3am.\n\nThe mental model is simple but strict: **the broker does not know whether your consumer succeeded**. All it knows is whether it received an acknowledgement within a timeout. So the broker errs on the side of delivery: if in doubt, redeliver. That single design choice is the source of every gotcha that follows."
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "async-queue-flow",
+      "payload": {
+        "code": "flowchart TD\n    N0[\"Web\"]\n    N1[\"tier\"]\n    N2[\"Broker\"]\n    N3[\"Worker\"]\n    N4[\"pool\"]\n    N5[\"in-flight\"]\n    N6[\"POST\"]\n    N7[\"order\"]\n    N8[\"worker\"]\n    N9[\"(in\"]\n    N10[\"flight)\"]\n    N11[\"msg, idem_key\"]\n    N12[\"enqueue(msg,\"]\n    N13[\"idem_key)\"]\n    N14[\"process\"]\n    N15[\" QUEUE \"]\n    N16[\"QUEUE\"]\n    N17[\"charge\"]\n    N18[\"card\"]\n    N19[\"idle\"]\n    N20[\"HTTP\"]\n    N21[\"202\"]\n    N22[\"(idle)\"]\n    N23[\"Accepted\"]\n    N24[\"visibility_timeout\"]\n    N25[\"30s\"]\n    N26[\"delete msg\"]\n    N27[\"ack()\"]\n    N28[\"(delete\"]\n    N29[\"msg)\"]\n    N30[\"redeliver\"]\n    N31[\"ack\"]\n    N32[\" DEAD LETTER QUEUE \"]\n    N33[\"DEAD\"]\n    N34[\"LETTER\"]\n    N35[\"after\"]\n    N36[\"max_retries\"]\n    N37[\"poison msgs land here; paged to a human\"]\n    N38[\"(poison\"]\n    N39[\"msgs\"]\n    N40[\"land\"]\n    N41[\"here;\"]\n    N42[\"paged\"]\n    N43[\"human)\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43",
+        "caption": "End-to-end async flow: enqueue -> visibility timeout -> ack or redeliver -> dead-letter on exhaustion.",
+        "alt_text": "A flow diagram of asynchronous queue processing. A web server receives a POST request, enqueues a message onto a queue, and immediately returns HTTP 202 Accepted. A pool of worker processes pulls messages from the queue and processes them. When a worker finishes, it sends an acknowledgement to the broker, which deletes the message. If the worker crashes or does not acknowledge within a visibility timeout, the broker redelivers the message to another worker. After a configurable number of failed attempts, the message is moved to a dead-letter queue for human inspection."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "at-least-once",
+      "payload": {
+        "text": "**At-least-once delivery** means a message is never silently lost, but may be delivered more than once. The mechanism is the **visibility timeout** (AWS SQS) or **acknowledgement window** (RabbitMQ). When a worker pulls a message, the broker hides it from other workers for a fixed duration. If the worker calls `ack()` before the timeout, the broker permanently deletes the message. If the worker crashes, hangs, or simply takes too long, the timeout elapses and the message becomes visible again — and is redelivered to a different worker.\n\nThis is why every consumer must be **idempotent**: a charge-card operation keyed on `order_id` is safe to redeliver because the second delivery hits a uniqueness constraint and no-ops. A charge-card operation with no key double-charges the customer. The idempotency key is usually the message ID itself.\n\nTrue exactly-once delivery across an asynchronously replicated broker is impossible without distributed consensus on every acknowledgement, which destroys throughput. Every 'exactly-once' feature in the wild (Kafka transactions, SQS FIFO dedup) is at-least-once plus a deduplication step on either the producer or the consumer side."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "dlq",
+      "payload": {
+        "text": "**Dead-letter queues (DLQs)** are the safety net for poison messages. A poison message is one that crashes the consumer every time — a malformed payload, an unknown enum value, a reference to a deleted record. Without a DLQ, the message is redelivered forever, eating worker capacity and never succeeding.\n\nThe standard policy is `max_retries` (often 3-5). Each failed attempt increments an attempt counter (stored as a message attribute). When the counter exceeds the threshold, the broker moves the message to a separate DLQ. The DLQ is monitored: a non-empty DLQ pages a human, who inspects the payload, fixes the bug or the data, and replays the message.\n\nThe DLQ is the difference between a queue that recovers from a bad deploy and one that loops forever. Every production queue should have a DLQ and an alarm on its depth."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "visibility-timeout-tuning",
+      "payload": {
+        "title": "Visibility timeout must exceed worst-case processing time",
+        "body": "If your worker takes 45 seconds in the p99 case and you set the visibility timeout to 30 seconds, every slow message will be redelivered while the original worker is still grinding through it. You now have two workers processing the same order. Set the timeout to 4-6x your expected processing time, and make sure your consumer is idempotent so even a missed timeout is harmless.",
+        "kind": "warning"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "patterns",
+      "payload": {
+        "text": "Common async queue patterns:\n\n- **Work queue / task queue**: one queue, N competing consumers, each message processed by exactly one worker. The bread-and-butter pattern for background jobs.\n- **Request-response (claim-check)**: producer enqueues a request with a `reply_to` queue and a `correlation_id`; consumer processes and posts the reply to the reply queue. The producer either polls or holds a long-lived connection.\n- **Fan-out via topic**: a single message is delivered to multiple subscription queues (see `pub-sub`). Use when multiple independent consumers need the same event.\n- **Batching**: consumer pulls up to N messages at once, processes them in a single transaction, acks the batch. Latency goes up; throughput goes up dramatically.\n- **Priority queues**: messages carry a priority; broker delivers higher-priority messages first. Use sparingly — most 'priority' workloads are better modeled as two queues."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q1",
+      "payload": {
+        "question": "Your worker takes 60 seconds in the worst case. You set the SQS visibility timeout to 30 seconds. What happens to a worst-case message?",
+        "shape": "mcq",
+        "options": [
+          "The message is processed once, slowly, and then acked.",
+          "The message is redelivered to another worker after 30 seconds, while the original worker is still processing — duplicate processing risk.",
+          "The broker blocks the worker until it finishes.",
+          "The message is immediately moved to the DLQ."
+        ],
+        "answer_index": 1,
+        "rationale": "The visibility timeout is how long the broker hides the message from other consumers. If the worker has not acked when the timeout expires, the broker assumes the worker died and makes the message visible again. A second worker picks it up and starts processing — so two workers are now working the same order. If your consumer is idempotent (e.g., the order is keyed by message ID), this is harmless. If not, you double-charge the customer. Set the timeout to 4-6x your p99 processing time, and always design for idempotency.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q2",
+      "payload": {
+        "question": "A message in your queue fails processing every time it is delivered — it references a user_id that was deleted. What is the correct outcome?",
+        "shape": "mcq",
+        "options": [
+          "The broker retries forever; the queue backs up.",
+          "After max_retries, the broker moves the message to the dead-letter queue and an alarm fires.",
+          "The broker silently drops the message.",
+          "The consumer must catch the exception and call ack() to discard it."
+        ],
+        "answer_index": 1,
+        "rationale": "A poison message that always fails will be redelivered forever unless you cap retries. The standard pattern is to configure max_retries (commonly 3-5); when the count is exceeded, the broker moves the message to a dead-letter queue (DLQ). The DLQ should have an alarm on its depth so an engineer is paged. From the DLQ, the engineer inspects the payload, fixes the underlying data or code, and replays the message. Catching the exception and ack-ing yourself is a last resort because it silently loses the message — only do this for known-permanent failures with explicit logging.",
+        "difficulty": "core"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q3",
+      "payload": {
+        "question": "Your team claims they need 'exactly-once' delivery from SQS to avoid double-charging customers. What is the right answer?",
+        "shape": "mcq",
+        "options": [
+          "Switch to SQS FIFO mode, which provides exactly-once delivery.",
+          "True exactly-once is impractical; use at-least-once plus an idempotency key on the charge operation.",
+          "Configure the consumer to dedupe by message ID.",
+          "Use a database transaction that spans the queue ack and the charge."
+        ],
+        "answer_index": 1,
+        "rationale": "SQS FIFO provides exactly-once *processing of a message ID*, but only within a five-minute dedup window and only if the consumer is itself idempotent. True end-to-end exactly-once across an async-replicated broker is impossible without distributed consensus per acknowledgement. The practical answer is the same as everywhere else in distributed systems: at-least-once delivery plus an idempotency key on the side effect. Before charging, check 'have I already charged for order_id X?'. If yes, no-op. This makes at-least-once delivery safe and is what every payment system in production does.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-message-queues-async-mental",
+      "payload": {
+        "text": "Engineering mental model",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-message-queues-async-mental",
+      "payload": {
+        "text": "**Mental model.** Think of Message Queues (Async) as a deliberate boundary in a system. The boundary exists because something becomes harder to manage when everything is done in one place: latency, scale, failure isolation, consistency, cost, or team ownership. The useful question is not “what does Message Queues (Async) mean?” but “what pressure makes this boundary worth introducing, and what new failure mode does it create?”"
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-message-queues-async-decision",
+      "payload": {
+        "title": "Design lens",
+        "body": "Before choosing Message Queues (Async), name the workload, the critical user path, the dominant bottleneck, the failure you are trying to absorb, and the trade-off you are willing to accept. If you cannot name those five things, the design is probably premature.",
+        "kind": "info"
+      }
+    },
+    {
+      "type": "image",
+      "id": "upgrade-image-message-queues-async",
+      "payload": {
+        "src": "/learning-visuals/message-queues-async.svg",
+        "alt": "Original NO CAP systems visual for Message Queues (Async).",
+        "caption": "Message Queues (Async): a compact system-thinking visual.",
+        "credit": "Original NO CAP visual.",
+        "source_url": "https://github.com/donnemartin/system-design-primer"
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "upgrade-mermaid-message-queues-async",
+      "payload": {
+        "code": "flowchart LR\n  A[Producer] --> Q[(Broker)] --> B[Consumer] --> X[Retry] --> O[Outcome]",
+        "caption": "Message Queues (Async): a simplified system view showing the primary flow and the main state boundaries.",
+        "alt_text": "Message Queues (Async): a simplified system view showing the primary flow and the main state boundaries."
+      }
+    },
+    {
+      "type": "code",
+      "id": "upgrade-code-message-queues-async",
+      "payload": {
+        "language": "python",
+        "code": "message_id = queue.publish({\n    \"type\": \"message-queues-async\",\n    \"key\": resource_id\n})\n# Consumer must be safe to retry.",
+        "caption": "A minimal engineering sketch for reasoning about Message Queues (Async)."
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-message-queues-async-numbers",
+      "payload": {
+        "text": "Back-of-the-envelope reasoning",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-message-queues-async-numbers",
+      "payload": {
+        "text": "Numerical lens: write down traffic, payload size, read/write ratio, peak multiplier and durability target before choosing a component. The numbers should justify the architecture."
+      }
+    },
+    {
+      "type": "simulation",
+      "id": "upgrade-sim-message-queues-async",
+      "payload": {
+        "title": "Interactive thought experiment: Message Queues (Async)",
+        "description": "Change the variables below and predict what breaks first in Message Queues (Async). The production lab can later reuse these same inputs.",
+        "variables": [
+          {
+            "name": "producer_rate",
+            "description": "Messages produced per second",
+            "default": "1000"
+          },
+          {
+            "name": "consumer_count",
+            "description": "Concurrent consumers",
+            "default": "4"
+          },
+          {
+            "name": "processing_rate",
+            "description": "Messages processed per consumer per second",
+            "default": "300"
+          }
+        ],
+        "placeholder_note": "Interactive controls are deterministic; use the linked Labs section when a dedicated lab exists."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-message-queues-async-hint",
+      "payload": {
+        "title": "Hint",
+        "body": "If you are stuck on Message Queues (Async), start by drawing the request path and marking every network hop, stateful component, queue, cache and failure boundary. Then estimate where the system will saturate.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-message-queues-async-1",
+      "payload": {
+        "shape": "prediction",
+        "question": "You increase traffic by 10× in a system using Message Queues (Async). What should you inspect first?",
+        "options": [
+          "The newest framework version",
+          "The dominant bottleneck and its saturation signal",
+          "Only the UI",
+          "Nothing; the architecture should absorb any traffic automatically"
+        ],
+        "answer_index": 1,
+        "rationale": "System design is a constraint-and-bottleneck exercise. Start with the resource or dependency that will saturate first, then choose the smallest change that removes that bottleneck.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-message-queues-async-2",
+      "payload": {
+        "shape": "mcq",
+        "question": "Which statement is the safest engineering habit when using Message Queues (Async)?",
+        "options": [
+          "Choose it because it is popular",
+          "Add it before measuring the problem",
+          "State the workload, failure mode and trade-off it is solving",
+          "Use the most distributed design possible"
+        ],
+        "answer_index": 2,
+        "rationale": "Good architecture starts from requirements, workload and failure assumptions. The component is the consequence of that reasoning, not the starting point.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "scenario",
+      "id": "upgrade-scenario-message-queues-async",
+      "payload": {
+        "prompt": "Production scenario: your system uses Message Queues (Async), traffic suddenly spikes, and p99 latency doubles. What is your first move?",
+        "context": "You have dashboards for traffic, latency, errors and saturation. You can change the architecture, but every change has operational cost.",
+        "options": [
+          {
+            "id": "a",
+            "text": "Add more instances immediately",
+            "outcome": "This may help, but only if compute saturation is the bottleneck.",
+            "correct": false
+          },
+          {
+            "id": "b",
+            "text": "Inspect the bottleneck and its saturation signal first",
+            "outcome": "Correct: diagnose before scaling or introducing a new pattern.",
+            "correct": true
+          },
+          {
+            "id": "c",
+            "text": "Disable monitoring to reduce overhead",
+            "outcome": "This removes the evidence you need to diagnose the incident.",
+            "correct": false
+          }
+        ],
+        "rationale": "Measure the limiting resource or dependency first. A bottleneck can be compute, database I/O, network, cache misses, lock contention, downstream latency, or queue backlog.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-message-queues-async-interview",
+      "payload": {
+        "text": "Interview drill",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-message-queues-async-interview",
+      "payload": {
+        "text": "**Answer this without notes:** When would you choose Message Queues (Async), and when would you intentionally avoid it? Mention at least one bottleneck it addresses, one failure mode it introduces, and one alternative. Then quantify the workload you are designing for."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "field-guide-message-queues-async",
+      "payload": {
+        "title": "Engineering lens",
+        "body": "For Message Queues (Async), separate producer speed from consumer speed. The key design question is what happens when production temporarily exceeds processing capacity: queue it, shed it, slow producers down, or degrade the feature.",
+        "kind": "tip"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "numerical-lens-message-queues-async",
+      "payload": {
+        "text": "### Numerical sanity check\n\nA simple queue sanity check: if producers create 8,000 messages/s and consumers process 6,000 messages/s, backlog grows at roughly 2,000 messages/s until the imbalance is corrected."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "field-question-message-queues-async",
+      "payload": {
+        "shape": "prediction",
+        "question": "A downstream service slows down while Message Queues (Async) keeps accepting traffic. Would you rather apply backpressure, queue more work, shed load, or degrade? Explain the trade-off.",
+        "context": "Do not optimize for a memorized definition. Reason from the workload and failure mode.",
+        "options": [
+          "Scale the same component immediately.",
+          "Measure the current bottleneck and state the assumption that changed.",
+          "Add more technologies until throughput improves.",
+          "Choose the most popular architecture."
+        ],
+        "answer_index": 1,
+        "rationale": "Good system design starts with the bottleneck and the changed constraint. The most popular or complex choice is not automatically correct.",
+        "difficulty": "interview"
+      }
+    }
+  ],
+  "trade_offs": {
+    "pros": [
+      "Smooths traffic spikes — producers write in 1ms, consumers process at a sustained rate.",
+      "Decouples producer and consumer lifecycles — they scale, fail, and deploy independently.",
+      "Durable — messages survive consumer crashes; the broker redelivers.",
+      "Retries and DLQs give a clean failure model for transient and poison messages.",
+      "Natural backpressure — queue depth is a load signal you can auto-scale on."
+    ],
+    "cons": [
+      "Adds latency — the fastest a message can be processed is the time it sits in the queue plus processing.",
+      "Another moving part — broker must be deployed, monitored, backed up, and sized.",
+      "Idempotency burden — every consumer must dedupe; nothing in the broker enforces it.",
+      "Ordering is hard — most brokers only guarantee FIFO within a partition or message group.",
+      "Operational complexity — visibility timeouts, retry policies, DLQ alarms, replay tooling."
+    ]
+  },
+  "failure_modes": [
+    "Poison message loops forever — mitigated by max_retries + DLQ + DLQ depth alarm.",
+    "Queue grows unbounded — consumers slower than producers; mitigated by backpressure, autoscaling, or load shedding.",
+    "Visibility timeout too short — duplicate processing of slow messages; mitigated by setting timeout to 4-6x p99 processing time and idempotency.",
+    "Ack lost in flight — broker redelivers; only safe with idempotent consumers.",
+    "DLQ silently fills up — if no alarm, poison messages are quietly lost; mitigated by paging alarm on DLQ depth > 0."
+  ],
+  "common_mistakes": [
+    "Treating the queue as a database — queues are not queryable, not for long-term storage, and most brokers delete messages after a retention window (SQS: 4 days default, max 14 days).",
+    "Forgetting to make consumers idempotent — duplicate delivery is normal, not an error.",
+    "Setting visibility timeout shorter than worst-case processing time — causes duplicate processing.",
+    "Not monitoring queue depth — a growing queue is the single earliest signal that something is wrong.",
+    "Ignoring the DLQ — a DLQ with no alarm is a black hole where messages go to die.",
+    "Using a queue when a synchronous call would do — adds latency and infrastructure for no benefit."
+  ],
+  "where_you_see_it": [
+    "E-commerce order processing (Shopify, Amazon — order written to queue, fulfilled asynchronously).",
+    "Email and notification fan-out (SendGrid, AWS SES via SQS).",
+    "Image/video processing pipelines (YouTube transcode, Instagram upload->processing).",
+    "Background report generation and scheduled jobs (Sidekiq, Celery).",
+    "Event ingestion for analytics (Kinesis, Pub/Sub -> BigQuery/Snowflake loaders)."
+  ],
+  "interview_prompts": [
+    "Walk me through what happens to a message from enqueue to ack. Where can it be lost? Where can it be duplicated?",
+    "How would you design an idempotent consumer? What is the idempotency key, and where do you store the 'already processed' state?",
+    "Your queue depth is growing. How do you diagnose? What do you fix first?",
+    "What is a dead-letter queue, when does a message land in it, and what should an on-call engineer do at 3am?",
+    "Explain why exactly-once delivery is hard. How do real systems approximate it?"
+  ],
+  "real_system_mappings": [
+    {
+      "system": "AWS SQS",
+      "how": "Managed at-least-once queue with visibility timeouts, max-receive-count-driven DLQs, and long polling. Standard mode is unordered and best-effort dedup; FIFO mode adds message-group ordering and exactly-once *processing* within a dedup window."
+    },
+    {
+      "system": "RabbitMQ",
+      "how": "Classic broker with explicit acks, prefetch (QoS) controls per consumer, dead-letter exchanges configured on the queue, and durable queue metadata persisted to disk. Used widely for request-response RPC over reply queues with correlation IDs."
+    },
+    {
+      "system": "Sidekiq / Celery / BullMQ",
+      "how": "In-process task queues built on Redis. Producer enqueues a job serialized as JSON; workers pop from a Redis list. Retries with exponential backoff, dead job sets, and cron scheduling are first-class."
+    },
+    {
+      "system": "Stripe",
+      "how": "Stripe's webhook delivery is at-least-once with retries over hours and a dead-letter path for endpoints that never succeed. The idempotency key on Stripe API requests is the same pattern applied to the inbound direction."
+    }
+  ],
+  "status": "published",
+  "sources": [
+    {
+      "title": "System Design Primer",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Open source"
+    },
+    {
+      "title": "ByteByteGo — Scale from zero to millions",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "ByteByteGo"
+    },
+    {
+      "title": "System Design Tutorial",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "GeeksforGeeks"
+    },
+    {
+      "title": "System Design Roadmap",
+      "url": "https://roadmap.sh/system-design",
+      "publisher": "roadmap.sh"
+    },
+    {
+      "title": "Asynchronous Systems reference",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Asynchronous Systems reference",
+      "url": "https://aws.amazon.com/message-queue/",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Asynchronous Systems reference",
+      "url": "https://martinfowler.com/articles/201701-event-driven.html",
+      "publisher": "Reference"
+    }
+  ]
+}

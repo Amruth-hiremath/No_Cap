@@ -1,0 +1,426 @@
+{
+  "slug": "authentication",
+  "version": 4,
+  "title": "Authentication",
+  "phase": "security",
+  "area": "Security",
+  "estimated_minutes": 7,
+  "difficulty": "core",
+  "summary": "Authentication (AuthN) verifies who you are — distinguishing a user from an attacker. Methods range from passwords (knowledge-based) to OAuth tokens and biometrics. The hard parts aren't the verification itself but the lifecycle around it: password storage, session management, multi-factor authentication, and token revocation. Get authentication wrong and attackers can impersonate any user; get it right and even a database leak is survivable.",
+  "why_it_matters": "Authentication is the front door of every application. If you can be tricked into thinking an attacker is a legitimate user, every other security control fails — authorization, audit, encryption all assume you know who the user is. Real-world breaches are dominated by authentication failures: leaked passwords, session hijacking, weak token validation, missing rate limits on login. The Ashley Madison breach exposed 30M users because passwords were stored with a weak hash. Equifax exposed 147M because a portal lacked MFA. Authentication is not where you cut corners.",
+  "prerequisites": [
+    "tls",
+    "authorization"
+  ],
+  "related": [
+    "authorization",
+    "oauth",
+    "federated-identity",
+    "gatekeeper"
+  ],
+  "used_in": [
+    "Every application with user accounts.",
+    "Every API that requires identity.",
+    "Every service-to-service call (mTLS, JWT)."
+  ],
+  "blocks": [
+    {
+      "type": "prose",
+      "id": "intro",
+      "payload": {
+        "text": "Authentication answers \"who are you?\" It's distinct from authorization (\"what can you do?\") — though the two are often confused. Authentication establishes identity; authorization uses that identity to permit or deny actions.\n\nThe three classic factors of authentication:\n\n- **Something you know** (password, PIN)\n- **Something you have** (phone, hardware token, smart card)\n- **Something you are** (fingerprint, face, iris)\n\nTwo-factor authentication (2FA) combines two of these; multi-factor (MFA) combines more. The principle: an attacker who steals your password doesn't have your phone, so they can't authenticate even with the password. Single-factor (password-only) is acceptable for low-value accounts; everything sensitive should require MFA."
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "authn-flow",
+      "payload": {
+        "code": "flowchart TD\n    N0[\"PASSWORD\"]\n    N1[\"BASED\"]\n    N2[\"AUTHENTICATION\"]\n    N3[\"enter username, password\"]\n    N4[\"User\"]\n    N5[\"[enter\"]\n    N6[\"username,\"]\n    N7[\"password]\"]\n    N8[\"over\"]\n    N9[\"TLS\"]\n    N10[\"Server\"]\n    N11[\"looks\"]\n    N12[\"user\"]\n    N13[\"username\"]\n    N14[\"bcrypt/argon2\"]\n    N15[\"hashes\"]\n    N16[\"submitted\"]\n    N17[\"password\"]\n    N18[\"(bcrypt\"]\n    N19[\"argon2)\"]\n    N20[\"compares\"]\n    N21[\"stored\"]\n    N22[\"hash\"]\n    N23[\"Match\"]\n    N24[\"create\"]\n    N25[\"session;\"]\n    N26[\"set\"]\n    N27[\"cookie\"]\n    N28[\"match\"]\n    N29[\"401\"]\n    N30[\"NEVER\"]\n    N31[\"store\"]\n    N32[\"plaintext\"]\n    N33[\"passwords.\"]\n    N34[\"too fast → brute-forceable\"]\n    N35[\"use\"]\n    N36[\"MD5\"]\n    N37[\"SHA\"]\n    N38[\"(too\"]\n    N39[\"fast\"]\n    N40[\"brute\"]\n    N41[\"forceable).\"]\n    N42[\"slow, salted\"]\n    N43[\"Use\"]\n    N44[\"bcrypt,\"]\n    N45[\"scrypt,\"]\n    N46[\"argon2\"]\n    N47[\"(slow,\"]\n    N48[\"salted).\"]\n    N49[\"stateless\"]\n    N50[\"TOKEN\"]\n    N51[\"(stateless)\"]\n    N52[\"Login\"]\n    N53[\"server\"]\n    N54[\"issues\"]\n    N55[\"JWT\"]\n    N56[\"signed\"]\n    N57[\"with\"]\n    N58[\"secret\"]\n    N59[\"key.\"]\n    N60[\"Client\"]\n    N61[\"stores\"]\n    N62[\"JWT,\"]\n    N63[\"sends\"]\n    N64[\"Authorization\"]\n    N65[\"header.\"]\n    N66[\"validates\"]\n    N67[\"signature;\"]\n    N68[\"session\"]\n    N69[\"lookup\"]\n    N70[\"needed.\"]\n    N71[\"Trade\"]\n    N72[\"off:\"]\n    N73[\"hard\"]\n    N74[\"revoke\"]\n    N75[\"before\"]\n    N76[\"expiry.\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44\n    N44 --> N45\n    N45 --> N46\n    N46 --> N47\n    N47 --> N48\n    N48 --> N49\n    N49 --> N50\n    N50 --> N51\n    N51 --> N52\n    N52 --> N53\n    N53 --> N54\n    N54 --> N55\n    N55 --> N56\n    N56 --> N57\n    N57 --> N58\n    N58 --> N59\n    N59 --> N60\n    N60 --> N61\n    N61 --> N62\n    N62 --> N63\n    N63 --> N64\n    N64 --> N65\n    N65 --> N66\n    N66 --> N67\n    N67 --> N68\n    N68 --> N69\n    N69 --> N70\n    N70 --> N71\n    N71 --> N72\n    N72 --> N73\n    N73 --> N74\n    N74 --> N75\n    N75 --> N76",
+        "caption": "Password-based uses server-side sessions; token-based (JWT) is stateless but harder to revoke. Always store password hashes (bcrypt/argon2), never plaintext or fast hashes.",
+        "alt_text": "Two flow diagrams. Password-based authentication: a user enters a username and password over TLS, the server looks up the user, hashes the submitted password with bcrypt or argon2, compares to the stored hash, and on match creates a session with a cookie, on no match returns 401. The diagram warns never to store plaintext passwords and never to use MD5 or SHA because they are too fast and brute-forceable — use bcrypt, scrypt, or argon2 which are slow and salted. Token-based stateless authentication: on login the server issues a JWT signed with a secret key, the client stores the JWT and sends it in the Authorization header, the server validates the signature without a session lookup, with the trade-off that JWTs are hard to revoke before expiry."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "password-storage",
+      "payload": {
+        "text": "Password storage is the most violated security rule in the industry. The rule is simple: **never store plaintext passwords, and never use a fast hash (MD5, SHA-1, SHA-256) for passwords.**\n\nWhy not fast hashes? Because attackers who steal your database can brute-force them at billions of attempts per second on a GPU. A 8-character password becomes crackable in minutes.\n\nUse a slow, salted hash:\n- **bcrypt**: the standard for years, configurable cost factor.\n- **scrypt**: memory-hard, harder to brute-force on ASICs.\n- **argon2**: the current best choice (won the Password Hashing Competition).\n\nThese are deliberately slow (50-500ms per hash), making brute-force infeasible. The salt (random per-user) prevents precomputation (rainbow tables) — even if two users have the same password, their hashes differ.\n\nEven with good hashing, defend the database. Hashing slows attackers but doesn't stop them — they can still brute-force weak passwords. Encourage or require strong passwords. Use breach-correlation services (haveibeenpwned) to reject known-breached passwords."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "sessions-vs-tokens",
+      "payload": {
+        "text": "After authentication, the server needs to remember who the user is for subsequent requests. Two approaches:\n\n**Session-based (stateful)**: the server stores session state in a session store (Redis, database). It sends the client a session ID (in a cookie). On each request, the server looks up the session by ID. Easy to revoke (delete the session), but requires server-side state and session lookup per request.\n\n**Token-based (stateless)**: the server issues a signed token (typically JWT). The client stores it and sends it on each request. The server validates the signature (no lookup needed) and trusts the token's claims. No server state, scales trivially — but the token can't be revoked before its expiry. To revoke, you need a blacklist or short expiry + refresh tokens.\n\nJWT trade-offs:\n- Pro: stateless, scalable, works across domains (good for SSO).\n- Con: revocation is hard; if stolen, attacker has full access until expiry.\n- Mitigation: short access-token expiry (5-15 min), long refresh-token expiry, refresh server-side revocable.\n- Don't put sensitive data in a JWT — it's signed, not encrypted. Anyone can read the payload."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "mfa",
+      "payload": {
+        "title": "MFA: the single biggest security improvement",
+        "body": "If you do one thing to improve authentication, require MFA on every account that can do anything meaningful. Stolen passwords are the most common breach vector — phishing, credential stuffing, database leaks. MFA stops the vast majority of these attacks because the attacker has the password but not the second factor. TOTP (Google Authenticator) is the most common second factor; SMS is weak (vulnerable to SIM swapping) but better than nothing; hardware keys (Yubikey, FIDO2) are the strongest. For admins and high-value accounts, hardware keys should be mandatory.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "login-attacks",
+      "payload": {
+        "text": "Defending the login endpoint is critical. Without defenses, it's a brute-force playground:\n\n- **Rate limiting**: cap login attempts per IP and per account (e.g., 5 attempts per 5 min). Lock the account (or require email reset) after too many failures.\n- **Account lockout**: but be careful — this enables DoS (attacker locks out users by failing their logins). Time-limited lockout (5 min) is usually the right balance.\n- **CAPTCHA**: slows automated attacks. Annoying for users; use only when needed.\n- **Monitoring**: alert on login anomalies (sudden spike from a new IP, login from a country the user has never used).\n- **Breach password checking**: use HaveIBeenPwned's API to reject passwords that have appeared in known breaches.\n\nThe bigger threat is **credential stuffing** — attackers test username/password pairs leaked from other sites. Users reuse passwords, so this works depressingly well. Defenses: rate limiting, breach-password rejection, MFA. The root cause fix is passwordless auth (WebAuthn / passkeys), which eliminates passwords entirely."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q1",
+      "payload": {
+        "question": "Your database is leaked. Passwords were stored as SHA-256 hashes. What's the consequence?",
+        "shape": "mcq",
+        "options": [
+          "Nothing — SHA-256 is a cryptographic hash, so attackers can't recover passwords.",
+          "Attackers can brute-force the hashes at billions per second on a GPU, recovering most passwords in minutes to hours.",
+          "Only weak passwords are at risk; strong passwords are safe.",
+          "The hashes need to be re-salted, but otherwise the data is safe."
+        ],
+        "answer_index": 1,
+        "rationale": "SHA-256 is a cryptographic hash, but it's fast — designed for performance, not password storage. Attackers with a stolen hash database can brute-force SHA-256 at billions of attempts per second on a GPU. Even strong passwords fall to dedicated cracking rigs in days; weak passwords fall in seconds. The fix is to use a slow, salted, memory-hard hash: bcrypt, scrypt, or argon2. These are deliberately slow (50-500ms per hash), making brute-force infeasible. Never use MD5, SHA-1, SHA-256, or any fast hash for passwords.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q2",
+      "payload": {
+        "question": "Why is it hard to revoke a JWT before its expiry?",
+        "shape": "mcq",
+        "options": [
+          "JWTs can't be expired; they last forever.",
+          "JWTs are stateless — the server validates them by signature alone, with no server-side lookup. To revoke, you need a blacklist (defeating the statelessness) or wait for the expiry.",
+          "JWTs are encrypted, so the server can't read the expiry.",
+          "JWTs don't have an expiry field."
+        ],
+        "answer_index": 1,
+        "rationale": "JWTs are stateless — the server trusts the token's signature without any server-side lookup. This is their advantage (scalable, no session store) but also their weakness: there's no way to invalidate a specific token without checking a blacklist, which reintroduces the server-side state JWTs were meant to avoid. The standard mitigation: short access-token expiry (5-15 min) so a stolen token is short-lived, plus a longer refresh token that's stored server-side and can be revoked. The access token's short expiry bounds the damage; the refresh token's revocation stops ongoing access.",
+        "difficulty": "core"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q3",
+      "payload": {
+        "question": "What's the difference between authentication and authorization?",
+        "shape": "mcq",
+        "options": [
+          "Authentication asks \"who are you?\"; authorization asks \"what can you do?\"",
+          "Authentication asks \"what can you do?\"; authorization asks \"who are you?\"",
+          "They're the same thing.",
+          "Authentication is for users; authorization is for services."
+        ],
+        "answer_index": 0,
+        "rationale": "Authentication (AuthN) establishes identity: who is this user? Methods: passwords, OAuth, biometrics, certificates. Authorization (AuthZ) decides permissions: given this identity, what can they do? Methods: RBAC (role-based access control), ABAC (attribute-based), ACLs. The two are sequential and distinct: you authenticate first, then authorize based on the authenticated identity. Confusing them leads to security holes — e.g., assuming a request is authorized because it's authenticated.",
+        "difficulty": "core"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-authentication-mental",
+      "payload": {
+        "text": "Engineering mental model",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-authentication-mental",
+      "payload": {
+        "text": "**Mental model.** Think of Authentication as a deliberate boundary in a system. The boundary exists because something becomes harder to manage when everything is done in one place: latency, scale, failure isolation, consistency, cost, or team ownership. The useful question is not “what does Authentication mean?” but “what pressure makes this boundary worth introducing, and what new failure mode does it create?”"
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-authentication-decision",
+      "payload": {
+        "title": "Design lens",
+        "body": "Before choosing Authentication, name the workload, the critical user path, the dominant bottleneck, the failure you are trying to absorb, and the trade-off you are willing to accept. If you cannot name those five things, the design is probably premature.",
+        "kind": "info"
+      }
+    },
+    {
+      "type": "image",
+      "id": "upgrade-image-authentication",
+      "payload": {
+        "src": "/learning-visuals/authentication.svg",
+        "alt": "Original NO CAP systems visual for Authentication.",
+        "caption": "Authentication: a compact system-thinking visual.",
+        "credit": "Original NO CAP visual.",
+        "source_url": "https://github.com/donnemartin/system-design-primer"
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "upgrade-mermaid-authentication",
+      "payload": {
+        "code": "flowchart LR\n U[User] --> A[Authenticate]\n A --> S[Session / Token]\n S --> R[Request]\n R --> Z[Authorize]",
+        "caption": "Authentication establishes who the caller is; authorization decides what that identity may do.",
+        "alt_text": "Authentication establishes who the caller is; authorization decides what that identity may do."
+      }
+    },
+    {
+      "type": "code",
+      "id": "upgrade-code-authentication",
+      "payload": {
+        "language": "http",
+        "code": "Authorization: Bearer <access-token>\n\nGET /v1/authentication\nHost: api.example.com",
+        "caption": "A minimal engineering sketch for reasoning about Authentication."
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-authentication-numbers",
+      "payload": {
+        "text": "Back-of-the-envelope reasoning",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-authentication-numbers",
+      "payload": {
+        "text": "Numerical lens: write down traffic, payload size, read/write ratio, peak multiplier and durability target before choosing a component. The numbers should justify the architecture."
+      }
+    },
+    {
+      "type": "simulation",
+      "id": "upgrade-sim-authentication",
+      "payload": {
+        "title": "Interactive thought experiment: Authentication",
+        "description": "Change the variables below and predict what breaks first in Authentication. The production lab can later reuse these same inputs.",
+        "variables": [
+          {
+            "name": "traffic",
+            "description": "Requests/events per second",
+            "default": "1000"
+          },
+          {
+            "name": "latency",
+            "description": "Dependency latency",
+            "default": "50ms"
+          },
+          {
+            "name": "failure_rate",
+            "description": "Injected failure rate",
+            "default": "0%"
+          }
+        ],
+        "placeholder_note": "Interactive controls are deterministic; use the linked Labs section when a dedicated lab exists."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-authentication-hint",
+      "payload": {
+        "title": "Hint",
+        "body": "If you are stuck on Authentication, start by drawing the request path and marking every network hop, stateful component, queue, cache and failure boundary. Then estimate where the system will saturate.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-authentication-1",
+      "payload": {
+        "shape": "prediction",
+        "question": "You increase traffic by 10× in a system using Authentication. What should you inspect first?",
+        "options": [
+          "The newest framework version",
+          "The dominant bottleneck and its saturation signal",
+          "Only the UI",
+          "Nothing; the architecture should absorb any traffic automatically"
+        ],
+        "answer_index": 1,
+        "rationale": "System design is a constraint-and-bottleneck exercise. Start with the resource or dependency that will saturate first, then choose the smallest change that removes that bottleneck.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-authentication-2",
+      "payload": {
+        "shape": "mcq",
+        "question": "Which statement is the safest engineering habit when using Authentication?",
+        "options": [
+          "Choose it because it is popular",
+          "Add it before measuring the problem",
+          "State the workload, failure mode and trade-off it is solving",
+          "Use the most distributed design possible"
+        ],
+        "answer_index": 2,
+        "rationale": "Good architecture starts from requirements, workload and failure assumptions. The component is the consequence of that reasoning, not the starting point.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "scenario",
+      "id": "upgrade-scenario-authentication",
+      "payload": {
+        "prompt": "Production scenario: your system uses Authentication, traffic suddenly spikes, and p99 latency doubles. What is your first move?",
+        "context": "You have dashboards for traffic, latency, errors and saturation. You can change the architecture, but every change has operational cost.",
+        "options": [
+          {
+            "id": "a",
+            "text": "Add more instances immediately",
+            "outcome": "This may help, but only if compute saturation is the bottleneck.",
+            "correct": false
+          },
+          {
+            "id": "b",
+            "text": "Inspect the bottleneck and its saturation signal first",
+            "outcome": "Correct: diagnose before scaling or introducing a new pattern.",
+            "correct": true
+          },
+          {
+            "id": "c",
+            "text": "Disable monitoring to reduce overhead",
+            "outcome": "This removes the evidence you need to diagnose the incident.",
+            "correct": false
+          }
+        ],
+        "rationale": "Measure the limiting resource or dependency first. A bottleneck can be compute, database I/O, network, cache misses, lock contention, downstream latency, or queue backlog.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-authentication-interview",
+      "payload": {
+        "text": "Interview drill",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-authentication-interview",
+      "payload": {
+        "text": "**Answer this without notes:** When would you choose Authentication, and when would you intentionally avoid it? Mention at least one bottleneck it addresses, one failure mode it introduces, and one alternative. Then quantify the workload you are designing for."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "field-guide-authentication",
+      "payload": {
+        "title": "Engineering lens",
+        "body": "For Authentication, define the trust boundary first. Identify who is allowed to perform each action, where credentials live, how they expire, and what a compromised credential can reach.",
+        "kind": "tip"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "numerical-lens-authentication",
+      "payload": {
+        "text": "### Numerical sanity check\n\nA practical blast-radius question: if one credential is compromised, how many users, services, records or regions could it affect? Prefer designs where that number is deliberately bounded."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "field-question-authentication",
+      "payload": {
+        "shape": "prediction",
+        "question": "What is the smallest trust boundary you would enforce for Authentication, and what would you log so a suspicious action can be investigated later?",
+        "context": "Do not optimize for a memorized definition. Reason from the workload and failure mode.",
+        "options": [
+          "Scale the same component immediately.",
+          "Measure the current bottleneck and state the assumption that changed.",
+          "Add more technologies until throughput improves.",
+          "Choose the most popular architecture."
+        ],
+        "answer_index": 1,
+        "rationale": "Good system design starts with the bottleneck and the changed constraint. The most popular or complex choice is not automatically correct.",
+        "difficulty": "interview"
+      }
+    }
+  ],
+  "trade_offs": {
+    "pros": [
+      "Establishes user identity — the foundation of all access control.",
+      "MFA dramatically reduces credential-stuffing and phishing risk.",
+      "Modern standards (OAuth, WebAuthn) eliminate password reuse problems.",
+      "Token-based auth scales statelessly across services."
+    ],
+    "cons": [
+      "Passwords are inherently weak (reused, phished, leaked).",
+      "MFA adds friction — every login needs a second step.",
+      "JWTs are hard to revoke before expiry.",
+      "AuthN systems are high-value targets — breach = full impersonation."
+    ]
+  },
+  "failure_modes": [
+    "Plaintext or fast-hash password storage — brute-forceable after a leak.",
+    "Missing rate limiting on login — enables brute-force and credential stuffing.",
+    "JWT stored in localStorage — vulnerable to XSS theft.",
+    "Session IDs in URLs — leaked via referrer and logs."
+  ],
+  "common_mistakes": [
+    "Using MD5/SHA for password hashing instead of bcrypt/argon2.",
+    "Not requiring MFA for admin or sensitive accounts.",
+    "Storing JWTs in localStorage (XSS-vulnerable) instead of HttpOnly cookies.",
+    "Not rate-limiting login attempts."
+  ],
+  "where_you_see_it": [
+    "Every login form.",
+    "OAuth providers (Google, GitHub \"Sign in with...\").",
+    "Service-to-service mTLS in service meshes (Istio)."
+  ],
+  "interview_prompts": [
+    "What's the difference between authentication and authorization?",
+    "How should passwords be stored? Why not use SHA-256?",
+    "Compare session-based and token-based (JWT) authentication.",
+    "Why is MFA the single biggest security improvement, and what are its trade-offs?"
+  ],
+  "real_system_mappings": [
+    {
+      "system": "Auth0",
+      "how": "Managed authentication service supporting passwords, MFA, OAuth, SAML, social login. Removes the need for teams to roll their own auth — a high-value security decision."
+    },
+    {
+      "system": "WebAuthn / Passkeys",
+      "how": "W3C standard for passwordless authentication using public-key cryptography. The user's device holds a private key; the server stores the public key. Eliminates passwords entirely — the root-cause fix for credential stuffing."
+    }
+  ],
+  "status": "published",
+  "sources": [
+    {
+      "title": "System Design Primer",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Open source"
+    },
+    {
+      "title": "ByteByteGo — Scale from zero to millions",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "ByteByteGo"
+    },
+    {
+      "title": "System Design Tutorial",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "GeeksforGeeks"
+    },
+    {
+      "title": "System Design Roadmap",
+      "url": "https://roadmap.sh/system-design",
+      "publisher": "roadmap.sh"
+    },
+    {
+      "title": "Security reference",
+      "url": "https://www.rfc-editor.org/",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Security reference",
+      "url": "https://owasp.org/www-project-top-ten/",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Security reference",
+      "url": "https://oauth.net/2/",
+      "publisher": "Reference"
+    }
+  ]
+}

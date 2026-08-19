@@ -1,0 +1,436 @@
+{
+  "slug": "design-instagram",
+  "version": 3,
+  "title": "Design Instagram",
+  "phase": "case-studies",
+  "area": "Case Studies",
+  "estimated_minutes": 12,
+  "difficulty": "interview",
+  "summary": "Design a photo-sharing social network with 500M DAU. Covers presigned-S3 photo upload with async transcoding, the feed-generation decision between fan-out-on-write vs fan-out-on-read (and the hybrid used for celebrities), Redis sorted-set feed caches, and CDN-fronted media delivery. The deep dive walks through why pure fan-out-on-write collapses for Justin Bieber and how the hybrid model solves it.",
+  "why_it_matters": "Instagram is the canonical 'social feed' design problem because it combines three of the hardest patterns in distributed systems: media storage at petabyte scale, a read-heavy personalized feed, and the fan-out-vs-pull trade-off that defines every social product. The hybrid fan-out model — push for normal users, pull for celebrities — is the answer to one of the most common system-design interview questions and is literally how Instagram, Twitter, and Facebook work.",
+  "prerequisites": [
+    "cdn",
+    "object-storage",
+    "cache-aside",
+    "sql-vs-nosql"
+  ],
+  "related": [
+    "design-twitter",
+    "design-news-feed"
+  ],
+  "used_in": [
+    "Instagram (Facebook/Meta)",
+    "Twitter / X timeline",
+    "Threads",
+    "Pixelfed (fedora equivalent)"
+  ],
+  "blocks": [
+    {
+      "type": "prose",
+      "id": "problem",
+      "payload": {
+        "text": "**What are we designing?** An Instagram-style photo-sharing social network. Users post photos (with captions), follow other users, and browse a personalized feed of the most recent photos from people they follow. The system must handle massive read traffic (feed browsing dominates), large media uploads (photos and short videos), and real-time interactions (likes, comments).\n\nThe defining design challenge is the **feed**: when user A follows 500 people and opens the app, the system must assemble a personalized timeline of the latest ~1000 posts from those 500 people, sorted by recency, in under 200 ms — and it must do this for 500M daily users simultaneously. Feed generation strategy is the heart of this case study."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "requirements",
+      "payload": {
+        "text": "**Functional requirements.**\n- Users can post a photo with a caption and optional location.\n- Users can follow / unfollow other users.\n- Users can browse their feed (recent posts from followed users, paginated).\n- Users can like / comment on a post.\n- Users can view a profile with their own posts.\n\n**Non-functional requirements.**\n- **Feed latency**: p99 < 200 ms (users expect instant app open).\n- **Photo upload**: < 5 s end-to-end including processing.\n- **Availability**: 99.99% (Instagram is daily-use; outages are news).\n- **Storage**: photos are forever; we never delete user content.\n- **Scale**: 500M DAU, 100M new posts/day, 10B feed reads/day.\n\n**Non-goals.** No stories (24-hour content), no DM, no algorithmic ranking (v1 is chronological; ranking is layered on in design-news-feed)."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "capacity",
+      "payload": {
+        "text": "**Capacity estimation.**\n\n*DAU & QPS.* 500M DAU, average 20 feed refreshes/day = 10B feed reads/day = ~115K feed reads/sec average, peak ~500K/sec.\n\n*Posts.* 100M posts/day, each ~500KB after compression (photo + thumbnail). 100M x 500KB = 50 TB/day of new media = ~18 PB/year. Stored on object storage (S3).\n\n*Feed metadata.* Each post is ~1KB metadata (post_id, user_id, timestamp, caption hash, media_url). 100M x 1KB = 100GB/day of metadata = ~36 TB/year. Stored in sharded SQL.\n\n*Bandwidth.* Photo upload: 100M x 500KB / 86400 = ~580 MB/s = 4.6 Gbps ingress. Feed read: each feed refresh returns ~20 posts x 100KB (compressed thumbnails) = 2MB; 500K/sec x 2MB = 1 GB/s = 8 Gbps egress from origin. With CDN serving photos, origin egress drops to ~10% (0.8 Gbps).\n\n*Feed cache.* 500M users x their pre-computed feed (last 1000 post_ids) x 8 bytes = 4 GB. Trivially fits in Redis. But if we fan out writes, each new post by a user with 100 followers pushes the post_id into 100 feeds; with 100M posts/day x avg 200 followers = 20B fan-out writes/day = 230K writes/sec. Manageable."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "apis",
+      "payload": {
+        "text": "**APIs.**\n\n```\nPOST /v1/posts              (multipart: photo + caption + location)\nGET  /v1/feed?cursor=...    -> { posts: [...], next_cursor }\nGET  /v1/users/:id          -> profile + recent posts\nPOST /v1/users/:id/follow\nDELETE /v1/users/:id/follow\nPOST /v1/posts/:id/like\nPOST /v1/posts/:id/comments\n```\n\nPhoto upload uses **presigned S3 URLs (valet keys)** so the client uploads directly to object storage — the API server never proxies the photo bytes. After upload, the client calls `POST /v1/posts` with the S3 object key; the server kicks off an async transcoding pipeline and inserts the post metadata. The post appears in feeds only after transcoding completes (a few seconds)."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "data-model",
+      "payload": {
+        "text": "**Data model.**\n\n*Users* (sharded SQL):\n```\nusers (id BIGINT PK, username, bio, avatar_url, created_at)\n```\n\n*Posts* (sharded SQL, sharded by user_id):\n```\nposts (id BIGINT PK, user_id, caption, media_url, location GEO,\n       created_at, like_count, comment_count)\nINDEX (user_id, created_at DESC)        -- for profile pages\n```\n\n*Follows* (sharded SQL or graph DB):\n```\nfollows (follower_id, followee_id, created_at, PRIMARY KEY (follower_id, followee_id))\nINDEX (followee_id)                     -- for 'who follows me'\nINDEX (follower_id, created_at)         -- for 'who do I follow'\n```\n\n*Feed cache* (Redis sorted set per user):\n```\nkey: feed:{user_id}\nvalue: ZSET member=post_id, score=created_at   -- capped at top 1000\n```\n\n*Photo storage* (S3):\n```\nbucket: ig-media-prod\nkey:    {user_id}/{post_id}/{variant}    -- variant = orig|1080|720|480|thumb\n```\nMultiple resolutions are generated by the transcoding pipeline for adaptive delivery."
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "arch",
+      "payload": {
+        "code": "flowchart TD\n    N0[\"Mobile / Web Client\"]\n    N1[\"[Mobile\"]\n    N2[\"Web\"]\n    N3[\"Client]\"]\n    N4[\"a\"]\n    N5[\"b\"]\n    N6[\"(a)\"]\n    N7[\"photo\"]\n    N8[\"upload\"]\n    N9[\"(b)\"]\n    N10[\"feed\"]\n    N11[\"read\"]\n    N12[\"Presigned S3 URL\"]\n    N13[\"CDN -> API Gateway\"]\n    N14[\"[Presigned\"]\n    N15[\"URL]\"]\n    N16[\"[CDN\"]\n    N17[\"API\"]\n    N18[\"Gateway]\"]\n    N19[\"Object Storage S3\"]\n    N20[\"Feed Service\"]\n    N21[\"[Object\"]\n    N22[\"Storage\"]\n    N23[\"S3]\"]\n    N24[\"[Feed\"]\n    N25[\"Service]\"]\n    N26[\"object key\"]\n    N27[\"(object\"]\n    N28[\"key)\"]\n    N29[\"POST /posts\"]\n    N30[\"2\"]\n    N31[\"[POST\"]\n    N32[\"posts]\"]\n    N33[\"(2)\"]\n    N34[\"Redis\"]\n    N35[\"cache\"]\n    N36[\"aside:\"]\n    N37[\"user_id\"]\n    N38[\"GET\"]\n    N39[\"feed:{user_id}\"]\n    N40[\"Post Service\"]\n    N41[\"[Post\"]\n    N42[\"miss\"]\n    N43[\"hit\"]\n    N44[\"(insert\"]\n    N45[\"Posts DB\"]\n    N46[\"metadata)\"]\n    N47[\"[Posts\"]\n    N48[\"DB]\"]\n    N49[\"(return\"]\n    N50[\"cached\"]\n    N51[\"(sharded\"]\n    N52[\"post_ids\"]\n    N53[\"user_id)\"]\n    N54[\"hydrate\"]\n    N55[\"from\"]\n    N56[\"Transcode Pipeline\"]\n    N57[\"[Transcode\"]\n    N58[\"Pipeline]\"]\n    N59[\"cache)\"]\n    N60[\"resize\"]\n    N61[\"1080\"]\n    N62[\"720\"]\n    N63[\"480\"]\n    N64[\"thumb\"]\n    N65[\"store\"]\n    N66[\"variants\"]\n    N67[\"Fan-out Worker\"]\n    N68[\"[Fan\"]\n    N69[\"out\"]\n    N70[\"Worker]\"]\n    N71[\"reads\"]\n    N72[\"post.user_id,\"]\n    N73[\"looks\"]\n    N74[\"followers,\"]\n    N75[\"follower_id\"]\n    N76[\"ZADD\"]\n    N77[\"feed:{follower_id}\"]\n    N78[\"post_id\"]\n    N79[\"for\"]\n    N80[\"each\"]\n    N81[\"follower.\"]\n    N82[\">10K followers\"]\n    N83[\"Skipped\"]\n    N84[\"celebrity\"]\n    N85[\"users\"]\n    N86[\"(>10K\"]\n    N87[\"followers):\"]\n    N88[\"their\"]\n    N89[\"posts\"]\n    N90[\"are\"]\n    N91[\"pulled\"]\n    N92[\"instead.\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44\n    N44 --> N45\n    N45 --> N46\n    N46 --> N47\n    N47 --> N48\n    N48 --> N49\n    N49 --> N50\n    N50 --> N51\n    N51 --> N52\n    N52 --> N53\n    N53 --> N54\n    N54 --> N55\n    N55 --> N56\n    N56 --> N57\n    N57 --> N58\n    N58 --> N59\n    N59 --> N60\n    N60 --> N61\n    N61 --> N62\n    N62 --> N63\n    N63 --> N64\n    N64 --> N65\n    N65 --> N66\n    N66 --> N67\n    N67 --> N68\n    N68 --> N69\n    N69 --> N70\n    N70 --> N71\n    N71 --> N72\n    N72 --> N73\n    N73 --> N74\n    N74 --> N75\n    N75 --> N76\n    N76 --> N77\n    N77 --> N78\n    N78 --> N79\n    N79 --> N80\n    N80 --> N81\n    N81 --> N82\n    N82 --> N83\n    N83 --> N84\n    N84 --> N85\n    N85 --> N86\n    N86 --> N87\n    N87 --> N88\n    N88 --> N89\n    N89 --> N90\n    N90 --> N91\n    N91 --> N92",
+        "caption": "Instagram: photo upload via presigned S3 + async transcode + fan-out-on-write to follower feeds. Feed read is cache-aside from Redis.",
+        "alt_text": "A diagram of Instagram's architecture. Two flows: photo upload and feed read. For upload: the client gets a presigned S3 URL and uploads directly to object storage, then calls POST /posts with the object key. The Post Service inserts metadata into a sharded SQL database and kicks off a transcoding pipeline that generates multiple resolutions. A fan-out worker then reads the post's followers and pushes the post_id into each follower's Redis sorted-set feed cache. For feed read: the client hits the CDN, then the API gateway, then the Feed Service which does a cache-aside lookup against Redis. On a hit it returns cached post_ids and hydrates them from cache. On a miss it falls through to the sharded Posts DB. Celebrity users with more than 10K followers skip fan-out — their posts are pulled on read instead."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "deep-dive",
+      "payload": {
+        "text": "**Deep dive: feed generation — fan-out on write vs read.**\n\n**Fan-out on write (push model).** When user P posts, the system looks up P's followers and pushes `post_id` into each follower's Redis feed (ZADD with score = post timestamp). Reads are O(1): just ZRANGE the user's feed.\n\nPros: feed reads are instant (single Redis call). Cons: write amplification. A user with 1M followers triggers 1M Redis writes per post. For Justin Bieber (100M followers), a single post = 100M Redis writes — that crushes the cluster.\n\n**Fan-out on read (pull model).** When user U opens their feed, the system looks up the users U follows (say 500), fetches their recent posts from each user's post_id list (already indexed by `(user_id, created_at)`), merges by timestamp, returns the top 20.\n\nPros: no write amplification — posting is O(1). Cons: feed reads are expensive — 500 DB queries per refresh, even after caching.\n\n**Hybrid (our choice).** Fan-out on write for normal users (most users have <500 followers); fan-out on read for celebrities (>10K followers). This caps the worst-case fan-out at 10K writes per post while keeping feed reads fast for 99% of users.\n\n**Concrete numbers.** Average user has ~200 followers. 100M posts/day x 200 = 20B fan-out writes/day = 230K writes/sec. Top 0.1% of users (celebrities) average 10M followers — if we fanned them out, 1 post = 10M writes. By pulling them on read, we save ~10M writes per celebrity post and pay only ~500 extra DB queries per feed read for users who follow a celebrity (most users follow 1-5 celebrities).\n\n**Capping the feed.** Each user's feed cache holds the last 1000 post_ids (ZSET, score = timestamp, ZREMRANGEBYRANK to evict beyond 1000). If the user scrolls past 1000, we fall through to the pull model for older posts.\n\n**Stale feed problem.** With fan-out on write, if a user is unfollowed AFTER their post was pushed, the post lingers in the unfollower's feed. *Mitigation*: on unfollow, ZREM all of unfollowed-user's recent post_ids from the unfollower's feed. Cheap because the unfollower typically only has a few hundred of the unfollowed user's posts in their feed.\n\n**Deletion propagation.** When a user deletes a post, we must remove it from every follower's feed. *Mitigation*: lazy deletion — mark the post deleted; feed reads filter deleted post_ids at hydration time. Periodic background job ZREMs stale deleted post_ids."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "bottlenecks",
+      "payload": {
+        "text": "**Bottlenecks and failure modes.**\n\n- **Celebrity post spike.** A celebrity with 100M followers posts; even at pull-on-read, the next minute's feed reads all hit the celebrity's post shard. *Mitigation*: cache the celebrity's recent posts in a separate hot-key cache; replicate to multiple shards.\n\n- **Redis feed cache failure.** If Redis dies, every feed read falls through to the pull model — 500 DB queries per read at 500K reads/sec = 250M queries/sec. The DB dies. *Mitigation*: Redis cluster with replicas + circuit breaker that returns stale feeds with a 503-and-retry after 1s, rather than crushing the DB.\n\n- **Transcoding pipeline backlog.** If transcode workers fall behind (viral video, instance failure), posts take minutes to appear in feeds. *Mitigation*: autoscale workers based on queue depth; show a placeholder thumbnail immediately so the post appears in feeds, then swap to full-res when transcode completes.\n\n- **S3 upload failures.** If a presigned URL expires before the client finishes uploading a large video, the upload fails. *Mitigation*: use multipart upload with S3 (each part gets its own presigned URL; parts can retry independently).\n\n- **Hot post.** A post goes viral — 1M likes in 5 minutes. The like counter row becomes a write hotspot. *Mitigation*: shard the counter across N rows (e.g. likes_0, likes_1, ... likes_9) and sum on read; or use a CRDT counter (Redis INCR is single-threaded — needs sharding for >10K writes/sec).\n\n- **Fan-out write storm.** When a celebrity crosses 10K followers, our policy flips from push to pull. The transition must not retroactively remove their pushed posts from existing feeds. *Mitigation*: just stop pushing NEW posts; old pushed posts age out naturally."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "scaling",
+      "payload": {
+        "text": "**Scaling strategy and trade-offs.**\n\n*Database sharding.* Shard `posts` and `follows` by `user_id` (so a user's posts and follow graph live on one shard). Cross-shard feed reads are reduced by the fan-out-on-write cache.\n\n*CDN for media.* Photos are served from a CDN (Cloudflare, CloudFront). Cache hit rate >95% for popular posts; origin egress drops 10x. Cache key includes the variant resolution so the CDN serves the right size.\n\n*Multi-region.* Deploy feed-service + Redis feed cache in 5+ regions. Posts DB is globally replicated (eventually consistent); writes go to a single primary region. Feed reads hit the local Redis cache.\n\n*Transcoding autoscaling.* Scale transcode workers based on Kafka queue depth. Each worker pulls a job, transcodes (FFmpeg / libvips), uploads variants to S3, marks the post ready.\n\n*Trade-offs made explicit.*\n- We chose fan-out on write for normal users — **gained** instant feed reads, **lost** cheap celebrity posting (mitigated by hybrid).\n- We chose chronological feed — **gained** predictability and simplicity, **lost** engagement optimization (algorithmic ranking adds 5-20% time-on-site but is a whole ML system of its own).\n- We chose presigned S3 uploads — **gained** no photo bytes through API servers, **lost** the ability to do server-side validation before storage (mitigated by post-upload content moderation).\n- We chose lazy deletion of feed entries — **gained** cheap delete, **lost** immediate consistency (a deleted post may appear briefly in feeds before hydration filters it)."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q1",
+      "payload": {
+        "question": "Justin Bieber (100M followers) posts a photo. With pure fan-out-on-write, what happens?",
+        "shape": "mcq",
+        "options": [
+          "100M Redis writes that crush the feed-cache cluster; you must switch to fan-out-on-read for celebrities.",
+          "A single write to Bieber's own feed; followers' feeds are populated on read.",
+          "100M writes, evenly distributed across all Redis shards — fine, no problem.",
+          "The post is dropped because the fan-out exceeds a timeout."
+        ],
+        "answer_index": 0,
+        "rationale": "Fan-out-on-write pushes the post_id into every follower's feed, so a single Bieber post = 100M Redis writes. Even sharded across 100 Redis shards, that's 1M writes per shard in a burst — enough to saturate them. The fix is the hybrid model: celebrities (>10K followers) use fan-out-on-read; their posts are fetched from their own shard at feed-read time. Instagram literally does this. Pure fan-out-on-read (option B) is wrong for normal users because feed reads become 500-query joins.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q2",
+      "payload": {
+        "question": "Your feed cache is Redis. Redis dies. What happens?",
+        "shape": "mcq",
+        "options": [
+          "Feed reads fall through to the DB, which now must serve 500 queries per feed refresh at 500K req/sec — it dies too. Need a circuit breaker + replica.",
+          "Nothing — feeds are recomputed in-memory on the API servers.",
+          "Posts are lost because Redis was the source of truth.",
+          "The system automatically promotes a Redis replica, no client impact."
+        ],
+        "answer_index": 0,
+        "rationale": "Redis is the cache, not the source of truth (posts and follows live in sharded SQL). But without Redis, every feed read fans out to ~500 DB queries; at 500K reads/sec that's 250M queries/sec — guaranteed DB collapse. The correct mitigation is (a) Redis cluster with replicas + automatic failover (a replica is promoted in 10-30s), and (b) a circuit breaker in the Feed Service that returns 503 with Retry-After when Redis is unreachable, rather than letting the DB get crushed. Posts are never lost — they're in the Posts DB.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-design-instagram-mental",
+      "payload": {
+        "text": "Engineering mental model",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-design-instagram-mental",
+      "payload": {
+        "text": "**Mental model.** Think of Design Instagram as a deliberate boundary in a system. The boundary exists because something becomes harder to manage when everything is done in one place: latency, scale, failure isolation, consistency, cost, or team ownership. The useful question is not “what does Design Instagram mean?” but “what pressure makes this boundary worth introducing, and what new failure mode does it create?”"
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-design-instagram-decision",
+      "payload": {
+        "title": "Design lens",
+        "body": "Before choosing Design Instagram, name the workload, the critical user path, the dominant bottleneck, the failure you are trying to absorb, and the trade-off you are willing to accept. If you cannot name those five things, the design is probably premature.",
+        "kind": "info"
+      }
+    },
+    {
+      "type": "image",
+      "id": "upgrade-image-design-instagram",
+      "payload": {
+        "src": "/learning-visuals/design-instagram.svg",
+        "alt": "Original NO CAP systems visual for Design Instagram.",
+        "caption": "Design Instagram: a compact system-thinking visual.",
+        "credit": "Original NO CAP visual.",
+        "source_url": "https://github.com/donnemartin/system-design-primer"
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "upgrade-mermaid-design-instagram",
+      "payload": {
+        "code": "flowchart LR\n  A[Client] --> B[Gateway] --> C[Services] --> D[Data] --> E[Delivery]",
+        "caption": "Design Instagram: a simplified system view showing the primary flow and the main state boundaries.",
+        "alt_text": "Design Instagram: a simplified system view showing the primary flow and the main state boundaries."
+      }
+    },
+    {
+      "type": "code",
+      "id": "upgrade-code-design-instagram",
+      "payload": {
+        "language": "text",
+        "code": "// Pseudocode\nrequest = receive()\nresult = design_instagram(request)\nreturn result\n\n// Production questions:\n// 1. What happens on timeout?\n// 2. Can this operation be retried safely?\n// 3. What is the bottleneck?",
+        "caption": "A minimal engineering sketch for reasoning about Design Instagram."
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-design-instagram-numbers",
+      "payload": {
+        "text": "Back-of-the-envelope reasoning",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-design-instagram-numbers",
+      "payload": {
+        "text": "Numerical lens: write down traffic, payload size, read/write ratio, peak multiplier and durability target before choosing a component. The numbers should justify the architecture."
+      }
+    },
+    {
+      "type": "simulation",
+      "id": "upgrade-sim-design-instagram",
+      "payload": {
+        "title": "Interactive thought experiment: Design Instagram",
+        "description": "Change the variables below and predict what breaks first in Design Instagram. The production lab can later reuse these same inputs.",
+        "variables": [
+          {
+            "name": "traffic",
+            "description": "Requests/events per second",
+            "default": "1000"
+          },
+          {
+            "name": "latency",
+            "description": "Dependency latency",
+            "default": "50ms"
+          },
+          {
+            "name": "failure_rate",
+            "description": "Injected failure rate",
+            "default": "0%"
+          }
+        ],
+        "placeholder_note": "Interactive controls are deterministic; use the linked Labs section when a dedicated lab exists."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-design-instagram-hint",
+      "payload": {
+        "title": "Hint",
+        "body": "If you are stuck on Design Instagram, start by drawing the request path and marking every network hop, stateful component, queue, cache and failure boundary. Then estimate where the system will saturate.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-design-instagram-1",
+      "payload": {
+        "shape": "prediction",
+        "question": "You increase traffic by 10× in a system using Design Instagram. What should you inspect first?",
+        "options": [
+          "The newest framework version",
+          "The dominant bottleneck and its saturation signal",
+          "Only the UI",
+          "Nothing; the architecture should absorb any traffic automatically"
+        ],
+        "answer_index": 1,
+        "rationale": "System design is a constraint-and-bottleneck exercise. Start with the resource or dependency that will saturate first, then choose the smallest change that removes that bottleneck.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-design-instagram-2",
+      "payload": {
+        "shape": "mcq",
+        "question": "Which statement is the safest engineering habit when using Design Instagram?",
+        "options": [
+          "Choose it because it is popular",
+          "Add it before measuring the problem",
+          "State the workload, failure mode and trade-off it is solving",
+          "Use the most distributed design possible"
+        ],
+        "answer_index": 2,
+        "rationale": "Good architecture starts from requirements, workload and failure assumptions. The component is the consequence of that reasoning, not the starting point.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "scenario",
+      "id": "upgrade-scenario-design-instagram",
+      "payload": {
+        "prompt": "Production scenario: your system uses Design Instagram, traffic suddenly spikes, and p99 latency doubles. What is your first move?",
+        "context": "You have dashboards for traffic, latency, errors and saturation. You can change the architecture, but every change has operational cost.",
+        "options": [
+          {
+            "id": "a",
+            "text": "Add more instances immediately",
+            "outcome": "This may help, but only if compute saturation is the bottleneck.",
+            "correct": false
+          },
+          {
+            "id": "b",
+            "text": "Inspect the bottleneck and its saturation signal first",
+            "outcome": "Correct: diagnose before scaling or introducing a new pattern.",
+            "correct": true
+          },
+          {
+            "id": "c",
+            "text": "Disable monitoring to reduce overhead",
+            "outcome": "This removes the evidence you need to diagnose the incident.",
+            "correct": false
+          }
+        ],
+        "rationale": "Measure the limiting resource or dependency first. A bottleneck can be compute, database I/O, network, cache misses, lock contention, downstream latency, or queue backlog.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-design-instagram-interview",
+      "payload": {
+        "text": "Interview drill",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-design-instagram-interview",
+      "payload": {
+        "text": "**Answer this without notes:** When would you choose Design Instagram, and when would you intentionally avoid it? Mention at least one bottleneck it addresses, one failure mode it introduces, and one alternative. Then quantify the workload you are designing for."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "field-guide-design-instagram",
+      "payload": {
+        "title": "Engineering lens",
+        "body": "A useful engineering lens for Design Instagram: define the problem it solves, the simpler design that fails first, the constraint that forces you to introduce this concept, and the new failure modes the concept creates.",
+        "kind": "tip"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "numerical-lens-design-instagram",
+      "payload": {
+        "text": "### Numerical sanity check\n\nBack-of-the-envelope reasoning beats fake precision. State your traffic, payload, concurrency and growth assumptions explicitly, then calculate enough to know whether the current architecture is orders of magnitude away from the target."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "field-question-design-instagram",
+      "payload": {
+        "shape": "prediction",
+        "question": "Imagine the simplest version of a system using Design Instagram. What breaks first as traffic grows by 10×, and what would you change before reaching 100×?",
+        "context": "Do not optimize for a memorized definition. Reason from the workload and failure mode.",
+        "options": [
+          "Scale the same component immediately.",
+          "Measure the current bottleneck and state the assumption that changed.",
+          "Add more technologies until throughput improves.",
+          "Choose the most popular architecture."
+        ],
+        "answer_index": 1,
+        "rationale": "Good system design starts with the bottleneck and the changed constraint. The most popular or complex choice is not automatically correct.",
+        "difficulty": "interview"
+      }
+    }
+  ],
+  "trade_offs": {
+    "pros": [
+      "Feed reads are O(1) for normal users thanks to fan-out-on-write into Redis ZSETs.",
+      "Presigned S3 uploads keep photo bytes off the API servers.",
+      "CDN absorbs >95% of media egress; origin stays small.",
+      "Hybrid fan-out (push normal, pull celebrity) bounds worst-case write amplification."
+    ],
+    "cons": [
+      "Celebrity posts still stress the pull path — needs a hot-post cache.",
+      "Redis feed cache failure cascades into DB collapse without a circuit breaker.",
+      "Fan-out-on-write makes deletion and unfollow propagation expensive.",
+      "Chronological feed is less engaging than algorithmic (intentional v1 scope)."
+    ]
+  },
+  "failure_modes": [
+    "Celebrity post spike saturates a celebrity's post shard — needs hot-post cache replication.",
+    "Redis feed cache death -> DB collapse — needs circuit breaker + replicas.",
+    "Transcoding pipeline backlog delays posts appearing in feeds — needs autoscaling.",
+    "Like-counter hotspot on viral posts — needs counter sharding.",
+    "S3 presigned URL expiry breaks large video uploads — needs multipart upload."
+  ],
+  "common_mistakes": [
+    "Pure fan-out-on-write for all users — crushed by celebrity posts.",
+    "Pure fan-out-on-read for all users — crushes DB with 500-query joins.",
+    "Using Redis as the source of truth for posts — loses data on Redis failure.",
+    "Proxying photo uploads through the API server — wastes bandwidth and CPU.",
+    "Forgetting to handle unfollow / delete propagation in pushed feeds."
+  ],
+  "where_you_see_it": [
+    "Instagram (Facebook/Meta)",
+    "Twitter / X timeline",
+    "Threads",
+    "Pixelfed (fedora equivalent)"
+  ],
+  "interview_prompts": [
+    "Design Instagram. How do you generate the feed?",
+    "Justin Bieber posts a photo. What happens to your system?",
+    "How do you handle photo upload at scale without overloading API servers?",
+    "Your Redis feed cache dies. What happens next?"
+  ],
+  "real_system_mappings": [
+    {
+      "system": "Instagram",
+      "how": "Fan-out-on-write for normal users into Redis ZSETs, pull-on-read for celebrities. Photo upload via presigned S3 URLs. CDN-served media. Documented in various Meta engineering blog posts."
+    },
+    {
+      "system": "Twitter",
+      "how": "Similar hybrid fan-out, with celebrity detection at ~10K followers. Uses Redis Gemini clusters for timeline caches."
+    },
+    {
+      "system": "Facebook",
+      "how": "Uses a more sophisticated pull-on-read with EdgeRank ranking, but the storage primitives are the same."
+    }
+  ],
+  "status": "published",
+  "sources": [
+    {
+      "title": "System Design Primer",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Open source"
+    },
+    {
+      "title": "ByteByteGo — Scale from zero to millions",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "ByteByteGo"
+    },
+    {
+      "title": "System Design Tutorial",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "GeeksforGeeks"
+    },
+    {
+      "title": "System Design Roadmap",
+      "url": "https://roadmap.sh/system-design",
+      "publisher": "roadmap.sh"
+    },
+    {
+      "title": "Case Studies reference",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Case Studies reference",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Case Studies reference",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "Reference"
+    }
+  ]
+}

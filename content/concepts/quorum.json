@@ -1,0 +1,442 @@
+{
+  "slug": "quorum",
+  "version": 4,
+  "title": "Quorum",
+  "phase": "distributed-systems",
+  "area": "Distributed Systems",
+  "estimated_minutes": 7,
+  "difficulty": "advanced",
+  "summary": "A quorum is the minimum number of nodes that must participate in an operation for it to be considered valid. The fundamental rule is R + W > N: the read quorum and write quorum must overlap, so any read sees the latest write. For a 5-node cluster, a quorum is 3 — the smallest majority that cannot simultaneously agree on two conflicting values. Quorums are the math behind every consensus protocol, every replicated write, and every dynamic-membership decision; understanding them is the difference between 'it works on my laptop' and 'it survives a partition.'",
+  "why_it_matters": "Quorums are how distributed systems avoid split-brain without a centralized arbitrator. If you require a majority of nodes to ack a write, two partitions cannot both accept writes (only the majority side can). If you require a majority to elect a leader, two partitions cannot both elect (only the majority side can). Quorums also let you trade consistency for latency and throughput: larger write quorums mean stronger durability but slower writes; smaller read quorums mean faster reads but risk stale data. The Dynamo-style tunable consistency (ONE, QUORUM, ALL) is precisely this dial. Get the math wrong and either you allow split-brain (data loss) or you block unnecessarily (availability loss).",
+  "prerequisites": [
+    "replication"
+  ],
+  "related": [
+    "consensus",
+    "cap-theorem",
+    "leader-election",
+    "consistency-patterns"
+  ],
+  "used_in": [
+    "Replicated databases (Cassandra, DynamoDB, Riak — tunable per-request).",
+    "Consensus protocols (Raft, Paxos — majority quorum to commit).",
+    "Distributed lock services (Chubby, etcd — quorum for lease renewal).",
+    "Cluster membership and reconfiguration."
+  ],
+  "blocks": [
+    {
+      "type": "prose",
+      "id": "intro",
+      "payload": {
+        "text": "A quorum is the minimum set of nodes that must agree for an operation to be safe. The two foundational rules:\n\n1. **Majority quorum**: in a cluster of N nodes, a quorum is `floor(N/2) + 1`. For N=3, quorum is 2. For N=5, quorum is 3. For N=7, quorum is 4. Two majorities of the same set must share at least one node — that shared node cannot have voted for two conflicting values, which guarantees safety.\n2. **Read-write overlap**: for replicated data with N copies, if reads touch R copies and writes touch W copies, then `R + W > N` guarantees any read overlaps with the last write. So at least one node that participated in the write is also consulted by the read — and that node has the latest value.\n\nQuorums are the entire mathematical basis for consensus safety, replicated write durability, and partition-tolerant leader election."
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "rw-quorum",
+      "payload": {
+        "code": "flowchart TD\n    N0[\"any read overlaps the last write\"]\n    N1[\"nodes,\"]\n    N2[\"(any\"]\n    N3[\"read\"]\n    N4[\"overlaps\"]\n    N5[\"the\"]\n    N6[\"last\"]\n    N7[\"write)\"]\n    N8[\"Node\"]\n    N9[\"before\"]\n    N10[\"write\"]\n    N11[\"WRITE\"]\n    N12[\"write to 3 of 5\"]\n    N13[\"(write\"]\n    N14[\"now\"]\n    N15[\"majority\"]\n    N16[\"has\"]\n    N17[\"Read\"]\n    N18[\"with\"]\n    N19[\"ANY\"]\n    N20[\"nodes\"]\n    N21[\"least\"]\n    N22[\"one\"]\n    N23[\"correct\"]\n    N24[\"set\"]\n    N25[\"returns\"]\n    N26[\"(correct)\"]\n    N27[\"old\"]\n    N28[\"(old)\"]\n    N29[\"would\"]\n    N30[\"also\"]\n    N31[\"overlap\"]\n    N32[\"chosen;\"]\n    N33[\"guarantees\"]\n    N34[\"strong\"]\n    N35[\"consistency\"]\n    N36[\"stale\"]\n    N37[\"reads\"]\n    N38[\"possible\"]\n    N39[\"eventual,\"]\n    N40[\"fast,\"]\n    N41[\"may\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41",
+        "caption": "R + W > N ensures every read sees the latest write because the read set must overlap the write set.",
+        "alt_text": "A diagram of five nodes holding a value. Initially nodes 1, 2, 3 have version 2 and nodes 4, 5 have version 1. A write of version 3 is acknowledged by three of the five nodes (a write quorum of 3). After the write, nodes 1, 2, 3 have version 3 and nodes 4, 5 still have version 1. A read with a read quorum of 3 reads any three nodes; because 3 plus 3 is greater than 5, any three-node read set must include at least one node that participated in the write, so the read returns the latest version 3. If R plus W is less than or equal to N, the read set might not overlap the write set and reads can return stale values."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "tunable",
+      "payload": {
+        "text": "Quorums give you a tunable consistency dial. With N=3 replicas, common settings:\n\n- **W=1, R=1**: writes ack after one replica, reads consult one replica. Fast but may return stale data; no overlap guarantee. Used for high-throughput, low-criticality data.\n- **W=QUORUM=2, R=QUORUM=2**: writes ack after 2 replicas, reads consult 2. R+W=4 > 3, so reads see the latest write. The default for most strongly consistent settings.\n- **W=3, R=1**: writes ack after all replicas (maximum durability), reads consult 1 (fast reads). R+W=4 > 3, strong consistency. Used for read-heavy workloads where durability is critical.\n- **W=ALL=3, R=ALL=3**: every replica participates. Strongest consistency but slowest; any replica failure blocks the operation.\n\nThis is exactly the **Dynamo-style tunable consistency** used by Cassandra (`ONE`, `QUORUM`, `LOCAL_QUORUM`, `ALL`, `LOCAL_ONE`) and DynamoDB (eventually consistent reads vs. strongly consistent reads). Per-request tuning is the key insight: not every operation needs the same guarantees, so the client picks."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "why-odd",
+      "payload": {
+        "title": "Why cluster sizes are odd (3, 5, 7)",
+        "body": "Fault tolerance is `floor((N-1)/2)` failures tolerated. For N=3: tolerate 1. For N=5: tolerate 2. For N=7: tolerate 3. Going from N=3 to N=4 buys nothing — you still tolerate only 1 failure, because a 2/2 partition has no quorum on either side. Going from N=4 to N=5 buys you one more tolerated failure (2 instead of 1). So adding an even node is wasted infrastructure; adding an odd node improves fault tolerance. This is why consensus clusters are 3, 5, or 7 nodes — never 4 or 6.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "variants",
+      "payload": {
+        "text": "Variants and refinements:\n\n- **Strict quorum**: every read sees the latest write (R+W>N). Simple, correct, slow.\n- **Sloppy quorum**: during a partition, writes go to any reachable node (not just the 'home' replicas), with a hint that the value should be forwarded to the home replicas when the partition heals (hinted handoff). Used by Dynamo and Cassandra. Trades strict consistency for availability during partitions.\n- **Read repair**: when a read discovers that replicas have diverged versions, the read response is used to repair the lagging replicas in the background. Combined with anti-entropy (Merkle tree sync), this keeps replicas eventually consistent.\n- **Sticky quorum / read-your-writes**: route reads to the same replicas that handled the prior writes from the same session. Avoids the stale-read-after-write problem without paying for full quorum on every read.\n- **Quorum cache invalidation**: a write notifies a quorum of cache nodes; reads consult a quorum. The overlap ensures no stale cache hit survives a write."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "latency",
+      "payload": {
+        "text": "The cost of a quorum is **tail latency**. A write that requires 3 acks from 5 replicas waits for the 3rd-fastest reply — which is bounded by the slowest of those 3, not the median. Under load, the slowest replica can be 100x slower than the median, so quorum writes have a long tail. Systems mitigate this by:\n\n- **Speculative retries**: if the quorum is not reached within X ms, send the write to additional replicas in parallel.\n- **Read-repair on read**: instead of waiting for the slowest replica, return the latest value as soon as the read quorum is reached, then repair the lagging replica asynchronously.\n- **Local quorum**: only require quorum within the local datacenter (`LOCAL_QUORUM` in Cassandra). Cross-datacenter replication is async, trading strong consistency for low latency.\n\nThis is why AP systems like Cassandra and DynamoDB default to LOCAL_ONE or LOCAL_QUORUM: the cost of cross-region quorum is too high for most workloads."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q1",
+      "payload": {
+        "question": "You have a 5-node Cassandra cluster. The client uses consistency LEVEL ONE for writes and LEVEL ONE for reads. What is the implication?",
+        "shape": "mcq",
+        "options": [
+          "Reads always return the latest write because any one node has the latest value.",
+          "R+W = 2 < 5, so reads may return stale data; the read set may not overlap the last write set.",
+          "The system is strongly consistent because reads and writes both go to the same node.",
+          "This configuration is invalid; Cassandra requires at least QUORUM."
+        ],
+        "answer_index": 1,
+        "rationale": "With N=5, R=1, and W=1, R+W = 2, which is less than N=5. There is no overlap guarantee — the read may consult a node that did not participate in the last write. So the read can return a stale value. This is fine for low-criticality, high-throughput data (telemetry, counters with eventual aggregation) but wrong for things like bank balances or stock levels. The fix is to bump R or W so that R+W > N: for N=5, set W=3 and R=3 (strict quorum) or W=3 and R=1 (write to majority, read from one — guaranteed to overlap). Cassandra does not require QUORUM by default; the consistency level is per-request.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q2",
+      "payload": {
+        "question": "Your team decides to expand a 3-node etcd cluster to 4 nodes for 'more redundancy.' What is the problem with this plan?",
+        "shape": "mcq",
+        "options": [
+          "4 nodes is too many for Raft to handle.",
+          "4 nodes tolerate the same number of failures (1) as 3 nodes; you should go to 5 to tolerate 2 failures.",
+          "4 nodes require a higher quorum (3) than 3 nodes (2), so writes are slower for no fault-tolerance gain.",
+          "Both b and c — same fault tolerance, higher latency."
+        ],
+        "answer_index": 3,
+        "rationale": "For N=3, quorum is 2 and the cluster tolerates 1 failure. For N=4, quorum is 3 and the cluster still tolerates 1 failure (a 2/2 split leaves no quorum on either side). So expanding from 3 to 4 buys nothing in fault tolerance but increases the quorum size, making every write slower (one more ack required). To actually improve fault tolerance, go from 3 to 5 — quorum stays at 3 but tolerated failures increase from 1 to 2. This is why consensus clusters are always odd-sized (3, 5, 7). The general rule: tolerate f failures with 2f+1 nodes.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q3",
+      "payload": {
+        "question": "Why does the R+W>N rule guarantee strong consistency, and what does it actually guarantee?",
+        "shape": "mcq",
+        "options": [
+          "It guarantees that reads and writes are serialized through a single leader.",
+          "It guarantees that any read quorum must share at least one node with the last write quorum, so the read sees at least one node with the latest value.",
+          "It guarantees that the system never partitions.",
+          "It guarantees linearizability across all operations."
+        ],
+        "answer_index": 1,
+        "rationale": "R+W > N means the read quorum and the write quorum must share at least one node (by pigeonhole). That shared node participated in the write, so it has the latest version. When the read consults it, it sees the latest value. This guarantees 'read-your-writes' for the most recent write — but only if the read includes a timestamp/version comparison across the read set. Without that comparison (e.g., returning the first reply), even R+W>N can return stale data. So R+W>N is necessary but not sufficient — the read must compare versions across all replies and return the highest. This is what Cassandra's read repair does. Linearizability is stronger and requires a leader (or read-index quorum round).",
+        "difficulty": "expert"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-quorum-mental",
+      "payload": {
+        "text": "Engineering mental model",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-quorum-mental",
+      "payload": {
+        "text": "**Mental model.** Think of Quorum as a deliberate boundary in a system. The boundary exists because something becomes harder to manage when everything is done in one place: latency, scale, failure isolation, consistency, cost, or team ownership. The useful question is not “what does Quorum mean?” but “what pressure makes this boundary worth introducing, and what new failure mode does it create?”"
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-quorum-decision",
+      "payload": {
+        "title": "Design lens",
+        "body": "Before choosing Quorum, name the workload, the critical user path, the dominant bottleneck, the failure you are trying to absorb, and the trade-off you are willing to accept. If you cannot name those five things, the design is probably premature.",
+        "kind": "info"
+      }
+    },
+    {
+      "type": "image",
+      "id": "upgrade-image-quorum",
+      "payload": {
+        "src": "/learning-visuals/quorum.svg",
+        "alt": "Original NO CAP systems visual for Quorum.",
+        "caption": "Quorum: a compact system-thinking visual.",
+        "credit": "Original NO CAP visual.",
+        "source_url": "https://github.com/donnemartin/system-design-primer"
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "upgrade-mermaid-quorum",
+      "payload": {
+        "code": "flowchart LR\n  A[Client] --> B[Gateway] --> C[Service] --> D[State] --> E[Outcome]",
+        "caption": "Quorum: a simplified system view showing the primary flow and the main state boundaries.",
+        "alt_text": "Quorum: a simplified system view showing the primary flow and the main state boundaries."
+      }
+    },
+    {
+      "type": "code",
+      "id": "upgrade-code-quorum",
+      "payload": {
+        "language": "text",
+        "code": "// Pseudocode\nrequest = receive()\nresult = quorum(request)\nreturn result\n\n// Production questions:\n// 1. What happens on timeout?\n// 2. Can this operation be retried safely?\n// 3. What is the bottleneck?",
+        "caption": "A minimal engineering sketch for reasoning about Quorum."
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-quorum-numbers",
+      "payload": {
+        "text": "Back-of-the-envelope reasoning",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-quorum-numbers",
+      "payload": {
+        "text": "Example: with 5 replicas, a majority quorum is 3. Losing 2 replicas still leaves a majority available for a quorum-based protocol."
+      }
+    },
+    {
+      "type": "simulation",
+      "id": "upgrade-sim-quorum",
+      "payload": {
+        "title": "Interactive thought experiment: Quorum",
+        "description": "Change the variables below and predict what breaks first in Quorum. The production lab can later reuse these same inputs.",
+        "variables": [
+          {
+            "name": "replicas",
+            "description": "Replica count",
+            "default": "5"
+          },
+          {
+            "name": "read_ratio",
+            "description": "Fraction of reads",
+            "default": "80%"
+          },
+          {
+            "name": "lag",
+            "description": "Replication lag",
+            "default": "50ms"
+          }
+        ],
+        "placeholder_note": "Interactive controls are deterministic; use the linked Labs section when a dedicated lab exists."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-quorum-hint",
+      "payload": {
+        "title": "Hint",
+        "body": "If you are stuck on Quorum, start by drawing the request path and marking every network hop, stateful component, queue, cache and failure boundary. Then estimate where the system will saturate.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-quorum-1",
+      "payload": {
+        "shape": "prediction",
+        "question": "You increase traffic by 10× in a system using Quorum. What should you inspect first?",
+        "options": [
+          "The newest framework version",
+          "The dominant bottleneck and its saturation signal",
+          "Only the UI",
+          "Nothing; the architecture should absorb any traffic automatically"
+        ],
+        "answer_index": 1,
+        "rationale": "System design is a constraint-and-bottleneck exercise. Start with the resource or dependency that will saturate first, then choose the smallest change that removes that bottleneck.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-quorum-2",
+      "payload": {
+        "shape": "mcq",
+        "question": "Which statement is the safest engineering habit when using Quorum?",
+        "options": [
+          "Choose it because it is popular",
+          "Add it before measuring the problem",
+          "State the workload, failure mode and trade-off it is solving",
+          "Use the most distributed design possible"
+        ],
+        "answer_index": 2,
+        "rationale": "Good architecture starts from requirements, workload and failure assumptions. The component is the consequence of that reasoning, not the starting point.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "scenario",
+      "id": "upgrade-scenario-quorum",
+      "payload": {
+        "prompt": "Production scenario: your system uses Quorum, traffic suddenly spikes, and p99 latency doubles. What is your first move?",
+        "context": "You have dashboards for traffic, latency, errors and saturation. You can change the architecture, but every change has operational cost.",
+        "options": [
+          {
+            "id": "a",
+            "text": "Add more instances immediately",
+            "outcome": "This may help, but only if compute saturation is the bottleneck.",
+            "correct": false
+          },
+          {
+            "id": "b",
+            "text": "Inspect the bottleneck and its saturation signal first",
+            "outcome": "Correct: diagnose before scaling or introducing a new pattern.",
+            "correct": true
+          },
+          {
+            "id": "c",
+            "text": "Disable monitoring to reduce overhead",
+            "outcome": "This removes the evidence you need to diagnose the incident.",
+            "correct": false
+          }
+        ],
+        "rationale": "Measure the limiting resource or dependency first. A bottleneck can be compute, database I/O, network, cache misses, lock contention, downstream latency, or queue backlog.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-quorum-interview",
+      "payload": {
+        "text": "Interview drill",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-quorum-interview",
+      "payload": {
+        "text": "**Answer this without notes:** When would you choose Quorum, and when would you intentionally avoid it? Mention at least one bottleneck it addresses, one failure mode it introduces, and one alternative. Then quantify the workload you are designing for."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "field-guide-quorum",
+      "payload": {
+        "title": "Engineering lens",
+        "body": "A useful engineering lens for Quorum: define the problem it solves, the simpler design that fails first, the constraint that forces you to introduce this concept, and the new failure modes the concept creates.",
+        "kind": "tip"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "numerical-lens-quorum",
+      "payload": {
+        "text": "### Numerical sanity check\n\nBack-of-the-envelope reasoning beats fake precision. State your traffic, payload, concurrency and growth assumptions explicitly, then calculate enough to know whether the current architecture is orders of magnitude away from the target."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "field-question-quorum",
+      "payload": {
+        "shape": "prediction",
+        "question": "Imagine the simplest version of a system using Quorum. What breaks first as traffic grows by 10×, and what would you change before reaching 100×?",
+        "context": "Do not optimize for a memorized definition. Reason from the workload and failure mode.",
+        "options": [
+          "Scale the same component immediately.",
+          "Measure the current bottleneck and state the assumption that changed.",
+          "Add more technologies until throughput improves.",
+          "Choose the most popular architecture."
+        ],
+        "answer_index": 1,
+        "rationale": "Good system design starts with the bottleneck and the changed constraint. The most popular or complex choice is not automatically correct.",
+        "difficulty": "interview"
+      }
+    }
+  ],
+  "trade_offs": {
+    "pros": [
+      "No single point of failure — quorum tolerates minority node failures.",
+      "Tunable consistency per request (R and W chosen by the client).",
+      "Strong consistency achievable (R+W>N) without a centralized leader.",
+      "Foundation for consensus, leader election, and replicated writes.",
+      "Prevents split-brain in network partitions — only the majority side can operate."
+    ],
+    "cons": [
+      "Higher latency than single-node writes — every write waits for the slowest of the quorum.",
+      "Long tail latency — bounded by the slowest replica in the quorum.",
+      "Throughput capped by quorum size and replica response time.",
+      "Even-sized clusters waste resources — 4 nodes tolerate the same as 3.",
+      "Quorum-based systems block on partition loss (correct but visible as downtime)."
+    ]
+  },
+  "failure_modes": [
+    "Quorum loss during partition — both halves block; mitigated by accepting lower consistency (sloppy quorum) for less critical workloads.",
+    "Stale reads despite quorum — read does not compare versions across replies; mitigated by read-repair and timestamp/version comparison.",
+    "Long-tail latency — slowest replica in quorum bounds latency; mitigated by speculative retries and read-repair-on-read.",
+    "Livelock during reconfiguration — joint consensus required for safe membership change.",
+    "Hot partition in quorum systems — single key cannot exceed quorum throughput; mitigated by partitioning."
+  ],
+  "common_mistakes": [
+    "Using R=1, W=1 on data that requires strong consistency — no overlap guarantee.",
+    "Expanding clusters to even sizes — wastes nodes without improving fault tolerance.",
+    "Assuming R+W>N alone guarantees linearizability — also need version comparison and read repair.",
+    "Forgetting that LOCAL_QUORUM is not the same as QUORUM — local-only quorum can be stale globally.",
+    "Setting quorum too high (W=ALL) — any replica failure blocks the entire write.",
+    "Using quorum where best-effort would do — pays the latency cost for no benefit."
+  ],
+  "where_you_see_it": [
+    "Replicated NoSQL databases (Cassandra, DynamoDB, Riak, ScyllaDB — all tunable per request).",
+    "Consensus systems (etcd, Consul, ZooKeeper, CockroachDB — majority quorum to commit).",
+    "Distributed lock services (Chubby — quorum for lease; etcd — quorum for transactional writes).",
+    "Cluster membership changes (joint consensus in Raft; supermajority in some systems).",
+    "Cache invalidation (quorum-based protocols in some distributed cache designs)."
+  ],
+  "interview_prompts": [
+    "Explain the R+W>N rule. Why does it guarantee strong consistency? What else do you need?",
+    "Why are consensus clusters always odd-sized? What is wrong with a 4-node cluster?",
+    "Walk through the trade-offs of W=1 vs W=QUORUM vs W=ALL. When do you choose each?",
+    "What is sloppy quorum, and what consistency trade-off does it make?",
+    "Your Cassandra cluster has 5 nodes. Client uses ONE for writes and QUORUM for reads. Is this strongly consistent?"
+  ],
+  "real_system_mappings": [
+    {
+      "system": "Apache Cassandra",
+      "how": "Tunable per-request consistency: ONE, LOCAL_ONE, QUORUM, LOCAL_QUORUM, ALL. Writes are replicated to N nodes (replication factor); client chooses how many must ack. Read repair fixes lagging replicas in the background."
+    },
+    {
+      "system": "Amazon DynamoDB",
+      "how": "Eventually consistent reads (default) are cheaper and faster; strongly consistent reads (consistent_read=true) require quorum. Replication factor is 3 across AZs; the choice is per-request."
+    },
+    {
+      "system": "etcd (Raft)",
+      "how": "Majority quorum required to commit every write. 3-node cluster tolerates 1 failure; 5-node tolerates 2. Quorum is the safety mechanism — split-brain is impossible because two partitions cannot both have majority."
+    },
+    {
+      "system": "Riak",
+      "how": "Dynamo-derived KV store with N=3 by default, R=2, W=2 (quorum). Sloppy quorum during partitions with hinted handoff; read-repair on read divergence. Bucket-level tunable consistency."
+    }
+  ],
+  "status": "published",
+  "sources": [
+    {
+      "title": "System Design Primer",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Open source"
+    },
+    {
+      "title": "ByteByteGo — Scale from zero to millions",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "ByteByteGo"
+    },
+    {
+      "title": "System Design Tutorial",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "GeeksforGeeks"
+    },
+    {
+      "title": "System Design Roadmap",
+      "url": "https://roadmap.sh/system-design",
+      "publisher": "roadmap.sh"
+    },
+    {
+      "title": "Distributed Systems reference",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Distributed Systems reference",
+      "url": "https://raft.github.io/",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Distributed Systems reference",
+      "url": "https://www.usenix.org/",
+      "publisher": "Reference"
+    }
+  ]
+}

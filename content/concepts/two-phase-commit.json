@@ -1,0 +1,440 @@
+{
+  "slug": "two-phase-commit",
+  "version": 4,
+  "title": "Two-Phase Commit",
+  "phase": "distributed-systems",
+  "area": "Distributed Systems",
+  "estimated_minutes": 7,
+  "difficulty": "expert",
+  "summary": "Two-Phase Commit (2PC) is the classical protocol for atomic commitment across multiple resources. A coordinator asks every participant to PREPARE in phase one; if all vote YES, the coordinator sends COMMIT in phase two. The protocol guarantees atomicity (all commit or all abort) but is blocking — if the coordinator crashes between phases, participants hold locks indefinitely waiting for a decision they cannot make on their own. Three-phase commit (3PC) removes the blocking but adds a round trip and requires bounded network delays. In practice, microservices have largely abandoned 2PC in favor of the saga pattern.",
+  "why_it_matters": "2PC is the textbook answer to 'how do I make a transaction span multiple databases?' and the answer most candidates give in interviews. But it is also the protocol that nobody wants to operate in production across services, because every coordinator crash blocks the system and the recovery story is painful. Understanding 2PC deeply — its phases, its blocking failure modes, the recovery protocols, and why 3PC tries (and largely fails) to fix it — is the foundation for understanding why sagas exist. The lesson: atomicity is achievable in distributed systems, but only at the cost of availability; the modern microservices stack has decided that availability wins.",
+  "prerequisites": [
+    "distributed-transactions"
+  ],
+  "related": [
+    "saga-pattern",
+    "consensus",
+    "transactions",
+    "wal"
+  ],
+  "used_in": [
+    "Distributed databases internally (Spanner, CockroachDB, VoltDB).",
+    "XA transactions across databases and message brokers (legacy J2EE).",
+    "Database sharding with cross-shard writes (rare; usually avoided).",
+    "Resource manager coordination (JTA, X/Open XA)."
+  ],
+  "blocks": [
+    {
+      "type": "prose",
+      "id": "intro",
+      "payload": {
+        "text": "Two-Phase Commit (2PC) is the protocol for atomic commitment across multiple participants. The setup: one **coordinator** (often the transaction manager) and N **participants** (databases, message brokers). The protocol has two phases:\n\n**Phase 1: Prepare (Voting)**\n1. Coordinator sends `PREPARE` to every participant.\n2. Each participant writes the work to a stable log (WAL), so it can survive a crash. If the work can be committed, the participant replies `VOTE YES`. If any constraint fails, it replies `VOTE NO` and aborts locally.\n3. Coordinator collects all votes.\n\n**Phase 2: Commit or Abort (Decision)**\n1. If all votes were YES: coordinator sends `COMMIT` to every participant.\n2. If any vote was NO (or any participant timed out): coordinator sends `ABORT`.\n3. Each participant applies the decision, releases locks, and sends `ACK`.\n4. Once the coordinator has all acks, the transaction is complete.\n\nThe key invariant: **once a participant votes YES, it must be able to commit** — it has locked its resources and must hold them until the coordinator's decision arrives. If the coordinator crashes, the participant is stuck."
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "2pc-flow",
+      "payload": {
+        "code": "flowchart TD\n    N0[\"Coordinator\"]\n    N1[\"Participant\"]\n    N2[\"PREPARE\"]\n    N3[\"write\"]\n    N4[\"WAL\"]\n    N5[\"lock\"]\n    N6[\"resources\"]\n    N7[\"VOTE\"]\n    N8[\"YES\"]\n    N9[\"decision: all YES -> COMMIT\"]\n    N10[\"[decision:\"]\n    N11[\"all\"]\n    N12[\"COMMIT]\"]\n    N13[\"COMMIT\"]\n    N14[\"apply\"]\n    N15[\"work\"]\n    N16[\"ACK\"]\n    N17[\"release\"]\n    N18[\"locks\"]\n    N19[\"Transaction\"]\n    N20[\"complete.\"]\n    N21[\"FAILURE\"]\n    N22[\"CASES:\"]\n    N23[\"crashes\"]\n    N24[\"after\"]\n    N25[\"PREPARE,\"]\n    N26[\"before\"]\n    N27[\"COMMIT:\"]\n    N28[\"and\"]\n    N29[\"have\"]\n    N30[\"voted\"]\n    N31[\"are\"]\n    N32[\"holding\"]\n    N33[\"locks.\"]\n    N34[\"maybe coordinator will COMMIT\"]\n    N35[\"They\"]\n    N36[\"cannot\"]\n    N37[\"abort\"]\n    N38[\"(maybe\"]\n    N39[\"coordinator\"]\n    N40[\"will\"]\n    N41[\"COMMIT).\"]\n    N42[\"maybe coordinator will ABORT\"]\n    N43[\"commit\"]\n    N44[\"ABORT).\"]\n    N45[\"BLOCK\"]\n    N46[\"until\"]\n    N47[\"recovers.\"]\n    N48[\"PREPARE:\"]\n    N49[\"or other participants\"]\n    N50[\"recovery,\"]\n    N51[\"asks\"]\n    N52[\"(or\"]\n    N53[\"other\"]\n    N54[\"participants)\"]\n    N55[\"for\"]\n    N56[\"the\"]\n    N57[\"decision.\"]\n    N58[\"decision\"]\n    N59[\"known,\"]\n    N60[\"apply.\"]\n    N61[\"not,\"]\n    N62[\"block\"]\n    N63[\"responds.\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44\n    N44 --> N45\n    N45 --> N46\n    N46 --> N47\n    N47 --> N48\n    N48 --> N49\n    N49 --> N50\n    N50 --> N51\n    N51 --> N52\n    N52 --> N53\n    N53 --> N54\n    N54 --> N55\n    N55 --> N56\n    N56 --> N57\n    N57 --> N58\n    N58 --> N59\n    N59 --> N60\n    N60 --> N61\n    N61 --> N62\n    N62 --> N63",
+        "caption": "2PC flow: prepare (vote YES/NO), then commit or abort. If the coordinator crashes after PREPARE, participants block holding locks.",
+        "alt_text": "A sequence diagram of Two-Phase Commit. A coordinator sends PREPARE to two participants A and B. Each participant writes to its write-ahead log and locks its resources, then votes YES. The coordinator, seeing all YES votes, sends COMMIT to both. Each participant applies the work, releases its locks, and acks. The transaction is complete. The diagram then shows failure cases. If the coordinator crashes after PREPARE but before COMMIT, participants A and B have voted YES and are holding locks. They cannot abort (the coordinator might commit) and cannot commit (the coordinator might abort). They block until the coordinator recovers. If a participant crashes after PREPARE, on recovery it asks the coordinator or other participants for the decision; if known, it applies; if not, it blocks."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "blocking",
+      "payload": {
+        "text": "The defining weakness of 2PC is **blocking on coordinator failure**. If the coordinator crashes after some participants have voted YES but before sending the COMMIT decision, those participants are stuck:\n\n- They cannot unilaterally commit — maybe the coordinator decided to abort.\n- They cannot unilaterally abort — maybe the coordinator decided to commit.\n- They hold locks on their resources, blocking other transactions.\n\nThe participants must wait for the coordinator to recover and read its decision log. This could be seconds (coordinator restarts) or hours (if the coordinator's disk is corrupted and a backup must be restored). During the entire wait, the locked resources are unavailable.\n\nThis is the fundamental trade-off: 2PC guarantees atomicity but sacrifices availability on coordinator failure. For tightly coupled databases in a single datacenter, this is acceptable — failures are rare and recovery is fast. For loosely coupled microservices spanning regions, it is unacceptable, which is why sagas have displaced 2PC in modern architectures.\n\nRecovery protocols exist (presumed-abort, presumed-commit, two-phase with backup coordinators) but they reduce — not eliminate — the blocking."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "presumed-abort",
+      "payload": {
+        "title": "Presumed Abort optimization",
+        "body": "If the coordinator crashes before sending PREPARE, or if any participant votes NO, the transaction is aborted. The standard optimization 'presumed abort' lets participants autonomously abort if they have not heard from the coordinator within a timeout, without breaking atomicity — because a coordinator that never sent PREPARE could only have decided to abort. The reverse 'presumed commit' is unsafe: a coordinator that sent PREPARE but crashed before COMMIT cannot be presumed to have committed, so participants must block. This asymmetry is why 2PC remains blocking.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "3pc",
+      "payload": {
+        "text": "**Three-Phase Commit (3PC)** adds a third phase — `PRE-COMMIT` — between prepare and commit. The idea: after every participant has voted YES, the coordinator sends PRE-COMMIT (telling participants 'we will commit, get ready'); participants ack; only then does the coordinator send the final COMMIT. The benefit: if the coordinator crashes, participants can use the PRE-COMMIT acks to decide among themselves — if everyone received PRE-COMMIT, they can commit; if not, they abort. No blocking.\n\nThe catch: 3PC assumes **synchronous networking** (bounded message delay). On a real network with unbounded delays, 3PC can still block or, worse, allow inconsistent decisions (a partitioned participant believes it should commit while others abort). The FLP impossibility result proves that no asynchronous protocol can guarantee both safety and liveness — 3PC sacrifices safety under partition, which is worse than 2PC's blocking. So 3PC is rarely used in practice.\n\nModern distributed databases (Spanner, CockroachDB) use 2PC with Paxos/Raft-based coordinators — the coordinator itself is replicated, so coordinator failure means leader election within the coordinator cluster, not a single point of failure. This effectively gets the benefits of 3PC without its safety problems."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "when-to-use",
+      "payload": {
+        "text": "When is 2PC the right choice?\n\n- **Internal coordination in a distributed database**: when the participants are tightly coupled replicas or shards of the same logical database, owned by one team, in one datacenter. Spanner, CockroachDB, VoltDB use 2PC internally.\n- **XA transactions across a database and a message broker in the same machine room**: legacy J2EE/JTA setups. Works but slow.\n- **Cross-shard writes in a sharded database**: when a single transaction must update two shards. Rare and usually avoided by reshaping the schema.\n\nWhen NOT to use 2PC:\n- **Across microservices**: the participants are independent services owned by different teams, possibly in different regions. Coordinator blocking is unacceptable; use sagas.\n- **For high-throughput workloads**: 2PC's latency (2-3 round trips plus fsync per participant) is too high.\n- **When availability matters more than atomicity**: 2PC is CP; use AP patterns (sagas, eventual consistency) instead.\n\nThe rule of thumb: 2PC inside a database, sagas between services. The CAP theorem decides: pick C (2PC) only when the participants are tightly coupled enough that you can tolerate blocking."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q1",
+      "payload": {
+        "question": "The coordinator crashes after sending PREPARE to participants A and B, who both voted YES, but before sending COMMIT or ABORT. What happens?",
+        "shape": "mcq",
+        "options": [
+          "A and B unilaterally abort — the transaction is rolled back.",
+          "A and B unilaterally commit — the transaction is committed.",
+          "A and B block, holding their locks, until the coordinator recovers and informs them of the decision.",
+          "A and B query each other and reach a decision independently."
+        ],
+        "answer_index": 2,
+        "rationale": "Once participants vote YES, they have locked their resources and promised to honor the coordinator's decision. They cannot abort (the coordinator might have decided to commit) and cannot commit (it might have decided to abort). They block, holding locks, until the coordinator recovers. This is the defining weakness of 2PC. During the block, no other transaction can touch those resources. If the coordinator's recovery takes hours (disk corruption, manual intervention), the system is degraded for hours. This is why 2PC is unacceptable for microservices — coordinator failures are common across regions, and blocking is intolerable. Sagas avoid this by accepting eventual consistency.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q2",
+      "payload": {
+        "question": "Why does Three-Phase Commit (3PC) attempt to solve the blocking problem, and why is it rarely used in practice?",
+        "shape": "mcq",
+        "options": [
+          "3PC adds a PRE-COMMIT phase so participants can decide among themselves if the coordinator crashes — but it requires synchronous networking (bounded delays), which real networks do not guarantee.",
+          "3PC removes the coordinator entirely, which makes the protocol too complex.",
+          "3PC requires too many network round trips and is slower than 2PC.",
+          "3PC is patented and cannot be used freely."
+        ],
+        "answer_index": 0,
+        "rationale": "3PC adds a PRE-COMMIT phase between prepare and commit. After all participants ack PRE-COMMIT, the coordinator sends COMMIT. If the coordinator crashes after PRE-COMMIT, participants can decide among themselves: if everyone received PRE-COMMIT, commit; otherwise abort. The flaw: this assumes bounded message delays (synchronous networking). On real networks with unbounded delays, a participant might miss the PRE-COMMIT message due to a slow network, not a coordinator crash — and would incorrectly decide to abort while others commit. This violates atomicity, which is worse than 2PC's blocking. FLP impossibility formalizes this: no asynchronous protocol can guarantee both safety and liveness. So 3PC trades blocking for possible inconsistency — usually the wrong trade. Modern systems use 2PC with a consensus-replicated coordinator (Spanner, CockroachDB) instead.",
+        "difficulty": "expert"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q3",
+      "payload": {
+        "question": "Your team is building a microservice that needs to atomically update two databases in different services. Why is 2PC a poor choice, and what should you use instead?",
+        "shape": "mcq",
+        "options": [
+          "2PC is too old; use 3PC instead.",
+          "2PC blocks on coordinator failure, which is unacceptable across independent services — use a saga with compensating actions.",
+          "2PC does not actually provide atomicity across databases; use a single shared database.",
+          "2PC is too complex to implement; use a dual-write instead."
+        ],
+        "answer_index": 1,
+        "rationale": "2PC across independent microservices is problematic for several reasons: (1) blocking on coordinator failure is unacceptable when services are owned by different teams and may be in different regions; (2) the coordinator itself is a single point of failure unless it is consensus-replicated (which adds complexity); (3) 2PC's latency (2-3 round trips plus fsync) is high for cross-service calls. The modern answer is a saga: each service performs a local transaction and emits an event; the next service reacts to the event; if a step fails, compensating actions roll back the prior steps. Sagas are non-blocking (AP, not CP), resilient to coordinator failure (especially in choreography mode), and fit the microservice model. The cost is eventual consistency and visible intermediate states — which the application must handle. This is the de facto standard for cross-service transactions in 2020s architectures.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-two-phase-commit-mental",
+      "payload": {
+        "text": "Engineering mental model",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-two-phase-commit-mental",
+      "payload": {
+        "text": "**Mental model.** Think of Two-Phase Commit as a deliberate boundary in a system. The boundary exists because something becomes harder to manage when everything is done in one place: latency, scale, failure isolation, consistency, cost, or team ownership. The useful question is not “what does Two-Phase Commit mean?” but “what pressure makes this boundary worth introducing, and what new failure mode does it create?”"
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-two-phase-commit-decision",
+      "payload": {
+        "title": "Design lens",
+        "body": "Before choosing Two-Phase Commit, name the workload, the critical user path, the dominant bottleneck, the failure you are trying to absorb, and the trade-off you are willing to accept. If you cannot name those five things, the design is probably premature.",
+        "kind": "info"
+      }
+    },
+    {
+      "type": "image",
+      "id": "upgrade-image-two-phase-commit",
+      "payload": {
+        "src": "/learning-visuals/two-phase-commit.svg",
+        "alt": "Original NO CAP systems visual for Two-Phase Commit.",
+        "caption": "Two-Phase Commit: a compact system-thinking visual.",
+        "credit": "Original NO CAP visual.",
+        "source_url": "https://github.com/donnemartin/system-design-primer"
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "upgrade-mermaid-two-phase-commit",
+      "payload": {
+        "code": "flowchart LR\n  A[Client] --> B[Gateway] --> C[Service] --> D[State] --> E[Outcome]",
+        "caption": "Two-Phase Commit: a simplified system view showing the primary flow and the main state boundaries.",
+        "alt_text": "Two-Phase Commit: a simplified system view showing the primary flow and the main state boundaries."
+      }
+    },
+    {
+      "type": "code",
+      "id": "upgrade-code-two-phase-commit",
+      "payload": {
+        "language": "text",
+        "code": "// Pseudocode\nrequest = receive()\nresult = two_phase_commit(request)\nreturn result\n\n// Production questions:\n// 1. What happens on timeout?\n// 2. Can this operation be retried safely?\n// 3. What is the bottleneck?",
+        "caption": "A minimal engineering sketch for reasoning about Two-Phase Commit."
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-two-phase-commit-numbers",
+      "payload": {
+        "text": "Back-of-the-envelope reasoning",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-two-phase-commit-numbers",
+      "payload": {
+        "text": "Numerical lens: write down traffic, payload size, read/write ratio, peak multiplier and durability target before choosing a component. The numbers should justify the architecture."
+      }
+    },
+    {
+      "type": "simulation",
+      "id": "upgrade-sim-two-phase-commit",
+      "payload": {
+        "title": "Interactive thought experiment: Two-Phase Commit",
+        "description": "Change the variables below and predict what breaks first in Two-Phase Commit. The production lab can later reuse these same inputs.",
+        "variables": [
+          {
+            "name": "traffic",
+            "description": "Requests/events per second",
+            "default": "1000"
+          },
+          {
+            "name": "latency",
+            "description": "Dependency latency",
+            "default": "50ms"
+          },
+          {
+            "name": "failure_rate",
+            "description": "Injected failure rate",
+            "default": "0%"
+          }
+        ],
+        "placeholder_note": "Interactive controls are deterministic; use the linked Labs section when a dedicated lab exists."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-two-phase-commit-hint",
+      "payload": {
+        "title": "Hint",
+        "body": "If you are stuck on Two-Phase Commit, start by drawing the request path and marking every network hop, stateful component, queue, cache and failure boundary. Then estimate where the system will saturate.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-two-phase-commit-1",
+      "payload": {
+        "shape": "prediction",
+        "question": "You increase traffic by 10× in a system using Two-Phase Commit. What should you inspect first?",
+        "options": [
+          "The newest framework version",
+          "The dominant bottleneck and its saturation signal",
+          "Only the UI",
+          "Nothing; the architecture should absorb any traffic automatically"
+        ],
+        "answer_index": 1,
+        "rationale": "System design is a constraint-and-bottleneck exercise. Start with the resource or dependency that will saturate first, then choose the smallest change that removes that bottleneck.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-two-phase-commit-2",
+      "payload": {
+        "shape": "mcq",
+        "question": "Which statement is the safest engineering habit when using Two-Phase Commit?",
+        "options": [
+          "Choose it because it is popular",
+          "Add it before measuring the problem",
+          "State the workload, failure mode and trade-off it is solving",
+          "Use the most distributed design possible"
+        ],
+        "answer_index": 2,
+        "rationale": "Good architecture starts from requirements, workload and failure assumptions. The component is the consequence of that reasoning, not the starting point.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "scenario",
+      "id": "upgrade-scenario-two-phase-commit",
+      "payload": {
+        "prompt": "Production scenario: your system uses Two-Phase Commit, traffic suddenly spikes, and p99 latency doubles. What is your first move?",
+        "context": "You have dashboards for traffic, latency, errors and saturation. You can change the architecture, but every change has operational cost.",
+        "options": [
+          {
+            "id": "a",
+            "text": "Add more instances immediately",
+            "outcome": "This may help, but only if compute saturation is the bottleneck.",
+            "correct": false
+          },
+          {
+            "id": "b",
+            "text": "Inspect the bottleneck and its saturation signal first",
+            "outcome": "Correct: diagnose before scaling or introducing a new pattern.",
+            "correct": true
+          },
+          {
+            "id": "c",
+            "text": "Disable monitoring to reduce overhead",
+            "outcome": "This removes the evidence you need to diagnose the incident.",
+            "correct": false
+          }
+        ],
+        "rationale": "Measure the limiting resource or dependency first. A bottleneck can be compute, database I/O, network, cache misses, lock contention, downstream latency, or queue backlog.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-two-phase-commit-interview",
+      "payload": {
+        "text": "Interview drill",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-two-phase-commit-interview",
+      "payload": {
+        "text": "**Answer this without notes:** When would you choose Two-Phase Commit, and when would you intentionally avoid it? Mention at least one bottleneck it addresses, one failure mode it introduces, and one alternative. Then quantify the workload you are designing for."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "field-guide-two-phase-commit",
+      "payload": {
+        "title": "Engineering lens",
+        "body": "A useful engineering lens for Two-Phase Commit: define the problem it solves, the simpler design that fails first, the constraint that forces you to introduce this concept, and the new failure modes the concept creates.",
+        "kind": "tip"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "numerical-lens-two-phase-commit",
+      "payload": {
+        "text": "### Numerical sanity check\n\nBack-of-the-envelope reasoning beats fake precision. State your traffic, payload, concurrency and growth assumptions explicitly, then calculate enough to know whether the current architecture is orders of magnitude away from the target."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "field-question-two-phase-commit",
+      "payload": {
+        "shape": "prediction",
+        "question": "Imagine the simplest version of a system using Two-Phase Commit. What breaks first as traffic grows by 10×, and what would you change before reaching 100×?",
+        "context": "Do not optimize for a memorized definition. Reason from the workload and failure mode.",
+        "options": [
+          "Scale the same component immediately.",
+          "Measure the current bottleneck and state the assumption that changed.",
+          "Add more technologies until throughput improves.",
+          "Choose the most popular architecture."
+        ],
+        "answer_index": 1,
+        "rationale": "Good system design starts with the bottleneck and the changed constraint. The most popular or complex choice is not automatically correct.",
+        "difficulty": "interview"
+      }
+    }
+  ],
+  "trade_offs": {
+    "pros": [
+      "Provides true atomicity across multiple resources — all commit or all abort.",
+      "Well-defined protocol with decades of production experience.",
+      "Used internally by distributed databases (Spanner, CockroachDB) with consensus-replicated coordinators.",
+      "Preserves ACID guarantees across resources."
+    ],
+    "cons": [
+      "Blocking on coordinator failure — locks held indefinitely during recovery.",
+      "Slow — multiple round trips plus fsync on every participant per transaction.",
+      "Single point of failure unless the coordinator is itself replicated (which adds complexity).",
+      "Unsuitable for microservices — too tightly coupled, too slow, too brittle across regions.",
+      "Recovery protocols (presumed-abort, presumed-commit) reduce but do not eliminate blocking."
+    ]
+  },
+  "failure_modes": [
+    "Coordinator crash mid-protocol — participants block holding locks; mitigated by recovery logs but blocking is unavoidable.",
+    "Participant crash mid-protocol — recovery requires querying coordinator or other participants for the decision.",
+    "Network partition — participants cannot reach coordinator; they block.",
+    "Coordinator log loss — coordinator cannot recover its decision; participants must use heuristics (heuristic commit / heuristic abort), which can produce inconsistency.",
+    "Slow participant — coordinator and other participants wait; mitigated by timeouts but may abort unnecessarily."
+  ],
+  "common_mistakes": [
+    "Using 2PC across microservices — blocking is unacceptable; use sagas.",
+    "Assuming the coordinator is highly available by default — it is a single point of failure unless replicated.",
+    "Forgetting that participants hold locks during prepare-commit — long transactions can block many other transactions.",
+    "Confusing 2PC with consensus (Paxos/Raft) — they solve different problems (atomic commitment vs. agreement on a value).",
+    "Treating 3PC as a strict improvement over 2PC — 3PC sacrifices safety under partition, which is usually worse.",
+    "Not configuring participant timeouts correctly — too short causes false aborts; too long increases blocking."
+  ],
+  "where_you_see_it": [
+    "Internal coordination in distributed databases (Spanner, CockroachDB, VoltDB).",
+    "XA transactions in legacy J2EE/JTA environments (rare in modern stacks).",
+    "Cross-shard writes in sharded databases (rare; usually avoided by schema design).",
+    "Database + message broker atomicity (rare in microservices; replaced by outbox pattern)."
+  ],
+  "interview_prompts": [
+    "Walk through the two phases of 2PC. What can go wrong in each?",
+    "Why does 2PC block on coordinator failure? Can you fix it?",
+    "What is Three-Phase Commit, and why is it rarely used in practice?",
+    "Why has the microservices community abandoned 2PC in favor of sagas?",
+    "How do Spanner and CockroachDB use 2PC safely when the protocol is 'blocking'?"
+  ],
+  "real_system_mappings": [
+    {
+      "system": "Google Spanner",
+      "how": "Uses 2PC across participant groups for ACID distributed transactions. The coordinator is itself a Paxos-replicated group, so coordinator failure means leader election within the group — not a single point of failure. TrueTime bounds clock uncertainty to ~7ms for external consistency."
+    },
+    {
+      "system": "CockroachDB",
+      "how": "Distributed SQL database using 2PC across replicas for ACID transactions. Each range is a Raft group; cross-range transactions use 2PC over the Raft leaders. Latency is the trade-off but correctness is preserved."
+    },
+    {
+      "system": "Java Transaction API (JTA) / XA",
+      "how": "Legacy standard for distributed transactions across XA-compliant resources (databases, JMS brokers). Coordinator (Transaction Manager) orchestrates 2PC. Slow, blocking, and largely avoided in modern microservices in favor of sagas."
+    },
+    {
+      "system": "PostgreSQL two-phase commit (PREPARE TRANSACTION)",
+      "how": "Postgres supports the SQL commands PREPARE TRANSACTION and COMMIT PREPARED for use by external coordinators (like pgloader or a custom transaction manager). Used for cross-database transactions within a single cluster; rarely across services."
+    }
+  ],
+  "status": "published",
+  "sources": [
+    {
+      "title": "System Design Primer",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Open source"
+    },
+    {
+      "title": "ByteByteGo — Scale from zero to millions",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "ByteByteGo"
+    },
+    {
+      "title": "System Design Tutorial",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "GeeksforGeeks"
+    },
+    {
+      "title": "System Design Roadmap",
+      "url": "https://roadmap.sh/system-design",
+      "publisher": "roadmap.sh"
+    },
+    {
+      "title": "Distributed Systems reference",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Distributed Systems reference",
+      "url": "https://raft.github.io/",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Distributed Systems reference",
+      "url": "https://www.usenix.org/",
+      "publisher": "Reference"
+    }
+  ]
+}

@@ -1,0 +1,448 @@
+{
+  "slug": "cache-sizing",
+  "version": 4,
+  "title": "Cache Sizing",
+  "phase": "interview-preparation",
+  "area": "Interview Preparation",
+  "estimated_minutes": 7,
+  "difficulty": "advanced",
+  "summary": "Cache sizing determines how much RAM to dedicate to the cache layer. The key insight is the Pareto distribution (80/20 rule): a small fraction of keys generates the majority of traffic, so caching just the hot set gives a high hit rate with modest memory. The standard methodology: estimate the working set (hot 1-5% of total data), size the cache to fit it (plus headroom), and verify the hit rate empirically. Over-sizing wastes RAM; under-sizing causes cache thrashing. Cache sizing is the fourth of the capacity-estimation skills and the trickiest because it depends on access distribution, not just totals.",
+  "why_it_matters": "Cache sizing is the question every production caching deployment has to answer. Too small and the cache thrashes (hit rate collapses, latency degrades to disk speed). Too big and you waste RAM that could be used elsewhere. The right answer depends on the access distribution — and most workloads follow a Pareto (80/20) or Zipfian distribution, where a small hot set dominates traffic. Understanding cache sizing means understanding why \"just add more RAM\" is not always the answer, why the working set matters more than the total data size, and how to estimate cache size from user behavior in an interview.",
+  "prerequisites": [
+    "capacity-estimation",
+    "cache-aside"
+  ],
+  "related": [
+    "cache-aside",
+    "capacity-estimation",
+    "application-caching"
+  ],
+  "used_in": [
+    "Sizing Redis/Memcached clusters in production.",
+    "Sizing database buffer pools (shared_buffers, InnoDB buffer pool).",
+    "CDN cache sizing per POP.",
+    "System design interviews (\"how big should the cache be?\")."
+  ],
+  "blocks": [
+    {
+      "type": "prose",
+      "id": "intro",
+      "payload": {
+        "text": "**Cache sizing** answers: how much RAM should the cache layer have? The answer depends on a subtle property: **access distribution**. If every key is accessed equally, you must cache everything to get a high hit rate. If a small fraction of keys dominates traffic (the realistic case), you can cache just the hot set and achieve 90%+ hit rate with a fraction of the total data size.\n\nThis is the **Pareto distribution** (80/20 rule), generalized as the **Zipfian distribution** in caching theory. Real workloads almost always follow it:\n\n- Twitter: 1% of users generate 50% of timeline reads.\n- YouTube: 1% of videos generate 90% of views.\n- E-commerce: 1% of products generate 80% of page views.\n- News sites: a handful of headlines dominate all reads.\n\nBecause of this, the cache only needs to hold the hot set, not the entire dataset. The question becomes: **what is the hot set, and how big is it?**\n\nThe methodology:\n1. **Estimate the total data size** (from storage estimation).\n2. **Estimate the hot set fraction** (1-5% is a common assumption; 20% if very flat distribution).\n3. **Compute the working set size** = total × hot fraction × average entry size.\n4. **Add headroom** (1.5-2x) for fluctuations and growth.\n5. **Verify empirically** — deploy, measure hit rate, resize as needed.\n\nThe goal is not to cache everything; it is to cache enough to achieve the target hit rate (typically 90%+ for application caches, 99%+ for database buffer pools)."
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "flow",
+      "payload": {
+        "code": "flowchart TD\n    N0[\"PARETO\"]\n    N1[\"ZIPFIAN\"]\n    N2[\"DISTRIBUTION\"]\n    N3[\"CACHING\"]\n    N4[\"sorted by popularity\"]\n    N5[\"Access\"]\n    N6[\"frequency\"]\n    N7[\"key\"]\n    N8[\"rank\"]\n    N9[\"(sorted\"]\n    N10[\"popularity):\"]\n    N11[\"hits\"]\n    N12[\"top\"]\n    N13[\"keys\"]\n    N14[\"50%\"]\n    N15[\"traffic\"]\n    N16[\"███\"]\n    N17[\"█████\"]\n    N18[\"████████\"]\n    N19[\"████████████\"]\n    N20[\"████████████████████████\"]\n    N21[\"██████████████████████████████████████████████\"]\n    N22[\"10%\"]\n    N23[\"20%\"]\n    N24[\"100%\"]\n    N25[\"Implication:\"]\n    N26[\"caching\"]\n    N27[\"the\"]\n    N28[\"captures\"]\n    N29[\"~80%\"]\n    N30[\"traffic.\"]\n    N31[\"CACHE\"]\n    N32[\"SIZING\"]\n    N33[\"METHODOLOGY\"]\n    N34[\"Given:\"]\n    N35[\"e.g., product catalog + metadata\"]\n    N36[\"Total\"]\n    N37[\"data\"]\n    N38[\"size\"]\n    N39[\"(e.g.,\"]\n    N40[\"product\"]\n    N41[\"catalog\"]\n    N42[\"metadata)\"]\n    N43[\"Pareto 80/20\"]\n    N44[\"use 1-5% if very skewed\"]\n    N45[\"Hot\"]\n    N46[\"fraction\"]\n    N47[\"(Pareto\"]\n    N48[\"20)\"]\n    N49[\"(use\"]\n    N50[\"very\"]\n    N51[\"skewed)\"]\n    N52[\"Average\"]\n    N53[\"entry\"]\n    N54[\"entries\"]\n    N55[\"10^9\"]\n    N56[\"top 20%\"]\n    N57[\"(top\"]\n    N58[\"20%)\"]\n    N59[\"10^8\"]\n    N60[\"set\"]\n    N61[\"200\"]\n    N62[\"With\"]\n    N63[\"1.5x\"]\n    N64[\"headroom:\"]\n    N65[\"300\"]\n    N66[\"cache\"]\n    N67[\"expected\"]\n    N68[\"hit\"]\n    N69[\"rate.\"]\n    N70[\"400\"]\n    N71[\"~90%\"]\n    N72[\"Beyond\"]\n    N73[\"2x:\"]\n    N74[\"diminishing\"]\n    N75[\"returns\"]\n    N76[\"95%\"]\n    N77[\"rate\"]\n    N78[\"requires\"]\n    N79[\"total\"]\n    N80[\"data.\"]\n    N81[\"the Pareto curve\"]\n    N82[\"HIT\"]\n    N83[\"RATE\"]\n    N84[\"SIZE\"]\n    N85[\"(the\"]\n    N86[\"Pareto\"]\n    N87[\"curve)\"]\n    N88[\"% of total\"]\n    N89[\"Cache\"]\n    N90[\"total)\"]\n    N91[\"Expected\"]\n    N92[\"depends on skew\"]\n    N93[\"(depends\"]\n    N94[\"skew)\"]\n    N95[\"80%\"]\n    N96[\"90%\"]\n    N97[\"98%\"]\n    N98[\"everything fits\"]\n    N99[\"(everything\"]\n    N100[\"fits)\"]\n    N101[\"holding\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44\n    N44 --> N45\n    N45 --> N46\n    N46 --> N47\n    N47 --> N48\n    N48 --> N49\n    N49 --> N50\n    N50 --> N51\n    N51 --> N52\n    N52 --> N53\n    N53 --> N54\n    N54 --> N55\n    N55 --> N56\n    N56 --> N57\n    N57 --> N58\n    N58 --> N59\n    N59 --> N60\n    N60 --> N61\n    N61 --> N62\n    N62 --> N63\n    N63 --> N64\n    N64 --> N65\n    N65 --> N66\n    N66 --> N67\n    N67 --> N68\n    N68 --> N69\n    N69 --> N70\n    N70 --> N71\n    N71 --> N72\n    N72 --> N73\n    N73 --> N74\n    N74 --> N75\n    N75 --> N76\n    N76 --> N77\n    N77 --> N78\n    N78 --> N79\n    N79 --> N80\n    N80 --> N81\n    N81 --> N82\n    N82 --> N83\n    N83 --> N84\n    N84 --> N85\n    N85 --> N86\n    N86 --> N87\n    N87 --> N88\n    N88 --> N89\n    N89 --> N90\n    N90 --> N91\n    N91 --> N92\n    N92 --> N93\n    N93 --> N94\n    N94 --> N95\n    N95 --> N96\n    N96 --> N97\n    N97 --> N98\n    N98 --> N99\n    N99 --> N100\n    N100 --> N101",
+        "caption": "Cache sizing: by the Pareto/Zipfian distribution, caching 20% of keys captures 80-95% of traffic.",
+        "alt_text": "Pareto and Zipfian distribution in caching. The chart of access frequency versus key rank, sorted by popularity, shows that the top 1 percent of keys generates 50 percent of traffic, with a long tail of less-popular keys. Implication: caching the top 5 percent of keys captures about 80 percent of traffic. Cache sizing methodology: given a total data size of 1 terabyte, hot fraction 20 percent using Pareto 80/20, average entry size 1 kilobyte, total entries 1 billion, hot entries top 20 percent equals 200 million, hot set size 200 GB. With 1.5x headroom: 300 GB cache, expected about 80 percent hit rate. With 2x headroom: 400 GB cache, expected about 90 percent hit rate. Beyond 2x: diminishing returns — 95 percent hit rate requires about 80 percent of total data. Hit rate versus cache size: 1 percent cache gives 20-50 percent hit rate; 5 percent gives 50-80 percent; 10 percent gives 70-90 percent; 20 percent gives 80-95 percent; 50 percent gives 90-98 percent; 100 percent cache gives 100 percent. A cache holding 20 percent of total data captures 80-95 percent of traffic."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "working-set",
+      "payload": {
+        "text": "**Working set — the size that actually matters.**\n\nThe **working set** is the data being actively accessed — not the entire dataset, but the slice that is hot right now. This is what the cache must hold; everything else can stay on disk.\n\nFor a database, the working set is typically the hot indexes plus recently-written rows. For an application cache, it is the hot entities (active users, popular products, recent posts). For a CDN, it is the hot URLs.\n\nThe key insight: **the working set is much smaller than the total data.** A 1 TB database might have a 50 GB working set (5%). A 100 PB video catalog might have a 1 PB hot set (1%) — the trending and recently-uploaded content. The cache should be sized for the working set, not the total.\n\nThe cliff: **if the cache size is below the working set, hit rate collapses.** Below the cliff, the cache evicts hot entries to make room for other hot entries — thrashing. Every read becomes a miss, latency degrades to disk speed (10-100x slower). Above the cliff, hit rate is high and latency is uniform.\n\nThis is the most important cache-sizing principle: **the cliff is sharp.** A cache at 90% of the working set performs dramatically worse than a cache at 110% of the working set. There is no \"partial credit\" — you either fit the working set or you thrash. This is why cache sizing is an interview question and why under-provisioned caches are catastrophic in production.\n\nOperationally: monitor the cache eviction rate. If evictions are high and hit rate is dropping, the cache is below the working set cliff — add RAM. If evictions are zero and hit rate is high, the cache is well-sized (or oversized). If the cache is using less than 50% of its allocated memory, it is over-provisioned — reclaim RAM."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "headroom",
+      "payload": {
+        "title": "Always add headroom — the working set fluctuates",
+        "body": "The working set is not static. It grows during traffic peaks (more active users = more hot keys), shifts as content goes viral (a previously-cold key becomes hot), and grows over time as the system accumulates more active data. A cache sized exactly to the working set will thrash during peaks. The standard practice is to size the cache at 1.5-2x the measured working set, giving headroom for fluctuations and growth. Without headroom, a viral key or a peak traffic event pushes the cache below the cliff and latency spikes. With headroom, the system absorbs the fluctuation gracefully.",
+        "kind": "warning"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "estimating-hot-set",
+      "payload": {
+        "text": "**Estimating the hot set in interviews.**\n\nWhen you cannot measure the actual access distribution (as in an interview), assume the Pareto/Zipfian pattern and estimate from there:\n\n1. **Estimate the total data size.** (From storage estimation: total entries × average entry size.)\n2. **Assume a hot fraction.** For most workloads, 1-5% of keys generate 50-80% of traffic. For very skewed (celebrity accounts, viral content), use 1%. For flatter (B2B SaaS, internal tools), use 10-20%.\n3. **Compute the working set.** Total entries × hot fraction × average entry size.\n4. **Add 1.5-2x headroom** for fluctuations and growth.\n5. **Translate to cache infrastructure.** A 50 GB cache fits in one Redis instance; 200 GB needs a Redis cluster; 1 TB needs a sharded cluster.\n\nExample (Twitter timeline cache):\n- Total users: 200M, average timeline = 100 tweets × 500 B = 50 KB per timeline.\n- Total if cached for everyone: 200M × 50 KB = 10 TB (way too much for RAM).\n- Hot 1% of users (Pareto): 2M users × 50 KB = 100 GB working set.\n- With 2x headroom: 200 GB cache.\n- Infrastructure: a 3-node Redis cluster with ~70 GB each, or a 5-node cluster with 40 GB each for redundancy.\n- Expected hit rate: 50-80% (the hot 1% generates 50% of traffic; cache absorbs that, misses fall through to DB).\n\nThis is the interview version: state your hot-fraction assumption, compute the working set, add headroom, and translate to infrastructure. The interviewer is testing whether you recognize that you do not cache everything — you cache the hot set."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "db-buffer-pool",
+      "payload": {
+        "text": "**Database buffer pool sizing — a special case.**\n\nThe cache-sizing principles apply directly to database buffer pools:\n\n- **PostgreSQL `shared_buffers`:** the engine-managed cache. Rule of thumb: 25% of system RAM. The OS page cache handles the rest (cooperatively).\n- **MySQL/InnoDB `innodb_buffer_pool_size`:** 50-75% of system RAM. InnoDB manages its own cache aggressively.\n- **MS SQL Server `max server memory`:** ~75% of system RAM.\n\nThe target: fit the working set in the buffer pool. If the working set is 50 GB and the buffer pool is 64 GB, hit rate is 99%+ and the database feels instant. If the working set is 100 GB and the buffer pool is 64 GB, hit rate drops to ~70% and latency degrades 10-100x as reads hit disk.\n\nThis is why vertical scaling (more RAM) is so effective for databases up to a point: doubling the RAM can move the system from below the cliff to above it, with a 10-100x latency improvement. Beyond the working set, more RAM gives diminishing returns.\n\nThe diagnostic: check the buffer pool hit rate. PostgreSQL exposes this via `pg_stat_database` (`blks_hit` vs `blks_read`). MySQL via `SHOW STATUS LIKE 'Innodb_buffer_pool%'`. If hit rate is below 99%, the buffer pool is below the working set cliff — add RAM or shard. If hit rate is 99.99%+, the buffer pool is well-sized (or oversized).\n\nThe deeper lesson: **cache sizing and vertical scaling are the same problem viewed from different angles.** Sizing the cache is deciding how much RAM to give the cache layer; vertical scaling is deciding how much RAM to give the machine. The same cliff applies to both."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q1",
+      "payload": {
+        "question": "Your application has 100 GB of total data, with access following an 80/20 Pareto distribution (top 20% of keys generate 80% of traffic). What cache size gives approximately 80% hit rate, and what happens if you halve it?",
+        "shape": "mcq",
+        "options": [
+          "100 GB cache gives 80% hit rate; halving to 50 GB drops hit rate to 40%.",
+          "20 GB cache (the hot set) gives ~80% hit rate; halving to 10 GB drops the cache below the working set cliff, causing thrashing and a much lower hit rate than 40% (often 30-50%, with latency 10-100x worse).",
+          "100 GB cache is required for any hit rate at all.",
+          "Cache size does not affect hit rate."
+        ],
+        "answer_index": 1,
+        "rationale": "By the 80/20 Pareto distribution, the top 20% of keys (20 GB of the 100 GB total) generate 80% of traffic. A 20 GB cache fits this hot set and achieves ~80% hit rate. Halving the cache to 10 GB drops the cache below the working set cliff: it cannot hold the full hot 20%, so it evicts hot entries to make room for other hot entries — thrashing. The hit rate does not drop linearly to 40%; it collapses disproportionately, often to 30-50%, and latency degrades 10-100x because misses go to disk. The key insight: cache sizing has a cliff. Above the working set, hit rate is high; below it, hit rate collapses. Partial credit does not exist — you either fit the working set or you thrash.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q2",
+      "payload": {
+        "question": "Your Redis cache hit rate is 99.5%, eviction rate is zero, and the cache is using 30% of its allocated 100 GB. What does this tell you, and what should you do?",
+        "shape": "mcq",
+        "options": [
+          "Add more RAM — the cache is too small.",
+          "The cache is over-provisioned by ~3-4x. Reclaim RAM by reducing the cache size (e.g., to 40-50 GB); the hit rate will remain ~99% and you free RAM for other uses.",
+          "Nothing — the cache is correctly sized.",
+          "Increase the TTL."
+        ],
+        "answer_index": 1,
+        "rationale": "A 99.5% hit rate with zero evictions and 30% memory utilization means the cache is dramatically over-provisioned — you are paying for ~70 GB of unused RAM. Reducing the cache to 40-50 GB (still 1.3-1.6x the actual working set of ~30 GB) preserves the 99% hit rate while freeing ~50 GB of RAM for other uses (database buffer pool, other caches, cost savings). The diagnostic principle: high hit rate + zero evictions + low utilization = over-provisioned; high hit rate + high evictions = correctly sized; low hit rate + high evictions = under-provisioned (below the cliff). The cache-sizing monitoring loop: measure, resize, repeat.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q3",
+      "payload": {
+        "question": "You have 200M users with timelines of 100 tweets each (50 KB per timeline). Total cached timelines = 10 TB. You assume the hot 1% of users generate 50% of traffic. What cache size do you propose, and what infrastructure?",
+        "shape": "mcq",
+        "options": [
+          "10 TB cache for all users — single Redis with 10 TB RAM.",
+          "100 GB for the hot 1% (2M users × 50 KB), plus 2x headroom = 200 GB cache. Infrastructure: a 3-5 node Redis cluster with ~40-70 GB each.",
+          "1 GB cache — the hot set is tiny.",
+          "No cache — 10 TB is too much to cache."
+        ],
+        "answer_index": 1,
+        "rationale": "By the Pareto distribution, the top 1% of users (2M of 200M) generate 50% of traffic. Caching just their timelines: 2M × 50 KB = 100 GB. Adding 2x headroom for fluctuations and growth: 200 GB cache. Infrastructure: a 3-5 node Redis cluster with ~40-70 GB each, providing redundancy and ~200 GB aggregate. Expected hit rate: ~50% (the hot 1% generates 50% of traffic; the rest fall through to the DB or are not cached). This is the interview answer: state the hot fraction, compute the working set, add headroom, translate to infrastructure. The deeper lesson: you do not cache everything. The 10 TB total is irrelevant; the 100 GB hot set is what matters. Caching the hot set captures the majority of traffic with a fraction of the RAM.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-cache-sizing-mental",
+      "payload": {
+        "text": "Engineering mental model",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-cache-sizing-mental",
+      "payload": {
+        "text": "**Mental model.** Think of Cache Sizing as a deliberate boundary in a system. The boundary exists because something becomes harder to manage when everything is done in one place: latency, scale, failure isolation, consistency, cost, or team ownership. The useful question is not “what does Cache Sizing mean?” but “what pressure makes this boundary worth introducing, and what new failure mode does it create?”"
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-cache-sizing-decision",
+      "payload": {
+        "title": "Design lens",
+        "body": "Before choosing Cache Sizing, name the workload, the critical user path, the dominant bottleneck, the failure you are trying to absorb, and the trade-off you are willing to accept. If you cannot name those five things, the design is probably premature.",
+        "kind": "info"
+      }
+    },
+    {
+      "type": "image",
+      "id": "upgrade-image-cache-sizing",
+      "payload": {
+        "src": "/learning-visuals/cache-sizing.svg",
+        "alt": "Original NO CAP systems visual for Cache Sizing.",
+        "caption": "Cache Sizing: a compact system-thinking visual.",
+        "credit": "Original NO CAP visual.",
+        "source_url": "https://github.com/donnemartin/system-design-primer"
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "upgrade-mermaid-cache-sizing",
+      "payload": {
+        "code": "flowchart LR\n  A[Request] --> B[Lookup] --> C[Cache] --> D[Origin] --> E[Response]",
+        "caption": "Cache Sizing: a simplified system view showing the primary flow and the main state boundaries.",
+        "alt_text": "Cache Sizing: a simplified system view showing the primary flow and the main state boundaries."
+      }
+    },
+    {
+      "type": "code",
+      "id": "upgrade-code-cache-sizing",
+      "payload": {
+        "language": "python",
+        "code": "value = cache.get(key)\nif value is None:\n    value = load_from_origin(key)\n    cache.set(key, value, ttl=300)\nreturn value",
+        "caption": "A minimal engineering sketch for reasoning about Cache Sizing."
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-cache-sizing-numbers",
+      "payload": {
+        "text": "Back-of-the-envelope reasoning",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-cache-sizing-numbers",
+      "payload": {
+        "text": "Example: 100,000 requests/s at 90% cache hit rate means roughly 10,000 requests/s reach the origin. Raising the hit rate from 90% to 95% cuts origin traffic in half again."
+      }
+    },
+    {
+      "type": "simulation",
+      "id": "upgrade-sim-cache-sizing",
+      "payload": {
+        "title": "Interactive thought experiment: Cache Sizing",
+        "description": "Change the variables below and predict what breaks first in Cache Sizing. The production lab can later reuse these same inputs.",
+        "variables": [
+          {
+            "name": "request_rate",
+            "description": "Requests per second",
+            "default": "10000"
+          },
+          {
+            "name": "hit_rate",
+            "description": "Cache hit percentage",
+            "default": "90%"
+          },
+          {
+            "name": "ttl",
+            "description": "Cache freshness window",
+            "default": "300s"
+          }
+        ],
+        "placeholder_note": "Interactive controls are deterministic; use the linked Labs section when a dedicated lab exists."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-cache-sizing-hint",
+      "payload": {
+        "title": "Hint",
+        "body": "If you are stuck on Cache Sizing, start by drawing the request path and marking every network hop, stateful component, queue, cache and failure boundary. Then estimate where the system will saturate.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-cache-sizing-1",
+      "payload": {
+        "shape": "prediction",
+        "question": "You increase traffic by 10× in a system using Cache Sizing. What should you inspect first?",
+        "options": [
+          "The newest framework version",
+          "The dominant bottleneck and its saturation signal",
+          "Only the UI",
+          "Nothing; the architecture should absorb any traffic automatically"
+        ],
+        "answer_index": 1,
+        "rationale": "System design is a constraint-and-bottleneck exercise. Start with the resource or dependency that will saturate first, then choose the smallest change that removes that bottleneck.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-cache-sizing-2",
+      "payload": {
+        "shape": "mcq",
+        "question": "Which statement is the safest engineering habit when using Cache Sizing?",
+        "options": [
+          "Choose it because it is popular",
+          "Add it before measuring the problem",
+          "State the workload, failure mode and trade-off it is solving",
+          "Use the most distributed design possible"
+        ],
+        "answer_index": 2,
+        "rationale": "Good architecture starts from requirements, workload and failure assumptions. The component is the consequence of that reasoning, not the starting point.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "scenario",
+      "id": "upgrade-scenario-cache-sizing",
+      "payload": {
+        "prompt": "Production scenario: your system uses Cache Sizing, traffic suddenly spikes, and p99 latency doubles. What is your first move?",
+        "context": "You have dashboards for traffic, latency, errors and saturation. You can change the architecture, but every change has operational cost.",
+        "options": [
+          {
+            "id": "a",
+            "text": "Add more instances immediately",
+            "outcome": "This may help, but only if compute saturation is the bottleneck.",
+            "correct": false
+          },
+          {
+            "id": "b",
+            "text": "Inspect the bottleneck and its saturation signal first",
+            "outcome": "Correct: diagnose before scaling or introducing a new pattern.",
+            "correct": true
+          },
+          {
+            "id": "c",
+            "text": "Disable monitoring to reduce overhead",
+            "outcome": "This removes the evidence you need to diagnose the incident.",
+            "correct": false
+          }
+        ],
+        "rationale": "Measure the limiting resource or dependency first. A bottleneck can be compute, database I/O, network, cache misses, lock contention, downstream latency, or queue backlog.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-cache-sizing-interview",
+      "payload": {
+        "text": "Interview drill",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-cache-sizing-interview",
+      "payload": {
+        "text": "**Answer this without notes:** When would you choose Cache Sizing, and when would you intentionally avoid it? Mention at least one bottleneck it addresses, one failure mode it introduces, and one alternative. Then quantify the workload you are designing for."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "field-guide-cache-sizing",
+      "payload": {
+        "title": "Engineering lens",
+        "body": "For Cache Sizing, reason in this order: what data is hottest, where can it live closer to the caller, what makes it stale, and what happens on a miss or cache failure. A cache is an optimization boundary, not the source of truth.",
+        "kind": "tip"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "numerical-lens-cache-sizing",
+      "payload": {
+        "text": "### Numerical sanity check\n\nA useful first-order model is cache_load = request_rate × (1 - hit_rate). If traffic is 20,000 req/s and the hit rate is 90%, roughly 2,000 req/s still reaches the origin before considering misses caused by expiration or eviction."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "field-question-cache-sizing",
+      "payload": {
+        "shape": "prediction",
+        "question": "You have a read-heavy Cache Sizing path. Traffic doubles overnight. What metric would you inspect first, and what would convince you to add another cache layer?",
+        "context": "Do not optimize for a memorized definition. Reason from the workload and failure mode.",
+        "options": [
+          "Scale the same component immediately.",
+          "Measure the current bottleneck and state the assumption that changed.",
+          "Add more technologies until throughput improves.",
+          "Choose the most popular architecture."
+        ],
+        "answer_index": 1,
+        "rationale": "Good system design starts with the bottleneck and the changed constraint. The most popular or complex choice is not automatically correct.",
+        "difficulty": "interview"
+      }
+    }
+  ],
+  "trade_offs": {
+    "pros": [
+      "Right-sized cache achieves 90%+ hit rate with modest RAM, by Pareto/Zipfian distribution.",
+      "Forces explicit identification of the hot set rather than caching blindly.",
+      "Avoids wasting RAM on cold data that is never read again.",
+      "Provides a measurable target (hit rate) to verify sizing empirically.",
+      "Works for both application caches and database buffer pools — same principle."
+    ],
+    "cons": [
+      "Requires estimating the access distribution, which varies by 10-100x depending on assumptions.",
+      "The cliff is sharp — under-sizing causes disproportionate thrashing.",
+      "Working set fluctuates — requires headroom and ongoing monitoring.",
+      "Real access patterns are not perfectly Pareto; some have multiple hot clusters.",
+      "Empirical verification requires production traffic; pre-production estimates are approximate."
+    ]
+  },
+  "failure_modes": [
+    "Cache below the working set cliff — hit rate collapses, latency degrades 10-100x.",
+    "Cache over-provisioned — wasted RAM that could be used elsewhere.",
+    "Working set grows beyond the cache during peak — sudden thrashing.",
+    "Assuming uniform access distribution when reality is Pareto — oversizing 10-100x.",
+    "Assuming Pareto when reality is flat (B2B SaaS with uniform users) — undersizing.",
+    "Not monitoring eviction rate and hit rate — sizing decisions drift over time."
+  ],
+  "common_mistakes": [
+    "Caching the entire dataset — wastes RAM; the hot set is what matters.",
+    "Assuming uniform access distribution — reality is almost always Pareto/Zipfian.",
+    "Sizing without headroom — works in steady state, thrashes at peak.",
+    "Not monitoring hit rate — flying blind on whether the cache is correctly sized.",
+    "Treating cache sizing as a one-time decision — the working set grows and shifts.",
+    "Forgetting that database buffer pools are caches too — same sizing principle applies."
+  ],
+  "where_you_see_it": [
+    "Sizing Redis/Memcached clusters (production capacity planning).",
+    "Sizing database buffer pools (shared_buffers, innodb_buffer_pool_size).",
+    "CDN cache sizing per POP.",
+    "System design interviews (\"how big should the cache be?\").",
+    "Browser cache sizing (limited by user disk; managed by browser)."
+  ],
+  "interview_prompts": [
+    "Your system has 200M users with 50 KB timelines. What cache size do you propose, and what infrastructure?",
+    "Your Redis cache hit rate is 60%. What does this tell you, and what do you do?",
+    "Explain the Pareto distribution's effect on cache sizing. Why don't we cache everything?",
+    "Your cache hit rate is 99% with zero evictions but only 30% memory utilization. What does this mean, and what do you do?",
+    "How do you size a database buffer pool? What is the cliff?"
+  ],
+  "real_system_mappings": [
+    {
+      "system": "Netflix EVCache",
+      "how": "Netflix's EVCache (a Memcached-based cluster) is sized to hold the hot set of user-state and content-metadata keys. They have publicly described how Pareto/Zipfian distribution governs their cache sizing — a small fraction of titles generates the majority of views, so the cache fits the hot set, not the full catalog."
+    },
+    {
+      "system": "PostgreSQL `shared_buffers` default (25% of RAM)",
+      "how": "PostgreSQL's documented recommendation of 25% of system RAM for `shared_buffers` is itself a Pareto-aware cache-sizing rule — it assumes the working set fits in ~25% of RAM, with the OS page cache handling the rest cooperatively. The 25% rule exists because most databases' working set is much smaller than the total data."
+    },
+    {
+      "system": "Redis cluster sizing at Twitter / Stripe / GitHub",
+      "how": "These companies size their Redis clusters based on measured hit rates and eviction rates, not on total data size. They start with an estimated hot set, deploy, monitor hit rate, and resize. This empirical refinement is the standard production cache-sizing methodology."
+    },
+    {
+      "system": "CDN edge cache sizing",
+      "how": "CDN POPs are sized to hold the hot set of URLs for their region — typically a small fraction of the global catalog. A 1 PB video catalog might have a 10 GB hot set at each POP (the locally-trending content), achieving 90%+ hit rate with modest per-POP storage."
+    }
+  ],
+  "status": "published",
+  "sources": [
+    {
+      "title": "System Design Primer",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Open source"
+    },
+    {
+      "title": "ByteByteGo — Scale from zero to millions",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "ByteByteGo"
+    },
+    {
+      "title": "System Design Tutorial",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "GeeksforGeeks"
+    },
+    {
+      "title": "System Design Roadmap",
+      "url": "https://roadmap.sh/system-design",
+      "publisher": "roadmap.sh"
+    },
+    {
+      "title": "Interview Preparation reference",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Interview Preparation reference",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Interview Preparation reference",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "Reference"
+    },
+    {
+      "title": "ByteByteGo — Scaling Websites",
+      "url": "https://bytebytego.com/guides/how-to-scale-a-website-to-support-millions-of-users/",
+      "publisher": "ByteByteGo"
+    }
+  ]
+}

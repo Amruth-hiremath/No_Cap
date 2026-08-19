@@ -1,0 +1,436 @@
+{
+  "slug": "instrumentation",
+  "version": 4,
+  "title": "Instrumentation",
+  "phase": "observability",
+  "area": "Observability",
+  "estimated_minutes": 7,
+  "difficulty": "core",
+  "summary": "Instrumentation is the code that emits metrics, logs, and traces from inside your application — the difference between \"the service is slow\" and \"the db.insert call in /orders is taking 800ms.\" Modern instrumentation is built on OpenTelemetry, structured logging, and consistent labeling. Without instrumentation, observability tools have nothing to show; with good instrumentation, every question about production is answerable in minutes.",
+  "why_it_matters": "Observability tools (Datadog, Prometheus, Jaeger) only show what your code emits. Buy the most expensive APM tool in the world and apply it to a service with no instrumentation, and you'll see only what the auto-agent can capture — basic latency, basic traces, no business context. Good instrumentation is what makes a service debuggable: the trace shows the user_id, the log line has the order_id, the metric is labeled by tenant. It's the difference between \"p99 is slow\" and \"p99 is slow for tenant X calling endpoint Y because of query Z.\" Without it, incidents stretch from minutes to hours.",
+  "prerequisites": [
+    "metrics-logs-traces"
+  ],
+  "related": [
+    "metrics-logs-traces",
+    "alerts-visualization",
+    "performance-monitoring"
+  ],
+  "used_in": [
+    "Every observable service.",
+    "Every distributed trace.",
+    "Every structured log aggregator."
+  ],
+  "blocks": [
+    {
+      "type": "prose",
+      "id": "intro",
+      "payload": {
+        "text": "Instrumentation is the practice of adding observability signals to your code. There are three categories:\n\n- **Metrics**: emit counters, gauges, and histograms as the code runs. \"increment http_requests_total{route=/orders, status=200}.\"\n- **Logs**: emit structured log events. \"{\"level\":\"info\",\"msg\":\"order_created\",\"order_id\":42,\"user_id\":7,\"trace_id\":\"abc\"}.\"\n- **Traces**: start spans for units of work, with parent-child relationships. \"span: db.insert order_id=42, parent_span: http /orders.\"\n\nThe goal is to instrument once and emit to any backend (Prometheus, Datadog, Jaeger, Honeycomb) via OpenTelemetry. This avoids vendor lock-in and lets you standardize across services."
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "otel-stack",
+      "payload": {
+        "code": "flowchart TD\n    N0[\"YOUR\"]\n    N1[\"CODE\"]\n    N2[\"'db.insert', attrs={order_id: 42}\"]\n    N3[\"order_id: 42\"]\n    N4[\"tracer.start_span('db.insert',\"]\n    N5[\"attrs\"]\n    N6[\"{order_id:\"]\n    N7[\"42})\"]\n    N8[\"'order_created', {order_id: 42, trace_id: tid}\"]\n    N9[\"order_id: 42, trace_id: tid\"]\n    N10[\"logger.info('order_created',\"]\n    N11[\"42,\"]\n    N12[\"trace_id:\"]\n    N13[\"tid})\"]\n    N14[\"'orders_created'\"]\n    N15[\"meter.counter('orders_created').increment()\"]\n    N16[\"emits\"]\n    N17[\"OpenTelemetry\"]\n    N18[\"SDK\"]\n    N19[\"W3C traceparent\"]\n    N20[\"propagates\"]\n    N21[\"trace\"]\n    N22[\"context\"]\n    N23[\"(W3C\"]\n    N24[\"traceparent)\"]\n    N25[\"batches\"]\n    N26[\"spans\"]\n    N27[\"log\"]\n    N28[\"metrics\"]\n    N29[\"service.name, version\"]\n    N30[\"adds\"]\n    N31[\"resource\"]\n    N32[\"(service.name,\"]\n    N33[\"version)\"]\n    N34[\"exports\"]\n    N35[\"via\"]\n    N36[\"OTLP\"]\n    N37[\"Collector\"]\n    N38[\"receives\"]\n    N39[\"from\"]\n    N40[\"all\"]\n    N41[\"services\"]\n    N42[\"samples,\"]\n    N43[\"filters,\"]\n    N44[\"transforms\"]\n    N45[\"fans\"]\n    N46[\"out\"]\n    N47[\"backends\"]\n    N48[\"Prometheus\"]\n    N49[\"(metrics)\"]\n    N50[\"logs\"]\n    N51[\"Loki\"]\n    N52[\"Elasticsearch\"]\n    N53[\"(logs)\"]\n    N54[\"traces\"]\n    N55[\"Tempo\"]\n    N56[\"Jaeger\"]\n    N57[\"(traces)\"]\n    N58[\"One\"]\n    N59[\"instrumentation\"]\n    N60[\"layer,\"]\n    N61[\"any\"]\n    N62[\"backend.\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44\n    N44 --> N45\n    N45 --> N46\n    N46 --> N47\n    N47 --> N48\n    N48 --> N49\n    N49 --> N50\n    N50 --> N51\n    N51 --> N52\n    N52 --> N53\n    N53 --> N54\n    N54 --> N55\n    N55 --> N56\n    N56 --> N57\n    N57 --> N58\n    N58 --> N59\n    N59 --> N60\n    N60 --> N61\n    N61 --> N62",
+        "caption": "OpenTelemetry: instrument once in your code, ship to any metrics/logs/traces backend via the collector.",
+        "alt_text": "A stack diagram. Your code emits spans via tracer dot start_span, structured logs via logger dot info with order_id and trace_id, and metrics via meter dot counter. The OpenTelemetry SDK receives these, propagates trace context using the W3C traceparent header, batches spans logs and metrics, and adds resource attributes like service dot name and version. The OpenTelemetry Collector receives from all services, samples, filters, transforms, and fans out to multiple backends: Prometheus for metrics, Loki or Elasticsearch for logs, and Tempo or Jaeger for traces. One instrumentation layer, any backend."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "structured-logging",
+      "payload": {
+        "text": "Structured logging is non-negotiable in modern systems. Instead of `\"Order 42 created for user 7\"`, emit `{\"msg\":\"order_created\",\"order_id\":42,\"user_id\":7,\"level\":\"info\",\"ts\":\"2024-01-15T10:42:03Z\",\"trace_id\":\"abc\"}`. JSON is the standard format.\n\nWhy structured? Because logs are queried and aggregated. With unstructured text, finding \"all errors for user 7 today\" requires a regex search across gigabytes. With structured JSON, it's `level=error AND user_id=7 AND ts>today` — instant, indexed.\n\nLog the things you'd want in an incident:\n- **State transitions**: \"order status changed from pending to confirmed.\"\n- **Business events**: \"payment received for order 42.\"\n- **Errors with context**: not just \"500 internal error\" but \"db.insert failed: connection refused, order_id=42, user_id=7.\"\n- **Slow operations**: \"db.query took 1800ms (threshold 1000ms).\"\n\nAlways include the trace_id in log lines. This lets you click from a slow span in a trace to the logs emitted during that span — the most powerful debugging combination in modern observability."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "metrics-instrumentation",
+      "payload": {
+        "text": "Good metrics instrumentation:\n\n- **Count what matters**: http_requests_total, orders_created, errors_total. Use counters for cumulative totals.\n- **Gauge what's stateful**: queue_depth, active_connections, cache_size. Gauges go up and down.\n- **Histogram what's distributed**: request_latency, db_query_duration. Use buckets to compute percentiles.\n- **Label for filtering and grouping**: route, status_code, tenant. But keep cardinality bounded.\n\nThe cardinality trap: each unique label combination is a separate time series. A metric with `user_id` as a label creates one series per user — millions of series, even if rarely queried. Rule of thumb: low-cardinality labels only (route, status, instance, tenant). High-cardinality data (user IDs, request IDs) goes in logs and traces, not metrics.\n\nUse a metrics library (Prometheus client, OpenTelemetry metrics) that handles the bookkeeping — incrementing, exposing on /metrics, batching. Manual metrics are error-prone."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "tracing-instrumentation",
+      "payload": {
+        "text": "Tracing instrumentation is the most work but the most valuable for distributed systems. The pattern:\n\n1. **Propagate context**: every outbound call (HTTP, gRPC, message queue) carries the trace context (W3C `traceparent` header). This connects spans across services.\n2. **Create spans**: wrap each unit of work in a span. The span carries: name, start time, duration, attributes (key-value tags), events (timestamped logs within the span), and status.\n3. **Sample**: don't trace 100% of requests (too much data). Sample 1% of normal traffic, 100% of errors. Use tail-based sampling if possible — keep all errors, sample the rest.\n\nAuto-instrumentation: most languages have libraries that auto-instrument common operations (HTTP server, HTTP client, DB driver, message queue). Use these as a baseline. Add custom spans for business logic.\n\nThe result: a trace shows the full request lifecycle across services, with per-span timing. \"The /orders request took 2s because the db.insert took 1.8s, which was waiting on a lock.\""
+      }
+    },
+    {
+      "type": "callout",
+      "id": "auto-vs-manual",
+      "payload": {
+        "title": "Auto-instrumentation is the baseline, not the ceiling",
+        "body": "OpenTelemetry auto-instrumentation libraries (and APM agents like Datadog's) capture the standard signals: HTTP requests, DB calls, cache hits, message queue sends. This is enough to see the shape of your system. But it doesn't capture business context: which tenant, which feature flag, which checkout step. For that, you need manual instrumentation — custom spans around business operations, custom attributes on existing spans. The pattern: start with auto-instrumentation to get something working, then add manual instrumentation where it matters — the critical paths and the business events.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "common-pitfalls",
+      "payload": {
+        "text": "Common instrumentation pitfalls:\n\n- **High-cardinality labels** on metrics — explodes the TSDB.\n- **Unstructured logs** — searchable only by text match, not aggregatable.\n- **Trace context not propagated** across service boundaries — traces are broken.\n- **Logging PII or secrets** — legal and security problems.\n- **Insufficient sampling** — collecting 100% of traces is too much data.\n- **Excessive sampling** — collecting 0.01% means you miss rare events.\n- **Not including business context** in spans and logs — the trace shows what happened but not for whom.\n\nA useful test: pick a recent production issue. Could you have diagnosed it from the traces, logs, and metrics you currently emit? If not, what's missing? That's the next instrumentation to add."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q1",
+      "payload": {
+        "question": "You add a `user_id` label to a per-request metric so you can filter latency by user. What's the problem?",
+        "shape": "mcq",
+        "options": [
+          "Nothing — it's a useful filter.",
+          "Cardinality explosion: a metric with millions of user_id values creates millions of time series, bloating storage and degrading the TSDB. High-cardinality data belongs in logs and traces, not metrics.",
+          "The metric becomes unreadable.",
+          "Logs and traces won't correlate with it."
+        ],
+        "answer_index": 1,
+        "rationale": "Time series databases store one series per unique label combination. Adding user_id as a metric label creates one series per user — millions of series, each consuming memory and storage, even if rarely queried. This is the cardinality explosion, a classic TSDB killer. The fix: keep metrics low-cardinality (route, status, instance, tenant). High-cardinality identifiers (user_id, request_id, order_id) belong in logs and traces, where they're designed to be stored and queried at high cardinality. If you need per-user latency, query the traces.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q2",
+      "payload": {
+        "question": "Why should every log line include the trace_id?",
+        "shape": "mcq",
+        "options": [
+          "For compliance reasons.",
+          "It enables correlation: clicking from a slow span in a trace shows you the logs emitted during that span, connecting symptom (slow span) to cause (what the code was doing).",
+          "It's required by OpenTelemetry.",
+          "It makes logs shorter."
+        ],
+        "answer_index": 1,
+        "rationale": "The trace_id is the link between the three pillars. A trace shows you the request took 2s and the db.insert span was 1.8s — but the trace doesn't tell you what query was running or why. The logs emitted during that span do — if you can find them. With trace_id in every log line, you can filter logs by trace_id and instantly see what the code was doing during the slow span. Without it, you're searching by timestamp and hoping. This correlation is the single highest-leverage instrumentation decision you can make.",
+        "difficulty": "core"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q3",
+      "payload": {
+        "question": "Auto-instrumentation captures HTTP, DB, and cache calls. What does it miss that you need to add manually?",
+        "shape": "mcq",
+        "options": [
+          "Nothing — auto-instrumentation is sufficient.",
+          "Business context: which tenant, which feature flag, which checkout step. Auto-instrumentation sees the technical calls but not the business meaning.",
+          "Latency metrics — those have to be added manually.",
+          "Error logging."
+        ],
+        "answer_index": 1,
+        "rationale": "Auto-instrumentation libraries know about standard technical operations: an HTTP request was made, a DB query ran, a cache was hit. They don't know your business — that this HTTP request was part of the checkout flow, for tenant X, with feature flag Y enabled, on step 3 of the funnel. That business context is what makes traces and logs useful for debugging real issues. The pattern: start with auto-instrumentation to get the shape of the system, then add manual spans and attributes around business operations — the critical paths users care about.",
+        "difficulty": "advanced"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-instrumentation-mental",
+      "payload": {
+        "text": "Engineering mental model",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-instrumentation-mental",
+      "payload": {
+        "text": "**Mental model.** Think of Instrumentation as a deliberate boundary in a system. The boundary exists because something becomes harder to manage when everything is done in one place: latency, scale, failure isolation, consistency, cost, or team ownership. The useful question is not “what does Instrumentation mean?” but “what pressure makes this boundary worth introducing, and what new failure mode does it create?”"
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-instrumentation-decision",
+      "payload": {
+        "title": "Design lens",
+        "body": "Before choosing Instrumentation, name the workload, the critical user path, the dominant bottleneck, the failure you are trying to absorb, and the trade-off you are willing to accept. If you cannot name those five things, the design is probably premature.",
+        "kind": "info"
+      }
+    },
+    {
+      "type": "image",
+      "id": "upgrade-image-instrumentation",
+      "payload": {
+        "src": "/learning-visuals/instrumentation.svg",
+        "alt": "Original NO CAP systems visual for Instrumentation.",
+        "caption": "Instrumentation: a compact system-thinking visual.",
+        "credit": "Original NO CAP visual.",
+        "source_url": "https://github.com/donnemartin/system-design-primer"
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "upgrade-mermaid-instrumentation",
+      "payload": {
+        "code": "flowchart LR\n  A[Client] --> B[Gateway] --> C[Service] --> D[State] --> E[Outcome]",
+        "caption": "Instrumentation: a simplified system view showing the primary flow and the main state boundaries.",
+        "alt_text": "Instrumentation: a simplified system view showing the primary flow and the main state boundaries."
+      }
+    },
+    {
+      "type": "code",
+      "id": "upgrade-code-instrumentation",
+      "payload": {
+        "language": "text",
+        "code": "// Pseudocode\nrequest = receive()\nresult = instrumentation(request)\nreturn result\n\n// Production questions:\n// 1. What happens on timeout?\n// 2. Can this operation be retried safely?\n// 3. What is the bottleneck?",
+        "caption": "A minimal engineering sketch for reasoning about Instrumentation."
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-instrumentation-numbers",
+      "payload": {
+        "text": "Back-of-the-envelope reasoning",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-instrumentation-numbers",
+      "payload": {
+        "text": "Numerical lens: write down traffic, payload size, read/write ratio, peak multiplier and durability target before choosing a component. The numbers should justify the architecture."
+      }
+    },
+    {
+      "type": "simulation",
+      "id": "upgrade-sim-instrumentation",
+      "payload": {
+        "title": "Interactive thought experiment: Instrumentation",
+        "description": "Change the variables below and predict what breaks first in Instrumentation. The production lab can later reuse these same inputs.",
+        "variables": [
+          {
+            "name": "traffic",
+            "description": "Requests/events per second",
+            "default": "1000"
+          },
+          {
+            "name": "latency",
+            "description": "Dependency latency",
+            "default": "50ms"
+          },
+          {
+            "name": "failure_rate",
+            "description": "Injected failure rate",
+            "default": "0%"
+          }
+        ],
+        "placeholder_note": "Interactive controls are deterministic; use the linked Labs section when a dedicated lab exists."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-instrumentation-hint",
+      "payload": {
+        "title": "Hint",
+        "body": "If you are stuck on Instrumentation, start by drawing the request path and marking every network hop, stateful component, queue, cache and failure boundary. Then estimate where the system will saturate.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-instrumentation-1",
+      "payload": {
+        "shape": "prediction",
+        "question": "You increase traffic by 10× in a system using Instrumentation. What should you inspect first?",
+        "options": [
+          "The newest framework version",
+          "The dominant bottleneck and its saturation signal",
+          "Only the UI",
+          "Nothing; the architecture should absorb any traffic automatically"
+        ],
+        "answer_index": 1,
+        "rationale": "System design is a constraint-and-bottleneck exercise. Start with the resource or dependency that will saturate first, then choose the smallest change that removes that bottleneck.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-instrumentation-2",
+      "payload": {
+        "shape": "mcq",
+        "question": "Which statement is the safest engineering habit when using Instrumentation?",
+        "options": [
+          "Choose it because it is popular",
+          "Add it before measuring the problem",
+          "State the workload, failure mode and trade-off it is solving",
+          "Use the most distributed design possible"
+        ],
+        "answer_index": 2,
+        "rationale": "Good architecture starts from requirements, workload and failure assumptions. The component is the consequence of that reasoning, not the starting point.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "scenario",
+      "id": "upgrade-scenario-instrumentation",
+      "payload": {
+        "prompt": "Production scenario: your system uses Instrumentation, traffic suddenly spikes, and p99 latency doubles. What is your first move?",
+        "context": "You have dashboards for traffic, latency, errors and saturation. You can change the architecture, but every change has operational cost.",
+        "options": [
+          {
+            "id": "a",
+            "text": "Add more instances immediately",
+            "outcome": "This may help, but only if compute saturation is the bottleneck.",
+            "correct": false
+          },
+          {
+            "id": "b",
+            "text": "Inspect the bottleneck and its saturation signal first",
+            "outcome": "Correct: diagnose before scaling or introducing a new pattern.",
+            "correct": true
+          },
+          {
+            "id": "c",
+            "text": "Disable monitoring to reduce overhead",
+            "outcome": "This removes the evidence you need to diagnose the incident.",
+            "correct": false
+          }
+        ],
+        "rationale": "Measure the limiting resource or dependency first. A bottleneck can be compute, database I/O, network, cache misses, lock contention, downstream latency, or queue backlog.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-instrumentation-interview",
+      "payload": {
+        "text": "Interview drill",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-instrumentation-interview",
+      "payload": {
+        "text": "**Answer this without notes:** When would you choose Instrumentation, and when would you intentionally avoid it? Mention at least one bottleneck it addresses, one failure mode it introduces, and one alternative. Then quantify the workload you are designing for."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "field-guide-instrumentation",
+      "payload": {
+        "title": "Engineering lens",
+        "body": "A useful engineering lens for Instrumentation: define the problem it solves, the simpler design that fails first, the constraint that forces you to introduce this concept, and the new failure modes the concept creates.",
+        "kind": "tip"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "numerical-lens-instrumentation",
+      "payload": {
+        "text": "### Numerical sanity check\n\nBack-of-the-envelope reasoning beats fake precision. State your traffic, payload, concurrency and growth assumptions explicitly, then calculate enough to know whether the current architecture is orders of magnitude away from the target."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "field-question-instrumentation",
+      "payload": {
+        "shape": "prediction",
+        "question": "Imagine the simplest version of a system using Instrumentation. What breaks first as traffic grows by 10×, and what would you change before reaching 100×?",
+        "context": "Do not optimize for a memorized definition. Reason from the workload and failure mode.",
+        "options": [
+          "Scale the same component immediately.",
+          "Measure the current bottleneck and state the assumption that changed.",
+          "Add more technologies until throughput improves.",
+          "Choose the most popular architecture."
+        ],
+        "answer_index": 1,
+        "rationale": "Good system design starts with the bottleneck and the changed constraint. The most popular or complex choice is not automatically correct.",
+        "difficulty": "interview"
+      }
+    }
+  ],
+  "trade_offs": {
+    "pros": [
+      "Makes a service debuggable — every production question answerable in minutes.",
+      "Structured logs and trace context enable correlation across pillars.",
+      "OpenTelemetry prevents vendor lock-in.",
+      "Business context in traces/logs turns data into actionable insight."
+    ],
+    "cons": [
+      "Adds code complexity — instrumentation is its own concern.",
+      "Has performance cost (1-5% CPU for full instrumentation).",
+      "Cardinality traps can break the metrics backend.",
+      "Requires ongoing maintenance — instrumentation rots as code changes."
+    ]
+  },
+  "failure_modes": [
+    "High-cardinality metric labels exploding the TSDB.",
+    "Unstructured logs that can't be queried in an incident.",
+    "Trace context not propagated across service boundaries — broken traces.",
+    "Logging secrets/PII — security and compliance violations."
+  ],
+  "common_mistakes": [
+    "Using unstructured text logs instead of JSON.",
+    "Forgetting to include trace_id in log records.",
+    "Adding high-cardinality labels (user_id, request_id) to metrics.",
+    "Relying only on auto-instrumentation — misses business context."
+  ],
+  "where_you_see_it": [
+    "OpenTelemetry SDKs in every language.",
+    "APM agents (Datadog, New Relic, Dynatrace) that auto-instrument.",
+    "Structured logging libraries (structlog, zap, serilog)."
+  ],
+  "interview_prompts": [
+    "What is OpenTelemetry and why has it become the standard for instrumentation?",
+    "Why should high-cardinality data (user_id, request_id) go in logs and traces, not metrics?",
+    "How does trace context propagation work across service boundaries?",
+    "What's the difference between auto-instrumentation and manual instrumentation?"
+  ],
+  "real_system_mappings": [
+    {
+      "system": "OpenTelemetry",
+      "how": "CNCF standard for instrumentation. Provides SDKs in every major language that emit metrics, logs, and traces via a unified API, exportable to any backend via OTLP."
+    },
+    {
+      "system": "Datadog APM agent",
+      "how": "Auto-instruments HTTP, DB, and cache calls via bytecode manipulation or library hooks. Adds business context via custom spans. Commercial but turnkey."
+    }
+  ],
+  "status": "published",
+  "sources": [
+    {
+      "title": "System Design Primer",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Open source"
+    },
+    {
+      "title": "ByteByteGo — Scale from zero to millions",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "ByteByteGo"
+    },
+    {
+      "title": "System Design Tutorial",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "GeeksforGeeks"
+    },
+    {
+      "title": "System Design Roadmap",
+      "url": "https://roadmap.sh/system-design",
+      "publisher": "roadmap.sh"
+    },
+    {
+      "title": "Observability reference",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Observability reference",
+      "url": "https://opentelemetry.io/docs/",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Observability reference",
+      "url": "https://sre.google/sre-book/monitoring-distributed-systems/",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Google SRE Book",
+      "url": "https://sre.google/sre-book/table-of-contents/",
+      "publisher": "Google"
+    }
+  ]
+}

@@ -7,12 +7,13 @@ export function generateStaticParams() {
   return getAllConcepts().map((c) => ({ slug: c.slug }));
 }
 
-export default function ConceptPage({
+export default async function ConceptPage({
   params,
 }: {
-  params: { slug: string };
+  params: Promise<{ slug: string }>;
 }) {
-  const concept = getConcept(params.slug);
+  const { slug } = await params;
+  const concept = getConcept(slug);
   if (!concept) notFound();
   return <ConceptView concept={concept} />;
 }

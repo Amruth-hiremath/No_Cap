@@ -1,0 +1,417 @@
+{
+  "slug": "bottleneck-identification",
+  "version": 3,
+  "title": "Bottleneck Identification",
+  "phase": "interview-preparation",
+  "area": "Interview Preparation",
+  "estimated_minutes": 7,
+  "difficulty": "advanced",
+  "summary": "A bottleneck is the single slowest stage in a request path — the resource whose utilization hits 100% first and caps throughput for the whole system. Identifying it requires measuring every stage (profiling), driving real load (load testing), and watching the system in production (APM). The bottleneck governs capacity: until you fix it, every other optimization is wasted. After you fix it, the bottleneck moves — and you measure again.",
+  "why_it_matters": "Amdahl's Law is brutal: if a bottleneck is 50% of total latency, even infinitely speeding up the other 50% only doubles performance. In interviews, candidates who say 'profile it, find the slowest stage, fix that, repeat' demonstrate a measurement-driven mindset that beats hand-waved guesses. In production, misidentifying the bottleneck leads to expensive non-fixes — adding more API servers when the database is the limit, sharding the cache when network I/O is the limit, rewriting code in Rust when the real problem is a missing index.",
+  "prerequisites": [
+    "failure-analysis"
+  ],
+  "related": [
+    "single-points-of-failure",
+    "back-pressure",
+    "rate-limiting"
+  ],
+  "used_in": [
+    "Capacity planning — 'how much traffic can we handle before we fall over?'",
+    "Performance tuning sprints — find the slowest query, fix it, measure again.",
+    "Incident response — 'why are latency p99s spiking right now?'",
+    "System design interviews — 'how would you find the bottleneck in your design?'"
+  ],
+  "blocks": [
+    {
+      "type": "prose",
+      "id": "intro",
+      "payload": {
+        "text": "A bottleneck is the resource whose saturation caps the system's throughput. The bottleneck is rarely where you guess — it's almost always discovered by measurement, not intuition.\n\nThe pipeline analogy: if water flows through pipes of different diameters in series, the narrowest pipe sets the flow. Widening every other pipe does nothing; only widening the narrowest one helps. In a web service, the 'pipes' are: DNS, TLS, network, load balancer, application CPU, application memory, cache lookup, database query, downstream RPC, serialization, and response write.\n\nThe universal algorithm for finding a bottleneck:\n\n1. **Instrument** every stage. If you can't measure it, you can't find it.\n2. **Drive representative load** through the system (load test or replay production traffic).\n3. **Identify the stage with the highest utilization** (CPU, memory, I/O, queue depth, connection pool saturation).\n4. **Fix that stage** (add capacity, add an index, add a cache, parallelize, reduce work).\n5. **Re-measure** — because the bottleneck will move. The fix that liberated the database might saturate the cache next.\n\nThis loop never ends. Performance tuning is iterative, and a system that's never been profiled is almost certainly wrong about where its bottleneck is."
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "utilization",
+      "payload": {
+        "code": "flowchart TD\n    N0[\"Request\"]\n    N1[\"path\"]\n    N2[\"utilization\"]\n    N3[\"under\"]\n    N4[\"load:\"]\n    N5[\"Stage\"]\n    N6[\"Utilization\"]\n    N7[\"Status\"]\n    N8[\"Load\"]\n    N9[\"balancer\"]\n    N10[\"35%\"]\n    N11[\"CPU\"]\n    N12[\"API\"]\n    N13[\"(CPU)\"]\n    N14[\"62%\"]\n    N15[\"mem\"]\n    N16[\"(mem)\"]\n    N17[\"40%\"]\n    N18[\"Redis\"]\n    N19[\"Cache\"]\n    N20[\"(Redis)\"]\n    N21[\"55%\"]\n    N22[\"95%\"]\n    N23[\"BOTTLENECK\"]\n    N24[\"disk\"]\n    N25[\"88%\"]\n    N26[\"near\"]\n    N27[\"saturation\"]\n    N28[\"Network\"]\n    N29[\"30%\"]\n    N30[\"Result\"]\n    N31[\"Throughput\"]\n    N32[\"capped\"]\n    N33[\"~DB\"]\n    N34[\"limit.\"]\n    N35[\"Adding\"]\n    N36[\"servers\"]\n    N37[\"will\"]\n    N38[\"NOT\"]\n    N39[\"help.\"]\n    N40[\"Fix\"]\n    N41[\"the\"]\n    N42[\"DB:\"]\n    N43[\"add\"]\n    N44[\"read\"]\n    N45[\"replicas,\"]\n    N46[\"optimize\"]\n    N47[\"queries,\"]\n    N48[\"missing\"]\n    N49[\"indexes,\"]\n    N50[\"denormalize\"]\n    N51[\"hot\"]\n    N52[\"reads.\"]\n    N53[\"Then\"]\n    N54[\"measure\"]\n    N55[\"bottleneck\"]\n    N56[\"move.\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44\n    N44 --> N45\n    N45 --> N46\n    N46 --> N47\n    N47 --> N48\n    N48 --> N49\n    N49 --> N50\n    N50 --> N51\n    N51 --> N52\n    N52 --> N53\n    N53 --> N54\n    N54 --> N55\n    N55 --> N56",
+        "caption": "Per-stage utilization under load. The highest-utilization stage is the bottleneck; widening anything else is wasted effort.",
+        "alt_text": "A table of per-stage utilization under load: load balancer 35%, API CPU 62%, API memory 40%, cache 55%, database CPU 95% (marked as the bottleneck), database disk I/O 88%, network 30%. The conclusion states that throughput is capped at the database CPU limit, so adding API servers will not help; the fix is to address the database by adding read replicas, optimizing queries, or adding indexes, and then to re-measure because the bottleneck will move."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "tools",
+      "payload": {
+        "text": "Three categories of tools, used together:\n\n**1. Profilers** find where time goes *within* a process:\n- CPU profilers (perf, py-spy, pprof, async-profiler) — flame graphs show which functions dominate.\n- Memory profilers — find allocations, leaks, GC pressure.\n- Lock-contention profilers — find blocked threads.\n- Database query analysis (EXPLAIN ANALYZE, slow query log, pg_stat_statements).\n\n**2. Load testing** drives controlled, repeatable load through the whole system:\n- k6, Gatling, Locust, JMeter — generate synthetic traffic at a target RPS.\n- Replay production traffic (shadow traffic) — most realistic but operationally risky.\n- Find the knee: gradually increase RPS until latency degrades or errors spike. That's your capacity ceiling.\n- Soak tests: hold high load for hours to find leaks and steady-state issues.\n\n**3. APM (Application Performance Monitoring)** observes the system in production:\n- Distributed tracing (Jaeger, Zipkin, Datadog, Honeycomb) — see every span of a request across services.\n- Metrics (Prometheus, Grafana) — RED metrics (Rate, Errors, Duration), USE metrics (Utilization, Saturation, Errors).\n- Logs (ELK, Loki) — for context when metrics show anomalies.\n\nThe right order: use APM in production to find suspicious stages → load test to confirm → profile inside the slowest process to find the line of code → fix → verify with load test → monitor with APM."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "amdahl",
+      "payload": {
+        "title": "Amdahl's Law",
+        "body": "The speedup from improving one part of a system is limited by the fraction of total time that part takes. If the database is 80% of request latency, even infinitely fast application code only gives a 5× speedup. If you're going to optimize, optimize the bottleneck — everything else is rounding error. This is why measurement matters: human intuition routinely mis-estimates which stage dominates.",
+        "kind": "key"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "signs",
+      "payload": {
+        "text": "How to recognize a bottleneck from production signals:\n\n- **p99 latency >> p50 latency** — some requests are stuck behind a saturated resource. The tail tells you where the bottleneck bites.\n- **A queue is growing** — when consumers can't keep up, queue depth rises. The bottleneck is the consumer.\n- **One resource at 100% utilization while others are idle** — the saturated one is the bottleneck.\n- **Throughput plateaus as load increases** — adding load no longer increases throughput, only latency. You've hit the ceiling.\n- **Errors rise at a specific load threshold** — connection pool exhaustion, file descriptor exhaustion, memory pressure.\n- **Latency improves with caching but degrades without it** — the underlying store is the bottleneck, and the cache is masking it.\n\nClassic bottlenecks by tier:\n- **Network**: TCP retransmits, packet loss, saturated NIC.\n- **Load balancer**: SSL TPS limits, max connection count.\n- **Application**: GIL (Python), GC pauses (Java), event loop saturation (Node).\n- **Cache**: hot keys, eviction storms, connection exhaustion.\n- **Database**: missing indexes, lock contention, disk I/O, connection pool, slow queries.\n- **Downstream RPC**: synchronous chains, retry storms, head-of-line blocking.\n- **Disk**: fsync latency, log volume, swap."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q1",
+      "payload": {
+        "question": "Your API's p99 latency has been rising. CPU on the API servers is at 40%, memory at 50%, cache hit rate is 99%, but database CPU is at 92%. What is the most likely next step?",
+        "shape": "mcq",
+        "options": [
+          "Add more API servers — they have spare CPU but more can't hurt.",
+          "Increase the cache size — improving hit rate may help.",
+          "Investigate the database: slow query log, EXPLAIN ANALYZE, missing indexes, or add read replicas.",
+          "Rewrite the API in a faster language."
+        ],
+        "answer_index": 2,
+        "rationale": "The database at 92% CPU is the bottleneck — it's the saturated resource. Adding API servers won't help (they have spare capacity and aren't the limit). Growing the cache might marginally help since hit rate is already 99%, but the underlying issue is that the database is the bottleneck and the cache is already absorbing most reads. Rewriting the API is irrelevant — the API isn't the limit. The right move is to investigate the database: run EXPLAIN ANALYZE on slow queries, check pg_stat_statements, look for missing indexes or bad query patterns, and consider read replicas. After fixing it, re-measure — the bottleneck will move.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q2",
+      "payload": {
+        "question": "Which statement best reflects the iterative nature of bottleneck identification?",
+        "shape": "mcq",
+        "options": [
+          "Once you fix the bottleneck, the system is permanently faster.",
+          "After fixing the bottleneck, you must re-measure because the bottleneck will move to a different stage.",
+          "The bottleneck never moves — it's always the database.",
+          "Adding capacity to the non-bottleneck stages still helps overall throughput."
+        ],
+        "answer_index": 1,
+        "rationale": "Bottlenecks move. If the database was the limit at 95% CPU and you add read replicas, the database drops to 60% — but now the cache might hit 95%, or the network, or the application CPU. Only by re-measuring can you find the new bottleneck. Amdahl's Law applies iteratively: each new bottleneck is now the largest remaining fraction of total time. Adding capacity to non-bottleneck stages does nothing — water still flows at the rate of the narrowest pipe. Performance tuning is a loop: measure → fix → measure → fix, not a one-shot activity.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-bottleneck-identification-mental",
+      "payload": {
+        "text": "Engineering mental model",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-bottleneck-identification-mental",
+      "payload": {
+        "text": "**Mental model.** Think of Bottleneck Identification as a deliberate boundary in a system. The boundary exists because something becomes harder to manage when everything is done in one place: latency, scale, failure isolation, consistency, cost, or team ownership. The useful question is not “what does Bottleneck Identification mean?” but “what pressure makes this boundary worth introducing, and what new failure mode does it create?”"
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-bottleneck-identification-decision",
+      "payload": {
+        "title": "Design lens",
+        "body": "Before choosing Bottleneck Identification, name the workload, the critical user path, the dominant bottleneck, the failure you are trying to absorb, and the trade-off you are willing to accept. If you cannot name those five things, the design is probably premature.",
+        "kind": "info"
+      }
+    },
+    {
+      "type": "image",
+      "id": "upgrade-image-bottleneck-identification",
+      "payload": {
+        "src": "/learning-visuals/bottleneck-identification.svg",
+        "alt": "Original NO CAP systems visual for Bottleneck Identification.",
+        "caption": "Bottleneck Identification: a compact system-thinking visual.",
+        "credit": "Original NO CAP visual.",
+        "source_url": "https://github.com/donnemartin/system-design-primer"
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "upgrade-mermaid-bottleneck-identification",
+      "payload": {
+        "code": "flowchart LR\n  A[Client] --> B[Gateway] --> C[Service] --> D[State] --> E[Outcome]",
+        "caption": "Bottleneck Identification: a simplified system view showing the primary flow and the main state boundaries.",
+        "alt_text": "Bottleneck Identification: a simplified system view showing the primary flow and the main state boundaries."
+      }
+    },
+    {
+      "type": "code",
+      "id": "upgrade-code-bottleneck-identification",
+      "payload": {
+        "language": "text",
+        "code": "// Pseudocode\nrequest = receive()\nresult = bottleneck_identification(request)\nreturn result\n\n// Production questions:\n// 1. What happens on timeout?\n// 2. Can this operation be retried safely?\n// 3. What is the bottleneck?",
+        "caption": "A minimal engineering sketch for reasoning about Bottleneck Identification."
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-bottleneck-identification-numbers",
+      "payload": {
+        "text": "Back-of-the-envelope reasoning",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-bottleneck-identification-numbers",
+      "payload": {
+        "text": "Numerical lens: write down traffic, payload size, read/write ratio, peak multiplier and durability target before choosing a component. The numbers should justify the architecture."
+      }
+    },
+    {
+      "type": "simulation",
+      "id": "upgrade-sim-bottleneck-identification",
+      "payload": {
+        "title": "Interactive thought experiment: Bottleneck Identification",
+        "description": "Change the variables below and predict what breaks first in Bottleneck Identification. The production lab can later reuse these same inputs.",
+        "variables": [
+          {
+            "name": "traffic",
+            "description": "Requests/events per second",
+            "default": "1000"
+          },
+          {
+            "name": "latency",
+            "description": "Dependency latency",
+            "default": "50ms"
+          },
+          {
+            "name": "failure_rate",
+            "description": "Injected failure rate",
+            "default": "0%"
+          }
+        ],
+        "placeholder_note": "Interactive controls are deterministic; use the linked Labs section when a dedicated lab exists."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-bottleneck-identification-hint",
+      "payload": {
+        "title": "Hint",
+        "body": "If you are stuck on Bottleneck Identification, start by drawing the request path and marking every network hop, stateful component, queue, cache and failure boundary. Then estimate where the system will saturate.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-bottleneck-identification-1",
+      "payload": {
+        "shape": "prediction",
+        "question": "You increase traffic by 10× in a system using Bottleneck Identification. What should you inspect first?",
+        "options": [
+          "The newest framework version",
+          "The dominant bottleneck and its saturation signal",
+          "Only the UI",
+          "Nothing; the architecture should absorb any traffic automatically"
+        ],
+        "answer_index": 1,
+        "rationale": "System design is a constraint-and-bottleneck exercise. Start with the resource or dependency that will saturate first, then choose the smallest change that removes that bottleneck.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-bottleneck-identification-2",
+      "payload": {
+        "shape": "mcq",
+        "question": "Which statement is the safest engineering habit when using Bottleneck Identification?",
+        "options": [
+          "Choose it because it is popular",
+          "Add it before measuring the problem",
+          "State the workload, failure mode and trade-off it is solving",
+          "Use the most distributed design possible"
+        ],
+        "answer_index": 2,
+        "rationale": "Good architecture starts from requirements, workload and failure assumptions. The component is the consequence of that reasoning, not the starting point.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "scenario",
+      "id": "upgrade-scenario-bottleneck-identification",
+      "payload": {
+        "prompt": "Production scenario: your system uses Bottleneck Identification, traffic suddenly spikes, and p99 latency doubles. What is your first move?",
+        "context": "You have dashboards for traffic, latency, errors and saturation. You can change the architecture, but every change has operational cost.",
+        "options": [
+          {
+            "id": "a",
+            "text": "Add more instances immediately",
+            "outcome": "This may help, but only if compute saturation is the bottleneck.",
+            "correct": false
+          },
+          {
+            "id": "b",
+            "text": "Inspect the bottleneck and its saturation signal first",
+            "outcome": "Correct: diagnose before scaling or introducing a new pattern.",
+            "correct": true
+          },
+          {
+            "id": "c",
+            "text": "Disable monitoring to reduce overhead",
+            "outcome": "This removes the evidence you need to diagnose the incident.",
+            "correct": false
+          }
+        ],
+        "rationale": "Measure the limiting resource or dependency first. A bottleneck can be compute, database I/O, network, cache misses, lock contention, downstream latency, or queue backlog.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-bottleneck-identification-interview",
+      "payload": {
+        "text": "Interview drill",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-bottleneck-identification-interview",
+      "payload": {
+        "text": "**Answer this without notes:** When would you choose Bottleneck Identification, and when would you intentionally avoid it? Mention at least one bottleneck it addresses, one failure mode it introduces, and one alternative. Then quantify the workload you are designing for."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "field-guide-bottleneck-identification",
+      "payload": {
+        "title": "Engineering lens",
+        "body": "A useful engineering lens for Bottleneck Identification: define the problem it solves, the simpler design that fails first, the constraint that forces you to introduce this concept, and the new failure modes the concept creates.",
+        "kind": "tip"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "numerical-lens-bottleneck-identification",
+      "payload": {
+        "text": "### Numerical sanity check\n\nBack-of-the-envelope reasoning beats fake precision. State your traffic, payload, concurrency and growth assumptions explicitly, then calculate enough to know whether the current architecture is orders of magnitude away from the target."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "field-question-bottleneck-identification",
+      "payload": {
+        "shape": "prediction",
+        "question": "Imagine the simplest version of a system using Bottleneck Identification. What breaks first as traffic grows by 10×, and what would you change before reaching 100×?",
+        "context": "Do not optimize for a memorized definition. Reason from the workload and failure mode.",
+        "options": [
+          "Scale the same component immediately.",
+          "Measure the current bottleneck and state the assumption that changed.",
+          "Add more technologies until throughput improves.",
+          "Choose the most popular architecture."
+        ],
+        "answer_index": 1,
+        "rationale": "Good system design starts with the bottleneck and the changed constraint. The most popular or complex choice is not automatically correct.",
+        "difficulty": "interview"
+      }
+    }
+  ],
+  "trade_offs": {
+    "pros": [
+      "Measurement-driven optimization avoids wasted effort on non-bottlenecks.",
+      "Capacity planning becomes grounded in real numbers, not guesses.",
+      "Bottleneck-driven design often surfaces architecture issues (missing cache, missing index, wrong storage choice) that compound in cost over time.",
+      "A shared bottleneck vocabulary (USE, RED) makes on-call and capacity conversations efficient."
+    ],
+    "cons": [
+      "Instrumentation has overhead — profiling at full fidelity slows the system.",
+      "Load tests are never as realistic as production traffic — synthetic load can miss real bottlenecks.",
+      "APM tools are expensive at scale; sampling reduces cost but loses signal.",
+      "Bottleneck fixes can be invasive — denormalization, sharding, rewriting code all carry operational risk."
+    ]
+  },
+  "failure_modes": [
+    "Profiling in dev with non-representative data — the bottleneck in prod is different.",
+    "Optimizing for p50 instead of p99 — average latency hides the worst users' experience.",
+    "Load test that doesn't ramp gradually — finds breakage but not the knee where latency degrades.",
+    "Adding capacity instead of fixing the root cause — more DB servers mask the missing index but don't fix it.",
+    "Caching the bottleneck away — cache hit rate looks great, but cold-cache scenarios (restart, eviction storm) cause outages.",
+    "Confusing saturation with errors — a 95% CPU database may still be fine; a 100% connection-pool database is failing."
+  ],
+  "common_mistakes": [
+    "Trusting intuition over measurement — the bottleneck is almost never where you guess.",
+    "Optimizing non-bottleneck stages — wasted effort, no throughput gain.",
+    "Not re-measuring after a fix — assuming the old bottleneck is still the limit.",
+    "Treating load tests as a pass/fail gate instead of a discovery tool — the goal is to find the bottleneck, not to certify 'we can handle X RPS.'",
+    "Single-metric obsession — watching CPU only, ignoring queue depth, latency, errors.",
+    "Micro-optimizing code (e.g., rewriting in Rust) before addressing architecture (missing index, N+1 query, sync RPC chain)."
+  ],
+  "where_you_see_it": [
+    "Capacity planning — every quarter, 'where will we hit the wall next?'",
+    "Performance tuning sprints — fix-the-bottleneck is the entire sprint goal.",
+    "Incident root cause analysis — 'latency spiked because X saturated.'",
+    "Pre-launch load tests — gate the launch on hitting a target RPS at acceptable p99.",
+    "System design interviews — 'how would you find what's slow in your design?'"
+  ],
+  "interview_prompts": [
+    "Your service's p99 latency has tripled overnight. Walk me through how you'd identify the bottleneck.",
+    "How do you decide between adding more replicas, adding a cache, optimizing queries, or rewriting code when your service is slow?",
+    "Explain the difference between utilization, saturation, and errors (USE method). Why is each useful?",
+    "Your load test says the system handles 10k RPS, but production fails at 7k RPS. What could explain the gap?",
+    "What is Amdahl's Law, and why does it matter for performance tuning?"
+  ],
+  "real_system_mappings": [
+    {
+      "system": "Brendan Gregg's USE Method",
+      "how": "Utilization, Saturation, Errors per resource — a checklist for finding bottlenecks in production. Walk every resource, check all three, find the saturated one."
+    },
+    {
+      "system": "Netflix Vector / Atlas",
+      "how": "Netflix's high-dimensional time-series monitoring lets engineers spot the bottleneck dimension (per-host, per-endpoint, per-region) at a glance, used heavily for capacity planning and incident response."
+    },
+    {
+      "system": "Google's ‘Latency from the Trenches’ (Dean & Barroso)",
+      "how": "Google's published practice of building latency-sensitive systems by continuously measuring tail latency at every tier and attacking the longest pole — an industry template for iterative bottleneck removal."
+    }
+  ],
+  "status": "published",
+  "sources": [
+    {
+      "title": "System Design Primer",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Open source"
+    },
+    {
+      "title": "ByteByteGo — Scale from zero to millions",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "ByteByteGo"
+    },
+    {
+      "title": "System Design Tutorial",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "GeeksforGeeks"
+    },
+    {
+      "title": "System Design Roadmap",
+      "url": "https://roadmap.sh/system-design",
+      "publisher": "roadmap.sh"
+    },
+    {
+      "title": "Interview Preparation reference",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Interview Preparation reference",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Interview Preparation reference",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "Reference"
+    },
+    {
+      "title": "ByteByteGo — Scaling Websites",
+      "url": "https://bytebytego.com/guides/how-to-scale-a-website-to-support-millions-of-users/",
+      "publisher": "ByteByteGo"
+    }
+  ]
+}

@@ -43,6 +43,14 @@ const ACTIONS: ResultRow[] = [
   },
   {
     type: 'action',
+    title: 'Open Labs',
+    subtitle: 'Interactive system-design simulations',
+    href: '/labs',
+    group: 'Actions',
+    meta: 'L',
+  },
+  {
+    type: 'action',
     title: 'Open Roadmap',
     subtitle: 'See the dependency graph',
     href: '/roadmap',

@@ -1,0 +1,420 @@
+{
+  "slug": "service-mesh",
+  "version": 3,
+  "title": "Service Mesh",
+  "phase": "design-patterns",
+  "area": "Design Patterns",
+  "estimated_minutes": 7,
+  "difficulty": "expert",
+  "summary": "A service mesh is an infrastructure layer that handles service-to-service communication, built from two planes: a data plane (sidecar proxies like Envoy intercepting all traffic) and a control plane (a central API that configures the proxies). The mesh provides mTLS, retries, circuit breaking, traffic shifting, observability, and policy uniformly across a polyglot fleet — without applications knowing it exists. Service code stops worrying about operational concerns; the mesh handles them. Istio and Linkerd are the canonical open-source implementations; AWS App Mesh and Consul Connect are alternatives.",
+  "why_it_matters": "In a microservice fleet with hundreds of services in multiple languages, every service needs the same operational concerns: secure communication (mTLS), resilience (retries, circuit breaking, timeouts), traffic management (canary deployments, A/B testing), and observability (traces, metrics, logs). Implementing these as libraries means N implementations that drift; implementing them in app code means every team re-solves the same problems. The service mesh extracts all of this into a dedicated infrastructure layer managed by a central control plane — one policy update propagates across the fleet, applications stay focused on business logic.",
+  "prerequisites": [
+    "sidecar",
+    "microservices"
+  ],
+  "related": [
+    "sidecar",
+    "circuit-breaker",
+    "rate-limiting",
+    "tls"
+  ],
+  "used_in": [
+    "Polyglot microservice fleets (Istio, Linkerd).",
+    "Zero-trust networks — mTLS between every service pair.",
+    "Canary and blue/green deployments via traffic shifting.",
+    "Multi-cluster and multi-mesh federations."
+  ],
+  "blocks": [
+    {
+      "type": "prose",
+      "id": "intro",
+      "payload": {
+        "text": "A service mesh is a dedicated infrastructure layer for service-to-service communication. It has two distinct planes:\n\n**Data plane**: a network of proxies (one per pod, as a sidecar) that intercept all traffic in and out of every service. The proxy does the actual work — mTLS, retries, circuit breaking, load balancing, observability — without the application knowing. Envoy is the dominant data-plane proxy; Linkerd uses linkerd2-proxy.\n\n**Control plane**: a set of central services that the operators talk to. The control plane takes high-level configuration (‘service A can call service B with mTLS and a 50ms timeout’) and pushes it to every data-plane proxy. Operators configure once; the control plane propagates everywhere. Istio's control plane is istiod; Linkerd's is linkerd-control-plane.\n\nThe two planes decouple operation from configuration:\n- **Operators** talk to the control plane — set policy, view topology, debug issues.\n- **Data plane** executes that policy at runtime — proxies run in every pod.\n- **Applications** are unaware — they just make HTTP/gRPC calls to localhost; the sidecar intercepts and applies policy.\n\nKey capabilities a mesh provides:\n- **mTLS everywhere** — every service-to-service call is encrypted and authenticated, with certificates rotated automatically by the control plane. This is the foundation of zero-trust.\n- **Traffic management** — fine-grained routing rules: send 10% of traffic to the new version (canary), split between two versions (A/B), route by header.\n- **Resilience** — retries, circuit breaking, timeouts, outlier detection — uniformly configured across the fleet.\n- **Observability** — distributed tracing, golden-signal metrics (RED: Rate, Errors, Duration), service topology maps — automatically, without app code.\n- **Policy enforcement** — rate limiting, access control (which service can call which).\n\nThe mesh is the operational platform for microservices — like TCP/IP is for networks, but for service-to-service concerns."
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "two-planes",
+      "payload": {
+        "code": "flowchart TD\n    N0[\"CONTROL\"]\n    N1[\"PLANE\"]\n    N2[\"Istiod / Linkerd control-plane\"]\n    N3[\"(Istiod\"]\n    N4[\"Linkerd\"]\n    N5[\"control\"]\n    N6[\"plane)\"]\n    N7[\"accepts\"]\n    N8[\"config\"]\n    N9[\"from\"]\n    N10[\"operators\"]\n    N11[\"issues\"]\n    N12[\"rotates\"]\n    N13[\"mTLS\"]\n    N14[\"certs\"]\n    N15[\"pushes\"]\n    N16[\"data\"]\n    N17[\"plane\"]\n    N18[\"proxies\"]\n    N19[\"aggregates\"]\n    N20[\"telemetry\"]\n    N21[\"push / xDS\"]\n    N22[\"report\"]\n    N23[\"(push\"]\n    N24[\"xDS)\"]\n    N25[\"(report)\"]\n    N26[\"DATA\"]\n    N27[\"Envoy / linkerd2-proxy sidecars in every pod\"]\n    N28[\"(Envoy\"]\n    N29[\"linkerd2\"]\n    N30[\"proxy\"]\n    N31[\"sidecars\"]\n    N32[\"every\"]\n    N33[\"pod)\"]\n    N34[\"Pod\"]\n    N35[\"app\"]\n    N36[\"all\"]\n    N37[\"inter\"]\n    N38[\"pod\"]\n    N39[\"traffic\"]\n    N40[\"mTLS'd\"]\n    N41[\"traced\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41",
+        "caption": "Service mesh architecture: control plane configures, data plane (proxies) executes. Every pod-to-pod call is intercepted, encrypted, retried, traced — without app code.",
+        "alt_text": "A diagram with two layers. The top layer is the control plane — Istiod or Linkerd control-plane — which accepts config from operators, issues and rotates mutual TLS certificates, pushes config to data-plane proxies, and aggregates telemetry. Below it is the data plane — Envoy or linkerd2-proxy sidecars running in every pod. Four pods are shown, each containing an app and a proxy. The pods communicate with each other via mTLS and are traced. The control plane pushes config and certs down via xDS; the data plane reports telemetry up. All inter-pod traffic is mutually TLS-encrypted and traced without the app code knowing."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "why-mesh",
+      "payload": {
+        "text": "Why adopt a service mesh? The case has three parts:\n\n**1. Polyglot fleets need uniform concerns.** A fleet with services in Go, Python, Java, and Node needs mTLS, retries, circuit breaking, tracing in every service. With libraries, that's four implementations that drift. With a mesh, it's one sidecar.\n\n**2. Zero-trust requires mTLS everywhere.** Network perimeter security is dead; modern architectures encrypt every hop. A mesh automates mTLS — cert issuance, rotation, revocation — across the entire fleet. Without a mesh, every service must manage its own certs.\n\n**3. Operational policy must be centrally managed.** ‘Service A may call service B with a 100ms timeout, retry twice, and circuit-break after 5 failures.’ With libraries, this lives in every service's config. With a mesh, it's a single VirtualService rule in the control plane — observable, auditable, rollbackable.\n\nWhen NOT to adopt a mesh:\n- **Small fleets (< 10 services)** — the operational overhead exceeds the benefit. Use library-based resilience.\n- **Single-language fleets** — libraries work fine; one implementation, no drift.\n- **Greenfield with no legacy** — start simpler; adopt a mesh when you have a real polyglot fleet.\n- **Teams not ready to operate it** — a mesh is a platform with significant operational cost; if you don't have the team to run it, it makes things worse, not better.\n\nThe mesh is a force multiplier for large, polyglot, security-conscious fleets. For small or homogeneous fleets, it's overhead without payoff."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "ambient",
+      "payload": {
+        "title": "Sidecar vs Ambient Mesh",
+        "body": "Istio's ambient mesh (2023+) and Cilium's eBPF-based networking represent the next evolution: instead of a sidecar per pod, a node-level proxy handles traffic for all pods on that node. This reduces resource overhead (one proxy per node, not per pod), simplifies lifecycle (no pod restart to upgrade the proxy), and enables selective mTS (only encrypt where needed). The trade-off is more complex routing and a less mature ecosystem. Sidecars remain the default; ambient and eBPF approaches are the future.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "tradeoffs",
+      "payload": {
+        "text": "The service mesh's costs are real and frequently underestimated:\n\n- **Resource overhead**: every pod runs an extra proxy (Envoy ~100MB, linkerd2-proxy ~20MB). For a 1,000-pod fleet, that's 20-100GB of RAM just for proxies.\n- **Latency overhead**: every request traverses the sidecar (and the remote sidecar), adding 1-5ms per hop. Latency-sensitive paths notice.\n- **Operational complexity**: debugging now spans app + sidecar + control plane. The mesh has its own failure modes — bad config, cert rotation issues, version skew — that can take down the fleet.\n- **Learning curve**: operators must learn CRDs (VirtualService, DestinationRule, ServiceEntry, PeerAuthentication) and the mesh's mental model. Mistakes are easy.\n- **Upgrade risk**: mesh upgrades can break the fleet. Version skew between control plane and data plane must be managed carefully.\n- **Lock-in**: while Istio and Linkerd are open source, the operational investment is significant. Switching meshes is a multi-month project.\n\nMitigations:\n- **Right-size the sidecar** — tune Envoy's resource limits; don't over-provision.\n- **Start with observability, not enforcement** — adopt the mesh's tracing first, then mTLS, then traffic rules. Each capability is a separate migration.\n- **Canary mesh upgrades** — upgrade one namespace at a time, not the whole fleet.\n- **Run the mesh's control plane HA** — if istiod dies, no new config propagates (existing proxies keep working with cached config).\n- **Have a bypass plan** — for critical latency paths, allow direct calls bypassing the sidecar.\n\nThe mesh is a powerful platform, but it's a platform you must operate. Underestimate the operational cost and you'll regret adopting it; overestimate the cost and you'll never get the benefits."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q1",
+      "payload": {
+        "question": "What are the two planes of a service mesh, and what is the role of each?",
+        "shape": "mcq",
+        "options": [
+          "Data plane = the proxies (sidecars) that intercept and apply policy at runtime. Control plane = central services that operators configure to push policy down to the proxies.",
+          "Data plane = the databases; control plane = the API servers.",
+          "Data plane = the control plane's configuration; control plane = the proxies.",
+          "Both planes are the same — the mesh is a single layer."
+        ],
+        "answer_index": 0,
+        "rationale": "A service mesh is defined by its two-plane split. The data plane is the network of proxies (Envoy sidecars in every pod) that actually handle traffic — mTLS, retries, circuit breaking, observability. The control plane is the central set of services (Istiod for Istio, the linkerd-control-plane for Linkerd) that operators configure; it pushes config to the proxies and aggregates telemetry. The split lets operators set policy in one place (control plane) and have it executed fleet-wide (data plane) without touching application code. The other options are wrong: (b) confuses the mesh with the data layer; (c) reverses the planes; (d) is the whole point — there are two distinct planes.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q2",
+      "payload": {
+        "question": "A startup has 5 microservices, all written in Go, deployed in a single Kubernetes cluster. Should they adopt a service mesh?",
+        "shape": "mcq",
+        "options": [
+          "Yes — every microservice fleet benefits from a mesh.",
+          "Probably not — with 5 services in one language, library-based mTLS/retries/tracing are simpler and the mesh's operational overhead exceeds the benefit.",
+          "Yes — they need mTLS for security.",
+          "Yes — they need traffic shifting for canaries."
+        ],
+        "answer_index": 1,
+        "rationale": "A service mesh's benefits scale with fleet size, language diversity, and security requirements. With 5 services in one language (Go), library-based mTLS (e.g., a Go gRPC middleware), retries (e.g., go-resilience), and tracing (e.g., OpenTelemetry Go SDK) are sufficient — and far simpler to operate than Istio or Linkerd. The mesh's operational cost — extra sidecars, control plane to operate, CRDs to learn, upgrades to manage — is real and substantial. mTLS (c) and canaries (d) are achievable without a mesh. The mesh becomes worth it when the fleet grows to dozens of services in multiple languages, or when zero-trust is mandatory (regulated industries). For a small homogeneous fleet, libraries are the right answer. Adopting a mesh prematurely is a common anti-pattern.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-service-mesh-mental",
+      "payload": {
+        "text": "Engineering mental model",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-service-mesh-mental",
+      "payload": {
+        "text": "**Mental model.** Think of Service Mesh as a deliberate boundary in a system. The boundary exists because something becomes harder to manage when everything is done in one place: latency, scale, failure isolation, consistency, cost, or team ownership. The useful question is not “what does Service Mesh mean?” but “what pressure makes this boundary worth introducing, and what new failure mode does it create?”"
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-service-mesh-decision",
+      "payload": {
+        "title": "Design lens",
+        "body": "Before choosing Service Mesh, name the workload, the critical user path, the dominant bottleneck, the failure you are trying to absorb, and the trade-off you are willing to accept. If you cannot name those five things, the design is probably premature.",
+        "kind": "info"
+      }
+    },
+    {
+      "type": "image",
+      "id": "upgrade-image-service-mesh",
+      "payload": {
+        "src": "/learning-visuals/service-mesh.svg",
+        "alt": "Original NO CAP systems visual for Service Mesh.",
+        "caption": "Service Mesh: a compact system-thinking visual.",
+        "credit": "Original NO CAP visual.",
+        "source_url": "https://github.com/donnemartin/system-design-primer"
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "upgrade-mermaid-service-mesh",
+      "payload": {
+        "code": "flowchart LR\n  A[Client] --> B[Gateway] --> C[Service] --> D[State] --> E[Outcome]",
+        "caption": "Service Mesh: a simplified system view showing the primary flow and the main state boundaries.",
+        "alt_text": "Service Mesh: a simplified system view showing the primary flow and the main state boundaries."
+      }
+    },
+    {
+      "type": "code",
+      "id": "upgrade-code-service-mesh",
+      "payload": {
+        "language": "text",
+        "code": "// Pseudocode\nrequest = receive()\nresult = service_mesh(request)\nreturn result\n\n// Production questions:\n// 1. What happens on timeout?\n// 2. Can this operation be retried safely?\n// 3. What is the bottleneck?",
+        "caption": "A minimal engineering sketch for reasoning about Service Mesh."
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-service-mesh-numbers",
+      "payload": {
+        "text": "Back-of-the-envelope reasoning",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-service-mesh-numbers",
+      "payload": {
+        "text": "Numerical lens: write down traffic, payload size, read/write ratio, peak multiplier and durability target before choosing a component. The numbers should justify the architecture."
+      }
+    },
+    {
+      "type": "simulation",
+      "id": "upgrade-sim-service-mesh",
+      "payload": {
+        "title": "Interactive thought experiment: Service Mesh",
+        "description": "Change the variables below and predict what breaks first in Service Mesh. The production lab can later reuse these same inputs.",
+        "variables": [
+          {
+            "name": "traffic",
+            "description": "Requests/events per second",
+            "default": "1000"
+          },
+          {
+            "name": "latency",
+            "description": "Dependency latency",
+            "default": "50ms"
+          },
+          {
+            "name": "failure_rate",
+            "description": "Injected failure rate",
+            "default": "0%"
+          }
+        ],
+        "placeholder_note": "Interactive controls are deterministic; use the linked Labs section when a dedicated lab exists."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-service-mesh-hint",
+      "payload": {
+        "title": "Hint",
+        "body": "If you are stuck on Service Mesh, start by drawing the request path and marking every network hop, stateful component, queue, cache and failure boundary. Then estimate where the system will saturate.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-service-mesh-1",
+      "payload": {
+        "shape": "prediction",
+        "question": "You increase traffic by 10× in a system using Service Mesh. What should you inspect first?",
+        "options": [
+          "The newest framework version",
+          "The dominant bottleneck and its saturation signal",
+          "Only the UI",
+          "Nothing; the architecture should absorb any traffic automatically"
+        ],
+        "answer_index": 1,
+        "rationale": "System design is a constraint-and-bottleneck exercise. Start with the resource or dependency that will saturate first, then choose the smallest change that removes that bottleneck.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-service-mesh-2",
+      "payload": {
+        "shape": "mcq",
+        "question": "Which statement is the safest engineering habit when using Service Mesh?",
+        "options": [
+          "Choose it because it is popular",
+          "Add it before measuring the problem",
+          "State the workload, failure mode and trade-off it is solving",
+          "Use the most distributed design possible"
+        ],
+        "answer_index": 2,
+        "rationale": "Good architecture starts from requirements, workload and failure assumptions. The component is the consequence of that reasoning, not the starting point.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "scenario",
+      "id": "upgrade-scenario-service-mesh",
+      "payload": {
+        "prompt": "Production scenario: your system uses Service Mesh, traffic suddenly spikes, and p99 latency doubles. What is your first move?",
+        "context": "You have dashboards for traffic, latency, errors and saturation. You can change the architecture, but every change has operational cost.",
+        "options": [
+          {
+            "id": "a",
+            "text": "Add more instances immediately",
+            "outcome": "This may help, but only if compute saturation is the bottleneck.",
+            "correct": false
+          },
+          {
+            "id": "b",
+            "text": "Inspect the bottleneck and its saturation signal first",
+            "outcome": "Correct: diagnose before scaling or introducing a new pattern.",
+            "correct": true
+          },
+          {
+            "id": "c",
+            "text": "Disable monitoring to reduce overhead",
+            "outcome": "This removes the evidence you need to diagnose the incident.",
+            "correct": false
+          }
+        ],
+        "rationale": "Measure the limiting resource or dependency first. A bottleneck can be compute, database I/O, network, cache misses, lock contention, downstream latency, or queue backlog.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-service-mesh-interview",
+      "payload": {
+        "text": "Interview drill",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-service-mesh-interview",
+      "payload": {
+        "text": "**Answer this without notes:** When would you choose Service Mesh, and when would you intentionally avoid it? Mention at least one bottleneck it addresses, one failure mode it introduces, and one alternative. Then quantify the workload you are designing for."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "field-guide-service-mesh",
+      "payload": {
+        "title": "Engineering lens",
+        "body": "A useful engineering lens for Service Mesh: define the problem it solves, the simpler design that fails first, the constraint that forces you to introduce this concept, and the new failure modes the concept creates.",
+        "kind": "tip"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "numerical-lens-service-mesh",
+      "payload": {
+        "text": "### Numerical sanity check\n\nBack-of-the-envelope reasoning beats fake precision. State your traffic, payload, concurrency and growth assumptions explicitly, then calculate enough to know whether the current architecture is orders of magnitude away from the target."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "field-question-service-mesh",
+      "payload": {
+        "shape": "prediction",
+        "question": "Imagine the simplest version of a system using Service Mesh. What breaks first as traffic grows by 10×, and what would you change before reaching 100×?",
+        "context": "Do not optimize for a memorized definition. Reason from the workload and failure mode.",
+        "options": [
+          "Scale the same component immediately.",
+          "Measure the current bottleneck and state the assumption that changed.",
+          "Add more technologies until throughput improves.",
+          "Choose the most popular architecture."
+        ],
+        "answer_index": 1,
+        "rationale": "Good system design starts with the bottleneck and the changed constraint. The most popular or complex choice is not automatically correct.",
+        "difficulty": "interview"
+      }
+    }
+  ],
+  "trade_offs": {
+    "pros": [
+      "Uniform cross-cutting concerns (mTLS, retries, circuit breaking, observability) across a polyglot fleet.",
+      "Centralized policy via control plane — one config update propagates fleet-wide.",
+      "Zero-trust mTLS automated — certificate issuance, rotation, and revocation handled by the mesh.",
+      "Fine-grained traffic control — canaries, A/B tests, blue/green deployments via routing rules.",
+      "Rich observability — distributed tracing and RED metrics for free, across all services.",
+      "Application code stays small and focused on business logic."
+    ],
+    "cons": [
+      "Significant operational complexity — a new platform to operate, with its own failure modes.",
+      "Resource overhead — every pod runs an extra proxy (Envoy ~100MB, linkerd2-proxy ~20MB).",
+      "Latency overhead — every request traverses the sidecar, adding 1-5ms per hop.",
+      "Learning curve — operators must learn CRDs, the mesh's mental model, and its debugging flow.",
+      "Upgrade risk — mesh upgrades can break the fleet if not done carefully.",
+      "Lock-in — significant operational investment; switching meshes is a multi-month project."
+    ]
+  },
+  "failure_modes": [
+    "Sidecar crash takes down all traffic to the pod — needs careful resource limits and pod-level health checks.",
+    "Cert rotation bug — expired or invalid certs break mTLS fleet-wide; needs monitoring.",
+    "Control plane outage — no new config propagates, but existing proxies keep working with cached config.",
+    "Bad VirtualService rule — misconfigured routing sends traffic to the wrong place or drops it.",
+    "Version skew — control plane and data plane out of sync, causing subtle bugs.",
+    "Resource exhaustion — sidecars consume more CPU/memory than expected, causing node pressure.",
+    "Transparent iptables redirection broken — outbound traffic bypasses the sidecar, losing policy enforcement."
+  ],
+  "common_mistakes": [
+    "Adopting a mesh prematurely — for small or single-language fleets, libraries are simpler.",
+    "Enabling all features at once — start with observability, then mTLS, then traffic rules.",
+    "Not budgeting operational cost — running a mesh is running a platform; needs dedicated engineers.",
+    "Ignoring sidecar resource limits — Envoy can OOM pods under load.",
+    "Upgrading the mesh without a canary plan — mesh upgrades can break the fleet.",
+    "Treating the mesh as a black box — when the mesh breaks, you must be able to debug it; understand its data flow."
+  ],
+  "where_you_see_it": [
+    "Istio — the dominant open-source service mesh; Envoy as data plane, istiod as control plane.",
+    "Linkerd — lighter alternative; linkerd2-proxy as data plane, CNCF graduated.",
+    "Consul Connect — HashiCorp's mesh; integrates with their ecosystem.",
+    "AWS App Mesh — managed mesh for EKS/ECS.",
+    "Open Service Mesh (OSM) — Microsoft's contribution; lighter-weight Istio alternative.",
+    "Cilium Service Mesh — eBPF-based, sidecar-less approach."
+  ],
+  "interview_prompts": [
+    "What is a service mesh? Describe its two planes and what each does.",
+    "When should you adopt a service mesh, and when should you NOT? Give concrete criteria.",
+    "How does a service mesh automate mTLS across a fleet? What happens when a certificate expires?",
+    "How would you do a canary deployment using a service mesh? Without one?",
+    "What are the operational costs of running a service mesh, and how do you justify them to a non-technical stakeholder?"
+  ],
+  "real_system_mappings": [
+    {
+      "system": "Istio",
+      "how": "The most widely deployed open-source service mesh. Envoy as the data plane (sidecar injected into every pod), istiod as the control plane. Provides mTLS, traffic management (VirtualService, DestinationRule CRDs), and rich observability. Used by eBay, IBM, and many large enterprises."
+    },
+    {
+      "system": "Linkerd",
+      "how": "CNCF-graduated service mesh, optimized for low resource usage. Uses linkerd2-proxy (Rust) instead of Envoy. Provides the same core capabilities as Istio with a fraction of the resource overhead. Used by companies like PlanetScale and DoorDash."
+    },
+    {
+      "system": "Envoy (as a standalone data plane)",
+      "how": "Even without a full mesh, Envoy is widely deployed as a sidecar proxy at companies like Lyft (where it originated), Twitter, and Stripe. Many teams adopt Envoy directly, then graduate to a full mesh (Istio/Consul) as their fleet grows."
+    }
+  ],
+  "status": "published",
+  "sources": [
+    {
+      "title": "System Design Primer",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Open source"
+    },
+    {
+      "title": "ByteByteGo — Scale from zero to millions",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "ByteByteGo"
+    },
+    {
+      "title": "System Design Tutorial",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "GeeksforGeeks"
+    },
+    {
+      "title": "System Design Roadmap",
+      "url": "https://roadmap.sh/system-design",
+      "publisher": "roadmap.sh"
+    },
+    {
+      "title": "Design Patterns reference",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Design Patterns reference",
+      "url": "https://learn.microsoft.com/en-us/azure/architecture/patterns/",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Design Patterns reference",
+      "url": "https://martinfowler.com/",
+      "publisher": "Reference"
+    }
+  ]
+}

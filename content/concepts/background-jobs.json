@@ -1,0 +1,425 @@
+{
+  "slug": "background-jobs",
+  "version": 3,
+  "title": "Background Jobs",
+  "phase": "architecture-infrastructure",
+  "area": "Architecture & Infrastructure",
+  "estimated_minutes": 7,
+  "difficulty": "core",
+  "summary": "A background job is a unit of work performed outside the request/response cycle. Instead of doing slow, expensive, or non-critical work synchronously while the user waits, the application enqueues a job (with a message broker or database row) and returns immediately. Workers pick up the job asynchronously and execute it. Patterns include fire-and-forget, scheduled jobs (cron), deferred work, and retries on failure.",
+  "why_it_matters": "Per-request latency is the user-visible currency of your system. Anything you do synchronously — sending a welcome email, generating a PDF, processing a 50 MB upload, calling a slow third-party API — is paid for by every user who triggers it. Background jobs move that cost off the request path: the user gets a fast response, the work happens later, and failures can be retried without bothering the user. Systems that don't use background jobs tend to be slow, fragile, and prone to cascading timeouts.",
+  "prerequisites": [
+    "application-layer"
+  ],
+  "related": [
+    "task-queues",
+    "message-queues"
+  ],
+  "used_in": [
+    "Sending transactional emails, push notifications, and SMS.",
+    "Image/video processing, PDF generation, report compilation.",
+    "Scheduled maintenance: nightly rollups, expired-session cleanup, weekly summaries.",
+    "Calling slow third-party APIs (payments, AI inference, webhooks) without blocking the user."
+  ],
+  "blocks": [
+    {
+      "type": "prose",
+      "id": "the-problem",
+      "payload": {
+        "text": "**The problem:**\n\nA user signs up. Your handler:\n1. Inserts a row in the database — 5ms.\n2. Sends a welcome email via SendGrid — 800ms.\n3. Generates an onboarding PDF — 1.5s.\n4. Calls an analytics service — 300ms.\n\nTotal: ~2.6 seconds of waiting. The user stares at a spinner for nearly three seconds for a signup that should be instant. Worse: if SendGrid has an outage, your signup endpoint times out — users cannot even create an account, because your third-party email provider is down.\n\nThe lesson is general: **synchronous work should be the minimum needed to acknowledge the user's intent. Everything else belongs in the background.** The signup handler should insert the user row, return 200, and let background workers handle the email, PDF, and analytics. The user gets a fast response; slow or failing dependencies don't break the core flow."
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "request-vs-async",
+      "payload": {
+        "code": "flowchart TD\n    N0[\"slow, fragile\"]\n    N1[\"fast, resilient\"]\n    N2[\"SYNCHRONOUS\"]\n    N3[\"(slow,\"]\n    N4[\"fragile)\"]\n    N5[\"ASYNC\"]\n    N6[\"(fast,\"]\n    N7[\"resilient)\"]\n    N8[\"User\"]\n    N9[\"API\"]\n    N10[\"inserts\"]\n    N11[\"row\"]\n    N12[\"enqueues\"]\n    N13[\"jobs\"]\n    N14[\"800ms\"]\n    N15[\"~10ms\"]\n    N16[\"sends\"]\n    N17[\"email\"]\n    N18[\"(800ms)\"]\n    N19[\"returns\"]\n    N20[\"200\"]\n    N21[\"(~10ms)\"]\n    N22[\"1.5s\"]\n    N23[\"generates\"]\n    N24[\"PDF\"]\n    N25[\"(1.5s)\"]\n    N26[\"Job Queue / Broker\"]\n    N27[\"300ms\"]\n    N28[\"calls\"]\n    N29[\"analytics\"]\n    N30[\"(300ms)\"]\n    N31[\"[Job\"]\n    N32[\"Queue\"]\n    N33[\"Broker]\"]\n    N34[\"~2.6s\"]\n    N35[\"(~2.6s)\"]\n    N36[\"consume\"]\n    N37[\"Worker Pool\"]\n    N38[\"[Worker\"]\n    N39[\"Pool]\"]\n    N40[\"Email\"]\n    N41[\"Analytics\"]\n    N42[\"[Email]\"]\n    N43[\"[PDF]\"]\n    N44[\"[Analytics]\"]\n    N45[\"retries on failure\"]\n    N46[\"(retries\"]\n    N47[\"failure)\"]\n    N48[\"waits\"]\n    N49[\"2.6s.\"]\n    N50[\"~10ms.\"]\n    N51[\"SendGrid\"]\n    N52[\"outage\"]\n    N53[\"signup\"]\n    N54[\"fails.\"]\n    N55[\"job\"]\n    N56[\"retries\"]\n    N57[\"later.\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44\n    N44 --> N45\n    N45 --> N46\n    N46 --> N47\n    N47 --> N48\n    N48 --> N49\n    N49 --> N50\n    N50 --> N51\n    N51 --> N52\n    N52 --> N53\n    N53 --> N54\n    N54 --> N55\n    N55 --> N56\n    N56 --> N57",
+        "caption": "Synchronous vs async: the user-facing request returns immediately; workers handle slow work and retries.",
+        "alt_text": "A side-by-side comparison. On the left, a synchronous flow: the API handler inserts a row, sends an email (800 milliseconds), generates a PDF (1.5 seconds), and calls an analytics service (300 milliseconds), then returns 200 — the user waits about 2.6 seconds. If SendGrid is down, signup fails entirely. On the right, an async flow: the API inserts the row, enqueues three jobs, and returns 200 in about 10 milliseconds. A worker pool consumes the jobs, each running at its own pace with retries on failure."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "patterns",
+      "payload": {
+        "text": "**Patterns of background work:**\n\n- **Fire-and-forget** — enqueue a job and never check back. Sending a welcome email, writing a metric, posting to a webhook. The job runs once; failures are logged and retried but the caller does not wait.\n- **Deferred work** — schedule a job to run at or after a specific time. 'Send the onboarding email 24 hours after signup.' 'Archive this draft in 7 days if unused.' Implemented with delayed-queue semantics (Sidekiq scheduled jobs, SQS delay seconds, Celery ETA).\n- **Scheduled / cron jobs** — run periodically: nightly rollups, expired-session cleanup, daily reports. Triggered by a cron scheduler that enqueues jobs at fixed times.\n- **Long-running jobs** — video transcoding, ML training, large report generation. Often split into chunks, with progress tracked in the database and surfaced to the user via polling or WebSocket.\n- **Fan-out / fan-in** — one trigger enqueues many jobs (process every frame of a video); when all finish, a final job aggregates results.\n\nUnderlying all of these is a job queue: a broker (Redis, RabbitMQ, SQS, Kafka) that holds the jobs and a worker pool that consumes them."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "when-to-go-async",
+      "payload": {
+        "text": "**When to move work out of the request path:**\n\nA useful decision rule: **if a piece of work is not strictly required to produce the response the user is waiting for, defer it.**\n\nConcrete signals:\n- The work takes more than ~50ms and the user doesn't need to see the result immediately.\n- The work depends on a third party whose availability you don't control (payments, email, analytics, AI).\n- The work is non-critical: if it fails, the user's primary intent should still succeed.\n- The work is periodic (cron), not triggered by a request at all.\n- The work is expensive enough that you want to retry it on failure (image processing, document generation).\n\nConversely, keep work synchronous when:\n- The user needs the result of the work to act (a checkout must authorize the charge before confirming the order).\n- The work is cheap and reliable (a database read, a cache check).\n- The cost of async (broker, worker, idempotency) outweighs the latency savings.\n\nIdempotency is the silent requirement for any background job. Because workers retry on failure, a job may run more than once. If the job sends a welcome email, double-sending on retry is annoying. If it charges a credit card, double-charging is a regulatory incident. Every background job must be safe to execute multiple times — typically by tracking an idempotency key in the database."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "poison-pill",
+      "payload": {
+        "title": "The poison-pill failure mode",
+        "body": "A job that always fails (e.g., a malformed payload, a deleted user, a code bug) will be retried until it hits the retry limit, then dropped into a dead-letter queue. But while it is being retried, it ties up a worker and consumes broker capacity. A flood of poison jobs can starve healthy jobs behind them. Mitigations: strict retry limits (e.g., 5 attempts with exponential backoff), per-job timeouts, dead-letter queues for inspection, and alerts when the DLQ is non-empty. Always bound retries — infinite retries are a self-inflicted DoS.",
+        "kind": "warning"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q1",
+      "payload": {
+        "question": "Your signup handler sends a welcome email synchronously via SendGrid. SendGrid has a 10-minute outage. What is the user-visible impact, and how would background jobs change it?",
+        "options": [
+          "Users still sign up successfully; the email is just delayed. No code change needed — SendGrid retries internally.",
+          "Signups fail entirely: the API waits for SendGrid to time out (often 30s+) and returns 500. Moving email send to a background job means signup returns immediately and the job retries later when SendGrid recovers.",
+          "Signups work but users get duplicate emails. Switching to a background job makes the duplication worse.",
+          "There is no impact because SendGrid is highly available."
+        ],
+        "answer_index": 1,
+        "rationale": "When the email send is inline with the request handler, a SendGrid outage propagates directly into the signup endpoint: the handler blocks on SendGrid's timeout (often 30+ seconds) and returns an error, even though the actual signup (the database insert) was unaffected. Moving the email send to a background job decouples it: the API enqueues a job and returns 200 immediately; the job worker retries the email with backoff and delivers it once SendGrid recovers. This is the canonical case for background jobs: isolate the user from third-party availability.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q2",
+      "payload": {
+        "question": "A background job charges a customer's credit card. The job succeeds, but a network blip prevents the worker from receiving the success response. The broker redelivers the job. What happens, and how should you prevent the bad outcome?",
+        "options": [
+          "The customer is charged twice. The only fix is to disable retries on this job, accepting data loss on real failures.",
+          "The customer is charged twice. Prevent this by making the job idempotent: track an idempotency key in the database and check it before charging, so a redelivered job is detected and skipped.",
+          "The payment provider's API automatically deduplicates everything — no action needed.",
+          "Background jobs should never do payment processing."
+        ],
+        "answer_index": 1,
+        "rationale": "At-least-once delivery (the default for most brokers) means a job may be delivered more than once. For non-idempotent side effects like charging a card, the application must enforce idempotency itself: store a unique idempotency key (e.g., `charge:{orderId}`) before attempting the charge, and check on each execution whether the charge has already been made. Stripe and other payment processors support idempotency keys at the API level for exactly this reason. Option (a) is wrong — disabling retries gives up resilience. Option (c) is dangerous — APIs do not deduplicate by default. Option (d) is overly restrictive; payments are fine to process in the background, as long as idempotency is enforced.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q3",
+      "payload": {
+        "question": "Which of the following is the strongest signal that work belongs in the request path (synchronous), not the background?",
+        "options": [
+          "The work takes 200ms to complete.",
+          "The user needs the result of the work to act on the response — for example, a checkout must authorize the charge before confirming the order.",
+          "The work calls a third-party API.",
+          "The work is non-critical and can fail without affecting the user."
+        ],
+        "answer_index": 1,
+        "rationale": "The defining question is not latency, third-party dependency, or non-criticality — it is whether the user needs the result to proceed. A checkout that returns success before the charge is authorized is broken: the user thinks they paid, but the charge may fail. The authorization must be synchronous. By contrast, a 200ms work could absolutely belong in the background if the user doesn't need its result immediately (e.g., logging analytics). Third-party calls are often great candidates for background work. Non-critical work should almost always be deferred. The rule: synchronous work is the minimum needed to acknowledge the user's intent with the result they need.",
+        "difficulty": "core"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-background-jobs-mental",
+      "payload": {
+        "text": "Engineering mental model",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-background-jobs-mental",
+      "payload": {
+        "text": "**Mental model.** Think of Background Jobs as a deliberate boundary in a system. The boundary exists because something becomes harder to manage when everything is done in one place: latency, scale, failure isolation, consistency, cost, or team ownership. The useful question is not “what does Background Jobs mean?” but “what pressure makes this boundary worth introducing, and what new failure mode does it create?”"
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-background-jobs-decision",
+      "payload": {
+        "title": "Design lens",
+        "body": "Before choosing Background Jobs, name the workload, the critical user path, the dominant bottleneck, the failure you are trying to absorb, and the trade-off you are willing to accept. If you cannot name those five things, the design is probably premature.",
+        "kind": "info"
+      }
+    },
+    {
+      "type": "image",
+      "id": "upgrade-image-background-jobs",
+      "payload": {
+        "src": "/learning-visuals/background-jobs.svg",
+        "alt": "Original NO CAP systems visual for Background Jobs.",
+        "caption": "Background Jobs: a compact system-thinking visual.",
+        "credit": "Original NO CAP visual.",
+        "source_url": "https://github.com/donnemartin/system-design-primer"
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "upgrade-mermaid-background-jobs",
+      "payload": {
+        "code": "flowchart LR\n  A[Client] --> B[Gateway] --> C[Service] --> D[State] --> E[Outcome]",
+        "caption": "Background Jobs: a simplified system view showing the primary flow and the main state boundaries.",
+        "alt_text": "Background Jobs: a simplified system view showing the primary flow and the main state boundaries."
+      }
+    },
+    {
+      "type": "code",
+      "id": "upgrade-code-background-jobs",
+      "payload": {
+        "language": "text",
+        "code": "// Pseudocode\nrequest = receive()\nresult = background_jobs(request)\nreturn result\n\n// Production questions:\n// 1. What happens on timeout?\n// 2. Can this operation be retried safely?\n// 3. What is the bottleneck?",
+        "caption": "A minimal engineering sketch for reasoning about Background Jobs."
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-background-jobs-numbers",
+      "payload": {
+        "text": "Back-of-the-envelope reasoning",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-background-jobs-numbers",
+      "payload": {
+        "text": "Numerical lens: write down traffic, payload size, read/write ratio, peak multiplier and durability target before choosing a component. The numbers should justify the architecture."
+      }
+    },
+    {
+      "type": "simulation",
+      "id": "upgrade-sim-background-jobs",
+      "payload": {
+        "title": "Interactive thought experiment: Background Jobs",
+        "description": "Change the variables below and predict what breaks first in Background Jobs. The production lab can later reuse these same inputs.",
+        "variables": [
+          {
+            "name": "traffic",
+            "description": "Requests/events per second",
+            "default": "1000"
+          },
+          {
+            "name": "latency",
+            "description": "Dependency latency",
+            "default": "50ms"
+          },
+          {
+            "name": "failure_rate",
+            "description": "Injected failure rate",
+            "default": "0%"
+          }
+        ],
+        "placeholder_note": "Interactive controls are deterministic; use the linked Labs section when a dedicated lab exists."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-background-jobs-hint",
+      "payload": {
+        "title": "Hint",
+        "body": "If you are stuck on Background Jobs, start by drawing the request path and marking every network hop, stateful component, queue, cache and failure boundary. Then estimate where the system will saturate.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-background-jobs-1",
+      "payload": {
+        "shape": "prediction",
+        "question": "You increase traffic by 10× in a system using Background Jobs. What should you inspect first?",
+        "options": [
+          "The newest framework version",
+          "The dominant bottleneck and its saturation signal",
+          "Only the UI",
+          "Nothing; the architecture should absorb any traffic automatically"
+        ],
+        "answer_index": 1,
+        "rationale": "System design is a constraint-and-bottleneck exercise. Start with the resource or dependency that will saturate first, then choose the smallest change that removes that bottleneck.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-background-jobs-2",
+      "payload": {
+        "shape": "mcq",
+        "question": "Which statement is the safest engineering habit when using Background Jobs?",
+        "options": [
+          "Choose it because it is popular",
+          "Add it before measuring the problem",
+          "State the workload, failure mode and trade-off it is solving",
+          "Use the most distributed design possible"
+        ],
+        "answer_index": 2,
+        "rationale": "Good architecture starts from requirements, workload and failure assumptions. The component is the consequence of that reasoning, not the starting point.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "scenario",
+      "id": "upgrade-scenario-background-jobs",
+      "payload": {
+        "prompt": "Production scenario: your system uses Background Jobs, traffic suddenly spikes, and p99 latency doubles. What is your first move?",
+        "context": "You have dashboards for traffic, latency, errors and saturation. You can change the architecture, but every change has operational cost.",
+        "options": [
+          {
+            "id": "a",
+            "text": "Add more instances immediately",
+            "outcome": "This may help, but only if compute saturation is the bottleneck.",
+            "correct": false
+          },
+          {
+            "id": "b",
+            "text": "Inspect the bottleneck and its saturation signal first",
+            "outcome": "Correct: diagnose before scaling or introducing a new pattern.",
+            "correct": true
+          },
+          {
+            "id": "c",
+            "text": "Disable monitoring to reduce overhead",
+            "outcome": "This removes the evidence you need to diagnose the incident.",
+            "correct": false
+          }
+        ],
+        "rationale": "Measure the limiting resource or dependency first. A bottleneck can be compute, database I/O, network, cache misses, lock contention, downstream latency, or queue backlog.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-background-jobs-interview",
+      "payload": {
+        "text": "Interview drill",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-background-jobs-interview",
+      "payload": {
+        "text": "**Answer this without notes:** When would you choose Background Jobs, and when would you intentionally avoid it? Mention at least one bottleneck it addresses, one failure mode it introduces, and one alternative. Then quantify the workload you are designing for."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "field-guide-background-jobs",
+      "payload": {
+        "title": "Engineering lens",
+        "body": "For Background Jobs, separate producer speed from consumer speed. The key design question is what happens when production temporarily exceeds processing capacity: queue it, shed it, slow producers down, or degrade the feature.",
+        "kind": "tip"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "numerical-lens-background-jobs",
+      "payload": {
+        "text": "### Numerical sanity check\n\nA simple queue sanity check: if producers create 8,000 messages/s and consumers process 6,000 messages/s, backlog grows at roughly 2,000 messages/s until the imbalance is corrected."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "field-question-background-jobs",
+      "payload": {
+        "shape": "prediction",
+        "question": "A downstream service slows down while Background Jobs keeps accepting traffic. Would you rather apply backpressure, queue more work, shed load, or degrade? Explain the trade-off.",
+        "context": "Do not optimize for a memorized definition. Reason from the workload and failure mode.",
+        "options": [
+          "Scale the same component immediately.",
+          "Measure the current bottleneck and state the assumption that changed.",
+          "Add more technologies until throughput improves.",
+          "Choose the most popular architecture."
+        ],
+        "answer_index": 1,
+        "rationale": "Good system design starts with the bottleneck and the changed constraint. The most popular or complex choice is not automatically correct.",
+        "difficulty": "interview"
+      }
+    }
+  ],
+  "trade_offs": {
+    "pros": [
+      "Fast user-facing requests — slow work moves off the critical path.",
+      "Resilience to third-party failures — jobs retry on backoff instead of failing the request.",
+      "Better throughput — workers scale independently of web servers; you can size each for its workload.",
+      "Scheduled and deferred work (cron, ETA) becomes first-class.",
+      "Failure isolation — a buggy job doesn't take down the API."
+    ],
+    "cons": [
+      "Adds infrastructure: a broker (Redis, SQS, RabbitMQ, Kafka) and a worker pool.",
+      "Jobs may run more than once — every job must be idempotent, which is real design work.",
+      "No longer real-time — the user waits for the work to be picked up. UX must reflect this (polling, webhooks, or progress UI).",
+      "Debugging is harder — failures are no longer in the request's stack trace; you need job IDs and logs.",
+      "Operational surface: dead-letter queues, retry limits, monitoring for stuck jobs, alerting on backlog growth."
+    ]
+  },
+  "failure_modes": [
+    "Poison-pill jobs that always fail and are retried forever, starving healthy jobs behind them (mitigate with retry limits + DLQ).",
+    "Non-idempotent jobs double-executing on redelivery (mitigate with idempotency keys).",
+    "Backlog growth when workers can't keep up with enqueue rate (mitigate with autoscaling and alerting on queue depth).",
+    "Job loss when a worker crashes mid-execution (mitigate with at-least-once delivery and idempotency — at-most-once is rare and dangerous).",
+    "Long-running jobs blocking workers (mitigate with per-job timeouts and splitting into chunks)."
+  ],
+  "common_mistakes": [
+    "Doing slow third-party calls synchronously in the request path — one outage takes down your API.",
+    "Background jobs that aren't idempotent — redelivery causes duplicate side effects.",
+    "No retry limit — poison jobs retry forever, exhausting worker capacity.",
+    "No dead-letter queue — failed jobs vanish silently with no way to inspect them.",
+    "No monitoring of queue depth — a slow leak in workers goes unnoticed until users complain.",
+    "Treating 'fire-and-forget' as truly fireable — forgetting that the worker still needs to log, retry, and surface failures."
+  ],
+  "where_you_see_it": [
+    "Transactional email (SendGrid, Mailgun) — never block signup on email send.",
+    "Image and video processing (FFmpeg, image resizing) — uploads return immediately; processing happens in workers.",
+    "Scheduled reports and rollups — nightly aggregation jobs that would be absurd to run on every request.",
+    "Webhook delivery — fan out events to subscribers asynchronously with retries."
+  ],
+  "interview_prompts": [
+    "Walk through signup, password reset, and order checkout. For each, what work belongs in the request path and what belongs in the background?",
+    "Your background job is sometimes executed twice, causing duplicate side effects. How do you prevent this, and what broker guarantees are you relying on?",
+    "A worker pool's queue depth is growing. What do you check, and how do you remediate?",
+    "How would you design a background job that charges a customer's card, sends a receipt, and updates inventory — safely across failures?",
+    "When is it correct to do work synchronously even though it's slow?"
+  ],
+  "real_system_mappings": [
+    {
+      "system": "Sidekiq (Ruby)",
+      "how": "Redis-backed background job framework. Workers consume jobs from Redis queues; jobs support retries with exponential backoff, scheduled execution, and dead-job queues. Widely used in Rails apps to move email sends, PDF generation, and third-party API calls off the request path."
+    },
+    {
+      "system": "AWS SQS + Lambda",
+      "how": "SQS queues hold messages; Lambda functions consume them with automatic scaling and built-in retries. Failed messages move to a dead-letter queue after a configurable number of attempts. The default serverless background-job stack on AWS."
+    },
+    {
+      "system": "Stripe webhook delivery",
+      "how": "Stripe does not process your webhook handler synchronously when a payment event occurs — it enqueues a webhook delivery and retries on failure with exponential backoff over up to 3 days. Your handler just needs to acknowledge receipt quickly and do its work idempotently."
+    }
+  ],
+  "status": "published",
+  "sources": [
+    {
+      "title": "System Design Primer",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Open source"
+    },
+    {
+      "title": "ByteByteGo — Scale from zero to millions",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "ByteByteGo"
+    },
+    {
+      "title": "System Design Tutorial",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "GeeksforGeeks"
+    },
+    {
+      "title": "System Design Roadmap",
+      "url": "https://roadmap.sh/system-design",
+      "publisher": "roadmap.sh"
+    },
+    {
+      "title": "Architecture & Infrastructure reference",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Architecture & Infrastructure reference",
+      "url": "https://www.cloudflare.com/learning/cdn/what-is-a-cdn/",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Architecture & Infrastructure reference",
+      "url": "https://aws.amazon.com/architecture/",
+      "publisher": "Reference"
+    }
+  ]
+}

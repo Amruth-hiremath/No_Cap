@@ -1,0 +1,430 @@
+{
+  "slug": "consistency-patterns",
+  "version": 3,
+  "title": "Consistency Patterns — Weak, Eventual, Strong",
+  "phase": "foundations",
+  "area": "Foundations",
+  "estimated_minutes": 7,
+  "difficulty": "advanced",
+  "summary": "Consistency patterns describe the guarantees a distributed system makes about what data readers observe after writes. The three families — weak, eventual, and strong — sit on a spectrum trading latency, availability, and complexity against correctness. Understanding which pattern your system needs is the difference between a chat app that feels snappy and a bank ledger that loses money.",
+  "why_it_matters": "Every distributed data store chooses a consistency model. Pick strong consistency when correctness beats latency (money, inventory, configuration). Pick eventual consistency when availability and latency beat perfect correctness (feeds, counters, search indexes). Picking wrong in either direction — too strong means outages and slow writes, too weak means lost money or angry users — is one of the most common causes of production incidents.",
+  "prerequisites": [
+    "cap-theorem"
+  ],
+  "related": [
+    "availability-patterns",
+    "replication",
+    "quorum",
+    "isolation-levels"
+  ],
+  "used_in": [
+    "Every replicated database, cache, and message bus in production."
+  ],
+  "blocks": [
+    {
+      "type": "prose",
+      "id": "intro",
+      "payload": {
+        "text": "When data lives on more than one machine, the system has to answer a simple-sounding question: **after a write succeeds, what do subsequent reads see?** The answer is not 'the latest value' — there is no single 'latest' on a distributed system unless you pay for it. Consistency patterns are the named answers to that question, ordered from cheap-and-loose to expensive-and-strict.\n\nThe three families you need to internalize:\n\n- **Weak consistency**: after a write, there is no guarantee a read sees it. Best-effort. Used for voice/video packets, telemetry, ephemeral state.\n- **Eventual consistency**: after a write, if no new writes happen, reads will *eventually* see it. Convergence, not freshness. Used for feeds, search indexes, DNS, shopping carts.\n- **Strong consistency**: after a write succeeds, any read sees it (or an error, never a stale value). Linearizability. Used for money, inventory, leader election, anything where stale data breaks invariants.\n\nThese are not implementations — they are contracts. Many databases let you choose per-request, e.g., Cassandra's consistency levels (ONE, QUORUM, ALL) or DynamoDB's (eventual vs strong). Choosing per-request is the realistic middle ground."
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "spectrum",
+      "payload": {
+        "code": "flowchart TD\n    N0[\"WEAK\"]\n    N1[\"EVENTUAL\"]\n    N2[\"STRONG\"]\n    N3[\"guarantee\"]\n    N4[\"converges\"]\n    N5[\"eventually\"]\n    N6[\"reads\"]\n    N7[\"always\"]\n    N8[\"see\"]\n    N9[\"after\"]\n    N10[\"write\"]\n    N11[\"new\"]\n    N12[\"writes\"]\n    N13[\"the\"]\n    N14[\"latest\"]\n    N15[\"fastest\"]\n    N16[\"fast,\"]\n    N17[\"available\"]\n    N18[\"slowest,\"]\n    N19[\"may\"]\n    N20[\"fail\"]\n    N21[\"most\"]\n    N22[\"tolerates\"]\n    N23[\"partitions\"]\n    N24[\"needs\"]\n    N25[\"quorum\"]\n    N26[\"major\"]\n    N27[\"voice\"]\n    N28[\"packets\"]\n    N29[\"feeds,\"]\n    N30[\"DNS,\"]\n    N31[\"search\"]\n    N32[\"money,\"]\n    N33[\"inventory,\"]\n    N34[\"metrics\"]\n    N35[\"fire\"]\n    N36[\"indexes,\"]\n    N37[\"cart\"]\n    N38[\"locks,\"]\n    N39[\"leader\"]\n    N40[\"elect\"]\n    N41[\"ONE\"]\n    N42[\"UDP,\"]\n    N43[\"and\"]\n    N44[\"Cassandra\"]\n    N45[\"(ONE),\"]\n    N46[\"Spanner,\"]\n    N47[\"etcd,\"]\n    N48[\"eventual\"]\n    N49[\"strong\"]\n    N50[\"forget\"]\n    N51[\"logs\"]\n    N52[\"DynamoDB\"]\n    N53[\"(eventual)\"]\n    N54[\"(strong)\"]\n    N55[\"latency\"]\n    N56[\"decreases\"]\n    N57[\"availability\"]\n    N58[\"correctness\"]\n    N59[\"increases\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44\n    N44 --> N45\n    N45 --> N46\n    N46 --> N47\n    N47 --> N48\n    N48 --> N49\n    N49 --> N50\n    N50 --> N51\n    N51 --> N52\n    N52 --> N53\n    N53 --> N54\n    N54 --> N55\n    N55 --> N56\n    N56 --> N57\n    N57 --> N58\n    N58 --> N59",
+        "caption": "The consistency spectrum: weak → eventual → strong. Move right to gain correctness; pay with latency and availability.",
+        "alt_text": "A horizontal spectrum diagram. On the left, weak consistency has no guarantees after a write and is used for voice packets and fire-and-forget logs. In the middle, eventual consistency converges once writes stop and is used for feeds, DNS, and search indexes. On the right, strong consistency always shows the latest write and is used for money, inventory, and locks. Latency and availability decrease moving right; correctness increases moving right."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "weak",
+      "payload": {
+        "text": "**Weak consistency** is the 'best effort' model. The system tries to deliver writes to readers, but does not promise. If a packet is dropped, a metric is late, or a cache is stale — the application tolerates it. This is the right model when the data is time-decaying or loss-tolerant: a 50ms snippet of audio in a phone call is useless 200ms later, so retransmitting it would make things worse, not better. Voice/video over UDP, fire-and-forget telemetry, and ad-hoc log fanout are the canonical examples.\n\nThe defining property is that a successful write does not imply anything about future reads. There is no convergence promise, no freshness window, no read-your-writes guarantee. Weak consistency is almost never a database setting — it is the default behavior of the network itself, and only applications that can absorb loss opt into it deliberately."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "eventual",
+      "payload": {
+        "text": "**Eventual consistency** is the workhorse of the modern web. The promise: if no new writes happen to a key, all replicas will eventually converge to the same value. Note what is *not* promised: a freshness bound (could be 10ms or 10s), read-your-writes (your own write may not be visible to your next read), or session consistency (sequential reads may go backwards in time).\n\nConvergence is achieved through one of three reconciliation mechanisms:\n\n- **Read repair**: when a read hits multiple replicas and they disagree, the coordinator writes the newest value back to the stale replicas. Cheap, lazy, only fixes data that someone actually reads.\n- **Anti-entropy**: background processes (Merkle trees in Cassandra,Hinted Handoff) periodically scan replicas and patch divergences. Smooths out unread cold data.\n- **Application conflict resolution**: Dynamo-style systems (Riak, DynamoDB) let multiple conflicting versions exist (siblings) and the application decides how to merge. Last-write-wins is the default, but it loses data when clocks are skewed.\n\nEventual consistency is the right call when stale data is annoying but not catastrophic: social feeds (a tweet appears 2 seconds late for a follower), DNS propagation (a record takes minutes to spread), search indexing (a new product is searchable in 30 seconds instead of immediately), shopping cart counts. The reason it is so common is not laziness — it is that the latency and availability wins are enormous. A strong-consistency write across 3 regions is 100ms+; an eventual write is local sub-ms."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "strong",
+      "payload": {
+        "text": "**Strong consistency** (linearizability) is the strictest model: after a write returns success, every read by every client sees that write (or a newer one). It behaves as if there were a single copy of the data, even though the data is replicated. This is the model a bank account balance demands: if you transfer $100 and the write succeeds, any subsequent balance check — from any region, on any replica — must reflect it.\n\nAchieving strong consistency requires coordination. The two main techniques:\n\n- **Quorum reads/writes**: with N replicas, require R readers and W writers where R + W > N. Reads contact R replicas and pick the newest; writes contact W replicas and wait for ack. With R = W = majority, any read overlaps any write — the reader is guaranteed to see a recent write. Cost: each operation touches multiple nodes and waits for the slowest of them.\n- **Consensus protocols**: Paxos and Raft elect a leader that sequences all writes. Reads go to the leader (or to followers with a lease). Cost: leader is a bottleneck, and a leader election during a partition blocks writes.\n\nStrong consistency is expensive. It costs latency (round-trip to a quorum or leader), it costs availability (cannot complete a write if a quorum is unreachable), and it costs throughput (the leader is serialized). Use it for: financial transactions, inventory decrements, distributed locks, leader election, configuration changes, anything where a stale read creates a correctness violation.\n\nThe crucial skill is mixing consistency levels within a single system. Stripe, for example, treats charges as strongly consistent but the merchant dashboard's aggregate stats as eventually consistent. Uber treats driver location as eventually consistent but the actual ride assignment as strongly consistent. This is the realistic pattern: pick the cheapest consistency that does not break your invariants."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "session-note",
+      "payload": {
+        "title": "Read-your-writes and session consistency",
+        "body": "Between eventual and strong are practical sub-models. 'Read-your-writes' guarantees that after a client writes, all subsequent reads by the same client see it. 'Session consistency' extends that to a session (sticky to a coordinator or replica). These cost less than full linearizability but fix the most jarring UX bugs — like a user posting a comment and not seeing it because they were load-balanced to a stale replica. Most production systems achieve this with sticky sessions or write-through to a primary on writes.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q1",
+      "payload": {
+        "question": "A user updates their profile picture. Their next page load (1 second later) shows the old picture. Which consistency property was violated, and what is the minimum fix?",
+        "shape": "mcq",
+        "options": [
+          "Strong consistency violated — switch the database to linearizable reads.",
+          "Read-your-writes violated — route the writer's next reads to the same replica or wait for write propagation.",
+          "Eventual consistency violated — the system should converge instantly.",
+          "No violation — eventual consistency permits stale reads forever."
+        ],
+        "answer_index": 1,
+        "rationale": "Read-your-writes consistency is the practical property violated here: a client should see its own writes. Full strong consistency is overkill — it would force every read across the system to go through a quorum. The minimum fix is to make the writer's subsequent reads hit the same replica that accepted the write, or to issue the write synchronously to a primary and pin the user's session to that primary for a short window. This is what production systems actually do; pure eventual consistency allows the staleness but is awful UX.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q2",
+      "payload": {
+        "question": "You are designing a banking ledger. Which consistency model is acceptable for the balance, and what does it cost?",
+        "shape": "mcq",
+        "options": [
+          "Eventual — fast and highly available; users tolerate brief stale balances.",
+          "Weak — fire-and-forget writes keep the system fast under load.",
+          "Strong (linearizable) — required to prevent double-spending; costs latency and quorum availability.",
+          "Session — each user sees their own writes; that is enough for money."
+        ],
+        "answer_index": 2,
+        "rationale": "Money is the canonical case for strong consistency. If a balance is briefly stale, a user can overdraw by transferring the same funds twice. Linearizability prevents this by ensuring a successful transfer is visible to every subsequent read. The cost is real: each write must reach a quorum (slower) and cannot complete if a quorum is unreachable (less available during partitions). This is the CAP cost — you trade availability for correctness. Banks accept this trade; the cost of an inconsistent ledger is higher than the cost of a slow or briefly-unavailable one.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q3",
+      "payload": {
+        "question": "In a quorum-based system with N=5 replicas, you set R=3 and W=3. What consistency guarantee does this give, and what is the availability cost?",
+        "shape": "mcq",
+        "options": [
+          "Eventual consistency only; reads may miss recent writes despite the quorum overlap.",
+          "Strong consistency: every read sees the latest write because R + W > N; but the system cannot complete reads or writes if 3 replicas are unreachable.",
+          "Weak consistency: any 3 nodes may disagree, so the system makes no guarantees.",
+          "Strong consistency with no availability cost — quorums always succeed."
+        ],
+        "answer_index": 1,
+        "rationale": "With N=5, R=3, W=3, we have R + W = 6 > N, so any read quorum and any write quorum must overlap by at least one node. That node has the latest write, so the reader sees it. This is strong consistency. The availability cost: the system can only tolerate 2 unreachable replicas for any read or write to succeed. If 3 replicas are down, both reads and writes fail. This is the fundamental quorum trade-off: tighter consistency (larger R, W) means smaller fault tolerance. Tuning R and W per request lets you trade off read latency vs write latency vs consistency.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-consistency-patterns-mental",
+      "payload": {
+        "text": "Engineering mental model",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-consistency-patterns-mental",
+      "payload": {
+        "text": "**Mental model.** Think of Consistency Patterns — Weak, Eventual, Strong as a deliberate boundary in a system. The boundary exists because something becomes harder to manage when everything is done in one place: latency, scale, failure isolation, consistency, cost, or team ownership. The useful question is not “what does Consistency Patterns — Weak, Eventual, Strong mean?” but “what pressure makes this boundary worth introducing, and what new failure mode does it create?”"
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-consistency-patterns-decision",
+      "payload": {
+        "title": "Design lens",
+        "body": "Before choosing Consistency Patterns — Weak, Eventual, Strong, name the workload, the critical user path, the dominant bottleneck, the failure you are trying to absorb, and the trade-off you are willing to accept. If you cannot name those five things, the design is probably premature.",
+        "kind": "info"
+      }
+    },
+    {
+      "type": "image",
+      "id": "upgrade-image-consistency-patterns",
+      "payload": {
+        "src": "/learning-visuals/consistency-patterns.svg",
+        "alt": "Original NO CAP systems visual for Consistency Patterns — Weak, Eventual, Strong.",
+        "caption": "Consistency Patterns — Weak, Eventual, Strong: a compact system-thinking visual.",
+        "credit": "Original NO CAP visual.",
+        "source_url": "https://github.com/donnemartin/system-design-primer"
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "upgrade-mermaid-consistency-patterns",
+      "payload": {
+        "code": "flowchart LR\n  A[Producer] --> Q[(Broker)] --> B[Consumer] --> X[Retry] --> O[Outcome]",
+        "caption": "Consistency Patterns — Weak, Eventual, Strong: a simplified system view showing the primary flow and the main state boundaries.",
+        "alt_text": "Consistency Patterns — Weak, Eventual, Strong: a simplified system view showing the primary flow and the main state boundaries."
+      }
+    },
+    {
+      "type": "code",
+      "id": "upgrade-code-consistency-patterns",
+      "payload": {
+        "language": "python",
+        "code": "message_id = queue.publish({\n    \"type\": \"consistency-patterns\",\n    \"key\": resource_id\n})\n# Consumer must be safe to retry.",
+        "caption": "A minimal engineering sketch for reasoning about Consistency Patterns — Weak, Eventual, Strong."
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-consistency-patterns-numbers",
+      "payload": {
+        "text": "Back-of-the-envelope reasoning",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-consistency-patterns-numbers",
+      "payload": {
+        "text": "Numerical lens: write down traffic, payload size, read/write ratio, peak multiplier and durability target before choosing a component. The numbers should justify the architecture."
+      }
+    },
+    {
+      "type": "simulation",
+      "id": "upgrade-sim-consistency-patterns",
+      "payload": {
+        "title": "Interactive thought experiment: Consistency Patterns — Weak, Eventual, Strong",
+        "description": "Change the variables below and predict what breaks first in Consistency Patterns — Weak, Eventual, Strong. The production lab can later reuse these same inputs.",
+        "variables": [
+          {
+            "name": "producer_rate",
+            "description": "Messages produced per second",
+            "default": "1000"
+          },
+          {
+            "name": "consumer_count",
+            "description": "Concurrent consumers",
+            "default": "4"
+          },
+          {
+            "name": "processing_rate",
+            "description": "Messages processed per consumer per second",
+            "default": "300"
+          }
+        ],
+        "placeholder_note": "Interactive controls are deterministic; use the linked Labs section when a dedicated lab exists."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-consistency-patterns-hint",
+      "payload": {
+        "title": "Hint",
+        "body": "If you are stuck on Consistency Patterns — Weak, Eventual, Strong, start by drawing the request path and marking every network hop, stateful component, queue, cache and failure boundary. Then estimate where the system will saturate.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-consistency-patterns-1",
+      "payload": {
+        "shape": "prediction",
+        "question": "You increase traffic by 10× in a system using Consistency Patterns — Weak, Eventual, Strong. What should you inspect first?",
+        "options": [
+          "The newest framework version",
+          "The dominant bottleneck and its saturation signal",
+          "Only the UI",
+          "Nothing; the architecture should absorb any traffic automatically"
+        ],
+        "answer_index": 1,
+        "rationale": "System design is a constraint-and-bottleneck exercise. Start with the resource or dependency that will saturate first, then choose the smallest change that removes that bottleneck.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-consistency-patterns-2",
+      "payload": {
+        "shape": "mcq",
+        "question": "Which statement is the safest engineering habit when using Consistency Patterns — Weak, Eventual, Strong?",
+        "options": [
+          "Choose it because it is popular",
+          "Add it before measuring the problem",
+          "State the workload, failure mode and trade-off it is solving",
+          "Use the most distributed design possible"
+        ],
+        "answer_index": 2,
+        "rationale": "Good architecture starts from requirements, workload and failure assumptions. The component is the consequence of that reasoning, not the starting point.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "scenario",
+      "id": "upgrade-scenario-consistency-patterns",
+      "payload": {
+        "prompt": "Production scenario: your system uses Consistency Patterns — Weak, Eventual, Strong, traffic suddenly spikes, and p99 latency doubles. What is your first move?",
+        "context": "You have dashboards for traffic, latency, errors and saturation. You can change the architecture, but every change has operational cost.",
+        "options": [
+          {
+            "id": "a",
+            "text": "Add more instances immediately",
+            "outcome": "This may help, but only if compute saturation is the bottleneck.",
+            "correct": false
+          },
+          {
+            "id": "b",
+            "text": "Inspect the bottleneck and its saturation signal first",
+            "outcome": "Correct: diagnose before scaling or introducing a new pattern.",
+            "correct": true
+          },
+          {
+            "id": "c",
+            "text": "Disable monitoring to reduce overhead",
+            "outcome": "This removes the evidence you need to diagnose the incident.",
+            "correct": false
+          }
+        ],
+        "rationale": "Measure the limiting resource or dependency first. A bottleneck can be compute, database I/O, network, cache misses, lock contention, downstream latency, or queue backlog.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-consistency-patterns-interview",
+      "payload": {
+        "text": "Interview drill",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-consistency-patterns-interview",
+      "payload": {
+        "text": "**Answer this without notes:** When would you choose Consistency Patterns — Weak, Eventual, Strong, and when would you intentionally avoid it? Mention at least one bottleneck it addresses, one failure mode it introduces, and one alternative. Then quantify the workload you are designing for."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "field-guide-consistency-patterns",
+      "payload": {
+        "title": "Engineering lens",
+        "body": "For Consistency Patterns - Weak, Eventual, Strong, separate producer speed from consumer speed. The key design question is what happens when production temporarily exceeds processing capacity: queue it, shed it, slow producers down, or degrade the feature.",
+        "kind": "tip"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "numerical-lens-consistency-patterns",
+      "payload": {
+        "text": "### Numerical sanity check\n\nA simple queue sanity check: if producers create 8,000 messages/s and consumers process 6,000 messages/s, backlog grows at roughly 2,000 messages/s until the imbalance is corrected."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "field-question-consistency-patterns",
+      "payload": {
+        "shape": "prediction",
+        "question": "A downstream service slows down while Consistency Patterns - Weak, Eventual, Strong keeps accepting traffic. Would you rather apply backpressure, queue more work, shed load, or degrade? Explain the trade-off.",
+        "context": "Do not optimize for a memorized definition. Reason from the workload and failure mode.",
+        "options": [
+          "Scale the same component immediately.",
+          "Measure the current bottleneck and state the assumption that changed.",
+          "Add more technologies until throughput improves.",
+          "Choose the most popular architecture."
+        ],
+        "answer_index": 1,
+        "rationale": "Good system design starts with the bottleneck and the changed constraint. The most popular or complex choice is not automatically correct.",
+        "difficulty": "interview"
+      }
+    }
+  ],
+  "trade_offs": {
+    "pros": [
+      "Naming the consistency model explicitly forces the team to reason about staleness, availability, and latency as a single decision.",
+      "Per-request consistency levels (Cassandra, DynamoDB) let you pay the strong-consistency tax only for the operations that need it.",
+      "Eventual consistency unlocks cross-region writes and multi-writer topologies that strong consistency cannot support at acceptable latency.",
+      "Strong consistency makes distributed bugs tractable — the system behaves like a single machine, so reasoning is local."
+    ],
+    "cons": [
+      "Strong consistency costs latency (quorum round-trips) and availability (cannot complete without a quorum).",
+      "Eventual consistency requires application-level conflict handling (last-write-wins loses data; siblings are complex).",
+      "Mixed consistency in one system creates subtle bugs when a fast path reads stale data that a slow path assumed was fresh.",
+      "Documenting the actual consistency model is hard; teams often assume stronger guarantees than the database provides."
+    ]
+  },
+  "failure_modes": [
+    "Last-write-wins on clocks with skew silently drops the later write — use vector clocks or hybrid clocks (Spanner's TrueTime).",
+    "Read-your-writes violation: user posts a comment, page reloads, comment disappears — load balancer routed the read to a stale replica.",
+    "Quorum configured too loosely (R + W <= N) allows reads to miss writes — silent staleness that passes normal testing.",
+    "Strong consistency used for high-fanout reads (trending feeds) — the leader becomes a bottleneck and the system falls over during traffic spikes."
+  ],
+  "common_mistakes": [
+    "Assuming 'eventual consistency' means 'eventually correct' — it means eventually converged; if two clients wrote conflicting values, convergence does not pick the right one for you.",
+    "Defaulting every read to strong consistency 'to be safe' — it multiplies your latency bill and breaks availability.",
+    "Treating session consistency and linearizability as the same — session only guarantees your own writes; other clients' writes can still be stale.",
+    "Forgetting that strong consistency requires the *quorum overlap*, not just 'synchronous replication' — sync replication to two of three nodes is not linearizable if reads only touch one.",
+    "Mixing consistency levels without documenting which APIs require which — a refactor six months later silently downgrades a critical read."
+  ],
+  "where_you_see_it": [
+    "Cassandra tunable consistency (ONE, LOCAL_QUORUM, ALL per request).",
+    "DynamoDB (eventual by default, strong for an extra cost).",
+    "Google Spanner — linearizable by default via Paxos and TrueTime.",
+    "etcd and ZooKeeper — linearizable writes for configuration and leader election.",
+    "DNS — eventual consistency with TTLs, the canonical real-world example."
+  ],
+  "interview_prompts": [
+    "Explain the difference between weak, eventual, and strong consistency. Give one realistic use case for each.",
+    "Design a 'like counter' for a social post. What consistency model do you pick, and how do you keep the count both fast and eventually accurate?",
+    "Your system uses Cassandra with consistency ONE for reads. A user reports they sometimes see stale data seconds after their own write. What is happening and how do you fix it without making every read slow?",
+    "When does quorum overlap (R + W > N) guarantee strong consistency, and when does it not? What else do you need?"
+  ],
+  "real_system_mappings": [
+    {
+      "system": "Amazon DynamoDB",
+      "how": "Offers eventual consistency by default and a 'strongly consistent' read flag per request. Strong reads cost more capacity units and may fail if the leader region is unreachable."
+    },
+    {
+      "system": "Google Spanner",
+      "how": "Default linearizable via Paxos groups and TrueTime clocks. Pays the latency cost of cross-region quorums but enables correct distributed transactions."
+    },
+    {
+      "system": "Cassandra",
+      "how": "Tunable per-request consistency levels (ONE, QUORUM, LOCAL_QUORUM, ALL). The same table can be read with eventual consistency for cheap fanout and quorum for critical reads."
+    }
+  ],
+  "status": "published",
+  "sources": [
+    {
+      "title": "System Design Primer",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Open source"
+    },
+    {
+      "title": "ByteByteGo — Scale from zero to millions",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "ByteByteGo"
+    },
+    {
+      "title": "System Design Tutorial",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "GeeksforGeeks"
+    },
+    {
+      "title": "System Design Roadmap",
+      "url": "https://roadmap.sh/system-design",
+      "publisher": "roadmap.sh"
+    },
+    {
+      "title": "Foundations reference",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Foundations reference",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Foundations reference",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "Reference"
+    }
+  ]
+}

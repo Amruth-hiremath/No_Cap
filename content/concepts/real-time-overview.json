@@ -1,0 +1,426 @@
+{
+  "slug": "real-time-overview",
+  "version": 4,
+  "title": "Real-Time Communication Overview",
+  "phase": "real-time-systems",
+  "area": "Real-Time Systems",
+  "estimated_minutes": 7,
+  "difficulty": "advanced",
+  "summary": "Real-time communication pushes data to clients as it happens, rather than waiting for them to ask. Four technologies dominate: WebSockets (bidirectional, persistent), Server-Sent Events (server-to-client only, simpler), WebRTC (peer-to-peer, audio/video), and long polling (HTTP fallback). Choosing the right one depends on directionality (one-way vs two-way), latency requirements, browser support, and infrastructure complexity.",
+  "why_it_matters": "HTTP is request-response: the client asks, the server answers. But many modern applications need the opposite — the server pushes data to the client as it happens: chat messages, live scores, stock prices, collaborative editing, multiplayer games. Doing this over plain HTTP (polling every second) wastes resources and adds latency. Real-time technologies solve this efficiently: WebSockets give a persistent bidirectional connection; SSE gives a server-to-client stream; WebRTC gives peer-to-peer media. Picking the wrong one means either over-engineering (WebRTC for a chat that WebSockets would handle) or under-engineering (polling for a chat that needs sub-second latency).",
+  "prerequisites": [
+    "http",
+    "websockets"
+  ],
+  "related": [
+    "websockets",
+    "server-sent-events",
+    "webrtc"
+  ],
+  "used_in": [
+    "Chat apps (Slack, Discord, WhatsApp).",
+    "Live dashboards (stock prices, sports scores).",
+    "Collaborative editing (Google Docs, Figma).",
+    "Multiplayer games and video calls."
+  ],
+  "blocks": [
+    {
+      "type": "prose",
+      "id": "intro",
+      "payload": {
+        "text": "Real-time communication means the server pushes data to the client as it happens, rather than the client asking repeatedly. The fundamental alternative is **polling**: the client asks \"anything new?\" every second. Polling works but is wasteful (most polls return nothing) and adds latency (you only see updates on the next poll).\n\nFour real-time technologies are commonly used:\n\n- **WebSockets**: persistent, bidirectional TCP connection. Client and server send messages any time. The standard for chat and interactive apps.\n- **Server-Sent Events (SSE)**: persistent, server-to-client only. Server pushes events over HTTP. Simpler than WebSockets; good for live feeds.\n- **WebRTC**: peer-to-peer, typically for audio/video. Bypasses the server for media, with the server brokering the initial connection.\n- **Long polling**: HTTP fallback. Client makes a request; server holds it open until data is available; client immediately re-polls. Works everywhere, more overhead."
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "comparison",
+      "payload": {
+        "code": "flowchart TD\n    N0[\"naive\"]\n    N1[\"POLLING\"]\n    N2[\"(naive)\"]\n    N3[\"Client\"]\n    N4[\"Server:\"]\n    N5[\"anything\"]\n    N6[\"new?\"]\n    N7[\"Server\"]\n    N8[\"Client:\"]\n    N9[\"no.\"]\n    N10[\"1s later\"]\n    N11[\"(1s\"]\n    N12[\"later)\"]\n    N13[\"msg\"]\n    N14[\"yes!\"]\n    N15[\"[msg]\"]\n    N16[\"Latency:\"]\n    N17[\"1s.\"]\n    N18[\"Wasteful\"]\n    N19[\"when\"]\n    N20[\"idle.\"]\n    N21[\"LONG\"]\n    N22[\"hold open\"]\n    N23[\"(hold\"]\n    N24[\"open)\"]\n    N25[\"holds 800ms\"]\n    N26[\"(holds\"]\n    N27[\"800ms)\"]\n    N28[\"immediately\"]\n    N29[\"(immediately)\"]\n    N30[\"Lower\"]\n    N31[\"latency;\"]\n    N32[\"one\"]\n    N33[\"connection\"]\n    N34[\"per\"]\n    N35[\"request.\"]\n    N36[\"bidirectional\"]\n    N37[\"WEB\"]\n    N38[\"SOCKETS\"]\n    N39[\"(bidirectional)\"]\n    N40[\"persistent\"]\n    N41[\"TCP\"]\n    N42[\"immediately on event\"]\n    N43[\"(immediately\"]\n    N44[\"event)\"]\n    N45[\"Low\"]\n    N46[\"latency,\"]\n    N47[\"low\"]\n    N48[\"overhead,\"]\n    N49[\"two\"]\n    N50[\"way.\"]\n    N51[\"server→client only\"]\n    N52[\"SSE\"]\n    N53[\"(server\"]\n    N54[\"client\"]\n    N55[\"only)\"]\n    N56[\"HTTP\"]\n    N57[\"GET\"]\n    N58[\"stream\"]\n    N59[\"(HTTP)\"]\n    N60[\"event stream\"]\n    N61[\"data:\"]\n    N62[\"msg1\"]\n    N63[\"(event\"]\n    N64[\"stream)\"]\n    N65[\"msg2\"]\n    N66[\"One\"]\n    N67[\"way,\"]\n    N68[\"simple,\"]\n    N69[\"auto\"]\n    N70[\"reconnect.\"]\n    N71[\"peer-to-peer\"]\n    N72[\"WEBRTC\"]\n    N73[\"(peer\"]\n    N74[\"peer)\"]\n    N75[\"Peer\"]\n    N76[\"direct\"]\n    N77[\"UDP\"]\n    N78[\"signaling\"]\n    N79[\"brokers\"]\n    N80[\"the\"]\n    N81[\"(signaling).\"]\n    N82[\"Audio\"]\n    N83[\"video\"]\n    N84[\"typically.\"]\n    N85[\"Bypasses\"]\n    N86[\"server\"]\n    N87[\"bandwidth.\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44\n    N44 --> N45\n    N45 --> N46\n    N46 --> N47\n    N47 --> N48\n    N48 --> N49\n    N49 --> N50\n    N50 --> N51\n    N51 --> N52\n    N52 --> N53\n    N53 --> N54\n    N54 --> N55\n    N55 --> N56\n    N56 --> N57\n    N57 --> N58\n    N58 --> N59\n    N59 --> N60\n    N60 --> N61\n    N61 --> N62\n    N62 --> N63\n    N63 --> N64\n    N64 --> N65\n    N65 --> N66\n    N66 --> N67\n    N67 --> N68\n    N68 --> N69\n    N69 --> N70\n    N70 --> N71\n    N71 --> N72\n    N72 --> N73\n    N73 --> N74\n    N74 --> N75\n    N75 --> N76\n    N76 --> N77\n    N77 --> N78\n    N78 --> N79\n    N79 --> N80\n    N80 --> N81\n    N81 --> N82\n    N82 --> N83\n    N83 --> N84\n    N84 --> N85\n    N85 --> N86\n    N86 --> N87",
+        "caption": "Polling is naive; long polling is a fallback; WebSockets are bidirectional; SSE is server-to-client only; WebRTC is peer-to-peer.",
+        "alt_text": "Five diagrams. Polling: the client asks the server if there's anything new; the server says no; one second later the client asks again and the server says yes with a message. Latency is up to one second and wasteful when idle. Long polling: the client asks and the server holds the connection open for 800ms until there's a message, then the client immediately re-asks. Lower latency, one connection per request. WebSockets: a persistent TCP connection between client and server; the server pushes messages immediately on event and the client can also push to the server. Low latency, low overhead, two-way. SSE: the client makes an HTTP GET to a stream endpoint; the server responds with an event stream of data messages. One-way, simple, auto-reconnect. WebRTC: a direct UDP connection between peer A and peer B, with the server only brokering the initial signaling. Used for audio and video, bypassing server bandwidth."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "websockets",
+      "payload": {
+        "text": "WebSockets are the standard for bidirectional real-time. The connection starts as an HTTP request with an Upgrade header; the server responds with 101 Switching Protocols; from then on, it's a persistent TCP connection where either side can send messages at any time.\n\nPros: bidirectional, low latency (no per-message HTTP overhead), works through most firewalls (uses port 443/80). Cons: requires WebSocket-aware infrastructure (load balancers, proxies), server holds connection per client (memory), no built-in reconnection or backpressure (you build it).\n\nUse when: chat, collaborative editing, multiplayer games, interactive dashboards. Anywhere the client sends data frequently and the server pushes events.\n\nThe scaling challenge: each connected client holds a connection. A single server handles ~10k-65k connections (memory-bound). For more, you need horizontal scaling with a pub/sub backend (Redis, NATS) to fan messages across servers — any server can publish, all servers receive and forward to their connected clients."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "sse",
+      "payload": {
+        "text": "Server-Sent Events (SSE) is the simpler alternative when the server pushes and the client only listens. It's a standard HTTP response with `Content-Type: text/event-stream`. The server writes events as `data: <payload>\\n\\n`. The browser's EventSource API handles reconnection automatically.\n\nPros: simple (it's HTTP), auto-reconnect built into the browser, works through any HTTP infrastructure (CDNs, proxies), no special protocol. Cons: one-way only (server→client), limited connections per domain in some browsers (6 in HTTP/1.1; unlimited in HTTP/2).\n\nUse when: live feeds (stock prices, scores), notifications, status updates, anything where the client just listens. For these use cases, SSE is simpler and more robust than WebSockets.\n\nThe hidden advantage: SSE works with HTTP/2 multiplexing, so multiple SSE streams share one TCP connection — no head-of-line blocking, no per-stream connection limit. With HTTP/2, SSE scales much better than the old HTTP/1.1 limitation suggested."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "webrtc",
+      "payload": {
+        "title": "WebRTC is peer-to-peer — fundamentally different",
+        "body": "WebRTC isn't a server-push technology; it's a peer-to-peer protocol for real-time media (audio, video, data) between browsers. The server's role is signaling: brokering the initial connection between two peers. Once connected, media flows directly between peers, bypassing the server's bandwidth. This is how Google Meet, Zoom, and Discord voice channels work — the server doesn't stream gigabytes of video; peers exchange it directly. Use WebRTC for video calls, screen sharing, and peer-to-peer gaming. Don't use it for chat or notifications — that's WebSockets' job. WebRTC has complex sub-protocols (STUN, TURN, ICE) for NAT traversal; the SDP offer/answer exchange happens via your signaling channel (often WebSockets).",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "choosing",
+      "payload": {
+        "text": "Decision rule for picking the technology:\n\n1. **Do I need audio/video between users?** → WebRTC. Nothing else does this efficiently.\n2. **Do I need the client to send data to the server frequently?** (chat, collaborative editing, game input) → WebSockets.\n3. **Does the server just push events to the client?** (live scores, notifications, status) → SSE.\n4. **Does my infrastructure not support persistent connections?** (legacy corporate proxies) → long polling as a fallback.\n5. **Do I need to support very old browsers?** → long polling, with feature detection to upgrade.\n\nFor new apps, the choice is almost always WebSockets or SSE. Long polling is legacy; WebRTC is specialized for media. Don't reach for WebSockets if SSE suffices — SSE's simplicity (auto-reconnect, HTTP semantics, CDN compatibility) is a real win."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q1",
+      "payload": {
+        "question": "You're building a live stock price dashboard. The server has new prices every few seconds; the client just displays them. Which technology is the simplest fit?",
+        "shape": "mcq",
+        "options": [
+          "WebSockets — bidirectional is always better.",
+          "Server-Sent Events (SSE) — server pushes events, client only listens. Simpler than WebSockets, auto-reconnect, works through HTTP infrastructure.",
+          "WebRTC — peer-to-peer for low latency.",
+          "Polling every second."
+        ],
+        "answer_index": 1,
+        "rationale": "SSE is the right fit. The server pushes events (prices); the client only listens — no need for bidirectional communication. SSE is simpler than WebSockets (it's HTTP), auto-reconnects natively, works through CDNs and proxies, and has no special infrastructure requirements. WebSockets would work but add unnecessary complexity. WebRTC is for peer-to-peer media, not server-push. Polling every second would work but adds latency (up to 1s) and wastes resources when there's nothing new. SSE gives the same latency as WebSockets for this use case with less code.",
+        "difficulty": "core"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q2",
+      "payload": {
+        "question": "Your chat app uses WebSockets. You're scaling to 100k concurrent users. A single server holds ~10k connections. What's the architecture?",
+        "shape": "mcq",
+        "options": [
+          "Buy a bigger server with more memory.",
+          "Run 10+ WebSocket servers behind a load balancer, plus a pub/sub backend (Redis, NATS). Any server publishes a message; all servers receive and forward to their connected clients.",
+          "Switch to long polling — it scales better.",
+          "Use one server per user."
+        ],
+        "answer_index": 1,
+        "rationale": "WebSocket connections are stateful — a client connected to server A can't receive messages published to server B unless they're bridged. The standard pattern: many WebSocket servers behind a sticky-session load balancer (each client sticks to one server), plus a pub/sub backend like Redis Pub/Sub or NATS. When any server receives an outbound message, it publishes to the pub/sub; all servers receive it and forward to their connected clients subscribed to that channel. This scales horizontally — 100k users / 10k per server = 10 servers. Vertical scaling (bigger server) doesn't work past memory limits; long polling is worse for scaling, not better.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q3",
+      "payload": {
+        "question": "Why would you use WebRTC instead of WebSockets for a video call?",
+        "shape": "mcq",
+        "options": [
+          "WebRTC is faster than WebSockets.",
+          "WebRTC is peer-to-peer: video flows directly between callers, bypassing the server's bandwidth. Streaming gigabytes of video through a WebSocket server would be prohibitively expensive.",
+          "WebRTC is simpler to implement.",
+          "WebSockets don't support video."
+        ],
+        "answer_index": 1,
+        "rationale": "WebRTC is peer-to-peer: the audio/video flows directly between the two callers (after the server brokers the connection via signaling). The server doesn't stream the video — it would be prohibitively expensive at scale (think terabits per second for a popular service). WebSockets could technically carry video data, but routing it through the server wastes bandwidth and adds latency. WebRTC also handles the things video needs: UDP for low latency, adaptive bitrate, jitter buffers, echo cancellation. The signaling (initial handshake) typically uses WebSockets — so the two technologies are complementary, not competing.",
+        "difficulty": "advanced"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-real-time-overview-mental",
+      "payload": {
+        "text": "Engineering mental model",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-real-time-overview-mental",
+      "payload": {
+        "text": "**Mental model.** Think of Real-Time Communication Overview as a deliberate boundary in a system. The boundary exists because something becomes harder to manage when everything is done in one place: latency, scale, failure isolation, consistency, cost, or team ownership. The useful question is not “what does Real-Time Communication Overview mean?” but “what pressure makes this boundary worth introducing, and what new failure mode does it create?”"
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-real-time-overview-decision",
+      "payload": {
+        "title": "Design lens",
+        "body": "Before choosing Real-Time Communication Overview, name the workload, the critical user path, the dominant bottleneck, the failure you are trying to absorb, and the trade-off you are willing to accept. If you cannot name those five things, the design is probably premature.",
+        "kind": "info"
+      }
+    },
+    {
+      "type": "image",
+      "id": "upgrade-image-real-time-overview",
+      "payload": {
+        "src": "/learning-visuals/real-time-overview.svg",
+        "alt": "Original NO CAP systems visual for Real-Time Communication Overview.",
+        "caption": "Real-Time Communication Overview: a compact system-thinking visual.",
+        "credit": "Original NO CAP visual.",
+        "source_url": "https://github.com/donnemartin/system-design-primer"
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "upgrade-mermaid-real-time-overview",
+      "payload": {
+        "code": "flowchart LR\n  A[Client] --> B[Connection] --> C[Channel] --> D[Peer] --> E[Media]",
+        "caption": "Real-Time Communication Overview: a simplified system view showing the primary flow and the main state boundaries.",
+        "alt_text": "Real-Time Communication Overview: a simplified system view showing the primary flow and the main state boundaries."
+      }
+    },
+    {
+      "type": "code",
+      "id": "upgrade-code-real-time-overview",
+      "payload": {
+        "language": "text",
+        "code": "// Pseudocode\nrequest = receive()\nresult = real_time_overview(request)\nreturn result\n\n// Production questions:\n// 1. What happens on timeout?\n// 2. Can this operation be retried safely?\n// 3. What is the bottleneck?",
+        "caption": "A minimal engineering sketch for reasoning about Real-Time Communication Overview."
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-real-time-overview-numbers",
+      "payload": {
+        "text": "Back-of-the-envelope reasoning",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-real-time-overview-numbers",
+      "payload": {
+        "text": "Numerical lens: write down traffic, payload size, read/write ratio, peak multiplier and durability target before choosing a component. The numbers should justify the architecture."
+      }
+    },
+    {
+      "type": "simulation",
+      "id": "upgrade-sim-real-time-overview",
+      "payload": {
+        "title": "Interactive thought experiment: Real-Time Communication Overview",
+        "description": "Change the variables below and predict what breaks first in Real-Time Communication Overview. The production lab can later reuse these same inputs.",
+        "variables": [
+          {
+            "name": "traffic",
+            "description": "Requests/events per second",
+            "default": "1000"
+          },
+          {
+            "name": "latency",
+            "description": "Dependency latency",
+            "default": "50ms"
+          },
+          {
+            "name": "failure_rate",
+            "description": "Injected failure rate",
+            "default": "0%"
+          }
+        ],
+        "placeholder_note": "Interactive controls are deterministic; use the linked Labs section when a dedicated lab exists."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-real-time-overview-hint",
+      "payload": {
+        "title": "Hint",
+        "body": "If you are stuck on Real-Time Communication Overview, start by drawing the request path and marking every network hop, stateful component, queue, cache and failure boundary. Then estimate where the system will saturate.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-real-time-overview-1",
+      "payload": {
+        "shape": "prediction",
+        "question": "You increase traffic by 10× in a system using Real-Time Communication Overview. What should you inspect first?",
+        "options": [
+          "The newest framework version",
+          "The dominant bottleneck and its saturation signal",
+          "Only the UI",
+          "Nothing; the architecture should absorb any traffic automatically"
+        ],
+        "answer_index": 1,
+        "rationale": "System design is a constraint-and-bottleneck exercise. Start with the resource or dependency that will saturate first, then choose the smallest change that removes that bottleneck.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-real-time-overview-2",
+      "payload": {
+        "shape": "mcq",
+        "question": "Which statement is the safest engineering habit when using Real-Time Communication Overview?",
+        "options": [
+          "Choose it because it is popular",
+          "Add it before measuring the problem",
+          "State the workload, failure mode and trade-off it is solving",
+          "Use the most distributed design possible"
+        ],
+        "answer_index": 2,
+        "rationale": "Good architecture starts from requirements, workload and failure assumptions. The component is the consequence of that reasoning, not the starting point.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "scenario",
+      "id": "upgrade-scenario-real-time-overview",
+      "payload": {
+        "prompt": "Production scenario: your system uses Real-Time Communication Overview, traffic suddenly spikes, and p99 latency doubles. What is your first move?",
+        "context": "You have dashboards for traffic, latency, errors and saturation. You can change the architecture, but every change has operational cost.",
+        "options": [
+          {
+            "id": "a",
+            "text": "Add more instances immediately",
+            "outcome": "This may help, but only if compute saturation is the bottleneck.",
+            "correct": false
+          },
+          {
+            "id": "b",
+            "text": "Inspect the bottleneck and its saturation signal first",
+            "outcome": "Correct: diagnose before scaling or introducing a new pattern.",
+            "correct": true
+          },
+          {
+            "id": "c",
+            "text": "Disable monitoring to reduce overhead",
+            "outcome": "This removes the evidence you need to diagnose the incident.",
+            "correct": false
+          }
+        ],
+        "rationale": "Measure the limiting resource or dependency first. A bottleneck can be compute, database I/O, network, cache misses, lock contention, downstream latency, or queue backlog.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-real-time-overview-interview",
+      "payload": {
+        "text": "Interview drill",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-real-time-overview-interview",
+      "payload": {
+        "text": "**Answer this without notes:** When would you choose Real-Time Communication Overview, and when would you intentionally avoid it? Mention at least one bottleneck it addresses, one failure mode it introduces, and one alternative. Then quantify the workload you are designing for."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "field-guide-real-time-overview",
+      "payload": {
+        "title": "Engineering lens",
+        "body": "A useful engineering lens for Real-Time Communication Overview: define the problem it solves, the simpler design that fails first, the constraint that forces you to introduce this concept, and the new failure modes the concept creates.",
+        "kind": "tip"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "numerical-lens-real-time-overview",
+      "payload": {
+        "text": "### Numerical sanity check\n\nBack-of-the-envelope reasoning beats fake precision. State your traffic, payload, concurrency and growth assumptions explicitly, then calculate enough to know whether the current architecture is orders of magnitude away from the target."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "field-question-real-time-overview",
+      "payload": {
+        "shape": "prediction",
+        "question": "Imagine the simplest version of a system using Real-Time Communication Overview. What breaks first as traffic grows by 10×, and what would you change before reaching 100×?",
+        "context": "Do not optimize for a memorized definition. Reason from the workload and failure mode.",
+        "options": [
+          "Scale the same component immediately.",
+          "Measure the current bottleneck and state the assumption that changed.",
+          "Add more technologies until throughput improves.",
+          "Choose the most popular architecture."
+        ],
+        "answer_index": 1,
+        "rationale": "Good system design starts with the bottleneck and the changed constraint. The most popular or complex choice is not automatically correct.",
+        "difficulty": "interview"
+      }
+    }
+  ],
+  "trade_offs": {
+    "pros": [
+      "Push model gives low latency (no polling delay).",
+      "WebSockets: bidirectional, low overhead per message.",
+      "SSE: simple, auto-reconnect, works with HTTP infrastructure.",
+      "WebRTC: peer-to-peer media without server bandwidth costs."
+    ],
+    "cons": [
+      "Persistent connections are stateful — harder to scale than stateless HTTP.",
+      "WebSockets need WebSocket-aware infrastructure (LBs, proxies).",
+      "SSE is one-way only — client can't push back.",
+      "WebRTC is complex (NAT traversal, STUN/TURN, ICE) — high implementation cost."
+    ]
+  },
+  "failure_modes": [
+    "Using WebSockets when SSE suffices — unnecessary complexity.",
+    "Using WebRTC for chat — wrong tool, much harder than needed.",
+    "Scaling WebSockets without a pub/sub backend — messages don't cross servers.",
+    "Long polling fallback consuming server threads (one thread per held request)."
+  ],
+  "common_mistakes": [
+    "Defaulting to WebSockets for everything — SSE is simpler for server-push.",
+    "Forgetting connection lifecycle (reconnect, heartbeat, cleanup).",
+    "Not planning horizontal scaling for WebSocket connections.",
+    "Polling every second for updates that should use SSE."
+  ],
+  "where_you_see_it": [
+    "Slack/Discord chat: WebSockets for messages, WebRTC for voice.",
+    "Live sports scores: SSE.",
+    "Google Meet: WebRTC for video, WebSockets for signaling."
+  ],
+  "interview_prompts": [
+    "Compare WebSockets, SSE, WebRTC, and long polling. When would you use each?",
+    "How do you scale WebSockets to 100k concurrent users?",
+    "Why is WebRTC peer-to-peer, and what's the server's role?",
+    "What's the simplest way to push server events to a browser?"
+  ],
+  "real_system_mappings": [
+    {
+      "system": "Slack",
+      "how": "Uses WebSockets for chat messages (bidirectional, low latency). The signaling for Slack Huddles (voice) uses WebRTC for peer-to-peer audio after the WebSocket-based handshake."
+    },
+    {
+      "system": "Twitter live notifications",
+      "how": "Server-Sent Events for the notification stream — server pushes events as they happen, browser's EventSource auto-reconnects on failure. Simple, robust, perfect for one-way push."
+    }
+  ],
+  "status": "published",
+  "sources": [
+    {
+      "title": "System Design Primer",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Open source"
+    },
+    {
+      "title": "ByteByteGo — Scale from zero to millions",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "ByteByteGo"
+    },
+    {
+      "title": "System Design Tutorial",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "GeeksforGeeks"
+    },
+    {
+      "title": "System Design Roadmap",
+      "url": "https://roadmap.sh/system-design",
+      "publisher": "roadmap.sh"
+    },
+    {
+      "title": "Real-Time Systems reference",
+      "url": "https://www.rfc-editor.org/",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Real-Time Systems reference",
+      "url": "https://developer.mozilla.org/en-US/docs/Web/API/WebRTC_API",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Real-Time Systems reference",
+      "url": "https://webrtc.org/",
+      "publisher": "Reference"
+    }
+  ]
+}

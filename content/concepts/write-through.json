@@ -1,0 +1,441 @@
+{
+  "slug": "write-through",
+  "version": 4,
+  "title": "Write Through",
+  "phase": "cache-aside",
+  "area": "Caching",
+  "estimated_minutes": 7,
+  "difficulty": "advanced",
+  "summary": "Write-through caching makes every write go to the cache and the database synchronously, in the same request. The cache is therefore always fresh: there is never a stale-read window. The cost is higher write latency — every write now pays the round-trip to both stores — and a partial-failure window in which one write succeeds and the other fails. Write-through is the right choice when reads must never be stale and the write path can tolerate the extra milliseconds.",
+  "why_it_matters": "Cache aside accepts brief staleness; for most web apps that is fine. But for banking balances, inventory counts, session tokens, or any field where stale reads cause real money or correctness problems, you need a strategy that guarantees read freshness. Write-through is the canonical answer. It also kills the cache stampede: because the cache is always populated on write, hot keys never expire into a thundering herd. The price you pay is the longest write latency of any caching strategy, plus subtle failure modes around partial writes that every backend engineer must understand before deploying it.",
+  "prerequisites": [
+    "cache-aside"
+  ],
+  "related": [
+    "write-behind",
+    "refresh-ahead",
+    "cache-aside"
+  ],
+  "used_in": [
+    "Banking ledgers and financial balances.",
+    "Inventory and seat-reservation systems.",
+    "Session token stores backing OAuth / JWT refresh flows.",
+    "Configuration and feature-flag services where stale reads cause incidents."
+  ],
+  "blocks": [
+    {
+      "type": "prose",
+      "id": "intro",
+      "payload": {
+        "text": "In **write-through**, the application writes to the cache and the database in the same critical path. The cache write and the DB write are both synchronous — the caller does not get an ACK until both have committed. As a result, the cache is a strict, always-fresh copy of the database rows it covers. A read can never return stale data, because every value in the cache was written there as part of the write that updated the database.\n\nContrast this with cache aside, where writes update the DB and **invalidate** the cache. In cache aside, the cache entry disappears on write and is repopulated only when someone reads it. Between the write and the next read, the entry is simply absent — that's fine. The staleness problem in cache aside is different: if the invalidation call fails, the cache keeps serving the old value until its TTL expires. Write-through eliminates that failure mode entirely because the new value is *pushed* into the cache, not lazily re-fetched.\n\nThe trade is on the write side. A write-through write is at least as slow as `max(cache_write_latency, db_write_latency)` if the writes are parallel, or `cache_write + db_write` if serial. Either way, you are paying for two synchronous writes per logical write. For most web workloads where reads dominate 10:1 or 100:1, this is a great trade — write latency is a small fraction of total traffic. For write-heavy workloads (analytics ingestion, telemetry, audit logs), the cost dominates and write-behind is usually a better fit."
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "flow",
+      "payload": {
+        "code": "flowchart TD\n    N0[\"synchronous, in the request path\"]\n    N1[\"WRITE\"]\n    N2[\"FLOW\"]\n    N3[\"(synchronous,\"]\n    N4[\"the\"]\n    N5[\"request\"]\n    N6[\"path)\"]\n    N7[\"App\"]\n    N8[\"[App]\"]\n    N9[\"Cache\"]\n    N10[\"SET user:42, value\"]\n    N11[\"write\"]\n    N12[\"[Cache]\"]\n    N13[\"(SET\"]\n    N14[\"user:42,\"]\n    N15[\"value)\"]\n    N16[\"Database\"]\n    N17[\"UPDATE users SET ...\"]\n    N18[\"[Database]\"]\n    N19[\"(UPDATE\"]\n    N20[\"users\"]\n    N21[\"SET\"]\n    N22[\"...)\"]\n    N23[\"both\"]\n    N24[\"ACK\"]\n    N25[\"return\"]\n    N26[\"caller\"]\n    N27[\"READ\"]\n    N28[\"always fresh, ~1ms\"]\n    N29[\"HIT?\"]\n    N30[\"YES\"]\n    N31[\"(always\"]\n    N32[\"fresh,\"]\n    N33[\"~1ms)\"]\n    N34[\"cache cold start or evicted\"]\n    N35[\"(cache\"]\n    N36[\"cold\"]\n    N37[\"start\"]\n    N38[\"evicted)\"]\n    N39[\"repopulate\"]\n    N40[\"cache\"]\n    N41[\"KEY\"]\n    N42[\"PROPERTY:\"]\n    N43[\"HIT\"]\n    N44[\"ALWAYS\"]\n    N45[\"fresh.\"]\n    N46[\"There\"]\n    N47[\"stale\"]\n    N48[\"window\"]\n    N49[\"between\"]\n    N50[\"and\"]\n    N51[\"update,\"]\n    N52[\"because\"]\n    N53[\"they\"]\n    N54[\"happen\"]\n    N55[\"same\"]\n    N56[\"atomic\"]\n    N57[\"ish\"]\n    N58[\"step.\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44\n    N44 --> N45\n    N45 --> N46\n    N46 --> N47\n    N47 --> N48\n    N48 --> N49\n    N49 --> N50\n    N50 --> N51\n    N51 --> N52\n    N52 --> N53\n    N53 --> N54\n    N54 --> N55\n    N55 --> N56\n    N56 --> N57\n    N57 --> N58",
+        "caption": "Write-through: writes hit both cache and DB synchronously. Reads always return fresh data on a hit.",
+        "alt_text": "Write-through diagram. Write flow: the app writes to the cache and the database synchronously — both must ACK before the caller returns. Read flow: the app checks the cache; on a hit it returns immediately and the value is always fresh because it was written there in the same step as the database update. On a miss, the app falls through to the database and repopulates the cache. The key property is that a cache hit is always fresh — there is no stale window between a database write and the cache update, because they happen in the same atomic-ish step."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "ordering",
+      "payload": {
+        "text": "**Order matters: DB first, then cache.**\n\nThe standard write-through ordering is: write the database first, then write the cache. If the cache write fails, you have not lost the canonical update — the DB has it, and the cache will simply be stale (or empty) until either a TTL fires, an invalidation pass catches it, or a read repopulates. If you write cache first and the DB write fails, the cache now holds a value that does not exist in the source of truth. Subsequent reads return a hallucination, and you cannot even detect the inconsistency from the cache side.\n\nSo the safe ordering is: DB write (commit) → cache SET. The cache write is best-effort from a correctness standpoint but synchronous from a latency standpoint. You pay the latency, you get the freshness, and if the cache write fails you fall back to cache-aside semantics (next read repopulates). Some implementations make the cache write fire-and-forget *after* the DB commits — that's actually a hybrid of write-through and write-behind, sometimes called write-around-with-publish, and it relaxes the freshness guarantee slightly.\n\nNote also that \"synchronous\" does not mean \"atomic.\" If the DB commits but the cache SET call times out, the cache is briefly stale. This is why every write-through system still sets a TTL — TTL is the safety net that bounds staleness even when the synchronous cache write fails."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "no-stampede",
+      "payload": {
+        "title": "Write-through kills the stampede on writes",
+        "body": "Cache stampedes happen when a popular key expires and N concurrent readers all miss at the same time. In cache aside, hot keys expire on a TTL and a thundering herd restarts them. In write-through, the cache is updated on every write, so a hot key is refreshed as a side effect of writes — not as a side effect of reads. If a key is being written to, it never expires from disuse, because the writes keep it warm. The stampede can still happen for read-only hot keys (a viral post nobody is editing), but for read-write hot keys (a counter, a balance, a leaderboard), write-through is structurally stampede-proof.",
+        "kind": "info"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "partial-failure",
+      "payload": {
+        "text": "**The partial-failure window.**\n\nWrite-through's signature failure mode is the partial write: the DB commits, but the cache write fails (network blip, Redis OOM, eviction storm). Now the cache holds either nothing (a future read will repopulate from the DB) or, worse, a stale value (if the cache had the old value and the SET to overwrite it failed). The standard mitigations:\n\n1. **TTL on every key.** Even write-through keys must have TTLs. A failed cache write means the cache may be stale; TTL bounds how long that staleness can persist. Without a TTL, a single failed SET means stale data forever.\n2. **Retry the cache write asynchronously.** After the DB commits, queue a best-effort retry of the cache SET on a background worker. If the first attempt failed, the retry usually catches up within milliseconds.\n3. **Read-through fallback on critical reads.** For reads that must be perfectly fresh (e.g., a balance display before a withdrawal), do a double read: cache first for speed, then verify against the DB if the operation is irreversible. This is rarely needed but is the gold standard for financial flows.\n4. **Cache invalidation as a backup.** If you cannot guarantee the SET succeeded, DEL the key on failure — forcing the next read to repopulate from the DB.\n\nThe deeper insight is that **write-through does not eliminate inconsistency, it narrows the window.** Cache aside's stale window is up to TTL duration (potentially minutes). Write-through's stale window is the duration of a failed SET plus the retry interval (usually milliseconds to seconds). That is a 100-1000x improvement, and it is the real reason to choose write-through."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "when-to-use",
+      "payload": {
+        "text": "**When to use write-through:**\n- **Read-freshness is critical.** Bank balances, seat counts, inventory, session validity — anywhere stale reads cost real money or break correctness.\n- **Reads vastly outnumber writes.** Write-through's extra write latency is amortized across many fast reads. A 10:1 read:write ratio is the floor; 100:1 is comfortable.\n- **You want to eliminate the cache stampede on write-heavy hot keys.** Counters, leaderboards, real-time stats.\n- **You can afford the latency.** A write that used to take 5 ms (DB only) now takes 5–7 ms (DB + cache SET). For most user-facing APIs this is invisible.\n\n**When NOT to use write-through:**\n- **Write-heavy workloads** (logs, telemetry, audit, analytics). Each write now costs two synchronous writes; throughput drops, and the cache adds little because writes don't read.\n- **When staleness is acceptable.** Social feeds, recommendation previews, analytics dashboards — cache aside is simpler and faster.\n- **When you need ultra-low write latency.** Real-time ad bidding, game state mutations — write-behind is the better choice, accepting its data-loss risk.\n- **When the cache and DB cannot agree on transaction semantics.** If the DB write is transactional but the cache write isn't (Redis has no cross-system 2PC), there is always a partial-failure window — be honest about it."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q1",
+      "payload": {
+        "question": "In a write-through cache, the DB write succeeds but the cache SET fails due to a transient network error. The cache still holds the previous value. What reads see in the next few seconds?",
+        "shape": "mcq",
+        "options": [
+          "Reads immediately return the new value — write-through guarantees freshness.",
+          "Reads return the stale old value until the TTL expires or a retry SET overwrites it.",
+          "Reads block indefinitely waiting for the cache to be repaired.",
+          "The database rolls back the original write because the cache write failed."
+        ],
+        "answer_index": 1,
+        "rationale": "Write-through narrows the stale window but does not eliminate it under partial failure. The DB has the new value, but the cache SET failed, so the cache still serves the old value. Until either (a) a retry SET catches up, (b) the TTL expires and a read repopulates from the DB, or (c) explicit invalidation clears the key, reads return stale data. This is why every write-through system still needs a TTL — it is the safety net for exactly this case. Write-through buys you a 100-1000x narrower stale window versus cache aside; it does not buy you zero staleness.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q2",
+      "payload": {
+        "question": "Your team is choosing a cache strategy for a banking balance lookup that gets 1000 reads/sec and 5 writes/sec. Reads must never show a stale balance. Which strategy do you choose and why?",
+        "shape": "mcq",
+        "options": [
+          "Cache aside with a short TTL — simplest and good enough.",
+          "Write-behind (write-back) — fastest writes, eventual consistency is fine for balances.",
+          "Write-through — the 5 writes/sec can absorb the extra cache SET, and reads are guaranteed fresh on a cache hit.",
+          "No cache — just hit the DB directly, since correctness matters more than latency."
+        ],
+        "answer_index": 2,
+        "rationale": "Write-through is the textbook fit. The 200:1 read:write ratio means the extra write latency is amortized across hundreds of fast reads. The critical freshness requirement (\"reads must never show a stale balance\") rules out cache aside, whose stale window can be the full TTL. Write-behind is wrong — it accepts potential data loss on cache failure, which is unacceptable for money. Hitting the DB directly is technically safe but ignores that a cache also protects the DB from read load; 1000 reads/sec of balance lookups is enough to warrant caching. The right answer is write-through with a TTL safety net and best-effort retry on cache SET failure.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q3",
+      "payload": {
+        "question": "Why is the standard write-through ordering \"DB write first, then cache SET\" rather than the reverse?",
+        "shape": "mcq",
+        "options": [
+          "Because databases are always slower than caches, so doing them first avoids blocking.",
+          "Because if the cache SET succeeds but the DB write fails, the cache would hold a value that contradicts the source of truth — and the inconsistency is invisible from the cache side.",
+          "Because caches do not support SET-after-DB ordering.",
+          "Because writing the cache first would create duplicate keys."
+        ],
+        "answer_index": 1,
+        "rationale": "If you write the cache first and the DB write subsequently fails, the cache now holds a value that does not exist in the source of truth. Reads return a hallucination, and you cannot detect it from the cache — the cached value looks perfectly normal. By writing the DB first and committing, you guarantee the canonical state is durable; the cache SET that follows is best-effort from a correctness standpoint. If the SET fails, the cache is stale or empty, which is recoverable (TTL, retry, or read-repopulate). The DB-first ordering is the only one whose failure mode is recoverable.",
+        "difficulty": "core"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-write-through-mental",
+      "payload": {
+        "text": "Engineering mental model",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-write-through-mental",
+      "payload": {
+        "text": "**Mental model.** Think of Write Through as a deliberate boundary in a system. The boundary exists because something becomes harder to manage when everything is done in one place: latency, scale, failure isolation, consistency, cost, or team ownership. The useful question is not “what does Write Through mean?” but “what pressure makes this boundary worth introducing, and what new failure mode does it create?”"
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-write-through-decision",
+      "payload": {
+        "title": "Design lens",
+        "body": "Before choosing Write Through, name the workload, the critical user path, the dominant bottleneck, the failure you are trying to absorb, and the trade-off you are willing to accept. If you cannot name those five things, the design is probably premature.",
+        "kind": "info"
+      }
+    },
+    {
+      "type": "image",
+      "id": "upgrade-image-write-through",
+      "payload": {
+        "src": "/learning-visuals/write-through.svg",
+        "alt": "Original NO CAP systems visual for Write Through.",
+        "caption": "Write Through: a compact system-thinking visual.",
+        "credit": "Original NO CAP visual.",
+        "source_url": "https://github.com/donnemartin/system-design-primer"
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "upgrade-mermaid-write-through",
+      "payload": {
+        "code": "flowchart LR\n  A[Client] --> B[Gateway] --> C[Service] --> D[State] --> E[Outcome]",
+        "caption": "Write Through: a simplified system view showing the primary flow and the main state boundaries.",
+        "alt_text": "Write Through: a simplified system view showing the primary flow and the main state boundaries."
+      }
+    },
+    {
+      "type": "code",
+      "id": "upgrade-code-write-through",
+      "payload": {
+        "language": "text",
+        "code": "// Pseudocode\nrequest = receive()\nresult = write_through(request)\nreturn result\n\n// Production questions:\n// 1. What happens on timeout?\n// 2. Can this operation be retried safely?\n// 3. What is the bottleneck?",
+        "caption": "A minimal engineering sketch for reasoning about Write Through."
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-write-through-numbers",
+      "payload": {
+        "text": "Back-of-the-envelope reasoning",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-write-through-numbers",
+      "payload": {
+        "text": "Numerical lens: write down traffic, payload size, read/write ratio, peak multiplier and durability target before choosing a component. The numbers should justify the architecture."
+      }
+    },
+    {
+      "type": "simulation",
+      "id": "upgrade-sim-write-through",
+      "payload": {
+        "title": "Interactive thought experiment: Write Through",
+        "description": "Change the variables below and predict what breaks first in Write Through. The production lab can later reuse these same inputs.",
+        "variables": [
+          {
+            "name": "traffic",
+            "description": "Requests/events per second",
+            "default": "1000"
+          },
+          {
+            "name": "latency",
+            "description": "Dependency latency",
+            "default": "50ms"
+          },
+          {
+            "name": "failure_rate",
+            "description": "Injected failure rate",
+            "default": "0%"
+          }
+        ],
+        "placeholder_note": "Interactive controls are deterministic; use the linked Labs section when a dedicated lab exists."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-write-through-hint",
+      "payload": {
+        "title": "Hint",
+        "body": "If you are stuck on Write Through, start by drawing the request path and marking every network hop, stateful component, queue, cache and failure boundary. Then estimate where the system will saturate.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-write-through-1",
+      "payload": {
+        "shape": "prediction",
+        "question": "You increase traffic by 10× in a system using Write Through. What should you inspect first?",
+        "options": [
+          "The newest framework version",
+          "The dominant bottleneck and its saturation signal",
+          "Only the UI",
+          "Nothing; the architecture should absorb any traffic automatically"
+        ],
+        "answer_index": 1,
+        "rationale": "System design is a constraint-and-bottleneck exercise. Start with the resource or dependency that will saturate first, then choose the smallest change that removes that bottleneck.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-write-through-2",
+      "payload": {
+        "shape": "mcq",
+        "question": "Which statement is the safest engineering habit when using Write Through?",
+        "options": [
+          "Choose it because it is popular",
+          "Add it before measuring the problem",
+          "State the workload, failure mode and trade-off it is solving",
+          "Use the most distributed design possible"
+        ],
+        "answer_index": 2,
+        "rationale": "Good architecture starts from requirements, workload and failure assumptions. The component is the consequence of that reasoning, not the starting point.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "scenario",
+      "id": "upgrade-scenario-write-through",
+      "payload": {
+        "prompt": "Production scenario: your system uses Write Through, traffic suddenly spikes, and p99 latency doubles. What is your first move?",
+        "context": "You have dashboards for traffic, latency, errors and saturation. You can change the architecture, but every change has operational cost.",
+        "options": [
+          {
+            "id": "a",
+            "text": "Add more instances immediately",
+            "outcome": "This may help, but only if compute saturation is the bottleneck.",
+            "correct": false
+          },
+          {
+            "id": "b",
+            "text": "Inspect the bottleneck and its saturation signal first",
+            "outcome": "Correct: diagnose before scaling or introducing a new pattern.",
+            "correct": true
+          },
+          {
+            "id": "c",
+            "text": "Disable monitoring to reduce overhead",
+            "outcome": "This removes the evidence you need to diagnose the incident.",
+            "correct": false
+          }
+        ],
+        "rationale": "Measure the limiting resource or dependency first. A bottleneck can be compute, database I/O, network, cache misses, lock contention, downstream latency, or queue backlog.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-write-through-interview",
+      "payload": {
+        "text": "Interview drill",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-write-through-interview",
+      "payload": {
+        "text": "**Answer this without notes:** When would you choose Write Through, and when would you intentionally avoid it? Mention at least one bottleneck it addresses, one failure mode it introduces, and one alternative. Then quantify the workload you are designing for."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "field-guide-write-through",
+      "payload": {
+        "title": "Engineering lens",
+        "body": "For Write Through, reason in this order: what data is hottest, where can it live closer to the caller, what makes it stale, and what happens on a miss or cache failure. A cache is an optimization boundary, not the source of truth.",
+        "kind": "tip"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "numerical-lens-write-through",
+      "payload": {
+        "text": "### Numerical sanity check\n\nA useful first-order model is cache_load = request_rate × (1 - hit_rate). If traffic is 20,000 req/s and the hit rate is 90%, roughly 2,000 req/s still reaches the origin before considering misses caused by expiration or eviction."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "field-question-write-through",
+      "payload": {
+        "shape": "prediction",
+        "question": "You have a read-heavy Write Through path. Traffic doubles overnight. What metric would you inspect first, and what would convince you to add another cache layer?",
+        "context": "Do not optimize for a memorized definition. Reason from the workload and failure mode.",
+        "options": [
+          "Scale the same component immediately.",
+          "Measure the current bottleneck and state the assumption that changed.",
+          "Add more technologies until throughput improves.",
+          "Choose the most popular architecture."
+        ],
+        "answer_index": 1,
+        "rationale": "Good system design starts with the bottleneck and the changed constraint. The most popular or complex choice is not automatically correct.",
+        "difficulty": "interview"
+      }
+    }
+  ],
+  "trade_offs": {
+    "pros": [
+      "Cache is always fresh on a hit — no stale reads in the common case.",
+      "Kills the cache stampede for write-heavy hot keys (writes keep the cache warm).",
+      "Narrows the stale window from TTL-duration (cache aside) to milliseconds (failed SET retry interval).",
+      "Reads are always fast and never block on DB repopulation for actively-written keys.",
+      "Simpler reasoning: \"the cache reflects the DB\" is true almost all the time, vs cache aside's \"the cache may be stale.\""
+    ],
+    "cons": [
+      "Higher write latency — every write pays for two synchronous stores instead of one.",
+      "Partial-failure window: DB commits but cache SET fails → brief staleness until TTL/retry.",
+      "Lower write throughput — write-heavy workloads (logs, telemetry) get half the throughput.",
+      "Cache holds data even if it is never read again (no lazy population benefit of cache aside).",
+      "Cache and DB cannot be updated atomically (no cross-system 2PC) — \"synchronous\" is not \"transactional.\""
+    ]
+  },
+  "failure_modes": [
+    "Partial write: DB commits, cache SET fails → stale cache until TTL expires or retry succeeds.",
+    "Cache eviction storm: high write rate evicts other keys, causing read misses on previously-hot entries.",
+    "Write amplification on the cache: every logical write becomes a cache write, even for keys that are never read.",
+    "Latency cliff: if the cache or DB slows down, write latency doubles because both are in the critical path.",
+    "Cross-system inconsistency during failover: if the cache fails over to a replica that hasn't seen the latest SETs, reads return stale data."
+  ],
+  "common_mistakes": [
+    "Skipping the TTL — \"write-through keeps the cache fresh\" is false under partial failure; TTL is the safety net.",
+    "Writing the cache before the DB — guarantees an unrecoverable inconsistency if the DB write fails.",
+    "Treating write-through as atomic — it is synchronous, not transactional; design for the partial-failure window.",
+    "Using write-through for write-heavy workloads — write latency and throughput collapse; use write-behind or skip the cache.",
+    "Not retrying failed cache SETs — a failed SET without retry leaves the cache stale for the full TTL.",
+    "Forgetting that read-only hot keys can still stampede — write-through protects write-heavy keys, not viral read-only content."
+  ],
+  "where_you_see_it": [
+    "Banking and payment systems (balances, transaction ledgers).",
+    "Inventory and reservation systems (hotel rooms, concert tickets, airline seats).",
+    "Session stores backing OAuth refresh tokens and JWT revocation lists.",
+    "Feature flag and configuration services where stale reads cause incidents.",
+    "Distributed counters and leaderboards (combined with atomic Redis operations)."
+  ],
+  "interview_prompts": [
+    "Design a cache for a banking balance lookup. Reads must never be stale. Walk me through your strategy and its failure modes.",
+    "Compare write-through and cache aside. When would you choose each? What is the partial-failure window for each?",
+    "Your write-through cache's SET call is taking 50 ms due to Redis load. Writes are now too slow. What do you do?",
+    "A cache SET fails after a successful DB write. Walk me through every state the cache can be in for the next 60 seconds and how you mitigate each.",
+    "Why does write-through still need a TTL? Isn't the cache always fresh?"
+  ],
+  "real_system_mappings": [
+    {
+      "system": "AWS DynamoDB DAX",
+      "how": "DAX is a write-through cache for DynamoDB. Application writes go to DAX and DynamoDB synchronously; reads from DAX are always fresh. The classic use case is shopping cart and session state where stale reads cause user-visible bugs."
+    },
+    {
+      "system": "Redis-backed session stores (e.g., GitHub's)",
+      "how": "GitHub uses Redis as a write-through session store for high-value tokens: every login or refresh writes the session to Redis and the durable store together, so reads from Redis are guaranteed to reflect committed logins."
+    },
+    {
+      "system": "Varnish with grace mode + PURGE on write",
+      "how": "Some Varnish deployments implement a write-through pattern: writes to the origin trigger a PURGE plus a synchronous refresh, so the edge cache always reflects the latest published content."
+    },
+    {
+      "system": "Apple's iTunes / App Store inventory",
+      "how": "Inventory and pricing for the App Store use a write-through cache layer so that searches and product pages show fresh prices and availability without hitting the canonical inventory database for every read."
+    }
+  ],
+  "status": "published",
+  "sources": [
+    {
+      "title": "System Design Primer",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Open source"
+    },
+    {
+      "title": "ByteByteGo — Scale from zero to millions",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "ByteByteGo"
+    },
+    {
+      "title": "System Design Tutorial",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "GeeksforGeeks"
+    },
+    {
+      "title": "System Design Roadmap",
+      "url": "https://roadmap.sh/system-design",
+      "publisher": "roadmap.sh"
+    },
+    {
+      "title": "Caching reference",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Caching reference",
+      "url": "https://aws.amazon.com/caching/",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Caching reference",
+      "url": "https://redis.io/docs/latest/develop/get-started/",
+      "publisher": "Reference"
+    }
+  ]
+}

@@ -1,0 +1,413 @@
+{
+  "slug": "graceful-degradation",
+  "version": 4,
+  "title": "Graceful Degradation",
+  "phase": "reliability-resilience",
+  "area": "Reliability & Resilience",
+  "estimated_minutes": 7,
+  "difficulty": "advanced",
+  "summary": "Graceful degradation means: when a dependency fails, serve partial functionality instead of crashing. A page that loads with stale recommendations is better than a page that doesn't load at all. The pattern requires identifying which features are essential vs optional, having fallbacks for each, and making sure the fallback path is actually exercised.",
+  "why_it_matters": "In a microservices world, dependencies fail constantly. If every page that depends on the recommendation service breaks when it's down, your availability is the product of every dependency's availability — and that drops fast. Graceful degradation decouples availability from dependencies: even when 30% of services are degraded, the user sees a working (if reduced) product. Without it, one broken dependency becomes a full outage. With it, you can keep serving users while your team fixes the problem.",
+  "prerequisites": [
+    "circuit-breaker",
+    "timeout"
+  ],
+  "related": [
+    "circuit-breaker",
+    "retry",
+    "cache-aside"
+  ],
+  "used_in": [
+    "Streaming homepages (Netflix, YouTube).",
+    "E-commerce product pages (Amazon, Shopify).",
+    "Any system with non-critical features layered on critical ones."
+  ],
+  "blocks": [
+    {
+      "type": "prose",
+      "id": "intro",
+      "payload": {
+        "text": "Graceful degradation is the pattern of designing your system so that partial failures produce partial functionality, not full outages. The canonical example is Netflix: if the recommendation service is down, the homepage still loads — it just shows popular titles instead. The user doesn't see an error; they see a slightly worse homepage. The recommendation service can be down for hours and most users never notice.\n\nThis contrasts with **fail-fast** (circuit breaker), where the caller knows the service is down and gives up. Degradation goes one step further: the caller has a fallback ready — cached data, default values, a simpler computation — so the user-facing outcome is still acceptable."
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "pattern",
+      "payload": {
+        "code": "flowchart TD\n    N0[\"all deps healthy\"]\n    N1[\"NORMAL\"]\n    N2[\"FLOW\"]\n    N3[\"(all\"]\n    N4[\"deps\"]\n    N5[\"healthy)\"]\n    N6[\"auth, catalog, recommend, search, reviews\"]\n    N7[\"User\"]\n    N8[\"API\"]\n    N9[\"[auth,\"]\n    N10[\"catalog,\"]\n    N11[\"recommend,\"]\n    N12[\"search,\"]\n    N13[\"reviews]\"]\n    N14[\"all\"]\n    N15[\"green\"]\n    N16[\"rich\"]\n    N17[\"homepage.\"]\n    N18[\"recommend svc down\"]\n    N19[\"DEGRADED\"]\n    N20[\"(recommend\"]\n    N21[\"svc\"]\n    N22[\"down)\"]\n    N23[\"auth ✓, catalog ✓, recommend ✗, search ✓, reviews ✓\"]\n    N24[\"[auth\"]\n    N25[\"catalog\"]\n    N26[\"recommend\"]\n    N27[\"search\"]\n    N28[\"reviews\"]\n    N29[\"fails\"]\n    N30[\"fallback\"]\n    N31[\"cached\"]\n    N32[\"'popular\"]\n    N33[\"titles'\"]\n    N34[\"user\"]\n    N35[\"sees\"]\n    N36[\"working\"]\n    N37[\"homepage,\"]\n    N38[\"minus\"]\n    N39[\"personalization.\"]\n    N40[\"CIRCUIT\"]\n    N41[\"BREAKER\"]\n    N42[\"FALLBACK\"]\n    N43[\"cache / default / null\"]\n    N44[\"open\"]\n    N45[\"call\"]\n    N46[\"(cache\"]\n    N47[\"default\"]\n    N48[\"null)\"]\n    N49[\"immediately.\"]\n    N50[\"Fallback\"]\n    N51[\"must\"]\n    N52[\"be:\"]\n    N53[\"fast,\"]\n    N54[\"dependency\"]\n    N55[\"free,\"]\n    N56[\"tested.\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44\n    N44 --> N45\n    N45 --> N46\n    N46 --> N47\n    N47 --> N48\n    N48 --> N49\n    N49 --> N50\n    N50 --> N51\n    N51 --> N52\n    N52 --> N53\n    N53 --> N54\n    N54 --> N55\n    N55 --> N56",
+        "caption": "Each dependency has a fallback. A failed dependency returns a degraded experience, not an error page.",
+        "alt_text": "Three diagrams. Normal flow: a user request hits the API, which calls auth, catalog, recommendation, search, and reviews — all green — producing a rich homepage. Degraded flow: the recommendation service is down, so the API falls back to cached popular titles; the user still sees a working homepage minus personalization. Circuit breaker plus fallback: when the breaker is open, the system immediately calls a fallback — cache, default, or null — that is fast, dependency-free, and tested."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "essential-vs-optional",
+      "payload": {
+        "text": "The hardest part of graceful degradation is deciding what's essential. A useful framework:\n\n- **Critical path**: things the user must have. For e-commerce: browse catalog, add to cart, checkout. These cannot degrade.\n- **Important but optional**: things that materially affect UX. Product reviews, related products. Degrade to cached or hide.\n- **Nice-to-have**: personalization, recommendations, A/B variants. Degrade to defaults or remove.\n\nFor each optional feature, you need a fallback that is **independently reliable**. A fallback that depends on the same database as the failed service is useless. Good fallbacks: cached responses from a CDN, default values baked into the binary, a separate lightweight service.\n\nThe art is in not over-degrading. Showing 'popular titles' is fine; showing an empty page or a 500 is not. The fallback should preserve the core promise of the page."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "fallback-strategies",
+      "payload": {
+        "text": "Common fallback strategies, in increasing order of complexity:\n\n1. **Cached response**: serve the last successful response. Works for read-heavy data (catalog, prices).\n2. **Default value**: substitute a sensible default (empty list, 'popular' instead of 'recommended').\n3. **Stale-but-acceptable**: serve data older than freshness requirements would normally allow.\n4. **Reduced functionality**: hide the broken widget entirely; the rest of the page works.\n5. **Recompute locally**: a simpler, more expensive version of the computation that doesn't need the failed dependency.\n\nAvoid the trap of fallbacks that fail in the same way as the primary. If the recommendation service fails because Redis is down, don't write a fallback that also uses Redis."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "test-fallbacks",
+      "payload": {
+        "title": "Untested fallbacks are technical debt",
+        "body": "If your fallback path is never exercised in production, it almost certainly doesn't work. Code paths that never run rot: the cache schema drifts, the default value is stale, the simplified computation has a bug. The Netflix Chaos Monkey approach is to deliberately fail dependencies in production so the fallback path is regularly exercised. If you can't do chaos engineering, at minimum run integration tests that inject dependency failures and assert the fallback works.",
+        "kind": "warning"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "anti-patterns",
+      "payload": {
+        "text": "Anti-patterns to avoid:\n\n- **The error page as fallback**: technically a fallback, but it gives the user nothing. Always prefer a degraded but useful response.\n- **The null fallback**: returning `null` or an empty list silently. Sometimes correct, but the user sees a broken-looking page. Either hide the section or show something useful.\n- **The slow fallback**: the fallback path should be faster than the primary, not slower. A fallback that hits the same DB just re-creates the problem.\n- **Silent failures**: if you degrade, log it and emit a metric. You need to know which features are running in degraded mode and for how long — otherwise you won't notice when a 'temporary' degradation becomes permanent."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q1",
+      "payload": {
+        "question": "Your e-commerce product page calls: catalog, pricing, inventory, reviews, recommendations. Inventory is down. What's the best degradation?",
+        "shape": "mcq",
+        "options": [
+          "Return a 500 error for the whole page — the user can't buy without inventory anyway.",
+          "Show the page with reviews and recommendations, but replace the 'Add to Cart' button with 'Check availability later.'",
+          "Hide the page entirely until inventory recovers.",
+          "Cache the inventory from the last successful call indefinitely."
+        ],
+        "answer_index": 1,
+        "rationale": "Inventory is critical for purchase, but not for browsing. The user can still see the product, read reviews, and decide to come back later. Replacing 'Add to Cart' with a check-availability message is honest and preserves the rest of the experience. A 500 throws away all the working features. Hiding the page wastes the catalog, pricing, reviews, and recommendations that are all working. Caching inventory indefinitely risks overselling. The right degradation depends on the feature's role in the critical path — and inventory blocks checkout, not browse.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q2",
+      "payload": {
+        "question": "You wrote a fallback that serves the last successful recommendation response from cache. Why might this still fail in an incident?",
+        "shape": "mcq",
+        "options": [
+          "The cache could be cold after a deploy, leaving you with no fallback data.",
+          "The cache might be too large and slow to read.",
+          "Users prefer fresh recommendations over cached ones.",
+          "Fallback caches are illegal under GDPR."
+        ],
+        "answer_index": 0,
+        "rationale": "A cold cache after a deploy means the fallback has nothing to serve — the exact moment you need it most, it fails. The fix is to warm the cache on startup, or to fall back to a deeper default (popular titles) when the cache is empty. Untested fallbacks rot in many ways: cache schema drifts, the default value goes stale, the simplified code path has a bug. The lesson is that fallback paths must be exercised regularly — chaos engineering exists precisely for this reason.",
+        "difficulty": "advanced"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-graceful-degradation-mental",
+      "payload": {
+        "text": "Engineering mental model",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-graceful-degradation-mental",
+      "payload": {
+        "text": "**Mental model.** Think of Graceful Degradation as a deliberate boundary in a system. The boundary exists because something becomes harder to manage when everything is done in one place: latency, scale, failure isolation, consistency, cost, or team ownership. The useful question is not “what does Graceful Degradation mean?” but “what pressure makes this boundary worth introducing, and what new failure mode does it create?”"
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-graceful-degradation-decision",
+      "payload": {
+        "title": "Design lens",
+        "body": "Before choosing Graceful Degradation, name the workload, the critical user path, the dominant bottleneck, the failure you are trying to absorb, and the trade-off you are willing to accept. If you cannot name those five things, the design is probably premature.",
+        "kind": "info"
+      }
+    },
+    {
+      "type": "image",
+      "id": "upgrade-image-graceful-degradation",
+      "payload": {
+        "src": "/learning-visuals/graceful-degradation.svg",
+        "alt": "Original NO CAP systems visual for Graceful Degradation.",
+        "caption": "Graceful Degradation: a compact system-thinking visual.",
+        "credit": "Original NO CAP visual.",
+        "source_url": "https://github.com/donnemartin/system-design-primer"
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "upgrade-mermaid-graceful-degradation",
+      "payload": {
+        "code": "flowchart LR\n  A[Client] --> B[Gateway] --> C[Service] --> D[State] --> E[Outcome]",
+        "caption": "Graceful Degradation: a simplified system view showing the primary flow and the main state boundaries.",
+        "alt_text": "Graceful Degradation: a simplified system view showing the primary flow and the main state boundaries."
+      }
+    },
+    {
+      "type": "code",
+      "id": "upgrade-code-graceful-degradation",
+      "payload": {
+        "language": "text",
+        "code": "// Pseudocode\nrequest = receive()\nresult = graceful_degradation(request)\nreturn result\n\n// Production questions:\n// 1. What happens on timeout?\n// 2. Can this operation be retried safely?\n// 3. What is the bottleneck?",
+        "caption": "A minimal engineering sketch for reasoning about Graceful Degradation."
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-graceful-degradation-numbers",
+      "payload": {
+        "text": "Back-of-the-envelope reasoning",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-graceful-degradation-numbers",
+      "payload": {
+        "text": "Numerical lens: write down traffic, payload size, read/write ratio, peak multiplier and durability target before choosing a component. The numbers should justify the architecture."
+      }
+    },
+    {
+      "type": "simulation",
+      "id": "upgrade-sim-graceful-degradation",
+      "payload": {
+        "title": "Interactive thought experiment: Graceful Degradation",
+        "description": "Change the variables below and predict what breaks first in Graceful Degradation. The production lab can later reuse these same inputs.",
+        "variables": [
+          {
+            "name": "traffic",
+            "description": "Requests/events per second",
+            "default": "1000"
+          },
+          {
+            "name": "latency",
+            "description": "Dependency latency",
+            "default": "50ms"
+          },
+          {
+            "name": "failure_rate",
+            "description": "Injected failure rate",
+            "default": "0%"
+          }
+        ],
+        "placeholder_note": "Interactive controls are deterministic; use the linked Labs section when a dedicated lab exists."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-graceful-degradation-hint",
+      "payload": {
+        "title": "Hint",
+        "body": "If you are stuck on Graceful Degradation, start by drawing the request path and marking every network hop, stateful component, queue, cache and failure boundary. Then estimate where the system will saturate.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-graceful-degradation-1",
+      "payload": {
+        "shape": "prediction",
+        "question": "You increase traffic by 10× in a system using Graceful Degradation. What should you inspect first?",
+        "options": [
+          "The newest framework version",
+          "The dominant bottleneck and its saturation signal",
+          "Only the UI",
+          "Nothing; the architecture should absorb any traffic automatically"
+        ],
+        "answer_index": 1,
+        "rationale": "System design is a constraint-and-bottleneck exercise. Start with the resource or dependency that will saturate first, then choose the smallest change that removes that bottleneck.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-graceful-degradation-2",
+      "payload": {
+        "shape": "mcq",
+        "question": "Which statement is the safest engineering habit when using Graceful Degradation?",
+        "options": [
+          "Choose it because it is popular",
+          "Add it before measuring the problem",
+          "State the workload, failure mode and trade-off it is solving",
+          "Use the most distributed design possible"
+        ],
+        "answer_index": 2,
+        "rationale": "Good architecture starts from requirements, workload and failure assumptions. The component is the consequence of that reasoning, not the starting point.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "scenario",
+      "id": "upgrade-scenario-graceful-degradation",
+      "payload": {
+        "prompt": "Production scenario: your system uses Graceful Degradation, traffic suddenly spikes, and p99 latency doubles. What is your first move?",
+        "context": "You have dashboards for traffic, latency, errors and saturation. You can change the architecture, but every change has operational cost.",
+        "options": [
+          {
+            "id": "a",
+            "text": "Add more instances immediately",
+            "outcome": "This may help, but only if compute saturation is the bottleneck.",
+            "correct": false
+          },
+          {
+            "id": "b",
+            "text": "Inspect the bottleneck and its saturation signal first",
+            "outcome": "Correct: diagnose before scaling or introducing a new pattern.",
+            "correct": true
+          },
+          {
+            "id": "c",
+            "text": "Disable monitoring to reduce overhead",
+            "outcome": "This removes the evidence you need to diagnose the incident.",
+            "correct": false
+          }
+        ],
+        "rationale": "Measure the limiting resource or dependency first. A bottleneck can be compute, database I/O, network, cache misses, lock contention, downstream latency, or queue backlog.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-graceful-degradation-interview",
+      "payload": {
+        "text": "Interview drill",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-graceful-degradation-interview",
+      "payload": {
+        "text": "**Answer this without notes:** When would you choose Graceful Degradation, and when would you intentionally avoid it? Mention at least one bottleneck it addresses, one failure mode it introduces, and one alternative. Then quantify the workload you are designing for."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "field-guide-graceful-degradation",
+      "payload": {
+        "title": "Engineering lens",
+        "body": "A useful engineering lens for Graceful Degradation: define the problem it solves, the simpler design that fails first, the constraint that forces you to introduce this concept, and the new failure modes the concept creates.",
+        "kind": "tip"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "numerical-lens-graceful-degradation",
+      "payload": {
+        "text": "### Numerical sanity check\n\nBack-of-the-envelope reasoning beats fake precision. State your traffic, payload, concurrency and growth assumptions explicitly, then calculate enough to know whether the current architecture is orders of magnitude away from the target."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "field-question-graceful-degradation",
+      "payload": {
+        "shape": "prediction",
+        "question": "Imagine the simplest version of a system using Graceful Degradation. What breaks first as traffic grows by 10×, and what would you change before reaching 100×?",
+        "context": "Do not optimize for a memorized definition. Reason from the workload and failure mode.",
+        "options": [
+          "Scale the same component immediately.",
+          "Measure the current bottleneck and state the assumption that changed.",
+          "Add more technologies until throughput improves.",
+          "Choose the most popular architecture."
+        ],
+        "answer_index": 1,
+        "rationale": "Good system design starts with the bottleneck and the changed constraint. The most popular or complex choice is not automatically correct.",
+        "difficulty": "interview"
+      }
+    }
+  ],
+  "trade_offs": {
+    "pros": [
+      "Keeps the product usable during dependency failures.",
+      "Decouples availability from any single dependency.",
+      "Buys time for engineers to fix the underlying problem without users seeing an outage.",
+      "Forces explicit decisions about which features are critical."
+    ],
+    "cons": [
+      "More code paths to write and maintain (every optional feature needs a fallback).",
+      "Fallbacks that aren't tested rot and fail when needed.",
+      "Users may notice degradation and complain — silent failures can mask real problems.",
+      "Increases operational complexity: which features are degraded right now?"
+    ]
+  },
+  "failure_modes": [
+    "Fallback depends on the same broken dependency — fails the same way.",
+    "Fallback cache is cold at the moment of failure — nothing to serve.",
+    "Silent degradation that no one notices — a 'temporary' fix becomes permanent.",
+    "Over-degradation: every minor failure produces a stripped-down UI that feels broken."
+  ],
+  "common_mistakes": [
+    "Writing fallbacks but never exercising them in production.",
+    "Choosing fallbacks that share dependencies with the primary path.",
+    "Returning null/empty silently instead of hiding the section or substituting a sensible default.",
+    "Not logging or alerting on degradation — you don't know it's happening."
+  ],
+  "where_you_see_it": [
+    "Netflix homepage: degrades to popular titles if recommendations fail.",
+    "Amazon product page: hides reviews widget if reviews service is slow.",
+    "Slack: shows 'messages may be delayed' badge instead of failing."
+  ],
+  "interview_prompts": [
+    "What is graceful degradation? How does it differ from fail-fast?",
+    "How do you decide which features can degrade and which can't?",
+    "Why is caching often the easiest fallback, and what are its failure modes?",
+    "How do you make sure fallbacks actually work when needed?"
+  ],
+  "real_system_mappings": [
+    {
+      "system": "Netflix",
+      "how": "The homepage calls ~10 microservices. If recommendations fail, it serves popular titles from a fallback. If personalization fails, it serves a generic layout. The user rarely notices."
+    },
+    {
+      "system": "Amazon",
+      "how": "Product pages have multiple widgets (reviews, related, sponsored). Each has an independent timeout and fallback. A slow widget is hidden; the rest of the page renders normally."
+    }
+  ],
+  "status": "published",
+  "sources": [
+    {
+      "title": "System Design Primer",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Open source"
+    },
+    {
+      "title": "ByteByteGo — Scale from zero to millions",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "ByteByteGo"
+    },
+    {
+      "title": "System Design Tutorial",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "GeeksforGeeks"
+    },
+    {
+      "title": "System Design Roadmap",
+      "url": "https://roadmap.sh/system-design",
+      "publisher": "roadmap.sh"
+    },
+    {
+      "title": "Reliability & Resilience reference",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Reliability & Resilience reference",
+      "url": "https://sre.google/sre-book/table-of-contents/",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Reliability & Resilience reference",
+      "url": "https://aws.amazon.com/builders-library/",
+      "publisher": "Reference"
+    },
+    {
+      "title": "AWS Well-Architected",
+      "url": "https://aws.amazon.com/architecture/well-architected/",
+      "publisher": "AWS"
+    }
+  ]
+}

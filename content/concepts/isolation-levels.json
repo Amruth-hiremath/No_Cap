@@ -1,0 +1,459 @@
+{
+  "slug": "isolation-levels",
+  "version": 4,
+  "title": "Isolation Levels",
+  "phase": "databases-data-systems",
+  "area": "Databases & Data Systems",
+  "estimated_minutes": 7,
+  "difficulty": "expert",
+  "summary": "Isolation levels control how concurrent transactions see each other's effects. The ANSI SQL standard defines four levels — Read Uncommitted, Read Committed, Repeatable Read, and Serializable — each preventing specific anomalies (dirty reads, non-repeatable reads, phantom reads, serialization anomalies). Higher isolation means more correctness but less concurrency. Most databases default to Read Committed, which is weaker than people assume.",
+  "why_it_matters": "Almost every subtle concurrency bug in database-backed systems comes down to an isolation assumption: 'I read the balance, checked it was sufficient, then wrote.' At Read Committed isolation, that check can be invalidated between the read and the write — overdrafts, double-spending, race conditions. Knowing which level your database actually uses by default, what anomalies it allows, and when to upgrade per-transaction is the difference between correct and 'mostly correct' systems.",
+  "prerequisites": [
+    "transactions"
+  ],
+  "related": [
+    "mvcc",
+    "transactions",
+    "wal"
+  ],
+  "used_in": [
+    "Any application with concurrent writes to the same rows.",
+    "Payment, inventory, and booking systems where race conditions cost money.",
+    "Reports and analytics that must produce consistent snapshots.",
+    "Distributed-systems debugging — recognizing isolation anomalies in the wild."
+  ],
+  "blocks": [
+    {
+      "type": "prose",
+      "id": "intro",
+      "payload": {
+        "text": "Isolation is the 'I' in ACID — the promise that concurrent transactions don't interfere. Perfect isolation (Serializability) means transactions produce results indistinguishable from running them one at a time in some order. Perfect isolation is expensive; real databases offer a spectrum of isolation levels, each preventing some anomalies but allowing others.\n\nThe ANSI SQL standard defines four levels, from weakest to strongest:\n\n1. **Read Uncommitted** — a transaction can read uncommitted changes from other transactions ('dirty reads'). Almost no database uses this in practice.\n2. **Read Committed** — a transaction only sees data that other transactions have committed. No dirty reads. But re-reading a row within one transaction can return different values ('non-repeatable reads'), and the set of rows matching a predicate can change ('phantom reads'). This is the PostgreSQL, SQL Server, and Oracle default.\n3. **Repeatable Read** — once a transaction reads a row, re-reading it returns the same value. Non-repeatable reads are prevented. Phantom reads may still occur (new rows matching a WHERE can appear). This is the MySQL/InnoDB default.\n4. **Serializable** — transactions are equivalent to running them sequentially. No anomalies. Most expensive.\n\nThe choice is a per-transaction or per-session setting: `SET TRANSACTION ISOLATION LEVEL SERIALIZABLE;`."
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "anomalies-table",
+      "payload": {
+        "code": "flowchart TD\n    N0[\"Isolation\"]\n    N1[\"levels\"]\n    N2[\"and\"]\n    N3[\"the\"]\n    N4[\"anomalies\"]\n    N5[\"they\"]\n    N6[\"prevent\"]\n    N7[\"Anomaly\"]\n    N8[\"What\"]\n    N9[\"happens\"]\n    N10[\"Example\"]\n    N11[\"no commit\"]\n    N12[\"Dirty\"]\n    N13[\"Read\"]\n    N14[\"reads\"]\n    N15[\"T1's\"]\n    N16[\"uncommitted\"]\n    N17[\"write,\"]\n    N18[\"T1:\"]\n    N19[\"UPDATE\"]\n    N20[\"(no\"]\n    N21[\"commit)\"]\n    N22[\"!\"]\n    N23[\"then\"]\n    N24[\"rolls\"]\n    N25[\"back.\"]\n    N26[\"T2:\"]\n    N27[\"SELECT\"]\n    N28[\"(!)\"]\n    N29[\"wait\"]\n    N30[\"Non\"]\n    N31[\"Repeatable\"]\n    N32[\"commits\"]\n    N33[\"BEGIN;\"]\n    N34[\"(wait)\"]\n    N35[\"again\"]\n    N36[\"different\"]\n    N37[\"value.\"]\n    N38[\"COMMIT\"]\n    N39[\"different!\"]\n    N40[\"(different!)\"]\n    N41[\"Phantom\"]\n    N42[\"runs\"]\n    N43[\"`WHERE\"]\n    N44[\"x>5`,\"]\n    N45[\"inserts\"]\n    N46[\"WHERE\"]\n    N47[\"x>5\"]\n    N48[\"new\"]\n    N49[\"matching\"]\n    N50[\"row,\"]\n    N51[\"query\"]\n    N52[\"INSERT\"]\n    N53[\"10;\"]\n    N54[\"more rows\"]\n    N55[\"row\"]\n    N56[\"set.\"]\n    N57[\"(more\"]\n    N58[\"rows)\"]\n    N59[\"Serialization\"]\n    N60[\"Two\"]\n    N61[\"transactions\"]\n    N62[\"read\"]\n    N63[\"write\"]\n    N64[\"way\"]\n    N65[\"count\"]\n    N66[\"that's\"]\n    N67[\"not\"]\n    N68[\"equivalent\"]\n    N69[\"any\"]\n    N70[\"serial\"]\n    N71[\"should be 7\"]\n    N72[\"execution.\"]\n    N73[\"Final\"]\n    N74[\"count:\"]\n    N75[\"(should\"]\n    N76[\"level\"]\n    N77[\"Rep\"]\n    N78[\"Serial\"]\n    N79[\"Anom\"]\n    N80[\"Uncommitted\"]\n    N81[\"yes\"]\n    N82[\"Committed\"]\n    N83[\"some*\"]\n    N84[\"Serializable\"]\n    N85[\"next-key locks\"]\n    N86[\"*MySQL\"]\n    N87[\"InnoDB\"]\n    N88[\"also\"]\n    N89[\"prevents\"]\n    N90[\"phantoms\"]\n    N91[\"(next\"]\n    N92[\"key\"]\n    N93[\"locks).\"]\n    N94[\"PostgreSQL\"]\n    N95[\"but\"]\n    N96[\"allows\"]\n    N97[\"anomalies.\"]\n    N98[\"SQL\"]\n    N99[\"standard\"]\n    N100[\"ambiguous;\"]\n    N101[\"behavior\"]\n    N102[\"varies\"]\n    N103[\"database.\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44\n    N44 --> N45\n    N45 --> N46\n    N46 --> N47\n    N47 --> N48\n    N48 --> N49\n    N49 --> N50\n    N50 --> N51\n    N51 --> N52\n    N52 --> N53\n    N53 --> N54\n    N54 --> N55\n    N55 --> N56\n    N56 --> N57\n    N57 --> N58\n    N58 --> N59\n    N59 --> N60\n    N60 --> N61\n    N61 --> N62\n    N62 --> N63\n    N63 --> N64\n    N64 --> N65\n    N65 --> N66\n    N66 --> N67\n    N67 --> N68\n    N68 --> N69\n    N69 --> N70\n    N70 --> N71\n    N71 --> N72\n    N72 --> N73\n    N73 --> N74\n    N74 --> N75\n    N75 --> N76\n    N76 --> N77\n    N77 --> N78\n    N78 --> N79\n    N79 --> N80\n    N80 --> N81\n    N81 --> N82\n    N82 --> N83\n    N83 --> N84\n    N84 --> N85\n    N85 --> N86\n    N86 --> N87\n    N87 --> N88\n    N88 --> N89\n    N89 --> N90\n    N90 --> N91\n    N91 --> N92\n    N92 --> N93\n    N93 --> N94\n    N94 --> N95\n    N95 --> N96\n    N96 --> N97\n    N97 --> N98\n    N98 --> N99\n    N99 --> N100\n    N100 --> N101\n    N101 --> N102\n    N102 --> N103",
+        "caption": "Higher isolation levels prevent more anomalies, at the cost of concurrency.",
+        "alt_text": "Two tables. The first lists four isolation anomalies: Dirty Read (T2 reads T1's uncommitted write, then T1 rolls back), Non-Repeatable Read (T2 reads x twice and gets different values because T1 committed a change in between), Phantom Read (T2 runs a WHERE query, T1 inserts a matching row, T2 re-runs and gets more rows), and Serialization Anomaly (two transactions read and write in a way not equivalent to any serial execution). The second table maps isolation levels to anomalies: Read Uncommitted allows all four; Read Committed prevents only Dirty Reads; Repeatable Read prevents Dirty and Non-Repeatable Reads (phantom handling varies by database); Serializable prevents all four."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "anomalies-explained",
+      "payload": {
+        "text": "**Dirty Read** — transaction T2 reads a value that T1 wrote but hasn't committed. If T1 then rolls back, T2 has read data that 'never existed.' Almost no database allows this; Read Uncommitted isolation exists in the standard but is rarely used.\n\n**Non-Repeatable Read** — within a single transaction, T2 reads `balance = 100`, then T1 commits `balance = 50`, and T2 reads `balance = 50`. The same query returns different values within one transaction. Read Committed allows this; Repeatable Read prevents it.\n\n**Phantom Read** — within a single transaction, T2 runs `SELECT * FROM orders WHERE total > 100` and gets 5 rows. T1 inserts a new row with `total = 200` and commits. T2 runs the same query and gets 6 rows. The row set changed.\n\n**Serialization Anomaly** — the most subtle. Two transactions each read a count (5), each increment it (6), each write 6. The final count is 6, not 7. Individually each transaction looks fine; the anomaly is only visible in their interaction. This is what Repeatable Read allows and Serializable prevents.\n\nThe classic example of why this matters: a `post_view_count` table where two simultaneous viewers each read the count (5), each increment, each write 6. You've lost a view. At Serializable, one transaction would have aborted and retried, giving the correct count of 7."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "default-levels",
+      "payload": {
+        "title": "What's the default in your database?",
+        "body": "PostgreSQL: Read Committed. MySQL/InnoDB: Repeatable Read (with next-key locking that also prevents phantoms). SQL Server: Read Committed. Oracle: Read Committed (called 'Read Committed' but with a snapshot variant). MongoDB: Snapshot isolation per session. Most production apps run at Read Committed or Repeatable Read and are surprised to learn Serializable exists. Always check your database's default — it's the most important thing to know about your isolation story.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "serializable",
+      "payload": {
+        "text": "**Serializable** is the gold standard but expensive. There are two implementation strategies:\n\n1. **Lock-based (two-phase locking, 2PL)** — the classic approach. Acquire shared locks on reads, exclusive locks on writes; never release a lock until the transaction ends. Guarantees serializability but suffers from deadlocks and low concurrency. MySQL's Repeatable Read uses next-key locking, a variant of 2PL.\n\n2. **SSI (Serializable Snapshot Isolation)** — used by PostgreSQL 9.1+. Uses MVCC for reads (no read locks) and tracks 'rw-dependencies' between transactions. If a transaction's reads might have been invalidated by another's writes, the database aborts it. Higher concurrency than 2PL but with abort/retry overhead.\n\nWhen to use Serializable:\n- Financial invariants where races are unacceptable.\n- Constraints that span multiple rows (e.g., 'at most 5 active reservations per user').\n- Operations where retrying on abort is safe and acceptable.\n\nWhen NOT to use Serializable:\n- High-throughput workloads where the abort rate kills performance.\n- Read-heavy workloads where Read Committed suffices.\n- Long-running transactions (they'll abort more often).\n\nIn practice, many applications run at Read Committed and use `SELECT … FOR UPDATE` (an explicit row lock) for the specific read-modify-write sequences that need stronger isolation. This is cheaper than upgrading the whole transaction to Serializable."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "select-for-update",
+      "payload": {
+        "text": "**SELECT … FOR UPDATE** is the surgical alternative to bumping the isolation level. It acquires a row-level write lock on the rows returned by the SELECT, holding them until the transaction commits. Other transactions trying to read (with FOR UPDATE) or write those rows block.\n\nPattern for safe read-modify-write:\n```sql\nBEGIN;\nSELECT balance FROM accounts WHERE id = 1 FOR UPDATE;  -- locks row\n-- application checks balance >= 100\nUPDATE accounts SET balance = balance - 100 WHERE id = 1;\nCOMMIT;\n```\n\nThis gives the correctness of Serializable for the specific rows involved, without paying the cost for the rest of the transaction.\n\nTrade-off: row locks can cause contention and deadlocks. If two transactions try to lock the same set of rows in opposite orders, you get a deadlock — Postgres will abort one and you must retry.\n\nRules of thumb:\n- Default to Read Committed.\n- Use `SELECT … FOR UPDATE` for specific read-modify-write sequences.\n- Upgrade to Serializable only when correctness requires it and the workload tolerates aborts.\n- Never hold locks across external calls (HTTP, etc.) — that's how you get deadlocks at scale."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q1",
+      "payload": {
+        "question": "At Read Committed isolation, transaction T1 reads `balance = 100`, then transaction T2 commits `balance = 50`, then T1 reads balance again. What does T1 see on the second read?",
+        "shape": "mcq",
+        "options": [
+          "100 — T1's reads are stable within the transaction.",
+          "50 — Read Committed allows non-repeatable reads; T1 sees the committed update.",
+          "An error — the database aborts T1.",
+          "NULL — the row is locked."
+        ],
+        "answer_index": 1,
+        "rationale": "Read Committed allows non-repeatable reads. Within a single transaction, re-reading the same row can return different values if another transaction committed a change in between. T1's first read returned 100; T2 committed balance=50; T1's second read returns 50. This is the defining difference between Read Committed and Repeatable Read. At Repeatable Read, T1's second read would still return 100 (the value as of T1's first read, snapshot). If you need stable reads within a transaction, use Repeatable Read or Serializable.",
+        "difficulty": "core"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q2",
+      "payload": {
+        "question": "Two transactions concurrently increment a counter: both read count=5, both write count=6, both commit. The final count is 6 instead of 7. Which isolation level would have prevented this, and how?",
+        "shape": "mcq",
+        "options": [
+          "Read Committed — would have aborted one transaction.",
+          "Repeatable Read — would have detected the conflict.",
+          "Serializable — would detect the read-write dependency between the transactions and abort one (with retry, the count becomes 7).",
+          "Any isolation level — this is unavoidable."
+        ],
+        "answer_index": 2,
+        "rationale": "This is a serialization anomaly — the lost update problem. At Read Committed, both transactions read 5 and write 6; the database doesn't detect the conflict because each transaction's individual operations look fine. At Repeatable Read in PostgreSQL, the second write would actually be aborted at commit time (PostgreSQL's Repeatable Read prevents lost updates by detecting write-write conflicts). But at standard Repeatable Read in general, this can still occur. At Serializable (specifically SSI in PostgreSQL), the database tracks read-write dependencies and aborts one of the transactions. On retry, that transaction reads 6 and writes 7. So Serializable is the level that prevents the anomaly AND produces the correct final value. The recommended pattern in production: use Read Committed + SELECT … FOR UPDATE for the specific rows, or upgrade to Serializable for the transaction.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q3",
+      "payload": {
+        "question": "Your PostgreSQL app uses Read Committed (the default). You have a read-modify-write sequence on a balance field that's race-prone. What's the most surgical fix?",
+        "shape": "mcq",
+        "options": [
+          "Upgrade the entire database to Serializable isolation.",
+          "Use `SELECT … FOR UPDATE` on the balance row within the transaction to lock it for the duration, preventing concurrent modifications.",
+          "Wrap the read-modify-write in a BEGIN/COMMIT block (without changing isolation).",
+          "Add a UNIQUE constraint on the balance column."
+        ],
+        "answer_index": 1,
+        "rationale": "`SELECT … FOR UPDATE` acquires a row-level write lock on the selected rows, holding them until the transaction commits. This prevents concurrent transactions from modifying those rows until the lock is released. It's the surgical fix: it gives you serializability for the specific rows involved in the read-modify-write, without paying for Serializable isolation on the whole transaction. Upgrading the whole database to Serializable is overkill — it adds abort overhead to every transaction, even ones that don't need stronger isolation. Just wrapping in BEGIN/COMMIT doesn't change isolation — the default Read Committed still allows the race. A UNIQUE constraint doesn't help — it enforces uniqueness, not value correctness.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q4",
+      "payload": {
+        "question": "Why does MySQL/InnoDB's Repeatable Read prevent phantom reads while PostgreSQL's does not (entirely)?",
+        "shape": "mcq",
+        "options": [
+          "MySQL has a stricter standard for Repeatable Read than PostgreSQL.",
+          "MySQL uses next-key locking (a form of 2PL) that locks gaps between index entries; PostgreSQL uses MVCC snapshots that don't lock new inserts.",
+          "PostgreSQL doesn't actually implement Repeatable Read.",
+          "MySQL is faster than PostgreSQL."
+        ],
+        "answer_index": 1,
+        "rationale": "The ANSI SQL standard is ambiguous about whether Repeatable Read must prevent phantoms — it depends on implementation. MySQL/InnoDB uses next-key locking, a variant of two-phase locking that locks both existing rows AND the 'gaps' between them in the index, preventing new inserts from matching a predicate. So InnoDB Repeatable Read prevents phantoms. PostgreSQL uses MVCC snapshots — each transaction sees a consistent snapshot of committed data as of its start. This prevents non-repeatable reads but allows new rows to be inserted by other transactions (the snapshot doesn't include them). So a `WHERE` query re-run in the same transaction may return the original set (snapshot-consistent) but the new rows don't appear — phantoms are prevented for the existing snapshot but new inserts are visible if explicitly queried by ID. The behavior is database-specific; always check the docs.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-isolation-levels-mental",
+      "payload": {
+        "text": "Engineering mental model",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-isolation-levels-mental",
+      "payload": {
+        "text": "**Mental model.** Think of Isolation Levels as a deliberate boundary in a system. The boundary exists because something becomes harder to manage when everything is done in one place: latency, scale, failure isolation, consistency, cost, or team ownership. The useful question is not “what does Isolation Levels mean?” but “what pressure makes this boundary worth introducing, and what new failure mode does it create?”"
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-isolation-levels-decision",
+      "payload": {
+        "title": "Design lens",
+        "body": "Before choosing Isolation Levels, name the workload, the critical user path, the dominant bottleneck, the failure you are trying to absorb, and the trade-off you are willing to accept. If you cannot name those five things, the design is probably premature.",
+        "kind": "info"
+      }
+    },
+    {
+      "type": "image",
+      "id": "upgrade-image-isolation-levels",
+      "payload": {
+        "src": "/learning-visuals/isolation-levels.svg",
+        "alt": "Original NO CAP systems visual for Isolation Levels.",
+        "caption": "Isolation Levels: a compact system-thinking visual.",
+        "credit": "Original NO CAP visual.",
+        "source_url": "https://github.com/donnemartin/system-design-primer"
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "upgrade-mermaid-isolation-levels",
+      "payload": {
+        "code": "flowchart LR\n  A[Client] --> B[Gateway] --> C[Service] --> D[State] --> E[Outcome]",
+        "caption": "Isolation Levels: a simplified system view showing the primary flow and the main state boundaries.",
+        "alt_text": "Isolation Levels: a simplified system view showing the primary flow and the main state boundaries."
+      }
+    },
+    {
+      "type": "code",
+      "id": "upgrade-code-isolation-levels",
+      "payload": {
+        "language": "text",
+        "code": "// Pseudocode\nrequest = receive()\nresult = isolation_levels(request)\nreturn result\n\n// Production questions:\n// 1. What happens on timeout?\n// 2. Can this operation be retried safely?\n// 3. What is the bottleneck?",
+        "caption": "A minimal engineering sketch for reasoning about Isolation Levels."
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-isolation-levels-numbers",
+      "payload": {
+        "text": "Back-of-the-envelope reasoning",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-isolation-levels-numbers",
+      "payload": {
+        "text": "Numerical lens: write down traffic, payload size, read/write ratio, peak multiplier and durability target before choosing a component. The numbers should justify the architecture."
+      }
+    },
+    {
+      "type": "simulation",
+      "id": "upgrade-sim-isolation-levels",
+      "payload": {
+        "title": "Interactive thought experiment: Isolation Levels",
+        "description": "Change the variables below and predict what breaks first in Isolation Levels. The production lab can later reuse these same inputs.",
+        "variables": [
+          {
+            "name": "traffic",
+            "description": "Requests/events per second",
+            "default": "1000"
+          },
+          {
+            "name": "latency",
+            "description": "Dependency latency",
+            "default": "50ms"
+          },
+          {
+            "name": "failure_rate",
+            "description": "Injected failure rate",
+            "default": "0%"
+          }
+        ],
+        "placeholder_note": "Interactive controls are deterministic; use the linked Labs section when a dedicated lab exists."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-isolation-levels-hint",
+      "payload": {
+        "title": "Hint",
+        "body": "If you are stuck on Isolation Levels, start by drawing the request path and marking every network hop, stateful component, queue, cache and failure boundary. Then estimate where the system will saturate.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-isolation-levels-1",
+      "payload": {
+        "shape": "prediction",
+        "question": "You increase traffic by 10× in a system using Isolation Levels. What should you inspect first?",
+        "options": [
+          "The newest framework version",
+          "The dominant bottleneck and its saturation signal",
+          "Only the UI",
+          "Nothing; the architecture should absorb any traffic automatically"
+        ],
+        "answer_index": 1,
+        "rationale": "System design is a constraint-and-bottleneck exercise. Start with the resource or dependency that will saturate first, then choose the smallest change that removes that bottleneck.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-isolation-levels-2",
+      "payload": {
+        "shape": "mcq",
+        "question": "Which statement is the safest engineering habit when using Isolation Levels?",
+        "options": [
+          "Choose it because it is popular",
+          "Add it before measuring the problem",
+          "State the workload, failure mode and trade-off it is solving",
+          "Use the most distributed design possible"
+        ],
+        "answer_index": 2,
+        "rationale": "Good architecture starts from requirements, workload and failure assumptions. The component is the consequence of that reasoning, not the starting point.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "scenario",
+      "id": "upgrade-scenario-isolation-levels",
+      "payload": {
+        "prompt": "Production scenario: your system uses Isolation Levels, traffic suddenly spikes, and p99 latency doubles. What is your first move?",
+        "context": "You have dashboards for traffic, latency, errors and saturation. You can change the architecture, but every change has operational cost.",
+        "options": [
+          {
+            "id": "a",
+            "text": "Add more instances immediately",
+            "outcome": "This may help, but only if compute saturation is the bottleneck.",
+            "correct": false
+          },
+          {
+            "id": "b",
+            "text": "Inspect the bottleneck and its saturation signal first",
+            "outcome": "Correct: diagnose before scaling or introducing a new pattern.",
+            "correct": true
+          },
+          {
+            "id": "c",
+            "text": "Disable monitoring to reduce overhead",
+            "outcome": "This removes the evidence you need to diagnose the incident.",
+            "correct": false
+          }
+        ],
+        "rationale": "Measure the limiting resource or dependency first. A bottleneck can be compute, database I/O, network, cache misses, lock contention, downstream latency, or queue backlog.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-isolation-levels-interview",
+      "payload": {
+        "text": "Interview drill",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-isolation-levels-interview",
+      "payload": {
+        "text": "**Answer this without notes:** When would you choose Isolation Levels, and when would you intentionally avoid it? Mention at least one bottleneck it addresses, one failure mode it introduces, and one alternative. Then quantify the workload you are designing for."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "field-guide-isolation-levels",
+      "payload": {
+        "title": "Engineering lens",
+        "body": "For Isolation Levels, start with access patterns rather than brand names. Identify the dominant reads/writes, data relationships, consistency requirements, partition key, hot keys and failure behavior before choosing a storage strategy.",
+        "kind": "tip"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "numerical-lens-isolation-levels",
+      "payload": {
+        "text": "### Numerical sanity check\n\nA rough capacity check: required write throughput ≈ peak writes/s × average record size. At 5,000 writes/s and 2 KB average payloads, the raw incoming data stream is about 10 MB/s before indexes, replication and overhead."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "field-question-isolation-levels",
+      "payload": {
+        "shape": "prediction",
+        "question": "A team proposes Isolation Levels because it 'scales'. What workload characteristic would make that choice a poor fit?",
+        "context": "Do not optimize for a memorized definition. Reason from the workload and failure mode.",
+        "options": [
+          "Scale the same component immediately.",
+          "Measure the current bottleneck and state the assumption that changed.",
+          "Add more technologies until throughput improves.",
+          "Choose the most popular architecture."
+        ],
+        "answer_index": 1,
+        "rationale": "Good system design starts with the bottleneck and the changed constraint. The most popular or complex choice is not automatically correct.",
+        "difficulty": "interview"
+      }
+    }
+  ],
+  "trade_offs": {
+    "pros": [
+      "Higher isolation = stronger correctness guarantees — fewer anomalies to reason about.",
+      "Serializable gives you 'transactions behave as if sequential' — the cleanest mental model.",
+      "Per-transaction choice — bump isolation only where needed.",
+      "SSI (PostgreSQL) makes Serializable practical for many workloads via optimistic concurrency.",
+      "`SELECT … FOR UPDATE` provides surgical strong isolation for specific rows."
+    ],
+    "cons": [
+      "Higher isolation = lower concurrency — more locking, more aborts.",
+      "Serializable transactions can abort and require retry logic in the application.",
+      "Lock-based serializability (2PL) causes deadlocks under contention.",
+      "Each level has subtle, database-specific behavior — the standard is ambiguous.",
+      "Defaults vary by database — assumptions break across migrations."
+    ]
+  },
+  "failure_modes": [
+    "Lost updates — two concurrent read-modify-write sequences overwrite each other.",
+    "Phantom reads — aggregate queries return different totals within one transaction.",
+    "Write skew — two transactions read overlapping data and write disjoint updates that together violate a constraint.",
+    "Deadlocks — transactions holding locks in opposite orders abort each other.",
+    "Long-running transactions at Serializable abort frequently under contention.",
+    "Assuming the database default is stronger than it is — Read Committed is weaker than people think."
+  ],
+  "common_mistakes": [
+    "Assuming 'ACID' means 'Serializable' — most databases default to weaker levels.",
+    "Not knowing the default isolation level of the database you're using.",
+    "Using Serializable for everything — performance collapse.",
+    "Using Read Committed for read-modify-write sequences without SELECT … FOR UPDATE.",
+    "Holding locks across external calls — deadlocks and timeouts.",
+    "Not implementing retry logic when using Serializable (you will get aborts).",
+    "Treating 'PostgreSQL Repeatable Read' and 'MySQL Repeatable Read' as identical — they aren't."
+  ],
+  "where_you_see_it": [
+    "Every SQL database — isolation level is a per-session setting.",
+    "Banking, payments, inventory — anywhere read-modify-write matters.",
+    "Reporting queries — Repeatable Read gives consistent snapshots for analytics.",
+    "Migration code — explicit isolation levels to avoid surprises."
+  ],
+  "interview_prompts": [
+    "What are the four ANSI SQL isolation levels, and which anomalies does each prevent?",
+    "Two concurrent transactions increment a counter and both read 5. The final count is 6 instead of 7. What happened and how do you prevent it?",
+    "What isolation level does your database default to? What does that allow?",
+    "What is `SELECT … FOR UPDATE` and when should you use it?",
+    "How does PostgreSQL implement Serializable isolation? Why is it different from MySQL's approach?"
+  ],
+  "real_system_mappings": [
+    {
+      "system": "PostgreSQL",
+      "how": "Defaults to Read Committed; offers Serializable via SSI (Serializable Snapshot Isolation). MVCC underlies both — see the MVCC concept. SSI tracks rw-dependencies and aborts transactions whose reads might have been invalidated."
+    },
+    {
+      "system": "MySQL / InnoDB",
+      "how": "Defaults to Repeatable Read, implemented with next-key locking (a variant of 2PL). Prevents phantoms at Repeatable Read — stricter than the SQL standard requires. Offers Serializable as a stricter mode."
+    },
+    {
+      "system": "Oracle",
+      "how": "Defaults to Read Committed. Offers Serializable (table-level locking, rarely used in practice) and Read Only (for reports). Uses undo segments to reconstruct older versions of rows for snapshot reads."
+    },
+    {
+      "system": "Microsoft SQL Server",
+      "how": "Defaults to Read Committed; offers all four ANSI levels plus SNAPSHOT isolation (similar to PostgreSQL Repeatable Read with MVCC). Read Committed Snapshot Isolation (RCSI) is a popular option that uses MVCC for Read Committed, avoiding read locks."
+    }
+  ],
+  "status": "published",
+  "sources": [
+    {
+      "title": "System Design Primer",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Open source"
+    },
+    {
+      "title": "ByteByteGo — Scale from zero to millions",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "ByteByteGo"
+    },
+    {
+      "title": "System Design Tutorial",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "GeeksforGeeks"
+    },
+    {
+      "title": "System Design Roadmap",
+      "url": "https://roadmap.sh/system-design",
+      "publisher": "roadmap.sh"
+    },
+    {
+      "title": "Databases & Data Systems reference",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Databases & Data Systems reference",
+      "url": "https://www.postgresql.org/docs/",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Databases & Data Systems reference",
+      "url": "https://aws.amazon.com/what-is/database/",
+      "publisher": "Reference"
+    }
+  ]
+}

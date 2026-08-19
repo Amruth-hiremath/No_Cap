@@ -1,0 +1,550 @@
+{
+  "slug": "http",
+  "version": 5,
+  "title": "HTTP — HyperText Transfer Protocol",
+  "phase": "networking-communication",
+  "area": "Networking & Communication",
+  "estimated_minutes": 8,
+  "difficulty": "core",
+  "summary": "HTTP is the application-layer protocol that powers the web. It is request-response, stateless, and text-based (in HTTP/1.1). Understanding HTTP methods, status codes, headers, and the evolution from HTTP/1.1 to HTTP/2 to HTTP/3 is fundamental to every web system design.",
+  "why_it_matters": "Every web API, every browser request, every microservice communication (over REST) uses HTTP. Knowing its semantics — what methods are safe vs idempotent, what status codes mean, how headers affect caching — is non-negotiable for system design. A misunderstanding of HTTP idempotency can cause double charges in a payment system.",
+  "prerequisites": [
+    "how-the-internet-works"
+  ],
+  "related": [
+    "tcp",
+    "rest",
+    "tls"
+  ],
+  "used_in": [
+    "Every web request.",
+    "Every REST API.",
+    "Most microservice communication."
+  ],
+  "blocks": [
+    {
+      "type": "prose",
+      "id": "intro",
+      "payload": {
+        "text": "HTTP is a **request-response** protocol: a client sends a request, the server sends a response. It is **stateless** — each request is independent, and the server doesn't remember previous requests (unless you add cookies or sessions).\n\nThis statelessness is both a strength and a weakness: it makes HTTP easy to scale (any server can handle any request) but means the application must manage state through other means (cookies, tokens, server-side sessions)."
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "http-flow",
+      "payload": {
+        "code": "flowchart TD\n    N0[\"browser\"]\n    N1[\"Client\"]\n    N2[\"(browser)\"]\n    N3[\"Server\"]\n    N4[\"TCP\"]\n    N5[\"connection\"]\n    N6[\"3-way handshake: SYN, SYN-ACK, ACK\"]\n    N7[\"way\"]\n    N8[\"handshake:\"]\n    N9[\"SYN,\"]\n    N10[\"SYN\"]\n    N11[\"ACK,\"]\n    N12[\"ACK)\"]\n    N13[\"Request:\"]\n    N14[\"GET\"]\n    N15[\"users\"]\n    N16[\"HTTP\"]\n    N17[\"1.1\"]\n    N18[\"Host:\"]\n    N19[\"api.example.com\"]\n    N20[\"Accept:\"]\n    N21[\"application\"]\n    N22[\"json\"]\n    N23[\"Authorization:\"]\n    N24[\"Bearer\"]\n    N25[\"eyJ...\"]\n    N26[\"Response:\"]\n    N27[\"200\"]\n    N28[\"Content\"]\n    N29[\"Type:\"]\n    N30[\"Length:\"]\n    N31[\"Cache\"]\n    N32[\"Control:\"]\n    N33[\"max\"]\n    N34[\"age\"]\n    N35[\"'id':42,'name':'Ada','role':'admin'\"]\n    N36[\"{'id':42,'name':'Ada','role':'admin'}\"]\n    N37[\"HTTP/1.1\"]\n    N38[\"closed\"]\n    N39[\"(HTTP\"]\n    N40[\"1.1)\"]\n    N41[\"HTTP/2 — multiplexed\"]\n    N42[\"reused\"]\n    N43[\"multiplexed)\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43",
+        "caption": "A single HTTP request-response cycle over TCP.",
+        "alt_text": "A diagram of an HTTP request-response cycle. The client opens a TCP connection with a 3-way handshake, sends a request with a method (GET), path (/users/42), version (HTTP/1.1), and headers (Host, Accept, Authorization). The server responds with a status line (200 OK), headers (Content-Type, Content-Length, Cache-Control), and a body (JSON). In HTTP/1.1 the connection is then closed; in HTTP/2 it can be reused for multiplexed requests."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "methods",
+      "payload": {
+        "text": "**HTTP methods and their semantics:**\n\n| Method | Safe? | Idempotent? | Purpose |\n|--------|-------|-------------|---------|\n| **GET** | Yes | Yes | Fetch a resource. No side effects. Cacheable. |\n| **POST** | No | No | Create a resource. Side effects, not idempotent. |\n| **PUT** | No | Yes | Replace a resource. Same request twice = same state. |\n| **DELETE** | No | Yes | Remove a resource. Second delete returns 404 but state is same. |\n| **PATCH** | No | Maybe | Partially update. Idempotent if it's 'set to X', not if it's 'increment by 1'. |\n\n**Safe** methods have no side effects — calling them doesn't change server state. They can be cached and prefetched.\n\n**Idempotent** methods can be safely retried — doing them once or 100 times produces the same result. This matters for unreliable networks: if a request times out, you can safely retry idempotent methods but not non-idempotent ones."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "idempotency",
+      "payload": {
+        "title": "Why idempotency is critical for payments",
+        "body": "If a network blip causes your payment request to time out, should you retry? If the method is idempotent (PUT, DELETE), yes — retrying is safe. If it's POST (not idempotent), retrying might charge the user twice. This is why payment APIs use **idempotency keys**: the client sends a unique ID with each request, and the server deduplicates. Stripe, Square, and Adyen all use this pattern. Without it, retries would be unsafe.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "status-codes",
+      "payload": {
+        "text": "**HTTP status codes** tell the client what happened:\n\n- **2xx Success**: 200 OK, 201 Created, 204 No Content\n- **3xx Redirect**: 301 Moved Permanently, 304 Not Modified (cache hit — don't re-download)\n- **4xx Client error**: 400 Bad Request, 401 Unauthorized, 403 Forbidden, 404 Not Found, 429 Too Many Requests\n- **5xx Server error**: 500 Internal Server Error, 502 Bad Gateway, 503 Service Unavailable, 504 Gateway Timeout\n\nIn system design, **429** (rate limited) and **503** (unavailable) are especially important — they signal the client to back off or retry. Always include a `Retry-After` header with 429 so the client knows how long to wait.\n\n**Common mistakes:**\n- Returning 200 OK with an error body. This breaks HTTP semantics and client error handling. Use 4xx/5xx.\n- Returning 500 for client errors (bad input). Use 400.\n- Not returning 201 Created when a resource is created."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "versions",
+      "payload": {
+        "text": "**HTTP version evolution:**\n\n**HTTP/1.1** (1997): text-based protocol. One request per TCP connection (later, pipelining was added but suffered from head-of-line blocking). Headers sent as plain text on every request (cookies can be several KB). Still the most widely deployed version.\n\n**HTTP/2** (2015): binary framing. Multiple requests multiplexed over a single TCP connection — no head-of-line blocking at the HTTP level. Header compression (HPACK) reduces overhead. Server push (deprecated in practice). Adopted by most modern APIs.\n\n**HTTP/3** (2022): runs over QUIC (UDP-based). Eliminates TCP head-of-line blocking entirely — if one stream is slow, others aren't blocked. Faster connection setup (0-RTT — can send data on the first packet). Better on mobile networks (survives IP changes). Default in Chrome and Cloudflare.\n\nThe semantics (methods, status codes, headers) are the same across versions — only the transport changes. HTTP/3 is backward-compatible with HTTP/2 and HTTP/1.1 at the application layer."
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "http-versions",
+      "payload": {
+        "code": "flowchart TD\n    N0[\"HTTP\"]\n    N1[\"1.1\"]\n    N2[\"one\"]\n    N3[\"request\"]\n    N4[\"per\"]\n    N5[\"connection\"]\n    N6[\"TCP conn 1\"]\n    N7[\"Client\"]\n    N8[\"[TCP\"]\n    N9[\"conn\"]\n    N10[\"GET\"]\n    N11[\"Response\"]\n    N12[\"TCP conn 2\"]\n    N13[\"TCP conn 3\"]\n    N14[\"TCP\"]\n    N15[\"handshakes.\"]\n    N16[\"Head\"]\n    N17[\"line\"]\n    N18[\"blocking.\"]\n    N19[\"multiplexed\"]\n    N20[\"over\"]\n    N21[\"TCP conn\"]\n    N22[\"parallel streams\"]\n    N23[\"conn]\"]\n    N24[\"(parallel\"]\n    N25[\"streams)\"]\n    N26[\"handshake.\"]\n    N27[\"level\"]\n    N28[\"But TCP-level blocking still possible.\"]\n    N29[\"(But\"]\n    N30[\"blocking\"]\n    N31[\"still\"]\n    N32[\"possible.)\"]\n    N33[\"UDP\"]\n    N34[\"QUIC\"]\n    N35[\"(UDP)\"]\n    N36[\"QUIC conn\"]\n    N37[\"independent streams\"]\n    N38[\"[QUIC\"]\n    N39[\"(independent\"]\n    N40[\"TCP.\"]\n    N41[\"head\"]\n    N42[\"all.\"]\n    N43[\"RTT\"]\n    N44[\"setup.\"]\n    N45[\"Survives\"]\n    N46[\"changes.\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44\n    N44 --> N45\n    N45 --> N46",
+        "caption": "HTTP/1.1: one request per connection. HTTP/2: multiplexed over one TCP. HTTP/3: QUIC/UDP, no blocking.",
+        "alt_text": "Three diagrams. HTTP/1.1: each request opens a separate TCP connection — 3 handshakes, head-of-line blocking. HTTP/2: all requests multiplex over one TCP connection — 1 handshake, parallel streams. But TCP-level blocking is still possible. HTTP/3: uses QUIC over UDP — independent streams, no TCP, no head-of-line blocking at all, 0-RTT connection setup."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "headers-caching",
+      "payload": {
+        "text": "**Key HTTP headers for system design:**\n\n**Caching:**\n- `Cache-Control: max-age=60` — cache for 60 seconds.\n- `ETag: \"abc123\"` — content hash. Client sends `If-None-Match: 'abc123'` — if unchanged, server returns 304 Not Modified (saves bandwidth).\n- `Last-Modified` / `If-Modified-Since` — timestamp-based caching.\n\n**Performance:**\n- `Connection: keep-alive` — reuse TCP connection (HTTP/1.1 default).\n- `Accept-Encoding: gzip` — compress response.\n- `Transfer-Encoding: chunked` — stream response without knowing total size.\n\n**Security:**\n- `Authorization: Bearer {token}` — auth token.\n- `Strict-Transport-Security` — force HTTPS.\n- `Content-Security-Policy` — prevent XSS.\n\n**Rate limiting:**\n- `X-RateLimit-Limit`, `X-RateLimit-Remaining`, `X-RateLimit-Reset` — tell client their quota.\n- `Retry-After: 30` — wait 30 seconds before retrying (sent with 429)."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q1",
+      "payload": {
+        "question": "Your payment API receives a POST /charges request, but the network times out before you get a response. The user might have been charged, or might not have. What should you do?",
+        "shape": "mcq",
+        "options": [
+          "Retry the POST immediately — it's probably fine.",
+          "Don't retry — POST is not idempotent, you might double-charge.",
+          "Always retry with the same request body.",
+          "Convert the POST to a PUT."
+        ],
+        "answer_index": 1,
+        "rationale": "POST is not idempotent — retrying could create a second charge. The correct pattern is to use an idempotency key: the client generates a unique ID for this logical operation and sends it in a header (Idempotency-Key). The server stores the key and the result; if it sees the same key again, it returns the stored result instead of re-processing. Without an idempotency key, the safe behavior is to NOT retry — instead, query the system to check whether the charge went through.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q2",
+      "payload": {
+        "question": "What is the main performance improvement of HTTP/2 over HTTP/1.1?",
+        "shape": "mcq",
+        "options": [
+          "HTTP/2 uses UDP instead of TCP.",
+          "HTTP/2 allows multiplexing multiple requests over a single TCP connection.",
+          "HTTP/2 compresses the response body.",
+          "HTTP/2 removes the need for TLS."
+        ],
+        "answer_index": 1,
+        "rationale": "HTTP/1.1 opens a separate TCP connection per request (or uses pipelining, which suffers from head-of-line blocking). HTTP/2 uses binary framing to multiplex multiple requests over a single TCP connection — so a slow request doesn't block faster ones. HTTP/3 goes further by using QUIC (UDP) to eliminate TCP-level head-of-line blocking too. HTTP/2 does not compress bodies or remove TLS — those are separate concerns.",
+        "difficulty": "core"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q3",
+      "payload": {
+        "question": "Which HTTP status code should you return when a client has sent too many requests and is being rate-limited?",
+        "shape": "mcq",
+        "options": [
+          "500 Internal Server Error",
+          "403 Forbidden",
+          "429 Too Many Requests",
+          "503 Service Unavailable"
+        ],
+        "answer_index": 2,
+        "rationale": "429 Too Many Requests is the correct status code for rate limiting. It should include a Retry-After header telling the client how long to wait. 500 means the server crashed (not the client's fault). 403 means the client is not authorized (permanent, not temporary). 503 means the server is unavailable (server-side issue, not client-side rate limiting).",
+        "difficulty": "core"
+      }
+    },
+    {
+      "type": "video",
+      "id": "upgrade-video-http",
+      "payload": {
+        "provider": "youtube",
+        "video_id": "Z6QEDisuGoU",
+        "title": "How the Internet Works — DNS, TCP, HTTP explained",
+        "description": "Supplementary explanation. The NO CAP lesson remains self-contained.",
+        "source_url": "https://www.youtube.com/watch?v=Z6QEDisuGoU"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "versions-comparison-table",
+      "payload": {
+        "text": "**HTTP/1.1 vs HTTP/2 vs HTTP/3 — side by side.**\n\n| Property | HTTP/1.1 (1997) | HTTP/2 (2015) | HTTP/3 (2022) |\n|----------|------------------|---------------|---------------|\n| Transport | TCP | TCP | QUIC (UDP) |\n| Multiplexing | none (1 req per conn, or pipelining with HOL blocking) | yes — parallel streams over 1 TCP conn | yes — independent streams over QUIC |\n| Head-of-line blocking | HTTP-level (pipelining) + TCP-level | TCP-level only (one lost packet stalls all streams) | none — streams are independent |\n| Connection setup | TCP handshake (1 RTT) + TLS (1-2 RTT) = 2-3 RTT | same: TCP + TLS = 2-3 RTT | 1 RTT (or 0-RTT with resumed session) |\n| Header encoding | plain text, sent every request | HPACK compression | QPACK compression (HPACK-like, stream-aware) |\n| Server push | no | yes (deprecated in practice) | no |\n| Connection migration | no — new IP breaks the connection | no — same as HTTP/1.1 | yes — QUIC connection ID survives IP changes |\n| Deployment ubiquity | universal | ~98% of websites | ~30% and growing (Chrome, Cloudflare, Facebook) |\n\nThe semantics (methods, status codes, headers) are unchanged across all three versions — only the transport and framing change. This is by design: HTTP/3 is fully backward-compatible with HTTP/2 at the application layer."
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "tls-handshake-seq",
+      "payload": {
+        "code": "sequenceDiagram\n    participant C as Client\n    participant S as Server\n    Note over C,S: TLS 1.3 (1-RTT handshake, used by HTTPS, HTTP/2, HTTP/3)\n    C->>S: ClientHello\n    Note right of C: + supported cipher list\n    Note right of C: + key_share (X25519 public key)\n    Note right of C: + supported signature algs\n    S->>C: ServerHello\n    Note left of S: + chosen cipher\n    Note left of S: + key_share (server X25519)\n    S->>C: EncryptedExtensions\n    S->>C: Certificate\n    S->>C: CertificateVerify (signs handshake)\n    S->>C: Finished (HMAC over transcript)\n    C->>S: Finished (HMAC over transcript)\n    Note over C,S: Both sides now share the same symmetric key\n    C->>S: Application data (encrypted with derived keys)\n    Note over C,S: 0-RTT mode: client includes app data with ClientHello using a saved session ticket from a prior connection.",
+        "caption": "TLS 1.3 handshake — one round trip before the client can send encrypted application data. TLS 1.2 needs two round trips; TLS 1.3 with 0-RTT sends data on the first packet (using a resumed session).",
+        "alt_text": "Sequence diagram of a TLS 1.3 handshake. The client sends ClientHello with key share, supported ciphers, and signature algorithms. The server responds with ServerHello containing the chosen cipher and server key share, then EncryptedExtensions, Certificate, CertificateVerify, and Finished. The client sends Finished. After this single round trip, both sides share a symmetric key and can exchange encrypted application data. In 0-RTT mode, the client can include application data with the ClientHello using a saved session ticket from a prior connection."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "idempotency-key-flow",
+      "payload": {
+        "text": "**Idempotency keys in practice.** Stripe popularized the pattern: every POST request includes an `Idempotency-Key` header (a client-generated UUID). The server treats any two requests with the same key as the same logical operation — the second one returns the cached result of the first instead of re-processing.\n\nThe flow is:\n1. Client generates a UUID for this logical operation (e.g., 'charge this user $50 for order 1234').\n2. Client sends `POST /v1/charges` with `Idempotency-Key: <uuid>`.\n3. Server checks the idempotency store (Redis, DynamoDB, or a DB table): is this key present?\n   - If yes → return the stored response.\n   - If no → process the request, store the response keyed by the UUID with a TTL (e.g., 24h), return the response.\n4. If the network fails before the client receives the response, the client retries with the **same** UUID. The server returns the stored response (or returns 'still processing' if the original is in flight).\n\nThis converts a non-idempotent POST into a safely-retryable operation. Without it, a network blip during a payment could double-charge the user, or worse, partially charge and partially refund — leaving the system in an ambiguous state that requires manual reconciliation.\n\nThe same pattern applies to webhook delivery, background job processing, and any 'do this exactly once' API. The catch: 'exactly once' is impossible in distributed systems; what you really get is 'at-least-once delivery with at-most-once side effect via deduplication.'"
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "idempotency-flow",
+      "payload": {
+        "code": "flowchart TD\n    Start[Client: charge $50 for order #1234] --> GenKey[Generate UUID<br/>idempotency-key=abc-123]\n    GenKey --> Send[POST /v1/charges<br/>Idempotency-Key: abc-123<br/>amount=5000]\n    Send --> Check{Server:<br/>key abc-123<br/>in store?}\n    Check -->|No - first time| Process[Process charge<br/>store result under abc-123<br/>with 24h TTL]\n    Check -->|Yes - retry| Fetch[Fetch stored response<br/>for abc-123]\n    Process --> Return1[Return 200 + charge object]\n    Fetch --> Return2[Return same 200 + charge object]\n    Return1 --> Net1{Network OK?}\n    Return2 --> Done[Client sees same response as first time]\n    Net1 -->|Timeout - client retries| Send\n    Net1 -->|Success| Done[Success]\n    classDef retry fill:#fff4e5,stroke:#cc7a00,color:#995500\n    classDef success fill:#e6f4ea,stroke:#188038,color:#0d652d\n    class GenKey,Fetch,Return2 retry\n    class Done success",
+        "caption": "Idempotency key flow: client-generated UUID lets the server deduplicate retries. The same logical operation produces the same response — even across network failures and retries.",
+        "alt_text": "A flowchart showing idempotency key flow. The client generates a UUID for the logical operation, sends a POST with the Idempotency-Key header. The server checks if the key is in its store. If no (first time), it processes the request and stores the result. If yes (retry), it fetches the stored response. Either way, the client gets the same response. If the network times out, the client retries with the same UUID, and the server returns the stored result."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "stripe-real-example",
+      "payload": {
+        "title": "Real system: Stripe's idempotency keys",
+        "body": "Stripe's API requires (and the SDK auto-generates) an Idempotency-Key header for every POST that has side effects (charges, refunds, transfers). The Stripe SDK stores the key locally and reuses it across retries with exponential backoff. This is what lets Stripe tell its customers 'retry safely on any network error' — they could not say that without server-side deduplication. The keys live in Stripe's idempotency store for 24 hours; longer-lived deduplication requires a customer-supplied key (e.g., order ID) instead. This is the gold standard for any payment, billing, or order API. If you build such an API without idempotency keys, your support team will eventually reconcile double-charges by hand.",
+        "kind": "tip"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q-http3-quic",
+      "payload": {
+        "question": "You're loading a page with 20 sub-resources over HTTP/2. The connection is on a flaky mobile network with 2% packet loss. Why will switching to HTTP/3 (QUIC over UDP) meaningfully improve page load time, when HTTP/2 already multiplexes?",
+        "shape": "mcq",
+        "options": [
+          "HTTP/3 has smaller headers than HTTP/2.",
+          "HTTP/3 uses UDP, which is inherently faster than TCP.",
+          "With HTTP/2, a single lost TCP packet stalls ALL 20 multiplexed streams until it's retransmitted (TCP head-of-line blocking). HTTP/3 runs each stream independently over QUIC, so a loss on stream 3 doesn't stall streams 1, 2, 4-20.",
+          "HTTP/3 doesn't require TLS, so the handshake is faster."
+        ],
+        "answer_index": 2,
+        "rationale": "HTTP/2 solved application-layer head-of-line blocking (HTTP/1.1 pipelining) but inherited transport-layer head-of-line blocking from TCP: TCP guarantees in-order byte delivery, so if segment N is lost, segments N+1, N+2, etc. sit in the kernel buffer until N is retransmitted — even if those bytes belong to different HTTP/2 streams that don't care about N. On a 2%-loss mobile link with 20 multiplexed streams, every loss stalls all 20 streams for one retransmission RTT (typically 100-300ms each). HTTP/3 fixes this by running each stream as an independent flow within QUIC, which is itself over UDP. A lost packet on stream 3 only delays stream 3 — streams 1, 2, 4-20 keep flowing. HTTP/3 does require TLS (built into QUIC by design), so option D is wrong. UDP is not 'inherently faster' — option B confuses the transport choice with performance. And while HTTP/3 does have slightly better header compression (QPACK), that's a minor factor compared to fixing TCP head-of-line blocking.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "scenario",
+      "id": "scenario-retry-payment",
+      "payload": {
+        "prompt": "Your mobile app calls POST /v1/charges to charge a user $50. The network returns a 504 Gateway Timeout. The user has spotty reception and taps 'Retry' twice. Without idempotency keys, what happens, and how do you fix it?",
+        "context": "The original request might have reached the server (and charged the user) just before the 504 — or it might never have reached the server. The client cannot tell. POST is not idempotent, so naive retries can multiply side effects.",
+        "options": [
+          {
+            "id": "a",
+            "text": "Nothing wrong — POST retries are always safe because the server deduplicates.",
+            "outcome": "Wrong. POST is not idempotent. Three retries could produce three $50 charges.",
+            "correct": false
+          },
+          {
+            "id": "b",
+            "text": "Convert POST to PUT with the charge ID in the URL. PUT is idempotent, so retries are safe.",
+            "outcome": "Partially right but impractical — you usually don't have a charge ID until after the charge is created.",
+            "correct": false
+          },
+          {
+            "id": "c",
+            "text": "Generate a client-side UUID, send it as Idempotency-Key header. Server stores the result keyed by UUID with a 24h TTL; retries with the same UUID return the stored response.",
+            "outcome": "Correct — exactly-once side effects via at-least-once delivery plus server-side deduplication.",
+            "correct": true
+          },
+          {
+            "id": "d",
+            "text": "Disable retries entirely on POST — make the user re-submit manually if they want to retry.",
+            "outcome": "Safe but terrible UX. Users will re-submit manually anyway, and you'll get the same double-charge problem.",
+            "correct": false
+          }
+        ],
+        "rationale": "The fundamental issue: the client cannot distinguish 'request never reached the server' from 'request reached the server, processed, response was lost.' Retrying POST blindly produces N side effects for N retries. The Stripe-style fix: client generates a UUID per logical operation and sends it as Idempotency-Key. Server checks an idempotency store (Redis, DynamoDB) — if the key is there, return the cached response; if not, process and store. Now retries with the same UUID return the same response — exactly-once side effect from the user's perspective, even though the network delivers at-least-once. Converting to PUT (option B) only works when you have a stable client-known ID before the call, which is rare for 'create' operations. Disabling retries (option D) is 'safe' in the narrow sense but bad UX — users will hit refresh anyway, and you'll have the same problem.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-http-mental",
+      "payload": {
+        "text": "Engineering mental model",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-http-mental",
+      "payload": {
+        "text": "**Mental model.** Think of HTTP — HyperText Transfer Protocol as a deliberate boundary in a system. The boundary exists because something becomes harder to manage when everything is done in one place: latency, scale, failure isolation, consistency, cost, or team ownership. The useful question is not “what does HTTP — HyperText Transfer Protocol mean?” but “what pressure makes this boundary worth introducing, and what new failure mode does it create?”"
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-http-decision",
+      "payload": {
+        "title": "Design lens",
+        "body": "Before choosing HTTP — HyperText Transfer Protocol, name the workload, the critical user path, the dominant bottleneck, the failure you are trying to absorb, and the trade-off you are willing to accept. If you cannot name those five things, the design is probably premature.",
+        "kind": "info"
+      }
+    },
+    {
+      "type": "image",
+      "id": "upgrade-image-http",
+      "payload": {
+        "src": "/learning-visuals/http.svg",
+        "alt": "Original NO CAP systems visual for HTTP — HyperText Transfer Protocol.",
+        "caption": "HTTP — HyperText Transfer Protocol: a compact system-thinking visual.",
+        "credit": "Original NO CAP visual.",
+        "source_url": "https://github.com/donnemartin/system-design-primer"
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "upgrade-mermaid-http",
+      "payload": {
+        "code": "sequenceDiagram\n participant C as Client\n participant S as Server\n C->>S: HTTP request\n S-->>C: status + headers + body",
+        "caption": "HTTP is a request/response application protocol layered above transport.",
+        "alt_text": "HTTP is a request/response application protocol layered above transport."
+      }
+    },
+    {
+      "type": "code",
+      "id": "upgrade-code-http",
+      "payload": {
+        "language": "bash",
+        "code": "curl -i https://api.example.com/v1/http\n\n# Look for:\n# - status code\n# - latency\n# - retryability\n# - response size",
+        "caption": "A minimal engineering sketch for reasoning about HTTP — HyperText Transfer Protocol."
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-http-numbers",
+      "payload": {
+        "text": "Back-of-the-envelope reasoning",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-http-numbers",
+      "payload": {
+        "text": "Numerical lens: write down traffic, payload size, read/write ratio, peak multiplier and durability target before choosing a component. The numbers should justify the architecture."
+      }
+    },
+    {
+      "type": "simulation",
+      "id": "upgrade-sim-http",
+      "payload": {
+        "title": "Interactive thought experiment: HTTP — HyperText Transfer Protocol",
+        "description": "Change the variables below and predict what breaks first in HTTP — HyperText Transfer Protocol. The production lab can later reuse these same inputs.",
+        "variables": [
+          {
+            "name": "traffic",
+            "description": "Requests/events per second",
+            "default": "1000"
+          },
+          {
+            "name": "latency",
+            "description": "Dependency latency",
+            "default": "50ms"
+          },
+          {
+            "name": "failure_rate",
+            "description": "Injected failure rate",
+            "default": "0%"
+          }
+        ],
+        "placeholder_note": "Interactive controls are deterministic; use the linked Labs section when a dedicated lab exists."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-http-hint",
+      "payload": {
+        "title": "Hint",
+        "body": "If you are stuck on HTTP — HyperText Transfer Protocol, start by drawing the request path and marking every network hop, stateful component, queue, cache and failure boundary. Then estimate where the system will saturate.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-http-1",
+      "payload": {
+        "shape": "prediction",
+        "question": "You increase traffic by 10× in a system using HTTP — HyperText Transfer Protocol. What should you inspect first?",
+        "options": [
+          "The newest framework version",
+          "The dominant bottleneck and its saturation signal",
+          "Only the UI",
+          "Nothing; the architecture should absorb any traffic automatically"
+        ],
+        "answer_index": 1,
+        "rationale": "System design is a constraint-and-bottleneck exercise. Start with the resource or dependency that will saturate first, then choose the smallest change that removes that bottleneck.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-http-2",
+      "payload": {
+        "shape": "mcq",
+        "question": "Which statement is the safest engineering habit when using HTTP — HyperText Transfer Protocol?",
+        "options": [
+          "Choose it because it is popular",
+          "Add it before measuring the problem",
+          "State the workload, failure mode and trade-off it is solving",
+          "Use the most distributed design possible"
+        ],
+        "answer_index": 2,
+        "rationale": "Good architecture starts from requirements, workload and failure assumptions. The component is the consequence of that reasoning, not the starting point.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "scenario",
+      "id": "upgrade-scenario-http",
+      "payload": {
+        "prompt": "Production scenario: your system uses HTTP — HyperText Transfer Protocol, traffic suddenly spikes, and p99 latency doubles. What is your first move?",
+        "context": "You have dashboards for traffic, latency, errors and saturation. You can change the architecture, but every change has operational cost.",
+        "options": [
+          {
+            "id": "a",
+            "text": "Add more instances immediately",
+            "outcome": "This may help, but only if compute saturation is the bottleneck.",
+            "correct": false
+          },
+          {
+            "id": "b",
+            "text": "Inspect the bottleneck and its saturation signal first",
+            "outcome": "Correct: diagnose before scaling or introducing a new pattern.",
+            "correct": true
+          },
+          {
+            "id": "c",
+            "text": "Disable monitoring to reduce overhead",
+            "outcome": "This removes the evidence you need to diagnose the incident.",
+            "correct": false
+          }
+        ],
+        "rationale": "Measure the limiting resource or dependency first. A bottleneck can be compute, database I/O, network, cache misses, lock contention, downstream latency, or queue backlog.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-http-interview",
+      "payload": {
+        "text": "Interview drill",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-http-interview",
+      "payload": {
+        "text": "**Answer this without notes:** When would you choose HTTP — HyperText Transfer Protocol, and when would you intentionally avoid it? Mention at least one bottleneck it addresses, one failure mode it introduces, and one alternative. Then quantify the workload you are designing for."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "field-guide-http",
+      "payload": {
+        "title": "Engineering lens",
+        "body": "A useful engineering lens for HTTP - HyperText Transfer Protocol: define the problem it solves, the simpler design that fails first, the constraint that forces you to introduce this concept, and the new failure modes the concept creates.",
+        "kind": "tip"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "numerical-lens-http",
+      "payload": {
+        "text": "### Numerical sanity check\n\nBack-of-the-envelope reasoning beats fake precision. State your traffic, payload, concurrency and growth assumptions explicitly, then calculate enough to know whether the current architecture is orders of magnitude away from the target."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "field-question-http",
+      "payload": {
+        "shape": "prediction",
+        "question": "Imagine the simplest version of a system using HTTP - HyperText Transfer Protocol. What breaks first as traffic grows by 10×, and what would you change before reaching 100×?",
+        "context": "Do not optimize for a memorized definition. Reason from the workload and failure mode.",
+        "options": [
+          "Scale the same component immediately.",
+          "Measure the current bottleneck and state the assumption that changed.",
+          "Add more technologies until throughput improves.",
+          "Choose the most popular architecture."
+        ],
+        "answer_index": 1,
+        "rationale": "Good system design starts with the bottleneck and the changed constraint. The most popular or complex choice is not automatically correct.",
+        "difficulty": "interview"
+      }
+    }
+  ],
+  "trade_offs": {
+    "pros": [
+      "Stateless — easy to scale (any server handles any request).",
+      "Text-based (HTTP/1.1) — easy to debug with curl, telnet, browser dev tools.",
+      "Wide support — every language, every platform, every firewall allows it.",
+      "Caching built into the protocol (Cache-Control, ETag)."
+    ],
+    "cons": [
+      "Request-response only — not suitable for server push (use WebSockets or SSE).",
+      "Text-based HTTP/1.1 is inefficient — headers sent as text every time.",
+      "Connection overhead — each TCP connection costs time (mitigated by HTTP/2 multiplexing).",
+      "Verbose — JSON payloads are larger than binary protocols (gRPC/Protobufs)."
+    ]
+  },
+  "failure_modes": [
+    "Head-of-line blocking in HTTP/1.1 (a slow request blocks others on the same connection).",
+    "Excessive header size — cookies can bloat requests to several KB.",
+    "Connection exhaustion — too many concurrent connections overwhelm the server.",
+    "Returning 200 OK for errors — breaks HTTP semantics and client error handling."
+  ],
+  "common_mistakes": [
+    "Using GET for operations with side effects (violates HTTP semantics, breaks caching).",
+    "Treating POST as idempotent (it's not — retries can duplicate).",
+    "Returning 200 for errors — use proper 4xx/5xx codes so clients can handle them correctly.",
+    "Not including Retry-After with 429 responses."
+  ],
+  "where_you_see_it": [
+    "Every web request.",
+    "Every REST API.",
+    "Most microservice communication."
+  ],
+  "interview_prompts": [
+    "What's the difference between HTTP/1.1, HTTP/2, and HTTP/3?",
+    "Which HTTP methods are idempotent, and why does it matter?",
+    "How would you design an API to be safely retryable?",
+    "What status codes do you use for rate limiting? What header should you include?"
+  ],
+  "real_system_mappings": [
+    {
+      "system": "Stripe API",
+      "how": "Uses idempotency keys for all POST requests so clients can safely retry payment operations without double-charging. Documented in their API guide."
+    },
+    {
+      "system": "Cloudflare",
+      "how": "Serves HTTP/3 to all clients by default, reducing connection latency globally. Also uses HTTP/2 Server Push (though this is being deprecated)."
+    }
+  ],
+  "status": "published",
+  "sources": [
+    {
+      "title": "System Design Primer",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Open source"
+    },
+    {
+      "title": "ByteByteGo — Scale from zero to millions",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "ByteByteGo"
+    },
+    {
+      "title": "System Design Tutorial",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "GeeksforGeeks"
+    },
+    {
+      "title": "System Design Roadmap",
+      "url": "https://roadmap.sh/system-design",
+      "publisher": "roadmap.sh"
+    },
+    {
+      "title": "Networking & Communication reference",
+      "url": "https://www.rfc-editor.org/",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Networking & Communication reference",
+      "url": "https://developer.mozilla.org/en-US/docs/Web/HTTP",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Networking & Communication reference",
+      "url": "https://www.cloudflare.com/learning/network-layer/what-is-a-protocol/",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Cloudflare Learning Center",
+      "url": "https://www.cloudflare.com/learning/",
+      "publisher": "Cloudflare"
+    }
+  ]
+}

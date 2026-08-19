@@ -1,0 +1,451 @@
+{
+  "slug": "design-ride-matching",
+  "version": 3,
+  "title": "Design Ride Matching",
+  "phase": "case-studies",
+  "area": "Case Studies",
+  "estimated_minutes": 12,
+  "difficulty": "interview",
+  "summary": "Design Uber / Lyft's ride-matching system. Covers geospatial indexing with geohash and quadtree, the nearest-driver query (k-NN on a moving set of points), the rider->driver broadcast-and-accept protocol, supply-demand balancing via surge pricing, and trip state machine. The deep dive walks through why a naive `SELECT * FROM drivers ORDER BY distance` collapses at scale and why quadtree + Redis geo-index is the standard answer.",
+  "why_it_matters": "Ride matching is the canonical geospatial system-design problem. It forces you to confront three things at once: a moving set of points (drivers update position every 4s), a spatial nearest-neighbor query (find the K closest drivers to me in < 100ms), and a distributed consensus problem (only one driver should accept each ride). These patterns recur in food delivery (DoorDash), grocery delivery (Instacart), scooter sharing (Lime), dating apps (Tinder), and any system that pairs a user with a nearby resource. Geohash and quadtree are the two index structures you must know.",
+  "prerequisites": [
+    "pub-sub",
+    "sharding",
+    "consistent-hashing"
+  ],
+  "related": [
+    "design-uber",
+    "geodes",
+    "consistent-hashing"
+  ],
+  "used_in": [
+    "Uber",
+    "Lyft",
+    "DoorDash (restaurant -> driver matching)",
+    "Tinder (nearby user matching)",
+    "Lime / Bird (nearest scooter)"
+  ],
+  "blocks": [
+    {
+      "type": "prose",
+      "id": "problem",
+      "payload": {
+        "text": "**What are we designing?** A system that, when a rider requests a ride, finds the nearest available drivers, broadcasts a ride offer to them, accepts the first response, and tracks the trip through pickup -> dropoff -> payment. The system must do this within ~5 seconds end-to-end (rider sees driver assigned), at the scale of a major city (50K concurrent drivers, 100K ride requests per hour).\n\nThe defining challenges are (1) **geospatial indexing** — how to find the K nearest drivers to a point without scanning all drivers, (2) **the dispatch protocol** — how to broadcast an offer and accept exactly one driver, and (3) **supply-demand balancing** — surge pricing to incentivize drivers to high-demand areas."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "requirements",
+      "payload": {
+        "text": "**Functional requirements.**\n- A rider requests a ride at location (lat, lng) for destination (lat, lng).\n- System finds the nearest K available drivers (default K=3-5).\n- System broadcasts a ride offer to those drivers; first to accept wins.\n- If no driver accepts within N seconds, expand the search radius and retry.\n- Once a driver accepts, the rider sees driver details + ETA.\n- System tracks trip state: requesting -> matched -> en_route -> pickup -> in_trip -> dropoff -> payment -> completed.\n- Driver app updates location every 4 seconds; rider app updates every 4s during trip.\n\n**Non-functional requirements.**\n- **Dispatch latency**: < 5 s from request to driver-assigned (most of this is human decision time).\n- **Nearest-driver query latency**: < 100 ms p99.\n- **Driver position freshness**: < 5 s lag (we know roughly where every driver is in real time).\n- **Throughput**: 100K ride requests/hour = ~30/sec peak in a city; 50K concurrent driver positions updated every 4s = 12K updates/sec.\n- **Availability**: 99.99% (lost rides = lost revenue + bad UX).\n\n**Non-goals.** No route optimization (Google Maps API), no fare calculation (separate service), no fraud detection."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "capacity",
+      "payload": {
+        "text": "**Capacity estimation.**\n\n*Driver position updates.* 50K concurrent drivers in a city, position every 4s = 12.5K updates/sec. In a country with 10 cities = ~125K updates/sec. Each update ~50 bytes (driver_id, lat, lng, heading, speed, status) = ~6 MB/sec ingest — trivial.\n\n*Ride requests.* 100K/hour peak in a big city = ~30/sec. Each request triggers a nearest-driver query (~50 ms) + a broadcast to ~5 drivers + ~3s of human decision time. Broadcast = 150 messages/sec to drivers — trivial via WebSocket.\n\n*Storage.* Trip records: 100K trips/day/city = ~3M trips/month. Each trip ~1KB metadata + GPS breadcrumb stream (~100KB). ~300GB/month per city. Driver location history is ephemeral (we don't need to store every position update forever — keep last 24h for analytics, then aggregate).\n\n*Memory.* Live driver positions: 50K drivers x 100 bytes (id, lat, lng, status, last_update) = 5 MB. Trivially fits in a single Redis geo-index."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "apis",
+      "payload": {
+        "text": "**APIs.**\n\n```\n# Driver app -> server (every 4s)\nPOST /v1/drivers/location\n  { lat, lng, heading, speed }\n  -> { status: ok }\n\n# Rider requests a ride\nPOST /v1/rides\n  { pickup: {lat,lng}, dropoff: {lat,lng}, ride_type }\n  -> { ride_id, status: \"searching\" }\n\n# Server pushes ride offers to drivers via WebSocket\nWS /v1/drivers/events  ->  { type: \"ride_offer\",\n                              ride_id, pickup, dropoff, est_fare, ttl_sec }\n\n# Driver accepts\nPOST /v1/rides/:id/accept\n  -> { status: \"matched\", rider_info: {...} }\n  -> other drivers get \"ride_cancelled\" event\n\n# Trip state machine\nPOST /v1/rides/:id/state  { state: \"pickup\" | \"in_trip\" | \"dropoff\" | ... }\n```\n\nThe WebSocket to drivers is the spine — every driver with the app open holds a WS connection. The server can push ride offers, cancellations, and rider ETA updates instantly. Long-poll is the fallback; mobile carriers' NAT timeouts are typically 30s, so we send keepalives every 25s."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "data-model",
+      "payload": {
+        "text": "**Data model.**\n\n*Live driver positions* (Redis GEO index, one key per city):\n```\nGEOADD drivers:nyc {lng} {lat} {driver_id}\nGEORADIUS drivers:nyc {lng} {lat} 3 km ASC COUNT 10\n```\nRedis GEO wraps a geohash-sorted set; GEORADIUS returns drivers sorted by distance in O(log N + K). 50K drivers in one city = sub-millisecond query.\n\n*Rides* (sharded SQL by ride_id):\n```\nrides (\n  id PK, rider_id, driver_id, status, pickup_geo, dropoff_geo,\n  fare, surge_multiplier, created_at, accepted_at, completed_at,\n  INDEX (status, created_at),\n  INDEX (driver_id, created_at),\n  INDEX (rider_id, created_at)\n)\n```\n\n*Trip breadcrumbs* (time-series store, e.g. Cassandra or TimescaleDB):\n```\ntrip_breadcrumbs (ride_id, ts, lat, lng, speed, heading,\n                  PRIMARY KEY (ride_id, ts))\n```\n\n*Driver state* (Redis hash, ephemeral):\n```\ndriver:{id}  -> { status: \"available\" | \"in_ride\" | \"offline\",\n                 current_ride_id, last_ping_at }\n```\n\n**Critical invariant**: a driver appears in `drivers:nyc` GeoSet only when `status = available`. The moment they accept a ride, they're ZREM'd from the available set so other riders' queries don't see them."
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "arch",
+      "payload": {
+        "code": "flowchart TD\n    N0[\"Rider App\"]\n    N1[\"Driver Apps (50K)\"]\n    N2[\"50K\"]\n    N3[\"[Rider\"]\n    N4[\"App]\"]\n    N5[\"[Driver\"]\n    N6[\"Apps\"]\n    N7[\"(50K)]\"]\n    N8[\"pickup,dropoff\"]\n    N9[\"POST\"]\n    N10[\"rides\"]\n    N11[\"{pickup,dropoff}\"]\n    N12[\"every 4s\"]\n    N13[\"(every\"]\n    N14[\"4s)\"]\n    N15[\"drivers\"]\n    N16[\"location\"]\n    N17[\"API Gateway\"]\n    N18[\"Location Service\"]\n    N19[\"[API\"]\n    N20[\"Gateway]\"]\n    N21[\"[Location\"]\n    N22[\"Service]\"]\n    N23[\"Matching Service\"]\n    N24[\"Redis Geo Index\"]\n    N25[\"[Matching\"]\n    N26[\"reads\"]\n    N27[\"[Redis\"]\n    N28[\"Geo\"]\n    N29[\"Index]\"]\n    N30[\"GEORADIUS\"]\n    N31[\"drivers:nyc\"]\n    N32[\"pickup_latlng,\"]\n    N33[\"3km\"]\n    N34[\"ASC\"]\n    N35[\"COUNT\"]\n    N36[\"get\"]\n    N37[\"top\"]\n    N38[\"nearest\"]\n    N39[\"AVAILABLE\"]\n    N40[\"Dispatch Service\"]\n    N41[\"[Dispatch\"]\n    N42[\"status=searching\"]\n    N43[\"create\"]\n    N44[\"ride_id\"]\n    N45[\"(status\"]\n    N46[\"searching)\"]\n    N47[\"publish\"]\n    N48[\"ride_offer\"]\n    N49[\"topic\"]\n    N50[\"per\"]\n    N51[\"driver\"]\n    N52[\"TTL:\"]\n    N53[\"seconds\"]\n    N54[\"WebSocket Gateway\"]\n    N55[\"push\"]\n    N56[\"[WebSocket\"]\n    N57[\"phones\"]\n    N58[\"(push)\"]\n    N59[\"each\"]\n    N60[\"sees\"]\n    N61[\"offer,\"]\n    N62[\"accepts\"]\n    N63[\"ignores\"]\n    N64[\"first\"]\n    N65[\"accept\"]\n    N66[\"wins\"]\n    N67[\"ride_id, driver_id\"]\n    N68[\"driver_accept\"]\n    N69[\"(ride_id,\"]\n    N70[\"driver_id)\"]\n    N71[\"id\"]\n    N72[\"driver_id\"]\n    N73[\"atomic\"]\n    N74[\"claim:\"]\n    N75[\"SETNX\"]\n    N76[\"ride:{id}:accepted_driver\"]\n    N77[\"{driver_id}\"]\n    N78[\"too late\"]\n    N79[\"exists\"]\n    N80[\"reject\"]\n    N81[\"(too\"]\n    N82[\"late)\"]\n    N83[\"else:\"]\n    N84[\"ride\"]\n    N85[\"accepted\"]\n    N86[\"this\"]\n    N87[\"update\"]\n    N88[\"ride.status\"]\n    N89[\"matched\"]\n    N90[\"ZREM\"]\n    N91[\"from\"]\n    N92[\"available\"]\n    N93[\"set\"]\n    N94[\"driver_info, eta\"]\n    N95[\"rider:\"]\n    N96[\"{driver_info,\"]\n    N97[\"eta}\"]\n    N98[\"ride_cancelled, ride_id\"]\n    N99[\"other\"]\n    N100[\"drivers:\"]\n    N101[\"{ride_cancelled,\"]\n    N102[\"ride_id}\"]\n    N103[\"Trip Service\"]\n    N104[\"[Trip\"]\n    N105[\"state\"]\n    N106[\"machine:\"]\n    N107[\"en_route\"]\n    N108[\"pickup\"]\n    N109[\"in_trip\"]\n    N110[\"dropoff\"]\n    N111[\"breadcrumbs\"]\n    N112[\"stream\"]\n    N113[\"trip_breadcrumbs\"]\n    N114[\"fare\"]\n    N115[\"calculator\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44\n    N44 --> N45\n    N45 --> N46\n    N46 --> N47\n    N47 --> N48\n    N48 --> N49\n    N49 --> N50\n    N50 --> N51\n    N51 --> N52\n    N52 --> N53\n    N53 --> N54\n    N54 --> N55\n    N55 --> N56\n    N56 --> N57\n    N57 --> N58\n    N58 --> N59\n    N59 --> N60\n    N60 --> N61\n    N61 --> N62\n    N62 --> N63\n    N63 --> N64\n    N64 --> N65\n    N65 --> N66\n    N66 --> N67\n    N67 --> N68\n    N68 --> N69\n    N69 --> N70\n    N70 --> N71\n    N71 --> N72\n    N72 --> N73\n    N73 --> N74\n    N74 --> N75\n    N75 --> N76\n    N76 --> N77\n    N77 --> N78\n    N78 --> N79\n    N79 --> N80\n    N80 --> N81\n    N81 --> N82\n    N82 --> N83\n    N83 --> N84\n    N84 --> N85\n    N85 --> N86\n    N86 --> N87\n    N87 --> N88\n    N88 --> N89\n    N89 --> N90\n    N90 --> N91\n    N91 --> N92\n    N92 --> N93\n    N93 --> N94\n    N94 --> N95\n    N95 --> N96\n    N96 --> N97\n    N97 --> N98\n    N98 --> N99\n    N99 --> N100\n    N100 --> N101\n    N101 --> N102\n    N102 --> N103\n    N103 --> N104\n    N104 --> N105\n    N105 --> N106\n    N106 --> N107\n    N107 --> N108\n    N108 --> N109\n    N109 --> N110\n    N110 --> N111\n    N111 --> N112\n    N112 --> N113\n    N113 --> N114\n    N114 --> N115",
+        "caption": "Ride matching: rider requests, matching service queries Redis geo index for nearest available drivers, dispatch broadcasts offers via WebSocket, first driver to atomically claim wins, driver removed from available set.",
+        "alt_text": "Diagram of a ride-matching system. The rider app POSTs a ride request to the API gateway, which routes to the Matching Service. The Matching Service reads the Redis Geo Index containing all available driver positions, issuing a GEORADIUS query around the pickup point for the five nearest available drivers in ascending distance. Meanwhile, drivers update their location every four seconds via the Location Service, which writes to the same Redis Geo Index. The Dispatch Service creates a ride ID with status searching, publishes a ride_offer event with an eight-second TTL to the drivers topic, and the WebSocket Gateway pushes the offer to each candidate driver's phone. Each driver decides to accept or ignore. The first driver to accept POSTs to slash rides slash id slash accept. The Dispatch Service atomically claims the ride using SET NX on a Redis key ride colon id colon accepted_driver; if the key already exists the accept is rejected as too late, otherwise this driver wins. The ride status updates to matched, the driver is Z REM'd from the available set so other riders do not see them, and the rider app is pushed driver info plus ETA, while other candidate drivers are pushed ride_cancelled. The Trip Service then drives the state machine: matched to en_route to pickup to in_trip to dropoff, streaming breadcrumbs and computing fare."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "geo-index",
+      "payload": {
+        "text": "**Deep dive: geospatial indexing — geohash and quadtree.**\n\nA naive `SELECT * FROM drivers ORDER BY distance LIMIT 5` scans every driver — O(N). With 50K drivers per city at 30 queries/sec = 1.5M scans/sec = death. We need an index that lets us ask: 'give me the K nearest points to (lat, lng)'.\n\n**Geohash.** Encode (lat, lng) as a base-32 string. The longer the string, the smaller the cell. `dr5reg` is a Manhattan block; `dr5regw3` is a building. Points in the same geohash cell are physically close. To find nearby drivers: query all drivers in `dr5reg*` (the cell + 8 neighbors for boundary effects). O(log N + K).\n\nPro: simple, prefix-friendly (B-tree index works), easy to shard by geohash prefix. Con: cells near the equator and poles have different shapes (longitude lines converge); need 8-neighbor queries to handle boundary cases.\n\n**Quadtree.** Recursively subdivide a 2D area into 4 quadrants until each leaf holds <= K points. To find K nearest: descend to the leaf containing the query point, expand to siblings and parent if needed. Used by Uber's internal geospatial index for years.\n\nPro: adaptive — dense cities get finer subdivisions than rural areas; natural K-NN. Con: tree mutations are non-trivial when points move (drivers move constantly), so quadtrees need rebuilding or complex updates.\n\n**Redis GEO** wraps a geohash-sorted set — the practical choice. GEORADIUS in O(log N + K). 50K points in one key, ~5 microsecond query. Production systems use Redis GEO as the hot path, with quadtrees only for offline analytics.\n\n**Sharding by city.** Each city is its own `drivers:{city}` Redis key — geographic isolation, no need to share across regions. A driver crossing city limits re-registers in the new city's set."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "dispatch",
+      "payload": {
+        "text": "**Deep dive: the dispatch protocol and atomic claim.**\n\nWhen the rider requests a ride, we find K=3-5 nearest drivers and broadcast a ride_offer to each. The challenge: only ONE driver should accept — multiple drivers accepting the same ride is the classic race condition.\n\n**Atomic claim via SET NX.** When a driver accepts, the Dispatch Service does `SET ride:{id}:accepted_driver {driver_id} NX EX 600` (set if not exists, expire in 10 min). Returns 1 = this driver won the ride; returns 0 = another driver beat them. This is a Redis atomic primitive — no two drivers can simultaneously win.\n\n**Fallback on no-accept.** If no driver accepts within 8 seconds, the offer TTLs out for all drivers. The Dispatch Service expands the search radius (3km -> 5km -> 8km) and retries. After 3 retries with no accept, the ride is cancelled and the rider is told \"no drivers available\".\n\n**Driver acceptance rate.** Drivers ignore offers for many reasons — wrong direction, low fare, break time. Real-world acceptance rate is ~30-50%. This is why we broadcast to 3-5 drivers, not 1: we want P(at least one accepts) > 90% in 8 seconds.\n\n**Surge pricing.** When demand exceeds supply (e.g. 5 PM rush hour, rainy Friday), the system raises the fare multiplier. Goal: (a) incentivize more drivers to log on (supply), (b) reduce ride requests (demand) until they balance. The surge factor is computed per geohash cell every minute based on (requests per available driver). Cap surge at e.g. 3x to avoid PR disasters. Surge multiplier is shown to the rider before they confirm the ride.\n\n**Trip state machine.** A ride has states: `searching -> matched -> en_route (driver heading to pickup) -> arrived -> in_trip -> dropoff -> payment_processing -> completed`. Cancellations are possible in `searching` and `en_route` (with different cancellation fees). Each transition is a state machine guarded by validation (can't go from `completed` back to `in_trip`). Persisted in the `rides` table `status` column; subscribers (fare service, notification service, analytics) react to transitions."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "bottlenecks",
+      "payload": {
+        "text": "**Bottlenecks and failure modes.**\n\n- **Hot geohash cell.** A concert ends; 10K riders in one cell request simultaneously. *Mitigation*: surge pricing kicks in within 1 min; cap concurrent ride-offers per driver (a driver should not get >1 offer at a time).\n\n- **Driver position flood.** 50K drivers x 1 update/4s = 12.5K writes/sec into Redis. *Mitigation*: Redis handles 100K+ writes/sec easily; batch updates from mobile gateway (coalesce within 1s).\n\n- **WebSocket connection count.** 50K concurrent WS connections per city = 50K file descriptors per gateway. *Mitigation*: horizontal scale gateways; use sticky LB on driver_id for connection affinity; send keepalives every 25s to beat carrier NAT.\n\n- **Race condition on accept.** Two drivers accept the same ride simultaneously. *Mitigation*: atomic SET NX on Redis; losers get ride_cancelled via WS.\n\n- **Zombie drivers.** A driver's phone dies but the server hasn't noticed (last_ping_at < 30s ago). They still appear in `drivers:nyc`. *Mitigation*: a reaper that ZREM's drivers with last_ping_at > 30s; we don't offer rides to drivers whose last_ping is stale.\n\n- **Redis geo index failure.** If Redis dies, all matching stops. *Mitigation*: Redis cluster with replicas + Sentinel failover; degrade to a DB-backed quadtree (slower) as fallback.\n\n- **Driver GPS drift.** A stationary driver's GPS reports slightly different positions each ping, causing churn. *Mitigation*: snap to road (snap GPS to nearest road segment via a road network); hysteresis on position (only update if moved > 30m).\n\n- **Surge feedback loop.** Too-aggressive surge causes riders to cancel and wait; demand then drops too far; surge cuts; demand spikes again. *Mitigation*: damp surge updates (exponential moving average); cap surge change per minute."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "scaling",
+      "payload": {
+        "text": "**Scaling strategy and trade-offs.**\n\n*Per-city isolation.* Each city is a self-contained deployment: own Redis cluster, own matching service, own rides DB shard. A failure in NYC doesn't affect SF. Cross-city trips (rare) handled by state migration.\n\n*Driver position sharding.* Redis GEO is single-key (one set per city). 50K drivers per city is fine; if a city had 1M drivers we'd shard by geohash prefix (drivers:nyc:dr5*). Most cities are fine with a single key.\n\n*Read replicas for ride status.* Riders check ride status frequently (\"where's my driver?\"); this is read-heavy. Master for writes, replicas for reads.\n\n*Multi-AZ.* Redis cluster across 3 AZs with replicas. Rides DB across 3 AZs. WebSocket gateway stateless — any gateway can serve any driver (but we use sticky LB for connection reuse).\n\n*Trade-offs made explicit.*\n- We chose Redis GEO over a custom quadtree — **gained** simplicity and operational maturity, **lost** adaptive subdivision (denser cities don't get finer cells). For 50K drivers per cell, fine.\n- We chose broadcast-to-K with first-accept-wins over central assignment — **gained** human decision (drivers can decline bad rides) and resilience, **lost** optimal global matching (we could have picked the truly-nearest driver but they might be heading home).\n- We chose per-minute surge updates — **gained** predictability, **lost** responsiveness to sudden demand spikes.\n- We chose 4s position update interval — **gained** low bandwidth and Redis load, **lost** fine-grained position (driver ETA can be off by a few seconds).\n- We chose atomic SET NX for accept — **gained** simplicity and correctness under races, **lost** the ability to do batch assignment (could optimize globally with a Hungarian-algorithm batch dispatcher — Uber research did this, but ops complexity)."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q1",
+      "payload": {
+        "question": "Two drivers both tap 'accept' on the same ride offer at nearly the same instant. What happens?",
+        "shape": "mcq",
+        "options": [
+          "First SET NX wins; the other gets a 'ride already accepted' rejection and the rider sees only one driver assigned.",
+          "Both drivers get assigned and the rider sees a conflict — operator resolves manually.",
+          "Whichever accept the server processes first wins; the other silently fails.",
+          "Both drivers are accepted; the system picks the closer one at pickup."
+        ],
+        "answer_index": 0,
+        "rationale": "The Dispatch Service uses SET ride colon id colon accepted_driver NX EX 600, an atomic Redis primitive. The first driver's accept sets the key; the second's SET NX fails (returns nil) because the key exists. The first driver wins; the second driver's app shows 'ride already accepted' and the rider sees only one driver. This is the canonical pattern for distributed mutual exclusion over a short-lived resource. Option B is wrong because manual resolution doesn't scale to thousands of races per minute. Option C is wrong because 'first to be processed' without an atomic primitive is a race — two accepts processed simultaneously would both succeed. Option D is wrong because two drivers showing up at pickup is a serious UX failure that the system must prevent.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q2",
+      "payload": {
+        "question": "A concert ends and 5000 riders in one geohash cell request a ride within 60 seconds. What's the system's primary lever to handle this?",
+        "shape": "mcq",
+        "options": [
+          "Surge pricing: raise the fare multiplier in that cell to reduce demand and incentivize more drivers until supply and demand balance.",
+          "Quickly scale up Redis to handle more GEORADIUS queries per second.",
+          "Broadcast each ride to 50 drivers instead of 5 to increase acceptance probability.",
+          "Block new ride requests until the queue drains."
+        ],
+        "answer_index": 0,
+        "rationale": "The bottleneck is not query throughput (Redis handles millions of QPS) — it's driver supply. There are simply not enough drivers near the concert. Surge pricing raises fares to (a) reduce demand (some riders will wait or take transit) and (b) draw drivers from other neighborhoods to the concert. This is the textbook supply-demand balancing answer. Option B is wrong because Redis isn't the bottleneck. Option C is wrong because there aren't 50 available drivers to broadcast to; broadcasting to more drivers doesn't create supply. Option D (blocking requests) is hostile UX and the entire point of surge pricing is to avoid it — let the price do the rationing instead of an error page.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-design-ride-matching-mental",
+      "payload": {
+        "text": "Engineering mental model",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-design-ride-matching-mental",
+      "payload": {
+        "text": "**Mental model.** Think of Design Ride Matching as a deliberate boundary in a system. The boundary exists because something becomes harder to manage when everything is done in one place: latency, scale, failure isolation, consistency, cost, or team ownership. The useful question is not “what does Design Ride Matching mean?” but “what pressure makes this boundary worth introducing, and what new failure mode does it create?”"
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-design-ride-matching-decision",
+      "payload": {
+        "title": "Design lens",
+        "body": "Before choosing Design Ride Matching, name the workload, the critical user path, the dominant bottleneck, the failure you are trying to absorb, and the trade-off you are willing to accept. If you cannot name those five things, the design is probably premature.",
+        "kind": "info"
+      }
+    },
+    {
+      "type": "image",
+      "id": "upgrade-image-design-ride-matching",
+      "payload": {
+        "src": "/learning-visuals/design-ride-matching.svg",
+        "alt": "Original NO CAP systems visual for Design Ride Matching.",
+        "caption": "Design Ride Matching: a compact system-thinking visual.",
+        "credit": "Original NO CAP visual.",
+        "source_url": "https://github.com/donnemartin/system-design-primer"
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "upgrade-mermaid-design-ride-matching",
+      "payload": {
+        "code": "flowchart LR\n  A[Client] --> B[Gateway] --> C[Services] --> D[Data] --> E[Delivery]",
+        "caption": "Design Ride Matching: a simplified system view showing the primary flow and the main state boundaries.",
+        "alt_text": "Design Ride Matching: a simplified system view showing the primary flow and the main state boundaries."
+      }
+    },
+    {
+      "type": "code",
+      "id": "upgrade-code-design-ride-matching",
+      "payload": {
+        "language": "text",
+        "code": "// Pseudocode\nrequest = receive()\nresult = design_ride_matching(request)\nreturn result\n\n// Production questions:\n// 1. What happens on timeout?\n// 2. Can this operation be retried safely?\n// 3. What is the bottleneck?",
+        "caption": "A minimal engineering sketch for reasoning about Design Ride Matching."
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-design-ride-matching-numbers",
+      "payload": {
+        "text": "Back-of-the-envelope reasoning",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-design-ride-matching-numbers",
+      "payload": {
+        "text": "Numerical lens: write down traffic, payload size, read/write ratio, peak multiplier and durability target before choosing a component. The numbers should justify the architecture."
+      }
+    },
+    {
+      "type": "simulation",
+      "id": "upgrade-sim-design-ride-matching",
+      "payload": {
+        "title": "Interactive thought experiment: Design Ride Matching",
+        "description": "Change the variables below and predict what breaks first in Design Ride Matching. The production lab can later reuse these same inputs.",
+        "variables": [
+          {
+            "name": "traffic",
+            "description": "Requests/events per second",
+            "default": "1000"
+          },
+          {
+            "name": "latency",
+            "description": "Dependency latency",
+            "default": "50ms"
+          },
+          {
+            "name": "failure_rate",
+            "description": "Injected failure rate",
+            "default": "0%"
+          }
+        ],
+        "placeholder_note": "Interactive controls are deterministic; use the linked Labs section when a dedicated lab exists."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-design-ride-matching-hint",
+      "payload": {
+        "title": "Hint",
+        "body": "If you are stuck on Design Ride Matching, start by drawing the request path and marking every network hop, stateful component, queue, cache and failure boundary. Then estimate where the system will saturate.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-design-ride-matching-1",
+      "payload": {
+        "shape": "prediction",
+        "question": "You increase traffic by 10× in a system using Design Ride Matching. What should you inspect first?",
+        "options": [
+          "The newest framework version",
+          "The dominant bottleneck and its saturation signal",
+          "Only the UI",
+          "Nothing; the architecture should absorb any traffic automatically"
+        ],
+        "answer_index": 1,
+        "rationale": "System design is a constraint-and-bottleneck exercise. Start with the resource or dependency that will saturate first, then choose the smallest change that removes that bottleneck.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-design-ride-matching-2",
+      "payload": {
+        "shape": "mcq",
+        "question": "Which statement is the safest engineering habit when using Design Ride Matching?",
+        "options": [
+          "Choose it because it is popular",
+          "Add it before measuring the problem",
+          "State the workload, failure mode and trade-off it is solving",
+          "Use the most distributed design possible"
+        ],
+        "answer_index": 2,
+        "rationale": "Good architecture starts from requirements, workload and failure assumptions. The component is the consequence of that reasoning, not the starting point.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "scenario",
+      "id": "upgrade-scenario-design-ride-matching",
+      "payload": {
+        "prompt": "Production scenario: your system uses Design Ride Matching, traffic suddenly spikes, and p99 latency doubles. What is your first move?",
+        "context": "You have dashboards for traffic, latency, errors and saturation. You can change the architecture, but every change has operational cost.",
+        "options": [
+          {
+            "id": "a",
+            "text": "Add more instances immediately",
+            "outcome": "This may help, but only if compute saturation is the bottleneck.",
+            "correct": false
+          },
+          {
+            "id": "b",
+            "text": "Inspect the bottleneck and its saturation signal first",
+            "outcome": "Correct: diagnose before scaling or introducing a new pattern.",
+            "correct": true
+          },
+          {
+            "id": "c",
+            "text": "Disable monitoring to reduce overhead",
+            "outcome": "This removes the evidence you need to diagnose the incident.",
+            "correct": false
+          }
+        ],
+        "rationale": "Measure the limiting resource or dependency first. A bottleneck can be compute, database I/O, network, cache misses, lock contention, downstream latency, or queue backlog.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-design-ride-matching-interview",
+      "payload": {
+        "text": "Interview drill",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-design-ride-matching-interview",
+      "payload": {
+        "text": "**Answer this without notes:** When would you choose Design Ride Matching, and when would you intentionally avoid it? Mention at least one bottleneck it addresses, one failure mode it introduces, and one alternative. Then quantify the workload you are designing for."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "field-guide-design-ride-matching",
+      "payload": {
+        "title": "Engineering lens",
+        "body": "A useful engineering lens for Design Ride Matching: define the problem it solves, the simpler design that fails first, the constraint that forces you to introduce this concept, and the new failure modes the concept creates.",
+        "kind": "tip"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "numerical-lens-design-ride-matching",
+      "payload": {
+        "text": "### Numerical sanity check\n\nBack-of-the-envelope reasoning beats fake precision. State your traffic, payload, concurrency and growth assumptions explicitly, then calculate enough to know whether the current architecture is orders of magnitude away from the target."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "field-question-design-ride-matching",
+      "payload": {
+        "shape": "prediction",
+        "question": "Imagine the simplest version of a system using Design Ride Matching. What breaks first as traffic grows by 10×, and what would you change before reaching 100×?",
+        "context": "Do not optimize for a memorized definition. Reason from the workload and failure mode.",
+        "options": [
+          "Scale the same component immediately.",
+          "Measure the current bottleneck and state the assumption that changed.",
+          "Add more technologies until throughput improves.",
+          "Choose the most popular architecture."
+        ],
+        "answer_index": 1,
+        "rationale": "Good system design starts with the bottleneck and the changed constraint. The most popular or complex choice is not automatically correct.",
+        "difficulty": "interview"
+      }
+    }
+  ],
+  "trade_offs": {
+    "pros": [
+      "Redis GEO gives sub-millisecond nearest-driver queries at 50K-driver scale.",
+      "Atomic SET NX for ride-accept cleanly prevents double-assignment races.",
+      "Per-city isolation localizes failures and lets each city scale independently.",
+      "Surge pricing balances supply and demand via price signals instead of error pages."
+    ],
+    "cons": [
+      "Geohash cells don't adapt to population density — a custom quadtree would.",
+      "4s position update interval means driver ETA can lag by a few seconds.",
+      "First-accept-wins is suboptimal vs global Hungarian-algorithm batch matching (lost optimization).",
+      "Per-minute surge updates can be slow to react to sudden spikes."
+    ]
+  },
+  "failure_modes": [
+    "Hot geohash cell from mass events (concerts, rush hour) — needs surge pricing + cap offers per driver.",
+    "WebSocket connection count overload — needs horizontal gateway scaling + sticky LB + 25s keepalives.",
+    "Race condition on double-accept — needs atomic SET NX on Redis.",
+    "Zombie drivers from dead phones polluting available set — needs reaper on last_ping_at.",
+    "Redis geo index failure halts all matching — needs cluster + replicas + DB quadtree fallback.",
+    "Driver GPS drift causes index churn — needs snap-to-road + position hysteresis.",
+    "Surge feedback loop — needs dampened EMA updates and per-minute change caps."
+  ],
+  "common_mistakes": [
+    "Naive SELECT * FROM drivers ORDER BY distance — O(N) scan, dies at 50K drivers.",
+    "Central single-assignment matching without broadcast — single point of failure and ignores driver preference.",
+    "No atomic accept primitive — double-assignment when two drivers accept simultaneously.",
+    "Updating driver position too frequently (e.g. every 1s) — overwhelms Redis and mobile battery.",
+    "Not handling the 8-neighbor boundary case in geohash queries — misses drivers in adjacent cells.",
+    "Forgetting to ZREM a driver from the available set when they accept a ride — they keep getting offers.",
+    "Pure synchronous surge computation — feedback loop with no damping causes oscillation."
+  ],
+  "where_you_see_it": [
+    "Uber (ride hailing, dispatch, surge)",
+    "Lyft (same core architecture)",
+    "DoorDash (merchant -> dasher matching)",
+    "Instacart (shopper -> order matching)",
+    "Tinder (nearby user discovery via geohash)",
+    "Lime / Bird (nearest scooter)"
+  ],
+  "interview_prompts": [
+    "Design Uber's ride matching. How do you find the nearest driver in under 100ms?",
+    "A concert just ended and 5000 riders request rides. What happens?",
+    "Two drivers tap accept at the same time. How do you prevent a double-assignment?",
+    "How would you implement surge pricing? What are the failure modes?",
+    "A driver's phone died but the server doesn't know. How do you stop offering them rides?"
+  ],
+  "real_system_mappings": [
+    {
+      "system": "Uber",
+      "how": "Geospatial index on Redis-class systems (historically custom quadtree + Redis GEO), atomic dispatch with first-accept-wins, surge pricing computed per geohash cell per minute. Documented in Uber Engineering blog posts on Dispatch and Surge."
+    },
+    {
+      "system": "Lyft",
+      "how": "Similar architecture: Redis geo index for nearest drivers, WebSocket fan-out for ride offers, atomic claim for ride assignment."
+    },
+    {
+      "system": "DoorDash",
+      "how": "Same pattern applied to merchant->dasher matching: geospatial index for nearby dashers, broadcast-and-accept, surge-style incentives during peak."
+    }
+  ],
+  "status": "published",
+  "sources": [
+    {
+      "title": "System Design Primer",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Open source"
+    },
+    {
+      "title": "ByteByteGo — Scale from zero to millions",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "ByteByteGo"
+    },
+    {
+      "title": "System Design Tutorial",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "GeeksforGeeks"
+    },
+    {
+      "title": "System Design Roadmap",
+      "url": "https://roadmap.sh/system-design",
+      "publisher": "roadmap.sh"
+    },
+    {
+      "title": "Case Studies reference",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Case Studies reference",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Case Studies reference",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "Reference"
+    }
+  ]
+}

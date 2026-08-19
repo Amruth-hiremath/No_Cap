@@ -1,0 +1,392 @@
+{
+  "slug": "back-pressure",
+  "version": 4,
+  "title": "Back Pressure",
+  "phase": "scaling-performance",
+  "area": "Scaling & Performance",
+  "estimated_minutes": 7,
+  "difficulty": "advanced",
+  "summary": "Back pressure is when a downstream component signals upstream to slow down because it can't keep up. Without it, a slow consumer causes unbounded queue growth, OOM crashes, and cascading failures. With it, the system degrades gracefully under load.",
+  "why_it_matters": "Every system has a bottleneck. Without back pressure, the bottleneck manifests as unbounded memory growth (queues pile up) or unbounded latency (requests pile up). Back pressure is the mechanism that turns 'system crashes under load' into 'system slows down gracefully under load'.",
+  "prerequisites": [
+    "horizontal-scaling"
+  ],
+  "related": [
+    "rate-limiting",
+    "task-queues",
+    "circuit-breaker"
+  ],
+  "used_in": [
+    "Every system that handles variable load.",
+    "Streaming pipelines.",
+    "Message queue consumers."
+  ],
+  "blocks": [
+    {
+      "type": "prose",
+      "id": "intro",
+      "payload": {
+        "text": "Imagine a water pipe. If the faucet (producer) pours faster than the drain (consumer) can drain, water backs up. In plumbing, this is back pressure. In software, it's the same: if a producer sends faster than a consumer can process, work piles up somewhere.\n\nWithout back pressure, that 'somewhere' is an unbounded queue or an ever-growing connection pool. Eventually, memory runs out and the system crashes. With back pressure, the consumer tells the producer 'slow down' — and the producer does."
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "back-pressure",
+      "payload": {
+        "code": "flowchart TD\n    N0[\"unbounded queue\"]\n    N1[\"WITHOUT\"]\n    N2[\"BACK\"]\n    N3[\"PRESSURE\"]\n    N4[\"(unbounded\"]\n    N5[\"queue)\"]\n    N6[\" Queue \"]\n    N7[\"10k msg/s\"]\n    N8[\"5k msg/s\"]\n    N9[\"Producer\"]\n    N10[\"(10k\"]\n    N11[\"msg\"]\n    N12[\"Queue\"]\n    N13[\"Consumer\"]\n    N14[\"(5k\"]\n    N15[\"grows\"]\n    N16[\"OOM\"]\n    N17[\"200\"]\n    N18[\"seconds\"]\n    N19[\"bounded queue\"]\n    N20[\"WITH\"]\n    N21[\"(bounded\"]\n    N22[\" Queue (max 1000) \"]\n    N23[\"max 1000\"]\n    N24[\"(max\"]\n    N25[\"1000)\"]\n    N26[\"when\"]\n    N27[\"full\"]\n    N28[\"'slow\"]\n    N29[\"down'\"]\n    N30[\"signal\"]\n    N31[\"throttles\"]\n    N32[\"stays\"]\n    N33[\"bounded\"]\n    N34[\"System\"]\n    N35[\"degrades\"]\n    N36[\"gracefully\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36",
+        "caption": "Without back pressure, queues grow until OOM. With back pressure, the producer slows to match the consumer.",
+        "alt_text": "Two diagrams. Without back pressure: a producer sends 10,000 messages per second, the consumer processes only 5,000. The queue grows by 5,000 messages per second, leading to out-of-memory in 200 seconds. With back pressure: the queue has a maximum size of 1,000. When full, a 'slow down' signal goes to the producer, which throttles to 5,000 messages per second. The queue stays bounded, and the system degrades gracefully."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "mechanisms",
+      "payload": {
+        "text": "Back pressure mechanisms:\n\n- **Bounded queues**: queue has a max size. When full, the producer blocks (synchronous) or gets rejected (async).\n- **Reactive streams**: the consumer pulls from the producer (pull-based) rather than the producer pushing. The consumer only requests what it can handle.\n- **HTTP 429 Too Many Requests**: the server tells the client 'slow down'. The client must respect the `Retry-After` header.\n- **TCP flow control**: the OS handles this at the network layer — the receiver advertises a window size, and the sender doesn't exceed it.\n- **Message broker prefetch limits**: the consumer only receives N messages at a time (e.g., Kafka `max.poll.records`, RabbitMQ `prefetch_count`)."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "fail-fast",
+      "payload": {
+        "title": "Fail fast, don't pile up",
+        "body": "When a queue is full, you have two choices: block the producer (synchronous back pressure) or reject the request (fail fast). Failing fast is usually better — a 429 error tells the client 'try again later', and the system stays responsive. Blocking causes threads to pile up and cascading failures.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q1",
+      "payload": {
+        "question": "Your API has an unbounded in-memory queue for processing requests. Under heavy load, what happens?",
+        "shape": "mcq",
+        "options": [
+          "The system handles the load gracefully.",
+          "The queue grows until memory runs out, causing OOM crashes.",
+          "The system automatically scales up.",
+          "The queue self-cleans old messages."
+        ],
+        "answer_index": 1,
+        "rationale": "Without a bound on the queue, incoming requests accumulate faster than they're processed. The queue grows until the process runs out of memory and crashes (OOM). This is why unbounded queues are an anti-pattern in production systems. The fix is to set a maximum queue size and apply back pressure (block or reject) when full. This degrades gracefully (slowdowns or 429s) instead of crashing.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q2",
+      "payload": {
+        "question": "A consumer can process 100 messages per second. The producer sends 200 per second. Which back pressure mechanism prevents the queue from growing unbounded?",
+        "shape": "mcq",
+        "options": [
+          "Unbounded queue — let it grow.",
+          "Bounded queue with rejection — when full, reject new messages (429).",
+          "Add more producers.",
+          "Disable retries."
+        ],
+        "answer_index": 1,
+        "rationale": "A bounded queue with rejection is the most common back pressure mechanism. When the queue is full, new messages are rejected (429 Too Many Requests). The producer must slow down or retry later. This keeps the queue bounded and the system responsive. Unbounded queues cause OOM. Adding more producers makes it worse (more input). Disabling retries doesn't solve the throughput mismatch.",
+        "difficulty": "advanced"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-back-pressure-mental",
+      "payload": {
+        "text": "Engineering mental model",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-back-pressure-mental",
+      "payload": {
+        "text": "**Mental model.** Think of Back Pressure as a deliberate boundary in a system. The boundary exists because something becomes harder to manage when everything is done in one place: latency, scale, failure isolation, consistency, cost, or team ownership. The useful question is not “what does Back Pressure mean?” but “what pressure makes this boundary worth introducing, and what new failure mode does it create?”"
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-back-pressure-decision",
+      "payload": {
+        "title": "Design lens",
+        "body": "Before choosing Back Pressure, name the workload, the critical user path, the dominant bottleneck, the failure you are trying to absorb, and the trade-off you are willing to accept. If you cannot name those five things, the design is probably premature.",
+        "kind": "info"
+      }
+    },
+    {
+      "type": "image",
+      "id": "upgrade-image-back-pressure",
+      "payload": {
+        "src": "/learning-visuals/back-pressure.svg",
+        "alt": "Original NO CAP systems visual for Back Pressure.",
+        "caption": "Back Pressure: a compact system-thinking visual.",
+        "credit": "Original NO CAP visual.",
+        "source_url": "https://github.com/donnemartin/system-design-primer"
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "upgrade-mermaid-back-pressure",
+      "payload": {
+        "code": "flowchart LR\n  A[Client] --> B[Gateway] --> C[Service] --> D[State] --> E[Outcome]",
+        "caption": "Back Pressure: a simplified system view showing the primary flow and the main state boundaries.",
+        "alt_text": "Back Pressure: a simplified system view showing the primary flow and the main state boundaries."
+      }
+    },
+    {
+      "type": "code",
+      "id": "upgrade-code-back-pressure",
+      "payload": {
+        "language": "text",
+        "code": "// Pseudocode\nrequest = receive()\nresult = back_pressure(request)\nreturn result\n\n// Production questions:\n// 1. What happens on timeout?\n// 2. Can this operation be retried safely?\n// 3. What is the bottleneck?",
+        "caption": "A minimal engineering sketch for reasoning about Back Pressure."
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-back-pressure-numbers",
+      "payload": {
+        "text": "Back-of-the-envelope reasoning",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-back-pressure-numbers",
+      "payload": {
+        "text": "Numerical lens: write down traffic, payload size, read/write ratio, peak multiplier and durability target before choosing a component. The numbers should justify the architecture."
+      }
+    },
+    {
+      "type": "simulation",
+      "id": "upgrade-sim-back-pressure",
+      "payload": {
+        "title": "Interactive thought experiment: Back Pressure",
+        "description": "Change the variables below and predict what breaks first in Back Pressure. The production lab can later reuse these same inputs.",
+        "variables": [
+          {
+            "name": "traffic",
+            "description": "Requests/events per second",
+            "default": "1000"
+          },
+          {
+            "name": "latency",
+            "description": "Dependency latency",
+            "default": "50ms"
+          },
+          {
+            "name": "failure_rate",
+            "description": "Injected failure rate",
+            "default": "0%"
+          }
+        ],
+        "placeholder_note": "Interactive controls are deterministic; use the linked Labs section when a dedicated lab exists."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-back-pressure-hint",
+      "payload": {
+        "title": "Hint",
+        "body": "If you are stuck on Back Pressure, start by drawing the request path and marking every network hop, stateful component, queue, cache and failure boundary. Then estimate where the system will saturate.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-back-pressure-1",
+      "payload": {
+        "shape": "prediction",
+        "question": "You increase traffic by 10× in a system using Back Pressure. What should you inspect first?",
+        "options": [
+          "The newest framework version",
+          "The dominant bottleneck and its saturation signal",
+          "Only the UI",
+          "Nothing; the architecture should absorb any traffic automatically"
+        ],
+        "answer_index": 1,
+        "rationale": "System design is a constraint-and-bottleneck exercise. Start with the resource or dependency that will saturate first, then choose the smallest change that removes that bottleneck.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-back-pressure-2",
+      "payload": {
+        "shape": "mcq",
+        "question": "Which statement is the safest engineering habit when using Back Pressure?",
+        "options": [
+          "Choose it because it is popular",
+          "Add it before measuring the problem",
+          "State the workload, failure mode and trade-off it is solving",
+          "Use the most distributed design possible"
+        ],
+        "answer_index": 2,
+        "rationale": "Good architecture starts from requirements, workload and failure assumptions. The component is the consequence of that reasoning, not the starting point.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "scenario",
+      "id": "upgrade-scenario-back-pressure",
+      "payload": {
+        "prompt": "Production scenario: your system uses Back Pressure, traffic suddenly spikes, and p99 latency doubles. What is your first move?",
+        "context": "You have dashboards for traffic, latency, errors and saturation. You can change the architecture, but every change has operational cost.",
+        "options": [
+          {
+            "id": "a",
+            "text": "Add more instances immediately",
+            "outcome": "This may help, but only if compute saturation is the bottleneck.",
+            "correct": false
+          },
+          {
+            "id": "b",
+            "text": "Inspect the bottleneck and its saturation signal first",
+            "outcome": "Correct: diagnose before scaling or introducing a new pattern.",
+            "correct": true
+          },
+          {
+            "id": "c",
+            "text": "Disable monitoring to reduce overhead",
+            "outcome": "This removes the evidence you need to diagnose the incident.",
+            "correct": false
+          }
+        ],
+        "rationale": "Measure the limiting resource or dependency first. A bottleneck can be compute, database I/O, network, cache misses, lock contention, downstream latency, or queue backlog.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-back-pressure-interview",
+      "payload": {
+        "text": "Interview drill",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-back-pressure-interview",
+      "payload": {
+        "text": "**Answer this without notes:** When would you choose Back Pressure, and when would you intentionally avoid it? Mention at least one bottleneck it addresses, one failure mode it introduces, and one alternative. Then quantify the workload you are designing for."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "field-guide-back-pressure",
+      "payload": {
+        "title": "Engineering lens",
+        "body": "For Back Pressure, treat the system as a control loop: observe load and failure, choose a bounded response, and measure whether the response stabilizes the system instead of simply moving the bottleneck somewhere else.",
+        "kind": "tip"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "numerical-lens-back-pressure",
+      "payload": {
+        "text": "### Numerical sanity check\n\nWhen estimating capacity, distinguish average from peak. If average traffic is 4,000 RPS and the observed peak-to-average factor is 3×, design the first pass around roughly 12,000 RPS, then leave headroom for failure and growth."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "field-question-back-pressure",
+      "payload": {
+        "shape": "prediction",
+        "question": "What is the earliest signal that Back Pressure is becoming the bottleneck: latency, saturation, errors, queue depth, or something else? Why?",
+        "context": "Do not optimize for a memorized definition. Reason from the workload and failure mode.",
+        "options": [
+          "Scale the same component immediately.",
+          "Measure the current bottleneck and state the assumption that changed.",
+          "Add more technologies until throughput improves.",
+          "Choose the most popular architecture."
+        ],
+        "answer_index": 1,
+        "rationale": "Good system design starts with the bottleneck and the changed constraint. The most popular or complex choice is not automatically correct.",
+        "difficulty": "interview"
+      }
+    }
+  ],
+  "trade_offs": {
+    "pros": [
+      "Prevents OOM crashes under load — queues stay bounded.",
+      "Graceful degradation — system slows down instead of crashing.",
+      "Protects downstream services from being overwhelmed.",
+      "Natural rate limiting — the consumer's speed sets the system's speed."
+    ],
+    "cons": [
+      "Can cause rejected requests (429) — users see errors under load.",
+      "Adds latency — when the queue is near-full, requests wait longer.",
+      "Requires client cooperation — clients must respect 429 and Retry-After.",
+      "Hard to tune — queue size that's too small causes false rejections; too large causes latency."
+    ]
+  },
+  "failure_modes": [
+    "Unbounded queue — OOM crash under load.",
+    "Queue too large — high latency before back pressure kicks in.",
+    "Client ignores 429 — keeps hammering, causing the queue to stay full.",
+    "Head-of-line blocking — one slow request blocks the whole queue."
+  ],
+  "common_mistakes": [
+    "Using unbounded queues — always set a max size.",
+    "Blocking instead of rejecting — blocking causes thread exhaustion and cascading failures.",
+    "Not propagating back pressure — if service A applies back pressure to service B, B must propagate it to its callers."
+  ],
+  "where_you_see_it": [
+    "Every system that handles variable load.",
+    "Streaming pipelines (Kafka, Flink, Reactive Streams).",
+    "Message queue consumers (prefetch limits).",
+    "TCP flow control (window size)."
+  ],
+  "interview_prompts": [
+    "What is back pressure? Why is it important?",
+    "How do you handle a producer that's faster than the consumer?",
+    "What happens if you use an unbounded queue under load?"
+  ],
+  "real_system_mappings": [
+    {
+      "system": "Reactive Streams (RxJava, Project Reactor)",
+      "how": "Pull-based back pressure: the consumer requests N items, the producer sends only N. The consumer controls the flow."
+    },
+    {
+      "system": "Kafka consumer",
+      "how": "prefetch limit (max.poll.records) bounds how many messages the consumer receives at once. If processing is slow, the consumer doesn't poll for more."
+    }
+  ],
+  "status": "published",
+  "sources": [
+    {
+      "title": "System Design Primer",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Open source"
+    },
+    {
+      "title": "ByteByteGo — Scale from zero to millions",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "ByteByteGo"
+    },
+    {
+      "title": "System Design Tutorial",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "GeeksforGeeks"
+    },
+    {
+      "title": "System Design Roadmap",
+      "url": "https://roadmap.sh/system-design",
+      "publisher": "roadmap.sh"
+    },
+    {
+      "title": "Scaling & Performance reference",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Scaling & Performance reference",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Scaling & Performance reference",
+      "url": "https://highscalability.com/",
+      "publisher": "Reference"
+    }
+  ]
+}

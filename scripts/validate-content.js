@@ -113,6 +113,23 @@ for (const [fileSlug, data] of Object.entries(concepts)) {
     }
   }
 
+  /* Publication-quality checks */
+  const mermaids = (data.blocks || []).filter(b => b.type === 'mermaid');
+  const images = (data.blocks || []).filter(b => b.type === 'image');
+  const simulations = (data.blocks || []).filter(b => b.type === 'simulation');
+  const proseCharsAll = (data.blocks || []).filter(b => b.type === 'prose').reduce((n,b)=>n + ((b.payload && b.payload.text)||'').length,0);
+  if (mermaids.length < 1) error(`${fileSlug}.json: published concept must contain at least one Mermaid diagram`);
+  if (images.length < 1) error(`${fileSlug}.json: published concept must contain at least one educational image`);
+  if (simulations.length < 1) error(`${fileSlug}.json: published concept must contain at least one simulation/thought-experiment block`);
+  if (proseCharsAll < 1200) warn(`${fileSlug}.json: prose depth is below the preferred 1200-character threshold`);
+  if (!Array.isArray(data.sources) || data.sources.length < 3) warn(`${fileSlug}.json: fewer than 3 research sources`);
+  const ids = new Set();
+  for (const block of (data.blocks || [])) {
+    if (!block.id) error(`${fileSlug}.json: block has no id`);
+    else if (ids.has(block.id)) error(`${fileSlug}.json: duplicate block id ${block.id}`);
+    else ids.add(block.id);
+  }
+
   /* Check quiz blocks */
   for (const block of (data.blocks || [])) {
     if (block.type === 'quiz') {

@@ -1,0 +1,415 @@
+{
+  "slug": "sidecar",
+  "version": 3,
+  "title": "Sidecar",
+  "phase": "design-patterns",
+  "area": "Design Patterns",
+  "estimated_minutes": 7,
+  "difficulty": "advanced",
+  "summary": "A sidecar is a helper container deployed alongside the main application container, sharing the same pod (or host) and lifecycle but running as a separate process. It handles cross-cutting concerns — networking, observability, configuration, security — so the application code can focus on business logic. The pattern decouples operational infrastructure from the application: change the proxy or logger without recompiling the app; reuse the same sidecar across services written in different languages. Envoy, the canonical sidecar, is the data plane of every major service mesh.",
+  "why_it_matters": "Without sidecars, every service must re-implement (or import) the same operational concerns: TLS termination, retry, circuit breaking, metrics, tracing, log forwarding, config refresh, mTLS. This means polyglot teams either standardize on one language (so they can share libraries) or re-implement the same concerns in N languages. The sidecar pattern breaks this coupling: deploy the same sidecar alongside every service, regardless of language, and the application code stays small and focused. This is the foundation of the service mesh.",
+  "prerequisites": [
+    "microservices"
+  ],
+  "related": [
+    "service-mesh",
+    "circuit-breaker",
+    "rate-limiting",
+    "tls"
+  ],
+  "used_in": [
+    "Service meshes (Istio, Linkerd, Consul) — Envoy or linkerd2-proxy as the sidecar.",
+    "Container orchestration — Kubernetes pods (sidecars share a pod's network namespace).",
+    "Logging/metrics infrastructure — Fluent Bit, Prometheus node-exporter sidecars.",
+    "Configuration injection — init containers and sidecars that fetch secrets or config."
+  ],
+  "blocks": [
+    {
+      "type": "prose",
+      "id": "intro",
+      "payload": {
+        "text": "The sidecar pattern takes its name from a motorcycle sidecar: it attaches to the main vehicle, shares its journey, but carries its own passenger and purpose. The motorcycle doesn't need to know what the sidecar is doing — it just drives.\n\nIn software, a sidecar is a second container deployed in the same pod (in Kubernetes terms) or on the same host as the main application container. The two share:\n\n- **Network namespace** — both can talk on `localhost`, so the sidecar can intercept traffic.\n- **Lifecycle** — when the pod starts, both start; when the pod dies, both die.\n- **Storage volumes** — they can share a mounted volume (e.g., for logs).\n\nBut the two have:\n\n- **Separate processes** — the app crashes independently of the sidecar.\n- **Separate resource limits** — CPU/memory can be tuned per container.\n- **Separate update cadence** — the sidecar can be upgraded without rebuilding the app.\n\nTypical sidecar responsibilities:\n- **Proxy / service mesh data plane** — Envoy intercepts all in/out traffic, provides mTLS, retries, circuit breaking, observability.\n- **Log forwarder** — tails the app's log file and ships to a central log store.\n- **Metrics exporter** — exposes Prometheus metrics on behalf of the app.\n- **Config / secret sidecar** — fetches secrets from a vault, writes to a shared volume the app reads.\n- **Adapter** — translates between the app's protocol and an external system's protocol.\n\nThe application often doesn't even know the sidecar exists. It just makes HTTP calls to `localhost:service-X`, and the sidecar handles routing, TLS, retries — transparently."
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "pod",
+      "payload": {
+        "code": "flowchart TD\n    N0[\"1 IP, 1 network namespace\"]\n    N1[\"Pod\"]\n    N2[\"IP,\"]\n    N3[\"network\"]\n    N4[\"namespace)\"]\n    N5[\"App\"]\n    N6[\"container\"]\n    N7[\"Sidecar\"]\n    N8[\"shares\"]\n    N9[\"lifecycle,\"]\n    N10[\"business logic\"]\n    N11[\"Envoy proxy\"]\n    N12[\"(business\"]\n    N13[\"logic)\"]\n    N14[\"localhost\"]\n    N15[\"(Envoy\"]\n    N16[\"proxy)\"]\n    N17[\"separate\"]\n    N18[\"process\"]\n    N19[\"Listens\"]\n    N20[\":8080\"]\n    N21[\":15001\"]\n    N22[\"mTLS,\"]\n    N23[\"retry,\"]\n    N24[\"circuit\"]\n    N25[\"break\"]\n    N26[\"logs\"]\n    N27[\"traced\"]\n    N28[\"traffic\"]\n    N29[\"shared\"]\n    N30[\"vol\"]\n    N31[\"mesh\"]\n    N32[\"other\"]\n    N33[\"pods\"]\n    N34[\"log files\"]\n    N35[\"(log\"]\n    N36[\"files)\"]\n    N37[\"Every\"]\n    N38[\"pod\"]\n    N39[\"the\"]\n    N40[\"cluster\"]\n    N41[\"runs\"]\n    N42[\"this\"]\n    N43[\"same\"]\n    N44[\"sidecar\"]\n    N45[\"polyglot\"]\n    N46[\"apps\"]\n    N47[\"share\"]\n    N48[\"one\"]\n    N49[\"proxy.\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44\n    N44 --> N45\n    N45 --> N46\n    N46 --> N47\n    N47 --> N48\n    N48 --> N49",
+        "caption": "A Kubernetes pod with the main app container and a sidecar (Envoy) sharing network and lifecycle but running as separate processes.",
+        "alt_text": "A diagram of a Kubernetes pod showing two containers inside one shared network namespace. The application container holds business logic and listens on port 8080. The sidecar, an Envoy proxy, listens on port 15001 and handles mutual TLS, retry, and circuit breaking. The two containers communicate over localhost. The app writes logs to a shared volume, and the sidecar sends traced traffic out to the mesh. A caption notes that every pod in the cluster runs this same sidecar, so polyglot apps share one proxy."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "why",
+      "payload": {
+        "text": "Why sidecars over in-process libraries?\n\n- **Polyglot support**: a Java app and a Go app and a Python app all use the same sidecar. With libraries, you need three implementations of every concern, and they drift.\n- **Independent upgrades**: upgrade the sidecar (e.g., to fix a security bug in Envoy) without recompiling or redeploying the app. With libraries, every app must bump its dependency and rebuild.\n- **Language-agnostic observability**: the sidecar produces consistent metrics, logs, and traces across all services, regardless of language.\n- **Consistent policy**: retry, circuit breaking, rate limiting, mTLS — enforced uniformly across the fleet, configured centrally (via the control plane).\n- **Application code stays small**: developers focus on business logic, not operational plumbing.\n\nTrade-offs:\n- **Extra hop**: every request goes through the sidecar, adding latency (typically 1-5ms, more on cold paths).\n- **Resource overhead**: every pod now runs an extra process. At fleet scale, this adds up — 1,000 pods × 100MB Envoy = 100GB of RAM just for sidecars.\n- **Operational complexity**: debugging now spans app + sidecar + control plane.\n- **Lifecycle coupling**: sidecar startup/shutdown must coordinate with the app (e.g., the app must wait for the sidecar to be ready, or its outbound calls will fail).\n\nModern evolutions like ambient mesh (Istio) and sidecar-less eBPF proxies (Cilium) are attempts to reduce the per-pod overhead while keeping the benefits."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "vs-ambassador",
+      "payload": {
+        "title": "Sidecar vs Ambassador vs Adapter",
+        "body": "Three closely related patterns. Sidecar lives alongside the app and handles concerns the app shouldn't care about (networking, logs). Ambassador is a specific kind of sidecar that proxies the app's outbound traffic to external services — a 'representative' that simplifies external connectivity. Adapter is a sidecar that translates between the app's interface and what the rest of the system expects (e.g., exposing legacy metrics as Prometheus metrics). All three share the same pod/lifecycle mechanism; the difference is intent.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "examples",
+      "payload": {
+        "text": "Concrete sidecar examples in production:\n\n- **Istio's Envoy sidecar** — auto-injected into every pod, intercepts all traffic via iptables redirection, provides mTLS, traffic shifting (canary), circuit breaking, retries, distributed tracing.\n- **Linkerd2-proxy sidecar** — Rust-based, lighter than Envoy, same function.\n- **Dapr sidecar** — Microsoft's portable runtime; provides state management, pub/sub, bindings, actors as HTTP/gRPC APIs the app calls.\n- **HashiCorp Consul Connect** — sidecar-based service mesh.\n- **Fluent Bit / Fluentd sidecar** — tails app logs from a shared volume and ships to Loki/ELK/S3.\n- **Vault Agent sidecar** — fetches secrets from HashiCorp Vault, writes to a shared volume, refreshes them on TTL.\n- **OpenTelemetry Collector sidecar** — receives traces/metrics from the app and forwards to backends.\n- **DynamoDB Local / localstack sidecar** — for development, mocks AWS services on localhost.\n\nIn all these, the application code is unaware of the sidecar's existence — it just talks to localhost, reads/writes a shared volume, or makes a normal HTTP call that the sidecar intercepts."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q1",
+      "payload": {
+        "question": "Why does the sidecar pattern work well for polyglot microservice fleets?",
+        "shape": "mcq",
+        "options": [
+          "It forces all services to be rewritten in a single language so they can share libraries.",
+          "Cross-cutting concerns (mTLS, retries, metrics) are handled in the sidecar, independent of the app's language.",
+          "It eliminates the need for any networking code in the app.",
+          "It allows the app to skip running a runtime at all — the sidecar executes the code."
+        ],
+        "answer_index": 1,
+        "rationale": "Sidecars solve the polyglot problem by extracting cross-cutting concerns (mTLS, retries, circuit breaking, tracing, metrics) into a separate process shared by all pods. A Java app, a Go app, and a Python app all run the same Envoy sidecar; the sidecar provides consistent policy and observability regardless of the app's language. Without sidecars, you'd need library implementations of these concerns in each language — and they'd drift. The sidecar doesn't force a single language (option a is wrong); the app still contains networking code for its business calls (option c is wrong); and the sidecar doesn't execute app code (option d is wrong).",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q2",
+      "payload": {
+        "question": "Which is a real cost of running sidecars in production?",
+        "shape": "mcq",
+        "options": [
+          "Sidecars add a network hop and consume CPU/memory in every pod — at fleet scale, this is significant.",
+          "Sidecars prevent polyglot services from coexisting in the same cluster.",
+          "Sidecars make applications impossible to debug.",
+          "Sidecars eliminate the need for any observability infrastructure."
+        ],
+        "answer_index": 0,
+        "rationale": "Every request traverses the sidecar proxy, adding latency (typically 1-5ms) and consuming CPU/memory. At fleet scale — say, 5,000 pods — running an Envoy sidecar at 100MB each means 500GB of RAM and meaningful CPU just for proxies. This is a real operational cost and motivates alternatives like ambient mesh (which uses a per-node proxy instead of per-pod) and eBPF-based networking (Cilium). Sidecars enable polyglot fleets (b is wrong); they make apps more debuggable, not less, because they emit consistent traces (c is wrong); and they don't replace the observability backend — they feed it (d is wrong).",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-sidecar-mental",
+      "payload": {
+        "text": "Engineering mental model",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-sidecar-mental",
+      "payload": {
+        "text": "**Mental model.** Think of Sidecar as a deliberate boundary in a system. The boundary exists because something becomes harder to manage when everything is done in one place: latency, scale, failure isolation, consistency, cost, or team ownership. The useful question is not “what does Sidecar mean?” but “what pressure makes this boundary worth introducing, and what new failure mode does it create?”"
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-sidecar-decision",
+      "payload": {
+        "title": "Design lens",
+        "body": "Before choosing Sidecar, name the workload, the critical user path, the dominant bottleneck, the failure you are trying to absorb, and the trade-off you are willing to accept. If you cannot name those five things, the design is probably premature.",
+        "kind": "info"
+      }
+    },
+    {
+      "type": "image",
+      "id": "upgrade-image-sidecar",
+      "payload": {
+        "src": "/learning-visuals/sidecar.svg",
+        "alt": "Original NO CAP systems visual for Sidecar.",
+        "caption": "Sidecar: a compact system-thinking visual.",
+        "credit": "Original NO CAP visual.",
+        "source_url": "https://github.com/donnemartin/system-design-primer"
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "upgrade-mermaid-sidecar",
+      "payload": {
+        "code": "flowchart LR\n  A[Client] --> B[Gateway] --> C[Service] --> D[State] --> E[Outcome]",
+        "caption": "Sidecar: a simplified system view showing the primary flow and the main state boundaries.",
+        "alt_text": "Sidecar: a simplified system view showing the primary flow and the main state boundaries."
+      }
+    },
+    {
+      "type": "code",
+      "id": "upgrade-code-sidecar",
+      "payload": {
+        "language": "text",
+        "code": "// Pseudocode\nrequest = receive()\nresult = sidecar(request)\nreturn result\n\n// Production questions:\n// 1. What happens on timeout?\n// 2. Can this operation be retried safely?\n// 3. What is the bottleneck?",
+        "caption": "A minimal engineering sketch for reasoning about Sidecar."
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-sidecar-numbers",
+      "payload": {
+        "text": "Back-of-the-envelope reasoning",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-sidecar-numbers",
+      "payload": {
+        "text": "Numerical lens: write down traffic, payload size, read/write ratio, peak multiplier and durability target before choosing a component. The numbers should justify the architecture."
+      }
+    },
+    {
+      "type": "simulation",
+      "id": "upgrade-sim-sidecar",
+      "payload": {
+        "title": "Interactive thought experiment: Sidecar",
+        "description": "Change the variables below and predict what breaks first in Sidecar. The production lab can later reuse these same inputs.",
+        "variables": [
+          {
+            "name": "traffic",
+            "description": "Requests/events per second",
+            "default": "1000"
+          },
+          {
+            "name": "latency",
+            "description": "Dependency latency",
+            "default": "50ms"
+          },
+          {
+            "name": "failure_rate",
+            "description": "Injected failure rate",
+            "default": "0%"
+          }
+        ],
+        "placeholder_note": "Interactive controls are deterministic; use the linked Labs section when a dedicated lab exists."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-sidecar-hint",
+      "payload": {
+        "title": "Hint",
+        "body": "If you are stuck on Sidecar, start by drawing the request path and marking every network hop, stateful component, queue, cache and failure boundary. Then estimate where the system will saturate.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-sidecar-1",
+      "payload": {
+        "shape": "prediction",
+        "question": "You increase traffic by 10× in a system using Sidecar. What should you inspect first?",
+        "options": [
+          "The newest framework version",
+          "The dominant bottleneck and its saturation signal",
+          "Only the UI",
+          "Nothing; the architecture should absorb any traffic automatically"
+        ],
+        "answer_index": 1,
+        "rationale": "System design is a constraint-and-bottleneck exercise. Start with the resource or dependency that will saturate first, then choose the smallest change that removes that bottleneck.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-sidecar-2",
+      "payload": {
+        "shape": "mcq",
+        "question": "Which statement is the safest engineering habit when using Sidecar?",
+        "options": [
+          "Choose it because it is popular",
+          "Add it before measuring the problem",
+          "State the workload, failure mode and trade-off it is solving",
+          "Use the most distributed design possible"
+        ],
+        "answer_index": 2,
+        "rationale": "Good architecture starts from requirements, workload and failure assumptions. The component is the consequence of that reasoning, not the starting point.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "scenario",
+      "id": "upgrade-scenario-sidecar",
+      "payload": {
+        "prompt": "Production scenario: your system uses Sidecar, traffic suddenly spikes, and p99 latency doubles. What is your first move?",
+        "context": "You have dashboards for traffic, latency, errors and saturation. You can change the architecture, but every change has operational cost.",
+        "options": [
+          {
+            "id": "a",
+            "text": "Add more instances immediately",
+            "outcome": "This may help, but only if compute saturation is the bottleneck.",
+            "correct": false
+          },
+          {
+            "id": "b",
+            "text": "Inspect the bottleneck and its saturation signal first",
+            "outcome": "Correct: diagnose before scaling or introducing a new pattern.",
+            "correct": true
+          },
+          {
+            "id": "c",
+            "text": "Disable monitoring to reduce overhead",
+            "outcome": "This removes the evidence you need to diagnose the incident.",
+            "correct": false
+          }
+        ],
+        "rationale": "Measure the limiting resource or dependency first. A bottleneck can be compute, database I/O, network, cache misses, lock contention, downstream latency, or queue backlog.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-sidecar-interview",
+      "payload": {
+        "text": "Interview drill",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-sidecar-interview",
+      "payload": {
+        "text": "**Answer this without notes:** When would you choose Sidecar, and when would you intentionally avoid it? Mention at least one bottleneck it addresses, one failure mode it introduces, and one alternative. Then quantify the workload you are designing for."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "field-guide-sidecar",
+      "payload": {
+        "title": "Engineering lens",
+        "body": "A useful engineering lens for Sidecar: define the problem it solves, the simpler design that fails first, the constraint that forces you to introduce this concept, and the new failure modes the concept creates.",
+        "kind": "tip"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "numerical-lens-sidecar",
+      "payload": {
+        "text": "### Numerical sanity check\n\nBack-of-the-envelope reasoning beats fake precision. State your traffic, payload, concurrency and growth assumptions explicitly, then calculate enough to know whether the current architecture is orders of magnitude away from the target."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "field-question-sidecar",
+      "payload": {
+        "shape": "prediction",
+        "question": "Imagine the simplest version of a system using Sidecar. What breaks first as traffic grows by 10×, and what would you change before reaching 100×?",
+        "context": "Do not optimize for a memorized definition. Reason from the workload and failure mode.",
+        "options": [
+          "Scale the same component immediately.",
+          "Measure the current bottleneck and state the assumption that changed.",
+          "Add more technologies until throughput improves.",
+          "Choose the most popular architecture."
+        ],
+        "answer_index": 1,
+        "rationale": "Good system design starts with the bottleneck and the changed constraint. The most popular or complex choice is not automatically correct.",
+        "difficulty": "interview"
+      }
+    }
+  ],
+  "trade_offs": {
+    "pros": [
+      "Polyglot-friendly — one sidecar works for any language.",
+      "Cross-cutting concerns (mTLS, retries, metrics) enforced uniformly across the fleet.",
+      "Application code stays small and focused on business logic.",
+      "Sidecar can be upgraded independently of the app — security patches without rebuilding services.",
+      "Centralized configuration via control plane (one policy for the whole mesh)."
+    ],
+    "cons": [
+      "Per-pod resource overhead — at fleet scale, sidecars add up to substantial CPU/memory.",
+      "Extra network hop adds latency to every request.",
+      "Operational complexity — debugging spans app, sidecar, and control plane.",
+      "Lifecycle coupling — app and sidecar must coordinate startup/shutdown (now solved by Kubernetes' native sidecars in 1.28+).",
+      "Adds a layer of indirection that obscures what's actually happening to a request."
+    ]
+  },
+  "failure_modes": [
+    "Sidecar crashes — app loses network, retries, mTLS, observability. App must degrade gracefully.",
+    "Sidecar startup race — app starts before sidecar is ready; outbound calls fail. Solved by readiness probes / native sidecars.",
+    "Sidecar resource starvation — sidecar is CPU-starved under load and becomes the bottleneck itself.",
+    "Configuration drift — sidecars across the fleet have different versions or configs, causing inconsistent behavior.",
+    "Transparent iptables redirection breaks — outbound traffic bypasses the sidecar, losing policy enforcement.",
+    "Sidecar memory leak — a bug in the sidecar OOM-kills pods fleet-wide (real Envoy issues have done this)."
+  ],
+  "common_mistakes": [
+    "Treating sidecars as free — they have real CPU/memory cost and need capacity planning.",
+    "Not coordinating lifecycle — app and sidecar startup order matters; misordering causes transient failures.",
+    "Ignoring sidecar version skew — running multiple Envoy versions across the fleet creates inconsistent behavior.",
+    "Adding sidecars without observability into the sidecar itself — when the sidecar misbehaves, you must be able to debug it.",
+    "Overusing sidecars — not every concern needs to be a sidecar; some are better as libraries (e.g., simple metrics).",
+    "Forgetting that sidecars add a hop — latency-sensitive paths may need direct calls or sidecar bypass."
+  ],
+  "where_you_see_it": [
+    "Every service mesh: Istio, Linkerd, Consul — Envoy or linkerd2-proxy as the sidecar.",
+    "Kubernetes pods — the canonical deployment unit (one pod = one or more containers, often including sidecars).",
+    "Logging/metrics infrastructure — Fluent Bit, OpenTelemetry Collector, node-exporter sidecars.",
+    "Secret management — Vault Agent sidecar fetching and refreshing secrets.",
+    "Dapr — Microsoft's portable sidecar runtime for state, pub/sub, and actors."
+  ],
+  "interview_prompts": [
+    "What is a sidecar, and what problems does it solve in a microservice fleet?",
+    "How does the sidecar pattern relate to a service mesh? Can you have one without the other?",
+    "What are the costs of running sidecars in every pod? When would you NOT use a sidecar?",
+    "How does a Kubernetes pod support the sidecar pattern? What is shared, and what is separate?",
+    "Compare sidecars to in-process libraries for cross-cutting concerns like mTLS or tracing."
+  ],
+  "real_system_mappings": [
+    {
+      "system": "Istio + Envoy",
+      "how": "Istio injects an Envoy sidecar into every pod in the mesh. Envoy intercepts all traffic via iptables, providing mTLS, retries, circuit breaking, traffic shifting, and observability — all configured centrally through Istio's control plane."
+    },
+    {
+      "system": "Linkerd",
+      "how": "Linkerd uses its own Rust-based proxy (linkerd2-proxy) as the sidecar, optimized for low resource usage. Same pattern as Istio but with a different data plane."
+    },
+    {
+      "system": "HashiCorp Vault Agent sidecar",
+      "how": "Vault Agent runs as a sidecar that authenticates to Vault, fetches secrets, writes them to a shared volume the app reads, and automatically refreshes them on TTL — decoupling secret distribution from app code."
+    }
+  ],
+  "status": "published",
+  "sources": [
+    {
+      "title": "System Design Primer",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Open source"
+    },
+    {
+      "title": "ByteByteGo — Scale from zero to millions",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "ByteByteGo"
+    },
+    {
+      "title": "System Design Tutorial",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "GeeksforGeeks"
+    },
+    {
+      "title": "System Design Roadmap",
+      "url": "https://roadmap.sh/system-design",
+      "publisher": "roadmap.sh"
+    },
+    {
+      "title": "Design Patterns reference",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Design Patterns reference",
+      "url": "https://learn.microsoft.com/en-us/azure/architecture/patterns/",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Design Patterns reference",
+      "url": "https://martinfowler.com/",
+      "publisher": "Reference"
+    }
+  ]
+}

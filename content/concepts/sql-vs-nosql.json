@@ -1,0 +1,524 @@
+{
+  "slug": "sql-vs-nosql",
+  "version": 4,
+  "title": "SQL vs NoSQL",
+  "phase": "databases-data-systems",
+  "area": "Databases & Data Systems",
+  "estimated_minutes": 7,
+  "difficulty": "core",
+  "summary": "SQL databases (PostgreSQL, MySQL) store data in tables with strict schemas and support ACID transactions. NoSQL databases (Cassandra, MongoDB, DynamoDB) trade strict consistency for scalability, flexibility, or performance. The choice depends on your data shape, consistency requirements, and scale.",
+  "why_it_matters": "Choosing the wrong database is one of the most expensive mistakes in system design. Migrating from SQL to NoSQL (or vice versa) after launch is painful and risky. Understanding when to use each — and when to use both — is a core skill.",
+  "prerequisites": [
+    "what-is-system-design"
+  ],
+  "related": [
+    "key-value-stores",
+    "document-stores",
+    "replication",
+    "sharding"
+  ],
+  "used_in": [
+    "Almost every production system uses at least one of these."
+  ],
+  "blocks": [
+    {
+      "type": "prose",
+      "id": "intro",
+      "payload": {
+        "text": "The SQL vs NoSQL choice is not about which is 'better' — it's about which trade-offs fit your problem. SQL databases excel at structured data, complex queries, and ACID transactions. NoSQL databases excel at scale, flexible schemas, and specific access patterns.\n\nThe key insight: **NoSQL is not one thing**. It's an umbrella for several different database models — key-value, document, wide-column, graph — each with different trade-offs."
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "sql-vs-nosql",
+      "payload": {
+        "code": "flowchart TD\n    N0[\"relational\"]\n    N1[\"SQL\"]\n    N2[\"(relational)\"]\n    N3[\"users\"]\n    N4[\"orders\"]\n    N5[\"items\"]\n    N6[\"PK\"]\n    N7[\"(PK)\"]\n    N8[\"user_id\"]\n    N9[\"name\"]\n    N10[\"order_id\"]\n    N11[\"email\"]\n    N12[\"total\"]\n    N13[\"Strict\"]\n    N14[\"schema.\"]\n    N15[\"JOIN\"]\n    N16[\"across\"]\n    N17[\"tables.\"]\n    N18[\"ACID\"]\n    N19[\"transactions.\"]\n    N20[\"Vertical\"]\n    N21[\"scale.\"]\n    N22[\"document store example\"]\n    N23[\"NoSQL\"]\n    N24[\"(document\"]\n    N25[\"store\"]\n    N26[\"example)\"]\n    N27[\"document\"]\n    N28[\"(document)\"]\n    N29[\"_id:\"]\n    N30[\"'order_42',\"]\n    N31[\"user:\"]\n    N32[\"id:\"]\n    N33[\"name:\"]\n    N34[\"'Ada'\"]\n    N35[\"items:\"]\n    N36[\"name:'Book',qty:1\"]\n    N37[\"{name:'Book',qty:1},\"]\n    N38[\"name:'Pen', qty:2\"]\n    N39[\"{name:'Pen',\"]\n    N40[\"qty:2}\"]\n    N41[\"total:\"]\n    N42[\"Flexible\"]\n    N43[\"JOINs.\"]\n    N44[\"Eventually\"]\n    N45[\"consistent.\"]\n    N46[\"Horizontal\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44\n    N44 --> N45\n    N45 --> N46",
+        "caption": "SQL normalizes data across tables. NoSQL denormalizes into self-contained documents.",
+        "alt_text": "Two diagrams. In SQL, data is normalized across multiple tables — users, orders, items — with primary and foreign keys linking them. JOINs combine data across tables. The schema is strict, transactions are ACID, and scaling is typically vertical. In NoSQL (document store), a single order document contains the user info and items nested inside — a self-contained unit. The schema is flexible, there are no JOINs, consistency is eventual, and scaling is horizontal."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "sql-strengths",
+      "payload": {
+        "text": "**SQL strengths:**\n- **ACID transactions**: multi-operation, all-or-nothing. Critical for payments, inventory, bookings.\n- **Structured schema**: columns and types are enforced. Prevents bad data.\n- **JOINs**: query across related tables efficiently.\n- **Mature ecosystem**: ORMs, tooling, decades of optimization.\n- **Consistency**: strong (linearizable) by default.\n\n**SQL weaknesses:**\n- **Vertical scaling**: hard to shard across machines.\n- **Schema changes**: migrations are painful at scale.\n- **Impedance mismatch**: relational model doesn't map cleanly to objects."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "nosql-types",
+      "payload": {
+        "text": "**NoSQL types:**\n\n- **Key-value** (Redis, DynamoDB): simplest. Key → value. Extremely fast. No query complexity.\n- **Document** (MongoDB, CouchDB): key → document (JSON). Flexible schema. Good for content, profiles, catalogs.\n- **Wide-column** (Cassandra, HBase): rows with dynamic columns. Good for time-series, high-write throughput.\n- **Graph** (Neo4j): nodes and edges. Good for social networks, recommendation engines, fraud detection.\n\nEach is optimized for a specific access pattern. Choosing the right NoSQL type requires knowing your query patterns."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "choose",
+      "payload": {
+        "title": "How to choose",
+        "body": "1. Need ACID transactions (payments, inventory)? → SQL (PostgreSQL).\n2. Need massive write throughput (time-series, logs)? → Wide-column (Cassandra).\n3. Need flexible schema (content, user profiles)? → Document (MongoDB).\n4. Need sub-millisecond reads (cache, counters)? → Key-value (Redis).\n5. Need complex relationships (social graph, recommendations)? → Graph (Neo4j).\n6. Not sure? Start with PostgreSQL. You can migrate later if needed.",
+        "kind": "success"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q1",
+      "payload": {
+        "question": "You're building a payment system that handles credit card charges. Which database should you use?",
+        "shape": "mcq",
+        "options": [
+          "MongoDB — flexible schema is nice.",
+          "Cassandra — high write throughput.",
+          "PostgreSQL — ACID transactions ensure no double charges.",
+          "Redis — fastest for payment lookups."
+        ],
+        "answer_index": 2,
+        "rationale": "Payment systems require ACID transactions: a charge must be all-or-nothing (either the money moves and the record is saved, or neither happens). PostgreSQL (and other SQL databases) guarantee this. NoSQL databases typically sacrifice ACID for availability or scalability — which is fine for social feeds but unacceptable for payments. If the charge and the record don't commit atomically, you get lost charges or double charges. Use PostgreSQL (or another ACID SQL DB) for payments.",
+        "difficulty": "core"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q2",
+      "payload": {
+        "question": "You're building a system that logs 1 billion events per day (time-series data). Which database is best suited?",
+        "shape": "mcq",
+        "options": [
+          "PostgreSQL — it can handle anything.",
+          "Cassandra — optimized for high-write time-series data.",
+          "MongoDB — documents are flexible.",
+          "Neo4j — graph databases handle everything."
+        ],
+        "answer_index": 1,
+        "rationale": "Cassandra is a wide-column NoSQL database optimized for exactly this use case: massive write throughput (millions of writes per second) with time-series data. It trades strong consistency for availability and partition tolerance (AP in CAP). PostgreSQL would struggle with 1B writes/day without heavy sharding. MongoDB is better for flexible-schema documents. Neo4j is for graph relationships. For pure write-heavy time-series, Cassandra (or similar wide-column stores like ScyllaDB, HBase) is the right choice.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "table",
+      "id": "sql-nosql-table-b2",
+      "payload": {
+        "headers": [
+          "Dimension",
+          "SQL (PostgreSQL, MySQL)",
+          "NoSQL (Cassandra, MongoDB, DynamoDB, Redis)"
+        ],
+        "rows": [
+          [
+            "Data model",
+            "Tables, rows, columns, foreign keys",
+            "Key-value, document, wide-column, graph — varies by type"
+          ],
+          [
+            "Schema",
+            "Strict, enforced by DB; migrations are expensive",
+            "Flexible / schema-on-read; schema enforced by app"
+          ],
+          [
+            "Joins",
+            "Native, optimized, ACID across joined tables",
+            "Limited or none; denormalize to avoid"
+          ],
+          [
+            "Transactions",
+            "ACID (atomic, consistent, isolated, durable)",
+            "Often BASE (basically available, soft state, eventual consistency); some support per-partition ACID"
+          ],
+          [
+            "Consistency",
+            "Strong (linearizable) by default",
+            "Tunable / eventual by default; some offer strong on single partition"
+          ],
+          [
+            "Scaling model",
+            "Vertical primary + read replicas; horizontal via sharding is hard",
+            "Built for horizontal sharding; add nodes and rebalance"
+          ],
+          [
+            "Query language",
+            "SQL (declarative, standard)",
+            "DB-specific (CQL, MongoDB Query Language, Redis commands)"
+          ],
+          [
+            "Best at",
+            "Complex queries, multi-row transactions, financial data, structured data",
+            "Massive write throughput, flexible schema, single-key lookups, global distribution"
+          ],
+          [
+            "Worst at",
+            "Horizontal scaling beyond a few shards, schema churn, very high write QPS",
+            "Multi-entity transactions, JOINs, ad-hoc analytics, referential integrity"
+          ],
+          [
+            "Maturity",
+            "40+ years, huge ecosystem, well-understood failure modes",
+            "15-ish years, smaller ecosystems, more surprises at scale"
+          ],
+          [
+            "Default choice",
+            "PostgreSQL — until you outgrow it",
+            "Only when SQL doesn't fit the access pattern"
+          ]
+        ],
+        "caption": "SQL vs NoSQL across the dimensions that actually drive the choice in production."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "acid-base-b2",
+      "payload": {
+        "title": "ACID vs BASE — the philosophical divide",
+        "body": "**ACID** (SQL's promise): Atomic — all-or-nothing transactions. Consistent — DB enforces invariants (foreign keys, constraints). Isolated — concurrent transactions don't see each other's partial writes. Durable — committed writes survive crashes. ACID trades latency and availability for correctness. Use when a half-completed transaction is worse than a failed one (payments, bookings, inventory).\n\n**BASE** (NoSQL's promise): Basically Available — system remains responsive under failure. Soft State — application reconciles state over time. Eventually Consistent — replicas converge given enough time. BASE trades correctness for availability and partition tolerance. Use when stale data is acceptable (social feeds, dashboards, logs).\n\nThe two are not 'right vs wrong' — they're different points on the CAP trade-off curve. Most real systems use both: SQL for transactional core (payments, users, inventory) and NoSQL for the read-heavy / write-heavy periphery (feeds, analytics, cache).",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "video",
+      "id": "upgrade-video-sql-vs-nosql",
+      "payload": {
+        "provider": "youtube",
+        "video_id": "Z6QEDisuGoU",
+        "title": "System design foundations and networking context",
+        "description": "Supplementary explanation. The NO CAP lesson remains self-contained.",
+        "source_url": "https://www.youtube.com/watch?v=Z6QEDisuGoU"
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "decision-flowchart-b2",
+      "payload": {
+        "code": "flowchart TD\n    Start[Need to store data] --> Q1{Need multi-row<br/>ACID transactions?}\n    Q1 -->|Yes — payments, bookings, inventory| SQL[PostgreSQL<br/>ACID + JOINs + constraints]\n    Q1 -->|No| Q2{Need massive write<br/>throughput or time-series?}\n    Q2 -->|Yes — logs, events, metrics| WC[Cassandra / ScyllaDB<br/>wide-column, AP, tunable consistency]\n    Q2 -->|No| Q3{Need sub-ms reads<br/>on simple keys?}\n    Q3 -->|Yes — cache, counters, rate limits| KV[Redis / DynamoDB<br/>key-value, in-memory or single-digit ms]\n    Q3 -->|No| Q4{Need flexible schema<br/>or nested documents?}\n    Q4 -->|Yes — content, profiles, catalogs| DOC[MongoDB / Couchbase<br/>document store, JSON-native]\n    Q4 -->|No| Q5{Need graph traversal<br/>or relationship queries?}\n    Q5 -->|Yes — social, recommendations, fraud| GRAPH[Neo4j / Dgraph<br/>graph DB, edge-native]\n    Q5 -->|No| DEFAULT[PostgreSQL<br/>with jsonb for flexibility<br/>start simple, migrate if needed]\n\n    classDef sql fill:#1e3a5f,stroke:#3b82f6,color:#e0e7ff\n    classDef nosql fill:#3a2e1e,stroke:#f59e0b,color:#fef3c7\n    classDef default fill:#1e3a1e,stroke:#22c55e,color:#dcfce7\n    class SQL,DEFAULT sql\n    class WC,KV,DOC,GRAPH nosql",
+        "caption": "When to use which database — a decision flowchart by workload characteristics.",
+        "alt_text": "A decision flowchart. Start: need to store data. If multi-row ACID transactions needed (payments, bookings, inventory) → PostgreSQL. Otherwise, if massive write throughput or time-series needed (logs, events, metrics) → Cassandra/ScyllaDB wide-column. Otherwise, if sub-millisecond reads on simple keys needed (cache, counters, rate limits) → Redis/DynamoDB key-value. Otherwise, if flexible schema or nested documents needed (content, profiles, catalogs) → MongoDB/Couchbase document. Otherwise, if graph traversal needed (social, recommendations, fraud) → Neo4j/Dgraph graph. Otherwise, default → PostgreSQL with jsonb for flexibility (start simple, migrate if needed)."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "uber-polyglot-b2",
+      "payload": {
+        "text": "**Real example: Uber's polyglot persistence.**\n\nUber's stack uses different databases for different access patterns (documented across years of engineering blog posts):\n\n- **Schemaless on MySQL** for trips, users, drivers — sharded by UUID, high-write-throughput, eventually consistent across regions. Custom store they built because no off-the-shelf DB fit their write profile + global consistency needs.\n- **PostgreSQL** for billing and financial data — ACID transactions, foreign keys, auditable. Worth the cost of a stricter scaling story because the cost of a double-charge or lost-charge is so high.\n- **Cassandra** for location tracking (driver positions updated every few seconds per driver; hundreds of thousands of writes/sec; reads are 'where are drivers near this rider'). Massive write throughput, time-series friendly.\n- **Redis** for caching (hot trip state, rate-limit counters, session data). Sub-millisecond reads, in-memory, accepts data loss on crash for the cache use case.\n- **Elasticsearch** for full-text search (rider destination autocomplete, driver destination search). Inverted-index optimized for relevance-ranked text queries.\n- **Kafka** for event streaming (every trip event flows through Kafka; downstream consumers derive analytics, billing, fraud signals).\n\nWhy so many? Because each access pattern has a different optimal storage primitive. Trying to do all of this in one database means either (a) the financial data loses ACID guarantees (dangerous) or (b) the location tracking can't keep up with writes (system failure). Polyglot persistence — using different databases for different access patterns — is the standard pattern at scale. The cost: more infrastructure to operate, more schemas to keep in sync, more failure modes to understand. The rule of thumb: don't introduce a new database until the cost of operating it is less than the cost of forcing your existing DB to do something it's bad at."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q-polyglot-b2",
+      "payload": {
+        "question": "You're designing the data layer for a ride-sharing app. Which of these database assignments is the strongest argument for polyglot persistence?",
+        "shape": "mcq",
+        "options": [
+          "Use PostgreSQL for everything — it has jsonb, geospatial extensions (PostGIS), and can scale with read replicas.",
+          "PostgreSQL for billing (ACID), Schemaless/MySQL for trips (sharded writes), Cassandra for driver location (massive write throughput), Redis for hot-cache, Elasticsearch for destination search.",
+          "Use MongoDB for everything — flexible schema handles any data shape.",
+          "Use DynamoDB for everything — managed by AWS, scales horizontally, no operational overhead."
+        ],
+        "answer_index": 1,
+        "rationale": "Polyglot persistence means matching each access pattern to the database optimized for it. A ride-sharing app has fundamentally different workloads: (a) billing needs ACID transactions and referential integrity — PostgreSQL. (b) trips need sharded high-write throughput with eventual consistency across regions — a sharded store like Schemaless or Vitess on MySQL. (c) driver location updates every few seconds per driver, hundreds of thousands of writes/sec — Cassandra. (d) hot cache for in-progress trip lookups — Redis. (e) destination autocomplete with fuzzy matching and relevance — Elasticsearch. Trying to force any single database to do all five well is the most expensive mistake in the design — PostgreSQL can't keep up with location writes; MongoDB lacks ACID for billing (and its multi-document transaction story is weak); DynamoDB doesn't have full-text search natively. Option 1 (PostgreSQL for everything) sounds clean but ignores that PostgreSQL's single-primary write ceiling is ~tens of thousands of writes/sec — orders of magnitude below Uber's location-write volume. Option 3 (MongoDB everywhere) makes the same mistake with a different database. Option 4 (DynamoDB everywhere) ignores that DynamoDB has no JOINs, no full-text search, and is single-region by default (multi-region requires global tables with last-write-wins conflict resolution — bad for billing). The lesson: every database is a specialist. Build polyglot only when you can articulate, per workload, why the existing DB can't do it well enough.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "postgres-jsonb-bridge-b2",
+      "payload": {
+        "text": "**PostgreSQL jsonb — the bridge that often eliminates the need for NoSQL.**\n\nA common architectural mistake is choosing MongoDB for 'flexible schema' when PostgreSQL has had jsonb (binary JSON) since 9.4 (2015). jsonb stores arbitrary JSON in a binary format, supports indexing via GIN indexes, and lets you query nested fields with SQL operators. The result: many workloads that 'need NoSQL' actually just need flexible schema in a single table — and PostgreSQL can do that without giving up ACID, JOINs, or transactions.\n\nExample schema that bridges the gap:\n```\nCREATE TABLE events (\n  id          BIGSERIAL PRIMARY KEY,\n  user_id     BIGINT NOT NULL,\n  event_type  TEXT   NOT NULL,\n  payload     JSONB  NOT NULL,  -- flexible per-type schema\n  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()\n);\n-- Index the JSON for fast lookups\nCREATE INDEX idx_events_payload ON events USING GIN (payload jsonb_path_ops);\n-- Index user_id + created_at for time-range queries\nCREATE INDEX idx_events_user_time ON events (user_id, created_at DESC);\n```\n\nNow you can query with both structured (SQL) and document (JSON) operations:\n```\n-- Find login events for user 42 in the last hour with browser=Chrome\nSELECT * FROM events\n  WHERE user_id = 42\n    AND event_type = 'login'\n    AND created_at > NOW() - INTERVAL '1 hour'\n    AND payload->>'browser' = 'Chrome';\n```\n\nWhen does this NOT suffice, and you really do need NoSQL?\n- **Write throughput beyond ~50K writes/sec** on a single primary — Cassandra or DynamoDB scale horizontally where PostgreSQL can't.\n- **NoSQL-style horizontal sharding is core** — Cassandra, DynamoDB, and MongoDB shard transparently; PostgreSQL sharding (Citus) is good but adds operational complexity.\n- **Schema is truly schemaless and evolves per record** — e.g., user-generated forms. Document stores handle this natively; SQL requires the jsonb escape hatch.\n\nThe decision rule: reach for PostgreSQL + jsonb first. Switch to a document store only when you've proven the jsonb path can't meet your write throughput or scaling needs. The cost of being wrong in this direction is small (a migration); the cost of starting with NoSQL and realizing you needed ACID is much larger."
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-sql-vs-nosql-mental",
+      "payload": {
+        "text": "Engineering mental model",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-sql-vs-nosql-mental",
+      "payload": {
+        "text": "**Mental model.** Think of SQL vs NoSQL as a deliberate boundary in a system. The boundary exists because something becomes harder to manage when everything is done in one place: latency, scale, failure isolation, consistency, cost, or team ownership. The useful question is not “what does SQL vs NoSQL mean?” but “what pressure makes this boundary worth introducing, and what new failure mode does it create?”"
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-sql-vs-nosql-decision",
+      "payload": {
+        "title": "Design lens",
+        "body": "Before choosing SQL vs NoSQL, name the workload, the critical user path, the dominant bottleneck, the failure you are trying to absorb, and the trade-off you are willing to accept. If you cannot name those five things, the design is probably premature.",
+        "kind": "info"
+      }
+    },
+    {
+      "type": "image",
+      "id": "upgrade-image-sql-vs-nosql",
+      "payload": {
+        "src": "/learning-visuals/sql-vs-nosql.svg",
+        "alt": "Original NO CAP systems visual for SQL vs NoSQL.",
+        "caption": "SQL vs NoSQL: a compact system-thinking visual.",
+        "credit": "Original NO CAP visual.",
+        "source_url": "https://github.com/donnemartin/system-design-primer"
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "upgrade-mermaid-sql-vs-nosql",
+      "payload": {
+        "code": "flowchart LR\n  A[Client] --> B[Service] --> C[Data layer] --> D[Replication] --> E[Durability]",
+        "caption": "SQL vs NoSQL: a simplified system view showing the primary flow and the main state boundaries.",
+        "alt_text": "SQL vs NoSQL: a simplified system view showing the primary flow and the main state boundaries."
+      }
+    },
+    {
+      "type": "code",
+      "id": "upgrade-code-sql-vs-nosql",
+      "payload": {
+        "language": "sql",
+        "code": "SELECT id, created_at\nFROM records\nWHERE tenant_id = ?\nORDER BY created_at DESC\nLIMIT 50;\n\n-- Ask: which index makes this query predictable at scale?",
+        "caption": "A minimal engineering sketch for reasoning about SQL vs NoSQL."
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-sql-vs-nosql-numbers",
+      "payload": {
+        "text": "Back-of-the-envelope reasoning",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-sql-vs-nosql-numbers",
+      "payload": {
+        "text": "Numerical lens: write down traffic, payload size, read/write ratio, peak multiplier and durability target before choosing a component. The numbers should justify the architecture."
+      }
+    },
+    {
+      "type": "simulation",
+      "id": "upgrade-sim-sql-vs-nosql",
+      "payload": {
+        "title": "Interactive thought experiment: SQL vs NoSQL",
+        "description": "Change the variables below and predict what breaks first in SQL vs NoSQL. The production lab can later reuse these same inputs.",
+        "variables": [
+          {
+            "name": "traffic",
+            "description": "Requests/events per second",
+            "default": "1000"
+          },
+          {
+            "name": "latency",
+            "description": "Dependency latency",
+            "default": "50ms"
+          },
+          {
+            "name": "failure_rate",
+            "description": "Injected failure rate",
+            "default": "0%"
+          }
+        ],
+        "placeholder_note": "Interactive controls are deterministic; use the linked Labs section when a dedicated lab exists."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-sql-vs-nosql-hint",
+      "payload": {
+        "title": "Hint",
+        "body": "If you are stuck on SQL vs NoSQL, start by drawing the request path and marking every network hop, stateful component, queue, cache and failure boundary. Then estimate where the system will saturate.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-sql-vs-nosql-1",
+      "payload": {
+        "shape": "prediction",
+        "question": "You increase traffic by 10× in a system using SQL vs NoSQL. What should you inspect first?",
+        "options": [
+          "The newest framework version",
+          "The dominant bottleneck and its saturation signal",
+          "Only the UI",
+          "Nothing; the architecture should absorb any traffic automatically"
+        ],
+        "answer_index": 1,
+        "rationale": "System design is a constraint-and-bottleneck exercise. Start with the resource or dependency that will saturate first, then choose the smallest change that removes that bottleneck.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-sql-vs-nosql-2",
+      "payload": {
+        "shape": "mcq",
+        "question": "Which statement is the safest engineering habit when using SQL vs NoSQL?",
+        "options": [
+          "Choose it because it is popular",
+          "Add it before measuring the problem",
+          "State the workload, failure mode and trade-off it is solving",
+          "Use the most distributed design possible"
+        ],
+        "answer_index": 2,
+        "rationale": "Good architecture starts from requirements, workload and failure assumptions. The component is the consequence of that reasoning, not the starting point.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "scenario",
+      "id": "upgrade-scenario-sql-vs-nosql",
+      "payload": {
+        "prompt": "Production scenario: your system uses SQL vs NoSQL, traffic suddenly spikes, and p99 latency doubles. What is your first move?",
+        "context": "You have dashboards for traffic, latency, errors and saturation. You can change the architecture, but every change has operational cost.",
+        "options": [
+          {
+            "id": "a",
+            "text": "Add more instances immediately",
+            "outcome": "This may help, but only if compute saturation is the bottleneck.",
+            "correct": false
+          },
+          {
+            "id": "b",
+            "text": "Inspect the bottleneck and its saturation signal first",
+            "outcome": "Correct: diagnose before scaling or introducing a new pattern.",
+            "correct": true
+          },
+          {
+            "id": "c",
+            "text": "Disable monitoring to reduce overhead",
+            "outcome": "This removes the evidence you need to diagnose the incident.",
+            "correct": false
+          }
+        ],
+        "rationale": "Measure the limiting resource or dependency first. A bottleneck can be compute, database I/O, network, cache misses, lock contention, downstream latency, or queue backlog.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-sql-vs-nosql-interview",
+      "payload": {
+        "text": "Interview drill",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-sql-vs-nosql-interview",
+      "payload": {
+        "text": "**Answer this without notes:** When would you choose SQL vs NoSQL, and when would you intentionally avoid it? Mention at least one bottleneck it addresses, one failure mode it introduces, and one alternative. Then quantify the workload you are designing for."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "field-guide-sql-vs-nosql",
+      "payload": {
+        "title": "Engineering lens",
+        "body": "For SQL vs NoSQL, start with access patterns rather than brand names. Identify the dominant reads/writes, data relationships, consistency requirements, partition key, hot keys and failure behavior before choosing a storage strategy.",
+        "kind": "tip"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "numerical-lens-sql-vs-nosql",
+      "payload": {
+        "text": "### Numerical sanity check\n\nA rough capacity check: required write throughput ≈ peak writes/s × average record size. At 5,000 writes/s and 2 KB average payloads, the raw incoming data stream is about 10 MB/s before indexes, replication and overhead."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "field-question-sql-vs-nosql",
+      "payload": {
+        "shape": "prediction",
+        "question": "A team proposes SQL vs NoSQL because it 'scales'. What workload characteristic would make that choice a poor fit?",
+        "context": "Do not optimize for a memorized definition. Reason from the workload and failure mode.",
+        "options": [
+          "Scale the same component immediately.",
+          "Measure the current bottleneck and state the assumption that changed.",
+          "Add more technologies until throughput improves.",
+          "Choose the most popular architecture."
+        ],
+        "answer_index": 1,
+        "rationale": "Good system design starts with the bottleneck and the changed constraint. The most popular or complex choice is not automatically correct.",
+        "difficulty": "interview"
+      }
+    }
+  ],
+  "trade_offs": {
+    "pros": [
+      "SQL: ACID, JOINs, mature ecosystem, strong consistency.",
+      "NoSQL: horizontal scalability, flexible schema, high throughput for specific patterns.",
+      "NoSQL: each type is optimized for a specific use case (KV=speed, document=flexibility, wide-column=throughput, graph=relationships)."
+    ],
+    "cons": [
+      "SQL: hard to shard, schema migrations are painful, vertical scaling ceiling.",
+      "NoSQL: eventual consistency (usually), no JOINs (must denormalize), less mature tooling.",
+      "NoSQL: each type is a specialist — wrong choice = bad performance."
+    ]
+  },
+  "failure_modes": [
+    "Using NoSQL for transactional data — loses ACID guarantees.",
+    "Using SQL for massive write throughput — can't scale writes without sharding.",
+    "Choosing a NoSQL type without understanding query patterns — e.g., using MongoDB for graph queries.",
+    "Polyglot persistence without clear boundaries — too many databases to maintain."
+  ],
+  "common_mistakes": [
+    "Treating 'NoSQL' as one thing — it's 4 different models with different trade-offs.",
+    "Choosing NoSQL for 'scalability' without understanding your consistency needs.",
+    "Using SQL when your data is naturally a graph — SQL JOINs for graph queries are slow.",
+    "Forgetting that PostgreSQL can handle JSON (jsonb) — you might not need MongoDB."
+  ],
+  "where_you_see_it": [
+    "Almost every production system uses at least one SQL or NoSQL database.",
+    "Large systems use both: SQL for transactional data, NoSQL for specific access patterns."
+  ],
+  "interview_prompts": [
+    "When would you choose SQL over NoSQL?",
+    "What are the different types of NoSQL databases?",
+    "Can you use both SQL and NoSQL in the same system? When?"
+  ],
+  "real_system_mappings": [
+    {
+      "system": "Uber",
+      "how": "Uses Schemaless (built on MySQL) for most data, Redis for caching, and Cassandra for location tracking. Polyglot persistence."
+    },
+    {
+      "system": "Netflix",
+      "how": "Uses Cassandra for viewing history (massive writes), EVCache (Redis) for caching, and MySQL for billing (ACID required)."
+    }
+  ],
+  "status": "published",
+  "sources": [
+    {
+      "title": "System Design Primer",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Open source"
+    },
+    {
+      "title": "ByteByteGo — Scale from zero to millions",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "ByteByteGo"
+    },
+    {
+      "title": "System Design Tutorial",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "GeeksforGeeks"
+    },
+    {
+      "title": "System Design Roadmap",
+      "url": "https://roadmap.sh/system-design",
+      "publisher": "roadmap.sh"
+    },
+    {
+      "title": "Databases & Data Systems reference",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Databases & Data Systems reference",
+      "url": "https://www.postgresql.org/docs/",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Databases & Data Systems reference",
+      "url": "https://aws.amazon.com/what-is/database/",
+      "publisher": "Reference"
+    }
+  ]
+}

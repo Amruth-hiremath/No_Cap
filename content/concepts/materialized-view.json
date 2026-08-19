@@ -1,0 +1,415 @@
+{
+  "slug": "materialized-view",
+  "version": 3,
+  "title": "Materialized View",
+  "phase": "cloud-architecture",
+  "area": "Cloud Architecture",
+  "estimated_minutes": 7,
+  "difficulty": "advanced",
+  "summary": "A materialized view is a pre-computed, stored result of a query, refreshed periodically or on change. Unlike a regular SQL view (which is just a saved query re-executed on read), a materialized view holds actual data — so reads are fast (a single table scan or key lookup instead of a complex join) but writes bear the cost of keeping the view up to date. The pattern trades write cost and staleness for read speed and simplicity, and is the workhorse pattern behind every dashboard, every search index, and every read-optimized projection in a CQRS system.",
+  "why_it_matters": "Most real-world systems have asymmetric read/write ratios — often 100:1 or more. Running the same expensive join on every read wastes compute, slows user-facing queries, and limits scale. A materialized view computes the answer once and serves it from a fast store (the database itself, Redis, Elasticsearch), refreshing in the background. The result: p99 query latency drops from seconds to milliseconds, the database stops being the bottleneck, and the read tier scales independently. Every analytics dashboard, every search system, and every CQRS read model is a materialized view by another name.",
+  "prerequisites": [
+    "denormalization",
+    "cqrs"
+  ],
+  "related": [
+    "cqrs",
+    "event-sourcing",
+    "index-table"
+  ],
+  "used_in": [
+    "Analytics dashboards (BI tools) — pre-aggregated metrics in a star schema.",
+    "Search systems — Elasticsearch indexes are materialized views of source data.",
+    "CQRS read models — projections of write-side events.",
+    "Caching layers — Redis caches as materialized views of database rows."
+  ],
+  "blocks": [
+    {
+      "type": "prose",
+      "id": "intro",
+      "payload": {
+        "text": "A regular SQL view is a saved query — every time you read it, the database re-runs the query. A materialized view persists the query's result as actual rows in a table, so reads are fast (no re-computation). The trade-off: the view must be refreshed when underlying data changes.\n\nThree refresh strategies:\n\n**1. On-demand (manual)** — refresh when you say so. Used for nightly batch refreshes: at 2 AM, drop and rebuild the view from current data. Reads during the day are fast and consistent with the 2 AM snapshot. Stale, but predictably stale. Common for daily reports.\n\n**2. Scheduled (periodic)** — refresh every N minutes/hours. Trade staleness for freshness. The view is at most N minutes behind. Used for near-real-time dashboards.\n\n**3. Incremental / event-driven** — refresh on every write, or on every event. Most fresh, most expensive. Two flavors:\n- **Synchronous**: the write transaction also updates the view. Strongly consistent, but slower writes and harder to recover from failure.\n- **Asynchronous**: the write emits an event; a consumer updates the view. Eventually consistent, but decouples write and view latencies.\n\nThe right strategy depends on the query's tolerance for staleness and the write volume. A nightly sales report can tolerate 24-hour staleness; a leaderboard during a live game needs near-real-time.\n\nMaterialized views can live in:\n- **The same database** — native materialized views in PostgreSQL, Oracle; refreshed via `REFRESH MATERIALIZED VIEW`.\n- **A different store** — Elasticsearch index as a view of Postgres data; Redis cache as a view of a row; a denormalized table in a data warehouse as a view of operational data.\n- **Multiple stores** — one source, many views, each optimized for its read pattern (search, analytics, caching)."
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "topology",
+      "payload": {
+        "code": "flowchart TD\n    N0[\"Source\"]\n    N1[\"Truth\"]\n    N2[\"write\"]\n    N3[\"model:\"]\n    N4[\"normalized,\"]\n    N5[\"transactional\"]\n    N6[\"Postgres\"]\n    N7[\"(Postgres)\"]\n    N8[\"orders,\"]\n    N9[\"customers,\"]\n    N10[\"products\"]\n    N11[\"events / CDC / batch refresh\"]\n    N12[\"changes\"]\n    N13[\"(events\"]\n    N14[\"CDC\"]\n    N15[\"batch\"]\n    N16[\"refresh)\"]\n    N17[\"Materialized\"]\n    N18[\"Views\"]\n    N19[\"orders_by_user\"]\n    N20[\"daily_revenue\"]\n    N21[\"search_index\"]\n    N22[\"(denormalized\"]\n    N23[\"(aggregated,\"]\n    N24[\"(Elasticsearch,\"]\n    N25[\"per\"]\n    N26[\"user\"]\n    N27[\"rows)\"]\n    N28[\"one\"]\n    N29[\"row\"]\n    N30[\"day)\"]\n    N31[\"full\"]\n    N32[\"text)\"]\n    N33[\"reads\"]\n    N34[\"fast\"]\n    N35[\"1 row\"]\n    N36[\"text\"]\n    N37[\"row)\"]\n    N38[\"(text)\"]\n    N39[\"refresh\"]\n    N40[\"lag\"]\n    N41[\"Trade\"]\n    N42[\"off:\"]\n    N43[\"each\"]\n    N44[\"view\"]\n    N45[\"adds\"]\n    N46[\"cost\"]\n    N47[\"(refresh)\"]\n    N48[\"and\"]\n    N49[\"staleness\"]\n    N50[\"(lag).\"]\n    N51[\"Choose\"]\n    N52[\"views\"]\n    N53[\"that\"]\n    N54[\"match\"]\n    N55[\"actual\"]\n    N56[\"query\"]\n    N57[\"patterns;\"]\n    N58[\"delete\"]\n    N59[\"unused\"]\n    N60[\"ones.\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44\n    N44 --> N45\n    N45 --> N46\n    N46 --> N47\n    N47 --> N48\n    N48 --> N49\n    N49 --> N50\n    N50 --> N51\n    N51 --> N52\n    N52 --> N53\n    N53 --> N54\n    N54 --> N55\n    N55 --> N56\n    N56 --> N57\n    N57 --> N58\n    N58 --> N59\n    N59 --> N60",
+        "caption": "Multiple materialized views of one source, each optimized for a different query pattern. Writes bear the cost of keeping views fresh.",
+        "alt_text": "A diagram showing a source of truth (Postgres with orders, customers, products) at the top, normalized and transactional. Below it, three materialized views are built from changes via events, CDC, or batch refresh. View one is orders_by_user, denormalized per-user rows for fast single-row reads. View two is daily_revenue, aggregated to one row per day for fast report reads. View three is search_index, an Elasticsearch index for full-text reads. The trade-off noted below: each view adds write cost (refresh) and staleness (lag); choose views that match actual query patterns and delete unused ones."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "refresh-strategies",
+      "payload": {
+        "text": "Choosing a refresh strategy is the core decision. Trade-offs:\n\n**Full rebuild** — drop and recreate the view from scratch. Simple, correct, but expensive. Use when:\n- The view is small enough to rebuild in minutes.\n- Underlying data changes so much that incremental is barely cheaper.\n- The refresh runs nightly when traffic is low.\n\n**Incremental refresh** — only update the rows that changed. Much cheaper for large views with small change sets. Use when:\n- The view is large (millions of rows) but only a small fraction changes per refresh.\n- You can identify which rows changed (via updated_at timestamp, CDC, or event sourcing).\n- You can correctly handle deletes (often the hard part).\n\n**Event-driven / streaming** — every write emits an event; a consumer updates the view. Lowest staleness, highest write amplification. Use when:\n- Near-real-time freshness is required (seconds, not minutes).\n- The view is a projection of an event-sourced system.\n- You're already operating a streaming pipeline (Kafka, Flink).\n\n**Synchronous update in the write transaction** — the write transaction also updates the view. Strongly consistent reads, slower writes, harder recovery. Use when:\n- Reads must be strongly consistent (no staleness acceptable).\n- Write volume is low enough that the extra cost is negligible.\n- The view fits in the same database (so the update is in the same transaction).\n\nA subtle but important point: materialized views have schemas, and schemas evolve. When the view's definition changes, you may need to rebuild it from scratch — which can take hours for large views. Plan for this: version the view, rebuild in the background, switch over atomically."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "vs-cache",
+      "payload": {
+        "title": "Materialized View vs Cache",
+        "body": "These are related but distinct. A cache stores the result of a query with no transformation — same shape, just faster. A materialized view stores a transformed, often aggregated, often denormalized version of the data, optimized for a specific query. A cache is invalidated on write (or expires on TTL); a materialized view is refreshed on a schedule or via events. Caches are usually per-row; materialized views are usually per-query or per-aggregate. Both trade freshness for read speed. In practice, the line blurs: a Redis cache of a denormalized user feed is both a cache (fast lookup) and a materialized view (transformed shape).",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "when",
+      "payload": {
+        "text": "When to use materialized views:\n\n- **Aggregations** — sum, count, average over many rows. Pre-compute once, read many times. Dashboards, reports, leaderboards.\n- **Denormalized reads** — joins that are expensive at read time but cheap when pre-computed. ‘Get user with all their orders’ as one row instead of a join.\n- **Different query patterns** — relational store for writes, search index for full-text, graph for relationships. Each is a view optimized for its query.\n- **Read-heavy workloads** — 100:1 read:write ratio justifies the write amplification.\n- **CQRS read models** — projections of the write model, each shaped for its query.\n\nWhen NOT to use materialized views:\n- **Simple CRUD with low read volume** — the overhead of refresh isn't worth it.\n- **Strongly consistent reads required** — materialized views are eventually consistent by nature.\n- **Low write volume AND low read volume** — just use the source directly.\n- **High write volume with low read volume** — the refresh cost dominates; don't materialize.\n- **When the view is rarely queried** — pay for refresh, never read. Delete it.\n\nA common anti-pattern: materializing every possible query. Each materialized view costs write amplification, storage, and operational complexity. Materialize the queries that actually matter — the slow ones, the hot ones, the ones on the critical path."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q1",
+      "payload": {
+        "question": "An analytics dashboard queries `SELECT SUM(revenue) FROM orders WHERE date = TODAY` on a table of 100M rows. Reads are slow. Which pattern is most appropriate?",
+        "shape": "mcq",
+        "options": [
+          "Add more CPU to the database server.",
+          "Create a materialized view `daily_revenue` with one row per day, refreshed nightly or incrementally. Reads become a single-row lookup.",
+          "Shard the orders table by date.",
+          "Rewrite the query in a faster SQL dialect."
+        ],
+        "answer_index": 1,
+        "rationale": "The query aggregates 100M rows on every read. The fix is to pre-compute the aggregate. A materialized view `daily_revenue` with one row per day, refreshed nightly (or incrementally on each order), turns the read into a single-row lookup — milliseconds instead of seconds. Adding CPU (a) doesn't change the algorithmic cost; the database still scans millions of rows per read. Sharding (c) helps write scalability but each shard still scans its rows for the aggregate. Rewriting the query (d) doesn't change the work — the database still has to sum 100M rows. Materialized views are the canonical pattern for this exact problem: pre-compute once, read fast many times. This is how every BI dashboard works under the hood.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q2",
+      "payload": {
+        "question": "You have a materialized view refreshed nightly at 2 AM. A user updates their data at 10 AM and then queries their dashboard. What will they see, and what are the options?",
+        "shape": "mcq",
+        "options": [
+          "They will see the updated data immediately, because materialized views are always fresh.",
+          "They will see data from the 2 AM refresh — their 10 AM update is not in the view until the next refresh. Options: refresh more often, use event-driven refresh, or route this read to the source of truth for read-your-writes.",
+          "They will see no data — the view is broken.",
+          "The view will refresh automatically when they query it."
+        ],
+        "answer_index": 1,
+        "rationale": "A nightly-refreshed materialized view is, by design, eventually consistent — it lags the source of truth by up to 24 hours. A 10 AM update is not in the view until the 2 AM refresh the next day. The user sees stale data. Options: (1) refresh more often (every 5 minutes) — reduces staleness at the cost of write amplification; (2) use event-driven refresh — every order event triggers an incremental view update, near-real-time; (3) for read-your-writes specifically, route the user's next read to the source of truth (not the view), or wait for the view to catch up. Option (a) is wrong — materialized views are not always fresh unless explicitly refreshed on every write. Option (c) is wrong — the view is functioning as designed. Option (d) is wrong — a materialized view does not auto-refresh on read; that would be a regular (non-materialized) view, defeating the purpose.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-materialized-view-mental",
+      "payload": {
+        "text": "Engineering mental model",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-materialized-view-mental",
+      "payload": {
+        "text": "**Mental model.** Think of Materialized View as a deliberate boundary in a system. The boundary exists because something becomes harder to manage when everything is done in one place: latency, scale, failure isolation, consistency, cost, or team ownership. The useful question is not “what does Materialized View mean?” but “what pressure makes this boundary worth introducing, and what new failure mode does it create?”"
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-materialized-view-decision",
+      "payload": {
+        "title": "Design lens",
+        "body": "Before choosing Materialized View, name the workload, the critical user path, the dominant bottleneck, the failure you are trying to absorb, and the trade-off you are willing to accept. If you cannot name those five things, the design is probably premature.",
+        "kind": "info"
+      }
+    },
+    {
+      "type": "image",
+      "id": "upgrade-image-materialized-view",
+      "payload": {
+        "src": "/learning-visuals/materialized-view.svg",
+        "alt": "Original NO CAP systems visual for Materialized View.",
+        "caption": "Materialized View: a compact system-thinking visual.",
+        "credit": "Original NO CAP visual.",
+        "source_url": "https://github.com/donnemartin/system-design-primer"
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "upgrade-mermaid-materialized-view",
+      "payload": {
+        "code": "flowchart LR\n  A[Client] --> B[Gateway] --> C[Service] --> D[State] --> E[Outcome]",
+        "caption": "Materialized View: a simplified system view showing the primary flow and the main state boundaries.",
+        "alt_text": "Materialized View: a simplified system view showing the primary flow and the main state boundaries."
+      }
+    },
+    {
+      "type": "code",
+      "id": "upgrade-code-materialized-view",
+      "payload": {
+        "language": "text",
+        "code": "// Pseudocode\nrequest = receive()\nresult = materialized_view(request)\nreturn result\n\n// Production questions:\n// 1. What happens on timeout?\n// 2. Can this operation be retried safely?\n// 3. What is the bottleneck?",
+        "caption": "A minimal engineering sketch for reasoning about Materialized View."
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-materialized-view-numbers",
+      "payload": {
+        "text": "Back-of-the-envelope reasoning",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-materialized-view-numbers",
+      "payload": {
+        "text": "Numerical lens: write down traffic, payload size, read/write ratio, peak multiplier and durability target before choosing a component. The numbers should justify the architecture."
+      }
+    },
+    {
+      "type": "simulation",
+      "id": "upgrade-sim-materialized-view",
+      "payload": {
+        "title": "Interactive thought experiment: Materialized View",
+        "description": "Change the variables below and predict what breaks first in Materialized View. The production lab can later reuse these same inputs.",
+        "variables": [
+          {
+            "name": "traffic",
+            "description": "Requests/events per second",
+            "default": "1000"
+          },
+          {
+            "name": "latency",
+            "description": "Dependency latency",
+            "default": "50ms"
+          },
+          {
+            "name": "failure_rate",
+            "description": "Injected failure rate",
+            "default": "0%"
+          }
+        ],
+        "placeholder_note": "Interactive controls are deterministic; use the linked Labs section when a dedicated lab exists."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-materialized-view-hint",
+      "payload": {
+        "title": "Hint",
+        "body": "If you are stuck on Materialized View, start by drawing the request path and marking every network hop, stateful component, queue, cache and failure boundary. Then estimate where the system will saturate.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-materialized-view-1",
+      "payload": {
+        "shape": "prediction",
+        "question": "You increase traffic by 10× in a system using Materialized View. What should you inspect first?",
+        "options": [
+          "The newest framework version",
+          "The dominant bottleneck and its saturation signal",
+          "Only the UI",
+          "Nothing; the architecture should absorb any traffic automatically"
+        ],
+        "answer_index": 1,
+        "rationale": "System design is a constraint-and-bottleneck exercise. Start with the resource or dependency that will saturate first, then choose the smallest change that removes that bottleneck.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-materialized-view-2",
+      "payload": {
+        "shape": "mcq",
+        "question": "Which statement is the safest engineering habit when using Materialized View?",
+        "options": [
+          "Choose it because it is popular",
+          "Add it before measuring the problem",
+          "State the workload, failure mode and trade-off it is solving",
+          "Use the most distributed design possible"
+        ],
+        "answer_index": 2,
+        "rationale": "Good architecture starts from requirements, workload and failure assumptions. The component is the consequence of that reasoning, not the starting point.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "scenario",
+      "id": "upgrade-scenario-materialized-view",
+      "payload": {
+        "prompt": "Production scenario: your system uses Materialized View, traffic suddenly spikes, and p99 latency doubles. What is your first move?",
+        "context": "You have dashboards for traffic, latency, errors and saturation. You can change the architecture, but every change has operational cost.",
+        "options": [
+          {
+            "id": "a",
+            "text": "Add more instances immediately",
+            "outcome": "This may help, but only if compute saturation is the bottleneck.",
+            "correct": false
+          },
+          {
+            "id": "b",
+            "text": "Inspect the bottleneck and its saturation signal first",
+            "outcome": "Correct: diagnose before scaling or introducing a new pattern.",
+            "correct": true
+          },
+          {
+            "id": "c",
+            "text": "Disable monitoring to reduce overhead",
+            "outcome": "This removes the evidence you need to diagnose the incident.",
+            "correct": false
+          }
+        ],
+        "rationale": "Measure the limiting resource or dependency first. A bottleneck can be compute, database I/O, network, cache misses, lock contention, downstream latency, or queue backlog.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-materialized-view-interview",
+      "payload": {
+        "text": "Interview drill",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-materialized-view-interview",
+      "payload": {
+        "text": "**Answer this without notes:** When would you choose Materialized View, and when would you intentionally avoid it? Mention at least one bottleneck it addresses, one failure mode it introduces, and one alternative. Then quantify the workload you are designing for."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "field-guide-materialized-view",
+      "payload": {
+        "title": "Engineering lens",
+        "body": "A useful engineering lens for Materialized View: define the problem it solves, the simpler design that fails first, the constraint that forces you to introduce this concept, and the new failure modes the concept creates.",
+        "kind": "tip"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "numerical-lens-materialized-view",
+      "payload": {
+        "text": "### Numerical sanity check\n\nBack-of-the-envelope reasoning beats fake precision. State your traffic, payload, concurrency and growth assumptions explicitly, then calculate enough to know whether the current architecture is orders of magnitude away from the target."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "field-question-materialized-view",
+      "payload": {
+        "shape": "prediction",
+        "question": "Imagine the simplest version of a system using Materialized View. What breaks first as traffic grows by 10×, and what would you change before reaching 100×?",
+        "context": "Do not optimize for a memorized definition. Reason from the workload and failure mode.",
+        "options": [
+          "Scale the same component immediately.",
+          "Measure the current bottleneck and state the assumption that changed.",
+          "Add more technologies until throughput improves.",
+          "Choose the most popular architecture."
+        ],
+        "answer_index": 1,
+        "rationale": "Good system design starts with the bottleneck and the changed constraint. The most popular or complex choice is not automatically correct.",
+        "difficulty": "interview"
+      }
+    }
+  ],
+  "trade_offs": {
+    "pros": [
+      "Reads are fast — pre-computed, often a single-row lookup.",
+      "Read patterns can be optimized independently — denormalized, indexed, aggregated as needed.",
+      "Read tier scales independently of the write tier.",
+      "Multiple views support multiple query patterns from one source.",
+      "Reduces load on the source of truth — expensive queries run at refresh time, not on every read."
+    ],
+    "cons": [
+      "Writes bear the cost of keeping the view fresh — write amplification.",
+      "Staleness — the view lags the source, by seconds to hours depending on refresh strategy.",
+      "Operational complexity — now you operate the source AND the view(s) AND the refresh pipeline.",
+      "Schema evolution is harder — changing the view definition requires a rebuild, which can take hours.",
+      "Storage cost — the view duplicates data."
+    ]
+  },
+  "failure_modes": [
+    "Refresh falls behind under high write volume — view becomes increasingly stale.",
+    "Refresh job fails — view is silently stale, reads return wrong data; needs monitoring.",
+    "Incremental refresh logic has a bug — view drifts from source; only full rebuild fixes it.",
+    "Schema mismatch — view's schema lags the source's after a migration.",
+    "Rebuild takes too long — large views can take hours to rebuild, blocking schema changes.",
+    "View becomes a SPOF — if the view store (Elasticsearch, Redis) dies, reads fail even though the source is up."
+  ],
+  "common_mistakes": [
+    "Materializing every query — each view has cost; materialize only the ones that matter.",
+    "Choosing the wrong refresh strategy — too infrequent (stale) or too frequent (expensive).",
+    "Not monitoring refresh lag — silent staleness causes user-visible bugs.",
+    "Not having a rebuild strategy — when the view drifts or the schema changes, you must be able to rebuild from scratch.",
+    "Treating materialized views as strongly consistent — they're eventually consistent by design.",
+    "Forgetting read-your-writes — users see stale data after their own writes; route critical reads to the source."
+  ],
+  "where_you_see_it": [
+    "PostgreSQL materialized views — native support with `REFRESH MATERIALIZED VIEW`.",
+    "Data warehouses (Snowflake, BigQuery, Redshift) — materialized views and aggregate tables for BI dashboards.",
+    "Elasticsearch indexes — materialized views of source data, optimized for full-text search.",
+    "Redis caches — materialized views of database rows, refreshed on write or TTL.",
+    "CQRS read models — projections of write-side events."
+  ],
+  "interview_prompts": [
+    "What is a materialized view, and how does it differ from a regular view or a cache?",
+    "Your analytics dashboard is slow because it aggregates 100M rows per query. How do you fix it?",
+    "What are the refresh strategies for a materialized view, and how do you choose?",
+    "After a user updates their data, they see stale data on their dashboard. What's happening, and how do you fix it?",
+    "When should you NOT use a materialized view? Give concrete criteria."
+  ],
+  "real_system_mappings": [
+    {
+      "system": "PostgreSQL materialized views",
+      "how": "Native support: `CREATE MATERIALIZED VIEW ... WITH DATA` persists the query result. `REFRESH MATERIALIZED VIEW` re-runs the query and replaces the data. `REFRESH ... CONCURRENTLY` allows reads during refresh. Used for pre-computing aggregates and denormalized reads."
+    },
+    {
+      "system": "Snowflake / BigQuery materialized views",
+      "how": "Cloud data warehouses support materialized views with automatic incremental refresh — when source data changes, only the affected view rows are updated. Used heavily in BI dashboards where the same aggregate queries run repeatedly."
+    },
+    {
+      "system": "Elasticsearch indexes",
+      "how": "An Elasticsearch index is a materialized view of source data, optimized for full-text and structured search. Source data (from Postgres, Kafka, etc.) is indexed into Elasticsearch; reads query the index, not the source. Refresh strategy is near-real-time (1-second default refresh interval)."
+    }
+  ],
+  "status": "published",
+  "sources": [
+    {
+      "title": "System Design Primer",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Open source"
+    },
+    {
+      "title": "ByteByteGo — Scale from zero to millions",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "ByteByteGo"
+    },
+    {
+      "title": "System Design Tutorial",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "GeeksforGeeks"
+    },
+    {
+      "title": "System Design Roadmap",
+      "url": "https://roadmap.sh/system-design",
+      "publisher": "roadmap.sh"
+    },
+    {
+      "title": "Cloud Architecture reference",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Cloud Architecture reference",
+      "url": "https://learn.microsoft.com/en-us/azure/architecture/",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Cloud Architecture reference",
+      "url": "https://aws.amazon.com/architecture/",
+      "publisher": "Reference"
+    }
+  ]
+}

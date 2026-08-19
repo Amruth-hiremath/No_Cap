@@ -1,0 +1,453 @@
+{
+  "slug": "federation",
+  "version": 4,
+  "title": "Federation",
+  "phase": "databases-data-systems",
+  "area": "Databases & Data Systems",
+  "estimated_minutes": 7,
+  "difficulty": "advanced",
+  "summary": "Federation (also called functional partitioning or vertical partitioning by function) splits a database by domain — users in one database, posts in another, messages in a third — so each can scale, fail, and evolve independently. Unlike sharding (which splits one table's rows across machines), federation splits by function: every database holds a different slice of the schema, and the application stitches them together.",
+  "why_it_matters": "A monolithic database becomes a coordination bottleneck: a spike in messages slows down login, a schema migration on the orders table blocks deploys for the user-profile team, and a single hot row can saturate the entire instance. Federation is the standard first step out — split by function so teams own their data, scale each piece on its own curve, and isolate failures. Every large-scale application (Twitter, Uber, Netflix, Shopify) federates its database.",
+  "prerequisites": [
+    "sharding"
+  ],
+  "related": [
+    "sharding",
+    "microservices",
+    "denormalization",
+    "distributed-transactions"
+  ],
+  "used_in": [
+    "Almost every large web app at scale — separate DBs for users, content, billing, messaging.",
+    "Microservices where each service owns its own database.",
+    "E-commerce platforms separating catalog, orders, payments, and inventory.",
+    "SaaS platforms splitting per-tenant databases."
+  ],
+  "blocks": [
+    {
+      "type": "prose",
+      "id": "intro",
+      "payload": {
+        "text": "Federation splits a single logical database into multiple physical databases along functional boundaries. Where sharding divides one table's rows across machines, federation divides the schema: a `users` database, a `posts` database, a `messages` database, a `billing` database. Each is independently scaled, deployed, backed up, and operated.\n\nThe motivation isn't usually raw throughput — it's **organizational and operational**. A single shared database means:\n- One team's schema migration blocks everyone's deploy.\n- A hot row in `messages` saturates the entire instance, slowing down `login`.\n- A catastrophic bug in one service corrupts data for everyone.\n- Engineering teams queue on a single DBA team to provision capacity.\n\nFederation solves this by giving each functional slice its own database (and, in mature versions, its own service that owns it). The cost is that cross-domain queries — once a JOIN — now require either application-level stitching, denormalized copies, or asynchronous event-based synchronization.\n\nThis pattern is sometimes called 'vertical partitioning' in older texts, but that term is overloaded — in SQL circles it can also mean splitting a table's columns across tables on the same machine. 'Federation' is the unambiguous term for splitting by function across machines."
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "federation-vs-monolith",
+      "payload": {
+        "code": "flowchart TD\n    N0[\"MONOLITHIC\"]\n    N1[\"DATABASE\"]\n    N2[\"one\"]\n    N3[\"big\"]\n    N4[\"users\"]\n    N5[\"posts\"]\n    N6[\"messages\"]\n    N7[\"single bottleneck\"]\n    N8[\"(single\"]\n    N9[\"bottleneck)\"]\n    N10[\"One\"]\n    N11[\"team's\"]\n    N12[\"migration\"]\n    N13[\"blocks\"]\n    N14[\"all\"]\n    N15[\"deploys.\"]\n    N16[\"Hot\"]\n    N17[\"rows\"]\n    N18[\"slow\"]\n    N19[\"login.\"]\n    N20[\"Capacity\"]\n    N21[\"ceiling\"]\n    N22[\"machine.\"]\n    N23[\"functionally partitioned\"]\n    N24[\"FEDERATED\"]\n    N25[\"(functionally\"]\n    N26[\"partitioned)\"]\n    N27[\"Users\"]\n    N28[\"Posts\"]\n    N29[\"Messages\"]\n    N30[\"Billing\"]\n    N31[\"Service\"]\n    N32[\"API\"]\n    N33[\"Gateway\"]\n    N34[\"Each\"]\n    N35[\"scales\"]\n    N36[\"independently.\"]\n    N37[\"Failures\"]\n    N38[\"isolated.\"]\n    N39[\"Cross\"]\n    N40[\"domain\"]\n    N41[\"queries\"]\n    N42[\"need\"]\n    N43[\"app\"]\n    N44[\"level\"]\n    N45[\"stitching\"]\n    N46[\"events.\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44\n    N44 --> N45\n    N45 --> N46",
+        "caption": "Federation splits a monolithic database by function; each slice scales and fails independently.",
+        "alt_text": "Two diagrams. The first shows a single monolithic database containing users, posts, messages, and other tables, all sharing one bottleneck. The second shows four separate databases (Users DB, Posts DB, Messages DB, Billing DB), each fronted by its own service, with an API gateway routing requests across all four. Each database can scale independently, failures are isolated, but cross-domain queries now need application-level stitching or events."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "how-to-split",
+      "payload": {
+        "text": "Choosing federation boundaries is the same art as choosing microservice boundaries: align with **bounded contexts** (domain-driven design) and **team ownership**. A few rules of thumb:\n\n1. **Split by entity that's read/written together** — if every 'create post' writes only to posts and tags, those can share a database; if it also writes to a user's `post_count`, consider whether that count belongs in the posts DB instead.\n2. **Split by access pattern** — billing (transactional, ACID) and analytics (read-heavy, columnar) want different databases anyway.\n3. **Split by team** — Conway's Law says your database shape will mirror your org chart. Embrace it: one team owns one database, end to end.\n4. **Split by scale curve** — if messages grow 10× faster than users, separating them lets messages get their own capacity planning.\n5. **Don't split by foreign key** — that's a sign you need the data together, not apart.\n\nOnce split, the application code is responsible for assembling cross-domain views. A user's profile page that shows their posts, message count, and recent purchases must query three services and merge results in memory — or rely on denormalized projections updated by events."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "cross-domain-queries",
+      "payload": {
+        "title": "Where did my JOIN go?",
+        "body": "In a federated system, the query `SELECT u.name, COUNT(p.id) FROM users u JOIN posts p ON u.id = p.user_id GROUP BY u.name` is no longer a single SQL statement. It's two queries: fetch users from the Users DB, fetch post counts from the Posts DB, then merge in application code (or rely on a precomputed view). The architectural pattern for the latter is CQRS + materialized views: the Posts service emits 'post created' events, the Users service consumes them and updates a denormalized `post_count` field. Now the profile read is back to one query — but at the cost of eventual consistency and event infrastructure.",
+        "kind": "warning"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "federation-vs-sharding",
+      "payload": {
+        "text": "Federation and sharding are orthogonal and often combined:\n\n- **Federation** splits by function: users DB, posts DB, messages DB. Each slice owns different tables.\n- **Sharding** splits by row within one table: users 1-1M on shard A, 1M-2M on shard B.\n- **Both**: a federated posts DB that's also sharded by `user_id` for write scaling.\n\nThe progression most teams follow:\n1. **Single database** — start here. Simplest. Fine until ~10k QPS or team coordination pain.\n2. **Read replicas** — scale reads without changing the data model. Writes still bottlenecked.\n3. **Cache layer** (Redis/Memcached) — absorb read traffic for hot data. Writes still bottlenecked.\n4. **Federation** — split by function. Solves the coordination problem, lets each piece scale independently. Cross-domain queries now require stitching.\n5. **Sharding within a federated slice** — when one slice's write throughput exceeds a single machine.\n\nA common mistake is jumping to sharding before federation. Federation is usually cheaper, simpler, and addresses the operational pain first. Sharding is complex (rebalancing, cross-shard queries) and should be reserved for when even a federated slice outgrows one machine."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "db-per-service",
+      "payload": {
+        "title": "Federation is the database pattern behind microservices",
+        "body": "The microservices principle of 'each service owns its data' is federation applied to architecture. A well-designed microservices system has no shared database: each service has its own, optimized for its workload (SQL for billing, Cassandra for messages, Redis for sessions). Cross-service data access happens via APIs, never direct DB queries. Skip this rule and you have a 'distributed monolith' — services that look independent but share state and can't be deployed independently.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "consistency-tradeoff",
+      "payload": {
+        "text": "Federation shifts you from ACID transactions within one database to **eventual consistency across databases**. A user registration flow that used to be `INSERT user; INSERT welcome_message; INSERT default_preferences; COMMIT` is now three writes to three databases — and there's no atomic commit.\n\nPatterns for handling this:\n- **Saga pattern** — orchestrate multi-database writes as a sequence with compensating actions on failure. The de-facto replacement for 2PC in microservices.\n- **Outbox pattern** — write the data and the 'event to publish' in the same database transaction; a separate process reads the outbox table and publishes events. Guarantees the event is emitted if and only if the data is committed.\n- **Idempotent retries** — every operation must be safely retriable; partial failures must not corrupt state.\n- **Acceptable inconsistency** — for non-critical data (analytics counters, search index updates), eventual consistency is fine.\n\nTwo-phase commit (2PC) across federated databases is technically possible but slow, fragile, and almost universally avoided in modern systems. Sagas are the modern answer."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q1",
+      "payload": {
+        "question": "Your monolithic PostgreSQL database is hitting capacity: messages are growing 10× faster than users, the messages team's migrations keep blocking deploys for everyone, and a hot row in messages occasionally saturates the instance. What's the right first step?",
+        "shape": "mcq",
+        "options": [
+          "Shard the messages table by user_id across multiple Postgres instances.",
+          "Migrate everything to Cassandra for write throughput.",
+          "Federate by function: split messages into its own database (and service).",
+          "Add read replicas for the messages table."
+        ],
+        "answer_index": 2,
+        "rationale": "The dominant pain here is organizational and operational, not raw throughput — federation is the right first step. Splitting messages into its own database gives the messages team their own migrations, their own capacity planning, and isolates failures. It also lets them choose the right tool (probably Cassandra or ScyllaDB) for their write-heavy workload, while users stays in PostgreSQL. Sharding the messages table would address throughput but not the migration-blocking and isolation issues. Adding read replicas doesn't help — the problem is writes. Migrating everything to Cassandra would be overkill and lose ACID for users/billing. Federation is the smallest change that addresses all three pain points.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q2",
+      "payload": {
+        "question": "After federating, a profile page that needs the user's name (Users DB), their last 5 posts (Posts DB), and unread message count (Messages DB) — what's the standard approach?",
+        "shape": "mcq",
+        "options": [
+          "Use two-phase commit to atomically read all three.",
+          "Application code queries all three services in parallel and merges results in memory.",
+          "Move everything back to one database — federation is too hard.",
+          "Denormalize posts and message count into the Users DB."
+        ],
+        "answer_index": 1,
+        "rationale": "The standard pattern is parallel fan-out from the application (or API gateway/BFF): issue three async queries to Users, Posts, and Messages services simultaneously, then merge in memory. This is acceptable latency-wise because the queries run in parallel (latency = max, not sum). 2PC is for writes, not reads — and it's far too slow for a profile page. Moving back to one DB throws away the operational wins. Denormalizing into the Users DB (option 4) is a valid optimization if the profile page is hit extremely frequently — the Users DB can hold a cached 'last 5 posts' and 'unread count' updated by events — but it's a performance optimization layered on top of the fan-out pattern, not a replacement for it.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q3",
+      "payload": {
+        "question": "What's the relationship between federation and sharding?",
+        "shape": "mcq",
+        "options": [
+          "They're synonyms — both split data across machines.",
+          "Federation splits by function (different tables in different DBs); sharding splits by rows within one table. They're orthogonal and often combined.",
+          "Federation is for SQL; sharding is for NoSQL.",
+          "Sharding must come before federation."
+        ],
+        "answer_index": 1,
+        "rationale": "Federation and sharding split data along different axes and are complementary. Federation divides by function — users DB, posts DB, messages DB — each owning different tables. Sharding divides by row within a single table — users 1-1M on shard A, 1M-2M on shard B. Most large systems use both: a federated posts database that is itself sharded by user_id for write scaling. The progression is usually: single DB → read replicas → cache → federation → sharding within a federated slice. Trying to shard before federating is usually premature — federation addresses the organizational and operational pain first, at lower complexity.",
+        "difficulty": "core"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-federation-mental",
+      "payload": {
+        "text": "Engineering mental model",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-federation-mental",
+      "payload": {
+        "text": "**Mental model.** Think of Federation as a deliberate boundary in a system. The boundary exists because something becomes harder to manage when everything is done in one place: latency, scale, failure isolation, consistency, cost, or team ownership. The useful question is not “what does Federation mean?” but “what pressure makes this boundary worth introducing, and what new failure mode does it create?”"
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-federation-decision",
+      "payload": {
+        "title": "Design lens",
+        "body": "Before choosing Federation, name the workload, the critical user path, the dominant bottleneck, the failure you are trying to absorb, and the trade-off you are willing to accept. If you cannot name those five things, the design is probably premature.",
+        "kind": "info"
+      }
+    },
+    {
+      "type": "image",
+      "id": "upgrade-image-federation",
+      "payload": {
+        "src": "/learning-visuals/federation.svg",
+        "alt": "Original NO CAP systems visual for Federation.",
+        "caption": "Federation: a compact system-thinking visual.",
+        "credit": "Original NO CAP visual.",
+        "source_url": "https://github.com/donnemartin/system-design-primer"
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "upgrade-mermaid-federation",
+      "payload": {
+        "code": "flowchart LR\n  A[Client] --> B[Gateway] --> C[Service] --> D[State] --> E[Outcome]",
+        "caption": "Federation: a simplified system view showing the primary flow and the main state boundaries.",
+        "alt_text": "Federation: a simplified system view showing the primary flow and the main state boundaries."
+      }
+    },
+    {
+      "type": "code",
+      "id": "upgrade-code-federation",
+      "payload": {
+        "language": "text",
+        "code": "// Pseudocode\nrequest = receive()\nresult = federation(request)\nreturn result\n\n// Production questions:\n// 1. What happens on timeout?\n// 2. Can this operation be retried safely?\n// 3. What is the bottleneck?",
+        "caption": "A minimal engineering sketch for reasoning about Federation."
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-federation-numbers",
+      "payload": {
+        "text": "Back-of-the-envelope reasoning",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-federation-numbers",
+      "payload": {
+        "text": "Numerical lens: write down traffic, payload size, read/write ratio, peak multiplier and durability target before choosing a component. The numbers should justify the architecture."
+      }
+    },
+    {
+      "type": "simulation",
+      "id": "upgrade-sim-federation",
+      "payload": {
+        "title": "Interactive thought experiment: Federation",
+        "description": "Change the variables below and predict what breaks first in Federation. The production lab can later reuse these same inputs.",
+        "variables": [
+          {
+            "name": "traffic",
+            "description": "Requests/events per second",
+            "default": "1000"
+          },
+          {
+            "name": "latency",
+            "description": "Dependency latency",
+            "default": "50ms"
+          },
+          {
+            "name": "failure_rate",
+            "description": "Injected failure rate",
+            "default": "0%"
+          }
+        ],
+        "placeholder_note": "Interactive controls are deterministic; use the linked Labs section when a dedicated lab exists."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-federation-hint",
+      "payload": {
+        "title": "Hint",
+        "body": "If you are stuck on Federation, start by drawing the request path and marking every network hop, stateful component, queue, cache and failure boundary. Then estimate where the system will saturate.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-federation-1",
+      "payload": {
+        "shape": "prediction",
+        "question": "You increase traffic by 10× in a system using Federation. What should you inspect first?",
+        "options": [
+          "The newest framework version",
+          "The dominant bottleneck and its saturation signal",
+          "Only the UI",
+          "Nothing; the architecture should absorb any traffic automatically"
+        ],
+        "answer_index": 1,
+        "rationale": "System design is a constraint-and-bottleneck exercise. Start with the resource or dependency that will saturate first, then choose the smallest change that removes that bottleneck.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-federation-2",
+      "payload": {
+        "shape": "mcq",
+        "question": "Which statement is the safest engineering habit when using Federation?",
+        "options": [
+          "Choose it because it is popular",
+          "Add it before measuring the problem",
+          "State the workload, failure mode and trade-off it is solving",
+          "Use the most distributed design possible"
+        ],
+        "answer_index": 2,
+        "rationale": "Good architecture starts from requirements, workload and failure assumptions. The component is the consequence of that reasoning, not the starting point.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "scenario",
+      "id": "upgrade-scenario-federation",
+      "payload": {
+        "prompt": "Production scenario: your system uses Federation, traffic suddenly spikes, and p99 latency doubles. What is your first move?",
+        "context": "You have dashboards for traffic, latency, errors and saturation. You can change the architecture, but every change has operational cost.",
+        "options": [
+          {
+            "id": "a",
+            "text": "Add more instances immediately",
+            "outcome": "This may help, but only if compute saturation is the bottleneck.",
+            "correct": false
+          },
+          {
+            "id": "b",
+            "text": "Inspect the bottleneck and its saturation signal first",
+            "outcome": "Correct: diagnose before scaling or introducing a new pattern.",
+            "correct": true
+          },
+          {
+            "id": "c",
+            "text": "Disable monitoring to reduce overhead",
+            "outcome": "This removes the evidence you need to diagnose the incident.",
+            "correct": false
+          }
+        ],
+        "rationale": "Measure the limiting resource or dependency first. A bottleneck can be compute, database I/O, network, cache misses, lock contention, downstream latency, or queue backlog.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-federation-interview",
+      "payload": {
+        "text": "Interview drill",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-federation-interview",
+      "payload": {
+        "text": "**Answer this without notes:** When would you choose Federation, and when would you intentionally avoid it? Mention at least one bottleneck it addresses, one failure mode it introduces, and one alternative. Then quantify the workload you are designing for."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "field-guide-federation",
+      "payload": {
+        "title": "Engineering lens",
+        "body": "For Federation, start with access patterns rather than brand names. Identify the dominant reads/writes, data relationships, consistency requirements, partition key, hot keys and failure behavior before choosing a storage strategy.",
+        "kind": "tip"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "numerical-lens-federation",
+      "payload": {
+        "text": "### Numerical sanity check\n\nA rough capacity check: required write throughput ≈ peak writes/s × average record size. At 5,000 writes/s and 2 KB average payloads, the raw incoming data stream is about 10 MB/s before indexes, replication and overhead."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "field-question-federation",
+      "payload": {
+        "shape": "prediction",
+        "question": "A team proposes Federation because it 'scales'. What workload characteristic would make that choice a poor fit?",
+        "context": "Do not optimize for a memorized definition. Reason from the workload and failure mode.",
+        "options": [
+          "Scale the same component immediately.",
+          "Measure the current bottleneck and state the assumption that changed.",
+          "Add more technologies until throughput improves.",
+          "Choose the most popular architecture."
+        ],
+        "answer_index": 1,
+        "rationale": "Good system design starts with the bottleneck and the changed constraint. The most popular or complex choice is not automatically correct.",
+        "difficulty": "interview"
+      }
+    }
+  ],
+  "trade_offs": {
+    "pros": [
+      "Independent scaling — each functional slice grows on its own curve.",
+      "Independent failures — a messages DB outage doesn't take down login.",
+      "Independent deploys — schema migrations are scoped to one team.",
+      "Technology fit — each slice can use the best tool (PostgreSQL for billing, Cassandra for messages, Redis for sessions).",
+      "Team autonomy — Conway's Law made explicit; teams own their data end-to-end.",
+      "Blast-radius reduction — a bad migration corrupts one slice, not everything."
+    ],
+    "cons": [
+      "Cross-domain queries are no longer JOINs — they require application-level stitching or denormalized views.",
+      "No atomic transactions across databases — sagas or eventual consistency required.",
+      "Operational overhead — N databases to back up, monitor, secure, and upgrade.",
+      "Distributed-system complexity — partial failures, retries, idempotency.",
+      "Data duplication — denormalized copies of 'shared' data (user name, etc.) live in multiple slices.",
+      "Harder to migrate to later — once federated, unifying back is painful."
+    ]
+  },
+  "failure_modes": [
+    "Distributed monolith — services with separate DBs but tightly coupled schemas and synchronous calls; deploys still can't be independent.",
+    "Shared database anti-pattern — services nominally separated but all reading/writing one database; no real isolation.",
+    "Cross-database transactions via 2PC — slow, fragile, blocking; usually replaced by sagas after the first incident.",
+    "Denormalization drift — copies of shared data (user name) become stale when source updates and consumers don't get the event.",
+    "Hot slice — one function dominates traffic and saturates its database, requiring follow-on sharding.",
+    "Schema duplication — the same `User` concept defined differently in each slice's database."
+  ],
+  "common_mistakes": [
+    "Sharding before federating — paying sharding complexity when federation would have addressed the pain.",
+    "Allowing services to read each other's databases directly — undermines isolation and creates coupling.",
+    "Treating cross-domain queries as atomic — assuming reads across slices are consistent.",
+    "Not investing in event infrastructure (Kafka, etc.) before federation — limits your options for keeping data in sync.",
+    "Forgetting operational tooling — N databases need N backups, N monitors, N runbooks.",
+    "Splitting by foreign key instead of bounded context — fragments entities that should stay together."
+  ],
+  "where_you_see_it": [
+    "Every microservices-based system at scale (Netflix, Uber, Twitter, Shopify).",
+    "SaaS platforms with per-tenant databases (Salesforce, Atlassian).",
+    "E-commerce platforms with separate catalog, orders, payments, and inventory databases.",
+    "Gaming backends with separate player, matchmaking, and economy databases."
+  ],
+  "interview_prompts": [
+    "What's the difference between federation and sharding? When would you choose each?",
+    "Your team is hitting the limits of a monolithic PostgreSQL database. Walk through the progression of scaling steps you'd take.",
+    "After federating, how do you handle a request that needs data from three different databases?",
+    "How do you maintain consistency across federated databases without two-phase commit?",
+    "What's the 'database per service' microservices principle, and why does it matter?"
+  ],
+  "real_system_mappings": [
+    {
+      "system": "Shopify",
+      "how": "Federates its database by function (shops, orders, checkouts, billing) and shards each federated slice by shop_id. Their engineering blog is a textbook case study of the federation → sharding progression."
+    },
+    {
+      "system": "Twitter / X",
+      "how": "Federated early into separate databases for users, tweets, social graph, and timelines. Each scales independently and uses different storage tech tuned to its workload."
+    },
+    {
+      "system": "Uber",
+      "how": "Originally a monolith; migrated to a federated, database-per-service architecture. Each service owns its data — Schemaless (custom MySQL-based) for most, Cassandra for trip data, Redis for caching. Schema migrations are now per-service."
+    },
+    {
+      "system": "Netflix",
+      "how": "Each microservice owns its own database — Cassandra for viewing history, EVCache for hot reads, MySQL for billing. Cross-service data access is via API calls, never direct DB queries."
+    }
+  ],
+  "status": "published",
+  "sources": [
+    {
+      "title": "System Design Primer",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Open source"
+    },
+    {
+      "title": "ByteByteGo — Scale from zero to millions",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "ByteByteGo"
+    },
+    {
+      "title": "System Design Tutorial",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "GeeksforGeeks"
+    },
+    {
+      "title": "System Design Roadmap",
+      "url": "https://roadmap.sh/system-design",
+      "publisher": "roadmap.sh"
+    },
+    {
+      "title": "Databases & Data Systems reference",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Databases & Data Systems reference",
+      "url": "https://www.postgresql.org/docs/",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Databases & Data Systems reference",
+      "url": "https://aws.amazon.com/what-is/database/",
+      "publisher": "Reference"
+    }
+  ]
+}

@@ -1,0 +1,529 @@
+{
+  "slug": "replication",
+  "version": 4,
+  "title": "Replication",
+  "phase": "databases-data-systems",
+  "area": "Databases & Data Systems",
+  "estimated_minutes": 7,
+  "difficulty": "core",
+  "summary": "Replication copies data from a primary database to one or more replicas. It improves read availability, read throughput, and fault tolerance. The main trade-offs are replication lag (eventual consistency) and write amplification.",
+  "why_it_matters": "A single database is a single point of failure. Replication is the standard way to achieve high availability for databases — if the primary dies, a replica takes over. It also enables read scaling: route reads to replicas, writes to the primary.",
+  "prerequisites": [
+    "sql-vs-nosql"
+  ],
+  "related": [
+    "sharding",
+    "cap-theorem",
+    "failover"
+  ],
+  "used_in": [
+    "Every production database that needs high availability."
+  ],
+  "blocks": [
+    {
+      "type": "prose",
+      "id": "intro",
+      "payload": {
+        "text": "Replication copies data from a **primary** (master) database to one or more **replicas** (slaves). Writes go to the primary; the primary replicates them to replicas. Reads can go to either — but reads from replicas may be stale (eventual consistency).\n\nThis gives you: read scaling (add replicas for more read capacity), high availability (if the primary dies, promote a replica), and geographic distribution (place replicas near users)."
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "replication",
+      "payload": {
+        "code": "flowchart TD\n    N0[\"PRIMARY\"]\n    N1[\"accepts reads + writes\"]\n    N2[\"(accepts\"]\n    N3[\"reads\"]\n    N4[\"writes)\"]\n    N5[\"async or sync\"]\n    N6[\"replicate\"]\n    N7[\"(async\"]\n    N8[\"sync)\"]\n    N9[\"Replica\"]\n    N10[\"(reads)\"]\n    N11[\"Writes:\"]\n    N12[\"always\"]\n    N13[\"primary.\"]\n    N14[\"strong\"]\n    N15[\"may be stale\"]\n    N16[\"Reads:\"]\n    N17[\"primary\"]\n    N18[\"(strong)\"]\n    N19[\"replica\"]\n    N20[\"(may\"]\n    N21[\"stale).\"]\n    N22[\"Failover:\"]\n    N23[\"promote\"]\n    N24[\"dies.\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24",
+        "caption": "Single-primary replication: writes to primary, reads from primary or replicas.",
+        "alt_text": "A diagram of single-primary replication. The primary database accepts both reads and writes. It replicates writes asynchronously or synchronously to three replicas. Writes always go to the primary. Reads can go to the primary (strongly consistent) or to replicas (may be stale due to replication lag). If the primary dies, a replica is promoted to become the new primary."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "sync-vs-async",
+      "payload": {
+        "text": "**Synchronous replication**: the primary waits for all (or a quorum of) replicas to acknowledge the write before returning success to the client. Strong consistency, but higher write latency and reduced availability if a replica is down.\n\n**Asynchronous replication**: the primary returns success immediately and replicates in the background. Lower latency, higher availability, but replicas may lag (eventual consistency). If the primary dies before replicating, committed writes can be lost.\n\nMost production systems use **semi-synchronous**: at least one replica acknowledges before the primary returns, but not all. This balances latency, consistency, and availability."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "replication-lag",
+      "payload": {
+        "title": "Replication lag",
+        "body": "In async replication, replicas are behind the primary by some amount of time (milliseconds to seconds). This is replication lag. If you read from a replica, you might see stale data. For a social feed, this is fine. For 'did the payment go through?', it's not. Always read from the primary for critical reads.",
+        "kind": "warning"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "topologies",
+      "payload": {
+        "text": "Replication topologies:\n\n- **Single-primary** (most common): one primary, N replicas. Simple, but the primary is a write bottleneck.\n- **Multi-primary** (multi-master): any node accepts writes and replicates to others. No write bottleneck, but conflict resolution is complex (last-write-wins, CRDTs, application-level merging).\n- **Chain replication**: A → B → C. Reduces load on the primary but adds latency to the end of the chain.\n- **Star topology**: primary replicates to all replicas directly. Most common."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q1",
+      "payload": {
+        "question": "Your system uses async replication with 3 replicas. A user updates their profile, then immediately views it. They see the old profile. Why?",
+        "shape": "mcq",
+        "options": [
+          "The database lost the write.",
+          "The read went to a replica that hasn't received the update yet (replication lag).",
+          "The user's browser cached the old page.",
+          "The primary rejected the write."
+        ],
+        "answer_index": 1,
+        "rationale": "In async replication, the primary returns success immediately, then replicates in the background. If the subsequent read goes to a replica, the replica may not have received the update yet — this is replication lag. The write wasn't lost; it just hasn't propagated. The fix: for read-after-write consistency, either read from the primary, or use read-your-writes consistency (route the user's reads to the primary for a short window after their write).",
+        "difficulty": "core"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q2",
+      "payload": {
+        "question": "Your primary database dies. You have 3 async replicas. What must happen for the system to recover?",
+        "shape": "mcq",
+        "options": [
+          "Nothing — the replicas are already up to date.",
+          "Promote one replica to primary. Some recent writes may be lost (those not yet replicated).",
+          "All replicas become primaries simultaneously.",
+          "The system is down until the primary is restored."
+        ],
+        "answer_index": 1,
+        "rationale": "In async replication, a promoted replica may not have the latest writes — those that were committed on the primary but not yet replicated. This is the fundamental trade-off of async replication: lower latency but potential data loss on failover. The fix is semi-synchronous replication (at least one replica has the write before the primary acknowledges), which reduces but doesn't eliminate the window. After promotion, the system must also update routing (load balancer, connection strings) to point to the new primary.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "primary-replica-arch-b2",
+      "payload": {
+        "code": "flowchart TB\n    W[Write request] --> Primary[(Primary DB<br/>accepts writes)]\n    Primary -->|WAL stream<br/>async or sync| R1[(Replica 1<br/>reads only)]\n    Primary -->|WAL stream| R2[(Replica 2<br/>reads only)]\n    Primary -->|WAL stream| R3[(Replica 3<br/>cross-region DR)]\n\n    R1 --> Ro1[Read request 1]\n    R2 --> Ro2[Read request 2]\n    R3 -.standby, no traffic.-> DR[Disaster recovery]\n\n    Primary --> FailoverMonitor{Failover monitor<br/>etcd / Patroni / RDS HA}\n    FailoverMonitor -.primary down detected.-> PromoteR1[Promote R1 to primary<br/>update DNS / connection pool]\n\n    classDef primary fill:#3a2e1e,stroke:#f59e0b,color:#fef3c7\n    classDef replica fill:#1e3a5f,stroke:#3b82f6,color:#e0e7ff\n    classDef dr fill:#2d1e3a,stroke:#a855f7,color:#f3e8ff\n    classDef monitor fill:#3a1e1e,stroke:#ef4444,color:#fee2e2\n    class Primary primary\n    class R1,R2,Ro1,Ro2 replica\n    class R3,DR dr\n    class FailoverMonitor,PromoteR1 monitor",
+        "caption": "Primary-replica replication: writes to primary, reads from replicas, monitor promotes a replica on primary failure.",
+        "alt_text": "A write request goes to the primary database. The primary streams its write-ahead log (WAL) to three replicas, asynchronously or synchronously. Read requests go to replica 1 or replica 2. Replica 3 sits in another region as disaster recovery standby. A failover monitor (etcd, Patroni, RDS HA) watches the primary; if it goes down, the monitor promotes replica 1 to be the new primary and updates DNS / connection pool routing."
+      }
+    },
+    {
+      "type": "table",
+      "id": "sync-async-b2",
+      "payload": {
+        "headers": [
+          "Dimension",
+          "Synchronous",
+          "Asynchronous",
+          "Semi-synchronous"
+        ],
+        "rows": [
+          [
+            "When primary returns success",
+            "After ALL replicas ACK the write",
+            "Immediately, before any replica ACKs",
+            "After AT LEAST ONE replica ACKs"
+          ],
+          [
+            "Write latency",
+            "Highest (waits for slowest replica)",
+            "Lowest (no wait)",
+            "Medium"
+          ],
+          [
+            "Data loss on primary failure",
+            "None — replicas have it all",
+            "Yes — recent in-flight writes can be lost",
+            "Reduced — at most the gap between primary and the ACKing replica"
+          ],
+          [
+            "Availability impact",
+            "If any replica is down, writes block",
+            "Writes succeed even with replica failures",
+            "Writes succeed if the ACKing replica is alive"
+          ],
+          [
+            "Throughput",
+            "Limited by slowest replica RTT",
+            "Limited only by primary disk",
+            "Limited by ACKing replica RTT"
+          ],
+          [
+            "Replication lag",
+            "Zero (by definition)",
+            "Milliseconds to seconds",
+            "Zero to one replica, lagging on others"
+          ],
+          [
+            "Typical use",
+            "Critical financial data, zero-loss requirements",
+            "Most read-heavy apps, social feeds",
+            "Production default for ACID systems"
+          ],
+          [
+            "Real systems",
+            "MySQL Fully Sync, Spanner",
+            "PostgreSQL default, MySQL default, Cassandra",
+            "PostgreSQL `synchronous_commit=remote_write`, MySQL semi-sync"
+          ]
+        ],
+        "caption": "Sync vs async vs semi-sync replication across the trade-off dimensions that decide which to use."
+      }
+    },
+    {
+      "type": "video",
+      "id": "upgrade-video-replication",
+      "payload": {
+        "provider": "youtube",
+        "video_id": "Fy0jVMICp1Y",
+        "title": "Database Replication & Caching",
+        "description": "Supplementary explanation. The NO CAP lesson remains self-contained.",
+        "source_url": "https://www.youtube.com/watch?v=Fy0jVMICp1Y"
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "failover-sequence-b2",
+      "payload": {
+        "code": "sequenceDiagram\n    participant App as Application\n    participant LB as Connection Pool / DNS\n    participant Mon as Failover Monitor<br/>(Patroni / etcd / RDS HA)\n    participant P as Primary (dies)\n    participant R1 as Replica 1\n    participant R2 as Replica 2\n\n    Note over P: t=0: Primary crash\n    Mon->>P: Health check (no response)\n    Mon->>P: Retry 1, 2, 3 (no response)\n    Note over Mon: t=5s: Declared dead\n    Mon->>R1: Promote to primary\n    R1->>R1: End recovery mode,<br/>accept writes\n    Mon->>LB: Update routing<br/>(DNS TTL / etcd key)\n    LB->>App: New primary is R1\n    App->>R1: Subsequent writes\n    Note over R1,R2: R2 re-points replication<br/>from P (dead) to R1 (new primary)\n    R2->>R1: Replication stream\n    Note over App: Total recovery: 10-60s typical",
+        "caption": "Failover sequence: monitor detects primary death, promotes a replica, updates routing. Total downtime 10-60s in practice.",
+        "alt_text": "A sequence diagram. At t=0, the primary crashes. The failover monitor (Patroni, etcd, or AWS RDS HA) sends health checks to the primary, retries three times with no response, and at t=5s declares it dead. The monitor promotes Replica 1 to primary; Replica 1 ends its recovery mode and accepts writes. The monitor updates routing — DNS TTL or etcd key — and the connection pool / DNS layer routes the application's subsequent writes to the new primary. Replica 2 re-points its replication stream from the dead primary to the new primary (R1). Total recovery time: 10-60 seconds typical."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "postgres-streaming-b2",
+      "payload": {
+        "text": "**Real example: PostgreSQL streaming replication.**\n\nPostgreSQL has shipped built-in streaming replication since 9.0 (2010). The mechanism is elegant: the primary ships its write-ahead log (WAL) — a stream of every byte modified — to replicas, which apply the WAL to their own data files in real time.\n\nConfiguration on the primary (`postgresql.conf`):\n```\nwal_level = replica\nmax_wal_senders = 10\nsynchronous_commit = remote_write   # semi-sync: wait for one replica ACK\nsynchronous_standby_names = 'ANY 1 (replica1, replica2)'\n```\n\nConfiguration on a replica:\n```\nhot_standby = on                    # accepts read queries while replicating\nprimary_conninfo = 'host=primary.internal port=5432 user=replication'\n```\n\nWhat this buys you:\n- **Read scaling**: route SELECT-heavy workload (analytics, dashboards) to replicas, leaving the primary for writes.\n- **HA via Patroni**: Patroni (a Python daemon) watches the primary, runs leader election via etcd or Consul, and on failure promotes a replica. Combined with pgBouncer (connection pooler) and HAProxy (LB), you get sub-minute automatic failover with no client code change.\n- **DR**: ship WAL to an S3 bucket via `pg_receivewal` or Barman; restore in another region for disaster recovery. PITR (point-in-time recovery) lets you replay WAL up to any chosen timestamp — useful for 'oops, I dropped that table at 14:32' scenarios.\n- **Zero-downtime upgrades**: detach a replica, upgrade it, swap it in as the new primary, upgrade the others.\n\nThe trade-offs to watch:\n- **Replication lag** — async replicas can be 100ms-10s behind. Read-your-writes consistency requires routing the user's reads to the primary for a window after their write.\n- **Split-brain** — if the network partitions between primary and monitor, the monitor may promote a replica while the old primary is still alive and accepting writes. Mitigations: STONITH (shoot the other node in the head), fencing, or quorum-based promotion (Patroni requires majority consensus).\n- **Write amplification** — each write is applied N+1 times (primary + N replicas). For write-heavy workloads, replication does NOT scale writes — that's what sharding is for."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "split-brain-b2",
+      "payload": {
+        "title": "Split-brain: replication's worst nightmare",
+        "body": "If a network partition isolates the primary from the failover monitor AND a replica is reachable from the monitor, the monitor may promote the replica — while the original primary is still alive and accepting writes from clients it can still reach. You now have two primaries diverging. When the partition heals, you must reconcile divergent write histories — typically by discarding one side's writes, which means data loss. Mitigations: (a) require quorum (majority of nodes) before promoting, so two primaries can't exist simultaneously; (b) STONITH — the monitor power-cycles the old primary before promoting the replica, guaranteeing it can't accept writes; (c) use consensus-based replication like Spanner or etcd which forbid split-brain by design. Without one of these, 'high availability' is a polite fiction.",
+        "kind": "danger"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q-failover-b2",
+      "payload": {
+        "question": "You run PostgreSQL with async streaming replication: one primary + two replicas. A user updates their profile (write goes to primary, succeeds), then immediately loads their profile page (read goes to a replica). They see the OLD profile. Two seconds later, refreshing shows the new profile. What is happening, and what is the standard fix for read-your-writes consistency?",
+        "shape": "mcq",
+        "options": [
+          "The primary lost the write. Switch to synchronous replication.",
+          "Replication lag — the replica is behind the primary by ~1-2 seconds. The standard fix is to route a user's reads to the primary for a short window (e.g., 5 seconds) after their write, or use a session-level sticky-read token tied to the latest WAL LSN they wrote.",
+          "The replica is broken. Restart it.",
+          "Add a third replica — more replicas means less lag."
+        ],
+        "answer_index": 1,
+        "rationale": "This is the textbook replication-lag / read-your-writes problem. The primary successfully committed the write and returned 200 OK to the user. Async replication then propagates the WAL to replicas in the background, taking anywhere from a few milliseconds (LAN) to seconds (cross-region). If the user's subsequent read is routed to a lagging replica, they see stale data — even though the system is working as designed. Two seconds later, replication catches up and the refresh shows the new data. Option 2 is wrong (primary lost the write) because the user DOES eventually see the new profile, so the write succeeded. Option 3 (replica broken) is wrong — a broken replica would not self-heal in 2 seconds. Option 4 (more replicas = less lag) is wrong — each replica lags independently; adding more replicas doesn't make any of them faster. The standard fixes: (a) read-your-writes consistency — route the user's reads to the primary for a short window (typically 5-30s) after their write, so they always see their own writes immediately. Trade-off: primary absorbs more reads. (b) Session-sticky reads — pin the user's session to a replica and wait until that replica's LSN catches up to the LSN of their write before serving. Trade-off: complexity, session state. (c) Causal consistency via tokens (MongoDB, DynamoDB Streams) — the read carries a token proving which version it's seen; the system blocks until replicas have caught up. The choice depends on how strict the consistency requirement is vs the latency cost of reading from primary.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "write-amplification-cost-b2",
+      "payload": {
+        "text": "**Replication write amplification — the hidden cost.**\n\nEvery write to the primary is replicated to N replicas. With N=3 replicas, each write is applied 4 times total (primary + 3 replicas). This is write amplification, and it has three costs you need to size for:\n\n1. **Storage cost.** 4x the storage. With 1 TB of logical data and 3 replicas, you need 4 TB of storage. With 5 replicas, 6 TB. Sounds obvious, but teams consistently under-budget storage by ignoring replica count.\n2. **Network cost.** Each write is sent over the network N times. For a high-write workload (10K writes/sec), replication at 3x = 30K writes/sec of network traffic — significant, especially cross-region.\n3. **CPU and IOPS on replicas.** Replicas aren't free riders — they apply the WAL to their own data files, which consumes CPU and disk IOPS. A replica under heavy write load may have less capacity to serve reads than you expect.\n\nTwo practical implications:\n- **Replication does NOT scale writes.** This is the most common misconception. Adding replicas gives you more read capacity and high availability — it does NOT give you more write capacity. The primary is still the write bottleneck. To scale writes, you need sharding.\n- **More replicas ≠ better.** A common mistake is to add many replicas for 'more availability'. But each replica adds storage, network, and operational cost. The right number of replicas is determined by read QPS requirement + failover needs + geographic distribution — typically 2-5. More than that is wasted money.\n\nThe cost trade-off: each replica roughly doubles the storage cost (1 primary + 1 replica = 2x storage). At scale (multi-TB databases), this drives teams toward columnar storage (e.g., ClickHouse) or object-storage-based replicas (S3-backed read replicas in BigQuery) for read-heavy analytics workloads."
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-replication-mental",
+      "payload": {
+        "text": "Engineering mental model",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-replication-mental",
+      "payload": {
+        "text": "**Mental model.** Think of Replication as a deliberate boundary in a system. The boundary exists because something becomes harder to manage when everything is done in one place: latency, scale, failure isolation, consistency, cost, or team ownership. The useful question is not “what does Replication mean?” but “what pressure makes this boundary worth introducing, and what new failure mode does it create?”"
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-replication-decision",
+      "payload": {
+        "title": "Design lens",
+        "body": "Before choosing Replication, name the workload, the critical user path, the dominant bottleneck, the failure you are trying to absorb, and the trade-off you are willing to accept. If you cannot name those five things, the design is probably premature.",
+        "kind": "info"
+      }
+    },
+    {
+      "type": "image",
+      "id": "upgrade-image-replication",
+      "payload": {
+        "src": "/learning-visuals/replication.svg",
+        "alt": "Original NO CAP systems visual for Replication.",
+        "caption": "Replication: a compact system-thinking visual.",
+        "credit": "Original NO CAP visual.",
+        "source_url": "https://github.com/donnemartin/system-design-primer"
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "upgrade-mermaid-replication",
+      "payload": {
+        "code": "flowchart TD\n W[Write] --> P[(Primary)]\n P --> R1[(Replica 1)]\n P --> R2[(Replica 2)]\n Q[Read] --> R1\n Q --> R2",
+        "caption": "Replication creates multiple copies so reads can scale and a node failure does not necessarily take the dataset offline.",
+        "alt_text": "Replication creates multiple copies so reads can scale and a node failure does not necessarily take the dataset offline."
+      }
+    },
+    {
+      "type": "code",
+      "id": "upgrade-code-replication",
+      "payload": {
+        "language": "text",
+        "code": "// Pseudocode\nrequest = receive()\nresult = replication(request)\nreturn result\n\n// Production questions:\n// 1. What happens on timeout?\n// 2. Can this operation be retried safely?\n// 3. What is the bottleneck?",
+        "caption": "A minimal engineering sketch for reasoning about Replication."
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-replication-numbers",
+      "payload": {
+        "text": "Back-of-the-envelope reasoning",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-replication-numbers",
+      "payload": {
+        "text": "Example: with 5 replicas, a majority quorum is 3. Losing 2 replicas still leaves a majority available for a quorum-based protocol."
+      }
+    },
+    {
+      "type": "simulation",
+      "id": "upgrade-sim-replication",
+      "payload": {
+        "title": "Interactive thought experiment: Replication",
+        "description": "Change the variables below and predict what breaks first in Replication. The production lab can later reuse these same inputs.",
+        "variables": [
+          {
+            "name": "replicas",
+            "description": "Replica count",
+            "default": "5"
+          },
+          {
+            "name": "read_ratio",
+            "description": "Fraction of reads",
+            "default": "80%"
+          },
+          {
+            "name": "lag",
+            "description": "Replication lag",
+            "default": "50ms"
+          }
+        ],
+        "placeholder_note": "Interactive controls are deterministic; use the linked Labs section when a dedicated lab exists."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-replication-hint",
+      "payload": {
+        "title": "Hint",
+        "body": "If you are stuck on Replication, start by drawing the request path and marking every network hop, stateful component, queue, cache and failure boundary. Then estimate where the system will saturate.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-replication-1",
+      "payload": {
+        "shape": "prediction",
+        "question": "You increase traffic by 10× in a system using Replication. What should you inspect first?",
+        "options": [
+          "The newest framework version",
+          "The dominant bottleneck and its saturation signal",
+          "Only the UI",
+          "Nothing; the architecture should absorb any traffic automatically"
+        ],
+        "answer_index": 1,
+        "rationale": "System design is a constraint-and-bottleneck exercise. Start with the resource or dependency that will saturate first, then choose the smallest change that removes that bottleneck.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-replication-2",
+      "payload": {
+        "shape": "mcq",
+        "question": "Which statement is the safest engineering habit when using Replication?",
+        "options": [
+          "Choose it because it is popular",
+          "Add it before measuring the problem",
+          "State the workload, failure mode and trade-off it is solving",
+          "Use the most distributed design possible"
+        ],
+        "answer_index": 2,
+        "rationale": "Good architecture starts from requirements, workload and failure assumptions. The component is the consequence of that reasoning, not the starting point.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "scenario",
+      "id": "upgrade-scenario-replication",
+      "payload": {
+        "prompt": "Production scenario: your system uses Replication, traffic suddenly spikes, and p99 latency doubles. What is your first move?",
+        "context": "You have dashboards for traffic, latency, errors and saturation. You can change the architecture, but every change has operational cost.",
+        "options": [
+          {
+            "id": "a",
+            "text": "Add more instances immediately",
+            "outcome": "This may help, but only if compute saturation is the bottleneck.",
+            "correct": false
+          },
+          {
+            "id": "b",
+            "text": "Inspect the bottleneck and its saturation signal first",
+            "outcome": "Correct: diagnose before scaling or introducing a new pattern.",
+            "correct": true
+          },
+          {
+            "id": "c",
+            "text": "Disable monitoring to reduce overhead",
+            "outcome": "This removes the evidence you need to diagnose the incident.",
+            "correct": false
+          }
+        ],
+        "rationale": "Measure the limiting resource or dependency first. A bottleneck can be compute, database I/O, network, cache misses, lock contention, downstream latency, or queue backlog.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-replication-interview",
+      "payload": {
+        "text": "Interview drill",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-replication-interview",
+      "payload": {
+        "text": "**Answer this without notes:** When would you choose Replication, and when would you intentionally avoid it? Mention at least one bottleneck it addresses, one failure mode it introduces, and one alternative. Then quantify the workload you are designing for."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "field-guide-replication",
+      "payload": {
+        "title": "Engineering lens",
+        "body": "For Replication, start with access patterns rather than brand names. Identify the dominant reads/writes, data relationships, consistency requirements, partition key, hot keys and failure behavior before choosing a storage strategy.",
+        "kind": "tip"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "numerical-lens-replication",
+      "payload": {
+        "text": "### Numerical sanity check\n\nA rough capacity check: required write throughput ≈ peak writes/s × average record size. At 5,000 writes/s and 2 KB average payloads, the raw incoming data stream is about 10 MB/s before indexes, replication and overhead."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "field-question-replication",
+      "payload": {
+        "shape": "prediction",
+        "question": "A team proposes Replication because it 'scales'. What workload characteristic would make that choice a poor fit?",
+        "context": "Do not optimize for a memorized definition. Reason from the workload and failure mode.",
+        "options": [
+          "Scale the same component immediately.",
+          "Measure the current bottleneck and state the assumption that changed.",
+          "Add more technologies until throughput improves.",
+          "Choose the most popular architecture."
+        ],
+        "answer_index": 1,
+        "rationale": "Good system design starts with the bottleneck and the changed constraint. The most popular or complex choice is not automatically correct.",
+        "difficulty": "interview"
+      }
+    }
+  ],
+  "trade_offs": {
+    "pros": [
+      "High availability — survive primary failure.",
+      "Read scaling — add replicas for more read capacity.",
+      "Geographic distribution — replicas near users reduce latency.",
+      "Backup — replicas can serve as live backups."
+    ],
+    "cons": [
+      "Replication lag — async replicas are eventually consistent.",
+      "Write amplification — each write is replicated N times.",
+      "Failover complexity — promoting a replica, updating routing.",
+      "Cost — more machines, more storage."
+    ]
+  },
+  "failure_modes": [
+    "Replication lag — stale reads from replicas.",
+    "Split-brain — network partition causes two primaries, divergent writes.",
+    "Write bottleneck — single primary can't handle write throughput.",
+    "Data loss on failover — async replication means the last few writes may not be on any replica."
+  ],
+  "common_mistakes": [
+    "Reading from replicas for critical data (payments, permissions).",
+    "Using async replication when you need zero data loss on failover.",
+    "Forgetting to test failover — it works in theory but breaks in practice.",
+    "Not monitoring replication lag — a lagging replica is a time bomb."
+  ],
+  "where_you_see_it": [
+    "Every production database that needs high availability.",
+    "Every read-heavy system.",
+    "Every geographically distributed system."
+  ],
+  "interview_prompts": [
+    "What is database replication? What are the trade-offs between sync and async?",
+    "How do you handle replication lag?",
+    "What happens when the primary fails? How do you promote a replica?"
+  ],
+  "real_system_mappings": [
+    {
+      "system": "PostgreSQL streaming replication",
+      "how": "Async by default, sync available. Replicas can be read-only (hot standby) or take over (promoted)."
+    },
+    {
+      "system": "MySQL Group Replication",
+      "how": "Multi-primary with conflict detection. Uses Paxos-like consensus for write agreement."
+    }
+  ],
+  "status": "published",
+  "sources": [
+    {
+      "title": "System Design Primer",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Open source"
+    },
+    {
+      "title": "ByteByteGo — Scale from zero to millions",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "ByteByteGo"
+    },
+    {
+      "title": "System Design Tutorial",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "GeeksforGeeks"
+    },
+    {
+      "title": "System Design Roadmap",
+      "url": "https://roadmap.sh/system-design",
+      "publisher": "roadmap.sh"
+    },
+    {
+      "title": "Databases & Data Systems reference",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Databases & Data Systems reference",
+      "url": "https://www.postgresql.org/docs/",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Databases & Data Systems reference",
+      "url": "https://aws.amazon.com/what-is/database/",
+      "publisher": "Reference"
+    }
+  ]
+}

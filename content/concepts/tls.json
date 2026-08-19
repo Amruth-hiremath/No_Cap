@@ -1,0 +1,439 @@
+{
+  "slug": "tls",
+  "version": 3,
+  "title": "TLS — Transport Layer Security",
+  "phase": "networking-communication",
+  "area": "Networking & Communication",
+  "estimated_minutes": 7,
+  "difficulty": "advanced",
+  "summary": "TLS is the protocol that encrypts data in transit and authenticates the parties on each end. It is what makes HTTPS work, what protects your database connection, what secures your email, and what every 'green padlock' in your browser represents. Without TLS, every byte you send across the internet can be read and modified by anyone in the path. With TLS, those bytes are encrypted, integrity-protected, and (optionally) authenticated on both sides.",
+  "why_it_matters": "TLS is the bedrock of internet security. Every modern web service terminates TLS at its edge. Every internal service mesh encrypts with mTLS. Every database driver supports TLS. Understanding the TLS handshake (certificates, key exchange, session keys) is the difference between treating HTTPS as 'magic' and being able to debug certificate errors, configure mutual TLS, and reason about forward secrecy and 0-RTT.",
+  "prerequisites": [
+    "http",
+    "tcp"
+  ],
+  "related": [
+    "oauth",
+    "authentication",
+    "quic",
+    "tls"
+  ],
+  "used_in": [
+    "HTTPS — every secure web request.",
+    "Database connections (Postgres, MySQL, MongoDB all support TLS).",
+    "Email (SMTPS, IMAPS, POP3S).",
+    "Internal service meshes (mTLS between services).",
+    "VPNs (OpenVPN, WireGuard's handshake is TLS-inspired)."
+  ],
+  "blocks": [
+    {
+      "type": "prose",
+      "id": "intro",
+      "payload": {
+        "text": "TLS provides three guarantees on top of an untrusted network:\n\n- **Confidentiality**: an eavesdropper cannot read the data.\n- **Integrity**: a man-in-the-middle cannot modify the data without detection.\n- **Authentication**: at least one party can prove who they are (typically the server, optionally the client).\n\nTLS does this by combining **asymmetric cryptography** (for key exchange and authentication) with **symmetric cryptography** (for the bulk data, because it is fast). The asymmetric part is expensive but lets two parties agree on a shared secret over a public channel without ever sending the secret itself. The symmetric part is cheap and encrypts gigabytes of data using the shared secret.\n\nThe trick that makes TLS work in practice is **certificates**. Anyone can generate a keypair, but how do you know the public key actually belongs to the server you think you're talking to? The answer is a chain of trust: a Certificate Authority (CA) — a trusted third party — signs the server's public key with its own private key. Your browser ships with a list of trusted CA root certificates. To verify a server, the browser walks the chain from the server's cert up to a trusted root.\n\nThe full protocol: a handshake negotiates the cipher suite, exchanges keys, validates certificates, and derives a symmetric session key. Then the session key encrypts the application data (HTTP, gRPC, whatever). TLS 1.3 (2018) streamlined this to a single round-trip handshake; TLS 1.2 took two."
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "handshake",
+      "payload": {
+        "code": "flowchart TD\n    N0[\"1 RTT\"]\n    N1[\"TLS\"]\n    N2[\"1.3\"]\n    N3[\"Handshake\"]\n    N4[\"RTT)\"]\n    N5[\"simplified\"]\n    N6[\"Client\"]\n    N7[\"Server\"]\n    N8[\"ClientHello\"]\n    N9[\"(cipher\"]\n    N10[\"suites\"]\n    N11[\"offered,\"]\n    N12[\"key share, SNI, supported groups\"]\n    N13[\"(key\"]\n    N14[\"share,\"]\n    N15[\"SNI,\"]\n    N16[\"supported\"]\n    N17[\"groups)\"]\n    N18[\"ephemeral\"]\n    N19[\"public\"]\n    N20[\"key)\"]\n    N21[\"ServerHello,\"]\n    N22[\"EncryptedExtensions\"]\n    N23[\"(server\"]\n    N24[\"picks\"]\n    N25[\"cipher,\"]\n    N26[\"Certificate,\"]\n    N27[\"CertificateVerify,\"]\n    N28[\"sends\"]\n    N29[\"cert\"]\n    N30[\"signature,\"]\n    N31[\"Finished\"]\n    N32[\"finishes\"]\n    N33[\"handshake)\"]\n    N34[\"encrypted\"]\n    N35[\"(encrypted)\"]\n    N36[\"(client\"]\n    N37[\"proves\"]\n    N38[\"derived\"]\n    N39[\"the\"]\n    N40[\"same\"]\n    N41[\"Application\"]\n    N42[\"data\"]\n    N43[\"TLS 1.2 = 2 RTT\"]\n    N44[\"Cost:\"]\n    N45[\"RTT\"]\n    N46[\"before\"]\n    N47[\"app\"]\n    N48[\"(TLS\"]\n    N49[\"1.2\"]\n    N50[\"RTT).\"]\n    N51[\"early data\"]\n    N52[\"(early\"]\n    N53[\"data)\"]\n    N54[\"possible\"]\n    N55[\"repeat\"]\n    N56[\"visits:\"]\n    N57[\"client\"]\n    N58[\"its\"]\n    N59[\"first\"]\n    N60[\"flight,\"]\n    N61[\"from\"]\n    N62[\"cached\"]\n    N63[\"PSK.\"]\n    N64[\"ECDHE\"]\n    N65[\"Key\"]\n    N66[\"idea:\"]\n    N67[\"key\"]\n    N68[\"exchange\"]\n    N69[\"(ECDHE)\"]\n    N70[\"gives\"]\n    N71[\"forward\"]\n    N72[\"secrecy\"]\n    N73[\"even\"]\n    N74[\"server's\"]\n    N75[\"long\"]\n    N76[\"term\"]\n    N77[\"private\"]\n    N78[\"leaks\"]\n    N79[\"later,\"]\n    N80[\"past\"]\n    N81[\"sessions\"]\n    N82[\"cannot\"]\n    N83[\"decrypted.\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44\n    N44 --> N45\n    N45 --> N46\n    N46 --> N47\n    N47 --> N48\n    N48 --> N49\n    N49 --> N50\n    N50 --> N51\n    N51 --> N52\n    N52 --> N53\n    N53 --> N54\n    N54 --> N55\n    N55 --> N56\n    N56 --> N57\n    N57 --> N58\n    N58 --> N59\n    N59 --> N60\n    N60 --> N61\n    N61 --> N62\n    N62 --> N63\n    N63 --> N64\n    N64 --> N65\n    N65 --> N66\n    N66 --> N67\n    N67 --> N68\n    N68 --> N69\n    N69 --> N70\n    N70 --> N71\n    N71 --> N72\n    N72 --> N73\n    N73 --> N74\n    N74 --> N75\n    N75 --> N76\n    N76 --> N77\n    N77 --> N78\n    N78 --> N79\n    N79 --> N80\n    N80 --> N81\n    N81 --> N82\n    N82 --> N83",
+        "caption": "TLS 1.3 handshake: one round trip from hello to encrypted application data. Ephemeral keys give forward secrecy.",
+        "alt_text": "A sequence diagram of the TLS 1.3 handshake. The client sends ClientHello containing offered cipher suites, an ephemeral public key, and the server name. The server responds with ServerHello, encrypted extensions, its certificate, a certificate verify signature, and a Finished message — all in one flight. The client sends back an encrypted Finished message. After one round trip, application data flows encrypted. The diagram notes that TLS 1.2 takes two round trips, and that 0-RTT early data is possible on repeat visits using a cached pre-shared key. The key idea is that ephemeral key exchange via ECDHE provides forward secrecy — even if the server's long-term key leaks later, past sessions cannot be decrypted."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "handshake-walkthrough",
+      "payload": {
+        "text": "Walking through the handshake:\n\n**1. ClientHello.** The client sends its supported TLS versions, cipher suites, and an ephemeral public key (in TLS 1.3, the key share is sent in the first message to save a round trip). It also sends SNI (Server Name Indication) — the hostname it wants — so the server can pick the right certificate (this enables virtual hosting).\n\n**2. ServerHello.** The server picks a TLS version and cipher suite, sends its own ephemeral public key, and proves its identity with a certificate. The certificate is a chain: server cert → intermediate CA → root CA. The server also signs a transcript of the handshake so far with its long-term private key, proving it owns the certificate.\n\n**3. Key derivation.** Both sides run ECDHE (Elliptic Curve Diffie-Hellman Ephemeral): combine their private key with the other's public key to derive a shared secret. This is the magic — the shared secret is never sent over the wire. From the shared secret, both sides derive symmetric session keys for encryption and MACs.\n\n**4. Finished.** Both sides send a MAC of the entire handshake transcript. If anyone tampered with the ClientHello or ServerHello (downgrade attack, cipher suite manipulation), the MACs will not match and the handshake aborts.\n\n**5. Application data.** From here on, everything is encrypted with the session keys using an AEAD cipher (AES-GCM or ChaCha20-Poly1305). Each record is encrypted with a sequence number for nonce uniqueness.\n\nThis whole thing is why HTTPS costs an extra 1 RTT (TLS 1.3) or 2 RTT (TLS 1.2) on top of the TCP handshake. With TCP's 1 RTT, that's 2-3 RTT total before the first byte of HTTP. TLS 1.3's 0-RTT mode (sending data in the first flight using a cached pre-shared key) eliminates that for repeat clients, at the cost of some replay risk."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "certs-and-pki",
+      "payload": {
+        "text": "Certificates are how the client knows the server is who it claims. A certificate binds a public key to an identity (a domain name, usually) and is signed by a Certificate Authority. The chain is:\n\n- **Root CA**: self-signed, shipped with your OS or browser. The implicit trust anchor (DigiCert, Let's Encrypt's ISRG Root, etc.).\n- **Intermediate CA**: signed by the root. Used to sign end-entity certs so the root's private key stays offline.\n- **End-entity (leaf) certificate**: signed by an intermediate, contains the server's public key and domain name.\n\nThe client validates the chain (each signature checks out, no cert is expired, no cert is revoked) and the leaf's domain matches the URL it asked for. If any link breaks, the browser shows a certificate error.\n\nCertificate revocation is the weak spot. A stolen private key means the corresponding cert must be revoked. Historically, revocation was via CRL (Certificate Revocation List — a download of bad serial numbers) or OCSP (an online query). Both have scaling and privacy problems; OCSP Stapling (the server fetches its own revocation status and includes it in the handshake) is the modern approach. CAA records in DNS restrict which CAs are allowed to issue for a domain, preventing unauthorized issuance.\n\n**Mutual TLS (mTLS)** extends TLS so the server also authenticates the client. The server sends a CertificateRequest; the client responds with its own cert chain. Used in zero-trust networks (every service has a cert, mTLS between every pair), service meshes (Istio, Linkerd), and high-security client integrations (Square's mobile readers mTLS to Square). The advantage over bearer tokens: no token to steal or leak; the private key never leaves the client."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "forward-secrecy",
+      "payload": {
+        "title": "Forward secrecy — why ephemeral keys matter",
+        "body": "If a server uses the same long-term keypair for key exchange, an attacker who records encrypted traffic today and steals the private key in five years can decrypt the recorded traffic. Forward secrecy (also called perfect forward secrecy) prevents this: every session uses a fresh ephemeral keypair that is discarded after the handshake. Even if the long-term key leaks, past sessions cannot be decrypted because the ephemeral keys are gone. TLS 1.3 mandates forward-secrecy-capable key exchanges (ECDHE); TLS 1.2 made it optional, which is why TLS 1.3 exists.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q1",
+      "payload": {
+        "question": "Why does TLS combine asymmetric and symmetric cryptography instead of using just one?",
+        "shape": "mcq",
+        "options": [
+          "Symmetric encryption is not secure; asymmetric is required for safety.",
+          "Asymmetric crypto is slow; it is used only to agree on a symmetric session key, which is then used to encrypt the bulk data efficiently.",
+          "Asymmetric crypto cannot be broken, so it protects the symmetric key.",
+          "Symmetric crypto cannot authenticate; asymmetric can."
+        ],
+        "answer_index": 1,
+        "rationale": "Asymmetric encryption (RSA, ECDH) is mathematically expensive — about 1000x slower than symmetric (AES, ChaCha20). Using it to encrypt gigabytes of traffic would be prohibitively slow. The TLS trick: use asymmetric crypto for the key exchange (the part that needs the public/private keypair magic to derive a shared secret over a public channel), then use that shared secret to drive a fast symmetric cipher for the actual data. Both halves are necessary: symmetric alone cannot agree on a key over an untrusted channel; asymmetric alone is too slow for bulk encryption. Option 2 confuses key exchange with encryption. Option 4 is partially true (asymmetric does enable authentication via signatures) but is not why both are used.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q2",
+      "payload": {
+        "question": "An attacker records all your TLS traffic today. Five years later, the server's long-term private key is leaked. Which scenario is safe, and why?",
+        "shape": "mcq",
+        "options": [
+          "Always safe — TLS is encrypted, so the recorded traffic cannot be decrypted.",
+          "Safe only if the session used ephemeral key exchange (forward secrecy) — then the leaked long-term key cannot recover the discarded ephemeral keys, and the recorded traffic stays encrypted.",
+          "Never safe — a leaked private key always decrypts all past traffic.",
+          "Safe only if the attacker does not also have the certificate."
+        ],
+        "answer_index": 1,
+        "rationale": "This is the point of forward secrecy. Without it (e.g., TLS 1.2 RSA key exchange, now forbidden), every session used the server's long-term key to encrypt a pre-master secret. Leak the long-term key, and all recorded past sessions can be decrypted. With forward secrecy (TLS 1.3 mandatory; TLS 1.2 optional via ECDHE), each session uses a fresh ephemeral keypair that is discarded after the handshake. The long-term key only signs the handshake — it does not encrypt the session key. Even if the long-term key leaks later, the attacker cannot recover the ephemeral private keys (they were thrown away), so the recorded session keys are safe, and so is the recorded traffic. This is why forward secrecy became mandatory in TLS 1.3 — it defends against 'record now, decrypt later' attacks.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q3",
+      "payload": {
+        "question": "In mutual TLS (mTLS), who presents a certificate, and what is the main advantage over bearer-token auth?",
+        "shape": "mcq",
+        "options": [
+          "Only the server presents a cert; mTLS just means TLS is used twice.",
+          "Both client and server present certificates. The advantage: the private key never leaves the client, so there is no bearer token to steal or leak.",
+          "Only the client presents a cert; the server trusts it blindly.",
+          "Neither — mTLS uses pre-shared keys, not certificates."
+        ],
+        "answer_index": 1,
+        "rationale": "In mTLS, the server also requests a client certificate and validates it against its own trust store. Both sides authenticate via certificates, not bearer tokens. The advantage is operational: a bearer token (API key, JWT) is sent on every request and can be stolen from logs, proxies, or memory. A private key never leaves the client's process — it is used to sign handshake transcripts, not transmitted. Stealing it requires compromising the client machine, not the network path. This is why service meshes (Istio, Linkerd) and zero-trust networks use mTLS for service-to-service auth: every service has a cert issued by an internal CA, and every connection is mutually authenticated without any token in any header.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-tls-mental",
+      "payload": {
+        "text": "Engineering mental model",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-tls-mental",
+      "payload": {
+        "text": "**Mental model.** Think of TLS — Transport Layer Security as a deliberate boundary in a system. The boundary exists because something becomes harder to manage when everything is done in one place: latency, scale, failure isolation, consistency, cost, or team ownership. The useful question is not “what does TLS — Transport Layer Security mean?” but “what pressure makes this boundary worth introducing, and what new failure mode does it create?”"
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-tls-decision",
+      "payload": {
+        "title": "Design lens",
+        "body": "Before choosing TLS — Transport Layer Security, name the workload, the critical user path, the dominant bottleneck, the failure you are trying to absorb, and the trade-off you are willing to accept. If you cannot name those five things, the design is probably premature.",
+        "kind": "info"
+      }
+    },
+    {
+      "type": "image",
+      "id": "upgrade-image-tls",
+      "payload": {
+        "src": "/learning-visuals/tls.svg",
+        "alt": "Original NO CAP systems visual for TLS — Transport Layer Security.",
+        "caption": "TLS — Transport Layer Security: a compact system-thinking visual.",
+        "credit": "Original NO CAP visual.",
+        "source_url": "https://github.com/donnemartin/system-design-primer"
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "upgrade-mermaid-tls",
+      "payload": {
+        "code": "flowchart LR\n  A[Client] --> B[Gateway] --> C[Service] --> D[State] --> E[Outcome]",
+        "caption": "TLS — Transport Layer Security: a simplified system view showing the primary flow and the main state boundaries.",
+        "alt_text": "TLS — Transport Layer Security: a simplified system view showing the primary flow and the main state boundaries."
+      }
+    },
+    {
+      "type": "code",
+      "id": "upgrade-code-tls",
+      "payload": {
+        "language": "text",
+        "code": "// Pseudocode\nrequest = receive()\nresult = tls(request)\nreturn result\n\n// Production questions:\n// 1. What happens on timeout?\n// 2. Can this operation be retried safely?\n// 3. What is the bottleneck?",
+        "caption": "A minimal engineering sketch for reasoning about TLS — Transport Layer Security."
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-tls-numbers",
+      "payload": {
+        "text": "Back-of-the-envelope reasoning",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-tls-numbers",
+      "payload": {
+        "text": "Numerical lens: write down traffic, payload size, read/write ratio, peak multiplier and durability target before choosing a component. The numbers should justify the architecture."
+      }
+    },
+    {
+      "type": "simulation",
+      "id": "upgrade-sim-tls",
+      "payload": {
+        "title": "Interactive thought experiment: TLS — Transport Layer Security",
+        "description": "Change the variables below and predict what breaks first in TLS — Transport Layer Security. The production lab can later reuse these same inputs.",
+        "variables": [
+          {
+            "name": "traffic",
+            "description": "Requests/events per second",
+            "default": "1000"
+          },
+          {
+            "name": "latency",
+            "description": "Dependency latency",
+            "default": "50ms"
+          },
+          {
+            "name": "failure_rate",
+            "description": "Injected failure rate",
+            "default": "0%"
+          }
+        ],
+        "placeholder_note": "Interactive controls are deterministic; use the linked Labs section when a dedicated lab exists."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-tls-hint",
+      "payload": {
+        "title": "Hint",
+        "body": "If you are stuck on TLS — Transport Layer Security, start by drawing the request path and marking every network hop, stateful component, queue, cache and failure boundary. Then estimate where the system will saturate.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-tls-1",
+      "payload": {
+        "shape": "prediction",
+        "question": "You increase traffic by 10× in a system using TLS — Transport Layer Security. What should you inspect first?",
+        "options": [
+          "The newest framework version",
+          "The dominant bottleneck and its saturation signal",
+          "Only the UI",
+          "Nothing; the architecture should absorb any traffic automatically"
+        ],
+        "answer_index": 1,
+        "rationale": "System design is a constraint-and-bottleneck exercise. Start with the resource or dependency that will saturate first, then choose the smallest change that removes that bottleneck.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-tls-2",
+      "payload": {
+        "shape": "mcq",
+        "question": "Which statement is the safest engineering habit when using TLS — Transport Layer Security?",
+        "options": [
+          "Choose it because it is popular",
+          "Add it before measuring the problem",
+          "State the workload, failure mode and trade-off it is solving",
+          "Use the most distributed design possible"
+        ],
+        "answer_index": 2,
+        "rationale": "Good architecture starts from requirements, workload and failure assumptions. The component is the consequence of that reasoning, not the starting point.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "scenario",
+      "id": "upgrade-scenario-tls",
+      "payload": {
+        "prompt": "Production scenario: your system uses TLS — Transport Layer Security, traffic suddenly spikes, and p99 latency doubles. What is your first move?",
+        "context": "You have dashboards for traffic, latency, errors and saturation. You can change the architecture, but every change has operational cost.",
+        "options": [
+          {
+            "id": "a",
+            "text": "Add more instances immediately",
+            "outcome": "This may help, but only if compute saturation is the bottleneck.",
+            "correct": false
+          },
+          {
+            "id": "b",
+            "text": "Inspect the bottleneck and its saturation signal first",
+            "outcome": "Correct: diagnose before scaling or introducing a new pattern.",
+            "correct": true
+          },
+          {
+            "id": "c",
+            "text": "Disable monitoring to reduce overhead",
+            "outcome": "This removes the evidence you need to diagnose the incident.",
+            "correct": false
+          }
+        ],
+        "rationale": "Measure the limiting resource or dependency first. A bottleneck can be compute, database I/O, network, cache misses, lock contention, downstream latency, or queue backlog.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-tls-interview",
+      "payload": {
+        "text": "Interview drill",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-tls-interview",
+      "payload": {
+        "text": "**Answer this without notes:** When would you choose TLS — Transport Layer Security, and when would you intentionally avoid it? Mention at least one bottleneck it addresses, one failure mode it introduces, and one alternative. Then quantify the workload you are designing for."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "field-guide-tls",
+      "payload": {
+        "title": "Engineering lens",
+        "body": "For TLS - Transport Layer Security, define the trust boundary first. Identify who is allowed to perform each action, where credentials live, how they expire, and what a compromised credential can reach.",
+        "kind": "tip"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "numerical-lens-tls",
+      "payload": {
+        "text": "### Numerical sanity check\n\nA practical blast-radius question: if one credential is compromised, how many users, services, records or regions could it affect? Prefer designs where that number is deliberately bounded."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "field-question-tls",
+      "payload": {
+        "shape": "prediction",
+        "question": "What is the smallest trust boundary you would enforce for TLS - Transport Layer Security, and what would you log so a suspicious action can be investigated later?",
+        "context": "Do not optimize for a memorized definition. Reason from the workload and failure mode.",
+        "options": [
+          "Scale the same component immediately.",
+          "Measure the current bottleneck and state the assumption that changed.",
+          "Add more technologies until throughput improves.",
+          "Choose the most popular architecture."
+        ],
+        "answer_index": 1,
+        "rationale": "Good system design starts with the bottleneck and the changed constraint. The most popular or complex choice is not automatically correct.",
+        "difficulty": "interview"
+      }
+    }
+  ],
+  "trade_offs": {
+    "pros": [
+      "Confidentiality, integrity, and authentication in one protocol — the foundation of HTTPS.",
+      "Forward secrecy (TLS 1.3) protects past traffic even if keys leak later.",
+      "Mutual TLS gives strong service-to-service auth without bearer tokens.",
+      "Standardized, audited, and deployed everywhere — every OS, every browser, every database driver.",
+      "0-RTT mode (TLS 1.3) lets repeat clients send data immediately, saving latency."
+    ],
+    "cons": [
+      "Handshake costs 1-2 RTT before application data — a latency tax on short connections.",
+      "Asymmetric crypto is CPU-intensive; terminating TLS at scale requires hardware or many cores.",
+      "Certificate management (issuance, renewal, revocation) is operationally complex.",
+      "Misconfiguration is common — wrong ciphers, expired certs, broken chains take down production.",
+      "0-RTT early data is replayable — must not be used for non-idempotent operations."
+    ]
+  },
+  "failure_modes": [
+    "Expired certificate — the most common TLS outage. Mitigate with automated renewal (Let's Encrypt, ACME).",
+    "Broken certificate chain — server omits intermediate cert, browser cannot build path to root.",
+    "Revocation that does not work — OCSP responders down, CRLs stale, attackers exploit the gap.",
+    "Downgrade attack — a man-in-the-middle forces TLS 1.0 or weak ciphers; mitigated by TLS_FALLBACK_SCSV and TLS 1.3.",
+    "0-RTT replay — attacker captures and replays early data; servers must reject non-idempotent 0-RTT requests.",
+    "Wildcards misused — a *.example.com cert is fine for a.example.com but does not cover a.b.example.com."
+  ],
+  "common_mistakes": [
+    "Using self-signed certs in production — fine for internal mTLS via a private CA, broken for public HTTPS.",
+    "Disabling hostname verification in client code 'to make it work' — opens the door to MITM.",
+    "Forgetting to renew certs — set up monitoring and automated renewal.",
+    "Allowing weak ciphers (RC4, 3DES) or old TLS versions (1.0, 1.1) for compatibility — security debt.",
+    "Treating mTLS as 'extra' — in zero-trust, it is the primary service-to-service auth.",
+    "Trusting the SNI for authentication — SNI is plaintext (in TLS 1.2) and forgeable; the cert is the auth."
+  ],
+  "where_you_see_it": [
+    "HTTPS — every secure web request.",
+    "Internal service mesh mTLS (Istio, Linkerd, Consul Connect).",
+    "Database TLS (Postgres, MySQL, MongoDB all support TLS; should be on by default).",
+    "Email (SMTP STARTTLS or SMTPS, IMAPS, POP3S).",
+    "Cloudflare's TLS 1.3 and 0-RTT deployment — a large-scale public implementation."
+  ],
+  "interview_prompts": [
+    "Walk through the TLS 1.3 handshake. Why is it one RTT and not two?",
+    "What is forward secrecy, and why is it mandatory in TLS 1.3?",
+    "How does a browser verify a server certificate? Walk the chain.",
+    "What is mTLS, and why is it used in service meshes?",
+    "What are the security implications of TLS 1.3's 0-RTT early data, and how do you use it safely?"
+  ],
+  "real_system_mappings": [
+    {
+      "system": "Cloudflare's edge TLS",
+      "how": "Terminates billions of TLS handshakes per day at the edge, with TLS 1.3 and 0-RTT widely deployed. Performance is critical: they use specialized crypto (BoringSSL) and hardware acceleration."
+    },
+    {
+      "system": "Istio service mesh",
+      "how": "Every pod gets a certificate from an internal CA (SPIFFE-based identity). Every service-to-service connection is mTLS, rotated automatically, with no application code involvement."
+    },
+    {
+      "system": "Let's Encrypt",
+      "how": "Free, automated certificate issuance via the ACME protocol. Replaced the paid-cert economy for most websites and made HTTPS universal."
+    }
+  ],
+  "status": "published",
+  "sources": [
+    {
+      "title": "System Design Primer",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Open source"
+    },
+    {
+      "title": "ByteByteGo — Scale from zero to millions",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "ByteByteGo"
+    },
+    {
+      "title": "System Design Tutorial",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "GeeksforGeeks"
+    },
+    {
+      "title": "System Design Roadmap",
+      "url": "https://roadmap.sh/system-design",
+      "publisher": "roadmap.sh"
+    },
+    {
+      "title": "Networking & Communication reference",
+      "url": "https://www.rfc-editor.org/",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Networking & Communication reference",
+      "url": "https://developer.mozilla.org/en-US/docs/Web/HTTP",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Networking & Communication reference",
+      "url": "https://www.cloudflare.com/learning/network-layer/what-is-a-protocol/",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Cloudflare Learning Center",
+      "url": "https://www.cloudflare.com/learning/",
+      "publisher": "Cloudflare"
+    }
+  ]
+}

@@ -1,0 +1,436 @@
+{
+  "slug": "design-key-value-store",
+  "version": 3,
+  "title": "Design Key-Value Store",
+  "phase": "case-studies",
+  "area": "Case Studies",
+  "estimated_minutes": 12,
+  "difficulty": "interview",
+  "summary": "Design a Dynamo-style distributed, eventually-consistent key-value store. Covers consistent hashing with virtual nodes, replication factor N with tunable W/R quorums, vector clocks for concurrent-write detection, hinted handoff for partition tolerance, read repair, and Merkle-tree anti-entropy. The deep dive walks through how a put/get traverses the ring and how the system stays available during node failures.",
+  "why_it_matters": "Every modern NoSQL database (DynamoDB, Cassandra, Riak, Voldemort, ScyllaDB) derives from the 2007 Dynamo paper. The patterns it introduced — consistent hashing, vector clocks, quorum tunability, hinted handoff — are the vocabulary for every distributed storage system you will design or operate. Understanding them at this depth is the difference between 'I have used Redis' and 'I can reason about a 1000-node cluster under partial failure.'",
+  "prerequisites": [
+    "consistent-hashing",
+    "replication",
+    "sharding"
+  ],
+  "related": [
+    "design-url-shortener"
+  ],
+  "used_in": [
+    "Amazon DynamoDB",
+    "Apache Cassandra",
+    "Riak KV",
+    "Voldemort (LinkedIn, now archived)",
+    "ScyllaDB (C++ rewrite of Cassandra)"
+  ],
+  "blocks": [
+    {
+      "type": "prose",
+      "id": "problem",
+      "payload": {
+        "text": "**What are we designing?** A distributed, eventually-consistent key-value store in the style of Amazon DynamoDB and Apache Cassandra. Clients do `put(key, value)`, `get(key)`, and `delete(key)`. The store runs on a cluster of commodity nodes, survives node failures and network partitions, scales horizontally by adding nodes, and lets the application tune the consistency vs availability trade-off per request.\n\nThis is the canonical 'design a NoSQL store' interview problem. The interesting parts are not the data structure (it is just a hash map) but everything around it: how do we partition data across nodes, replicate it, reconcile concurrent writes, handle node failures, and let the caller pick a consistency level."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "requirements",
+      "payload": {
+        "text": "**Functional requirements.**\n- `put(key, value)` — store or overwrite a value, with optional context (vector clock) for conflict detection.\n- `get(key)` — return the value, or a list of sibling values if there are unresolved conflicts.\n- `delete(key)` — tombstone the key (lazy delete).\n- Configurable consistency: caller picks `W` (write quorum) and `R` (read quorum) per request.\n\n**Non-functional requirements.**\n- **Availability**: writes always succeed even during a partition (AP system). If a node is reachable, it accepts the write.\n- **Scalability**: linear horizontal scaling to thousands of nodes and petabytes.\n- **Latency**: p99 read/write < 10 ms within a datacenter (in-memory + SSD).\n- **Elasticity**: adding or removing a node should not require downtime and should only move a fraction of the keyspace.\n- **Tunable consistency**: per-request, not per-cluster.\n\n**Non-goals.** No multi-key transactions, no JOINs, no secondary indexes (v1). These are layered on (e.g. Cassandra's LWT and SASI) later."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "capacity",
+      "payload": {
+        "text": "**Capacity estimation.** Assume a 1 PB working set across a 100-node cluster.\n\n*Per node.* 1 PB / 100 nodes = 10 TB/node. A modern NVMe SSD holds 8-15 TB, so one disk per node. Replication factor N=3 means each logical key is stored on 3 nodes, so raw storage is 3 PB across the cluster = 30 TB/node — still fits with 2-3 disks.\n\n*Throughput.* If the cluster sustains 1M ops/sec, that's 10K ops/sec/node — easily handled by an LSM-tree storage engine (RocksDB) on SSD.\n\n*Memory.* Each node caches the hot 5% of keys in RAM. 10 TB x 5% = 500 GB. That is too much for RAM; we cache only the hot 0.1% (10 GB) — fits comfortably in 64 GB RAM with room for block cache, memtable, and index.\n\n*Network.* 1M ops/sec x 1 KB avg value = 1 GB/s = 8 Gbps. With RF=3, intra-cluster replication traffic is 3x writes = 24 Gbps of internal traffic if every write is synchronously replicated. Use 25 Gbps NICs and batch replication.\n\n*Key space.* 64-bit hashes give 1.8 x 10^19 keys; consistent hashing maps the ring to nodes. Virtual nodes (200-500 per physical node) ensure even distribution."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "apis",
+      "payload": {
+        "text": "**APIs.**\n\n```\nput(key, value, context=None, W=quorum, N=3)\n    -> ok | conflict\n\nget(key, R=quorum, N=3)\n    -> (value, context) | [(v1, ctx1), (v2, ctx2), ...]   # siblings\n\ndelete(key, W=quorum, N=3)\n    -> ok      # writes a tombstone\n```\n\n`context` is an opaque vector clock returned by the previous `get`. The client must round-trip it on the next `put` so the store can detect concurrent writes.\n\n**Consistency levels.** W and R are quorum sizes:\n- W=1, R=1 — fastest, weakest (any one replica answers).\n- W=quorum, R=quorum — strong consistency IF W + R > N (quorum intersection).\n- W=N, R=N — slowest, strongest (all replicas must agree).\n- W=1, R=N — write fast, read everything (good for read-heavy + occasional conflict resolution).\n\nThe fundamental invariant: if W + R > N, reads see the latest committed write (quorum overlap). If W + R <= N, the system is eventually consistent."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "data-model",
+      "payload": {
+        "text": "**Data model.**\n\n*Storage per node* (LSM-tree, e.g. RocksDB):\n```\nkv (\n  key        BLOB,        -- the actual key bytes\n  value      BLOB,        -- the value bytes\n  vector_clk TEXT,        -- serialized vector clock\n  timestamp  BIGINT,     -- last-write-wins tiebreaker\n  tombstone  BOOLEAN,    -- lazy delete marker\n  PRIMARY KEY (key, vector_clk)   -- multiple versions per key\n)\n```\n\nMultiple siblings can coexist (different `vector_clk` per `key`); the application resolves them on read.\n\n*Cluster metadata* (gossiped via a gossip protocol):\n```\nnode (\n  node_id       UUID,\n  address       INET,\n  heartbeat     BIGINT,    -- monotonic counter; if stale, node is suspected dead\n  token_ranges  JSON        -- which hash ranges this node owns\n)\n```\n\nEach node keeps a local copy of cluster state and reconciles it via gossip every 1 second with 3 random peers."
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "arch",
+      "payload": {
+        "code": "flowchart TD\n    N0[\"Client\"]\n    N1[\"k, v\"]\n    N2[\"put(k,\"]\n    N3[\"Coordinator\"]\n    N4[\"[Coordinator]\"]\n    N5[\"(any\"]\n    N6[\"node\"]\n    N7[\"can\"]\n    N8[\"the\"]\n    N9[\"coordinator;\"]\n    N10[\"client\"]\n    N11[\"picks\"]\n    N12[\"one,\"]\n    N13[\"often\"]\n    N14[\"one\"]\n    N15[\"that\"]\n    N16[\"owns\"]\n    N17[\"key's\"]\n    N18[\"hash\"]\n    N19[\"range)\"]\n    N20[\"k\"]\n    N21[\"hash(k)\"]\n    N22[\"position\"]\n    N23[\"consistent\"]\n    N24[\"ring\"]\n    N25[\"walk\"]\n    N26[\"clockwise\"]\n    N27[\"find\"]\n    N28[\"replicas:\"]\n    N29[\"forward\"]\n    N30[\"put\"]\n    N31[\"all\"]\n    N32[\"parallel\"]\n    N33[\"Node A\"]\n    N34[\"Node B\"]\n    N35[\"Node C\"]\n    N36[\"handoff targets if a replica is down\"]\n    N37[\"[Node\"]\n    N38[\"(handoff\"]\n    N39[\"targets\"]\n    N40[\"replica\"]\n    N41[\"down)\"]\n    N42[\"write\"]\n    N43[\"LSM-tree\"]\n    N44[\"[LSM\"]\n    N45[\"tree]\"]\n    N46[\"default W=quorum=2\"]\n    N47[\"ack\"]\n    N48[\"when\"]\n    N49[\"replicas\"]\n    N50[\"reply\"]\n    N51[\"(default\"]\n    N52[\"quorum\"]\n    N53[\"every 1s, 3 random peers\"]\n    N54[\"Gossip\"]\n    N55[\"plane\"]\n    N56[\"(every\"]\n    N57[\"1s,\"]\n    N58[\"random\"]\n    N59[\"peers)\"]\n    N60[\"Node\"]\n    N61[\"heartbeat,\"]\n    N62[\"token\"]\n    N63[\"ownership,\"]\n    N64[\"suspected\"]\n    N65[\"dead\"]\n    N66[\"list\"]\n    N67[\"...\"]\n    N68[\"Hinted\"]\n    N69[\"handoff\"]\n    N70[\"down\"]\n    N71[\"coordinator\"]\n    N72[\"forwards\"]\n    N73[\"write,\"]\n    N74[\"buffered\"]\n    N75[\"hint\"]\n    N76[\"with\"]\n    N77[\"note\"]\n    N78[\"'for\"]\n    N79[\"B'.\"]\n    N80[\"When\"]\n    N81[\"recovers,\"]\n    N82[\"hint.\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44\n    N44 --> N45\n    N45 --> N46\n    N46 --> N47\n    N47 --> N48\n    N48 --> N49\n    N49 --> N50\n    N50 --> N51\n    N51 --> N52\n    N52 --> N53\n    N53 --> N54\n    N54 --> N55\n    N55 --> N56\n    N56 --> N57\n    N57 --> N58\n    N58 --> N59\n    N59 --> N60\n    N60 --> N61\n    N61 --> N62\n    N62 --> N63\n    N63 --> N64\n    N64 --> N65\n    N65 --> N66\n    N66 --> N67\n    N67 --> N68\n    N68 --> N69\n    N69 --> N70\n    N70 --> N71\n    N71 --> N72\n    N72 --> N73\n    N73 --> N74\n    N74 --> N75\n    N75 --> N76\n    N76 --> N77\n    N77 --> N78\n    N78 --> N79\n    N79 --> N80\n    N80 --> N81\n    N81 --> N82",
+        "caption": "Dynamo-style KV store: a coordinator forwards writes to N replicas, waits for W acks, and uses hinted handoff + gossip for failure recovery.",
+        "alt_text": "A diagram of a Dynamo-style key-value store. A client sends a put request to a coordinator node. The coordinator hashes the key to a position on a consistent-hash ring, walks clockwise to find three replicas A, B, and C, and forwards the write to all three in parallel. Each replica writes to its local LSM-tree and acks when done; the coordinator replies to the client once W replicas have acked. A separate gossip plane runs in the background exchanging heartbeats, token ownership, and the suspected-dead list between random peers. If a replica is down, the coordinator buffers the write on a hint node H labeled 'for B', which forwards it when B recovers."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "deep-dive",
+      "payload": {
+        "text": "**Deep dive: consistency hashing, vector clocks, and hinted handoff.**\n\n**Consistent hashing.** Each node maps to one or more positions on a 0..2^64 ring (hash of node_id). Each key is hashed onto the same ring; the key's replicas are the next N nodes clockwise. Adding or removing a node only moves keys between the departing node and its neighbor — most keys stay put. To avoid hotspots when nodes are few, each physical node claims 200-500 'virtual nodes' (vnodes) scattered around the ring; this guarantees +/- 10% load balance even at small cluster sizes.\n\n**Vector clocks.** Each value carries a `{node_id: counter}` map. When a node writes a key, it increments its own counter in the map. Two writes are concurrent iff neither clock dominates the other (`A > B` means A has every entry of B and at least one strictly greater). If they are concurrent, the store returns BOTH values as siblings on the next `get`; the application reconciles them and writes a new value with a clock that dominates both. This is how Dynamo avoids throwing away writes during a partition. The trade-off: vector clocks grow unboundedly for keys that are written by many nodes; Dynamo prunes them by keeping only the last N entries per node and a timestamp.\n\n**Hinted handoff.** When the coordinator tries to replicate to replica B and B is down, it picks a healthy 'hint' node H, writes the data to H with a sticky note `this is for B, deliver when B returns`, and replies success to the client (W quorum is satisfied by A + H). When B comes back, H delivers the buffered writes. This keeps writes available during partitions and node restarts. Hints expire after a few hours (bounded storage) — if B is gone for a day, we rely on read-repair and anti-entropy (Merkle-tree sync) to converge.\n\n**Read repair.** On a read, the coordinator fetches from R replicas; if they disagree, it picks the latest, writes it back to the stale replicas, and returns the value. This self-heals skew every time a key is read.\n\n**Anti-entropy.** A background process periodically compares Merkle trees of key ranges between replicas and streams any differing keys. This catches divergence that read-repair misses (keys that aren't being read)."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "bottlenecks",
+      "payload": {
+        "text": "**Bottlenecks and failure modes.**\n\n- **Hot key.** A single key written 100K/sec lands on the same 3 replicas; they saturate. *Mitigation*: client-side write spreading (append a random suffix to the key, store the real key in the value); read-only replicas; or in DynamoDB, partition keys that hash to different nodes.\n\n- **Vector clock explosion.** A key written by 1000 distinct nodes (e.g. a counter incremented in a partition) has a 1000-entry clock. *Mitigation*: prune clocks to the last 10 entries; use dotted version vectors for counters.\n\n- **Hinted-handoff disk pressure.** If 5 nodes go down, the hint nodes accumulate 5 nodes' worth of writes. *Mitigation*: bound hint storage (e.g. 1 GB per hint node); drop oldest hints; alert and trigger repair when hints accumulate.\n\n- **Read-repair storms.** After a long partition, the first read to every divergent key triggers a read-repair write, causing a write spike. *Mitigation*: rate-limit read-repair; do most anti-entropy in background Merkle sync.\n\n- **Gossip convergence lag.** With 1000+ nodes, gossip takes 10-30 seconds to converge, during which coordinators may write to 'dead' nodes. *Mitigation*: the write deadline times out and the coordinator uses hinted handoff.\n\n- **Bootstrap/rebalance hotspot.** Adding a new node pulls a token range from an existing node; if the range is huge, the existing node's disk and network saturate during transfer. *Mitigation*: stream the range in chunks with rate limiting; use vnodes so each new node drains a small slice from many existing nodes.\n\n- **Sloppy quorums.** A write that goes to a hint node instead of a real replica still counts toward the W quorum. If the hint node is on a different rack, you can lose durability on a rack failure. *Mitigation*: rack-aware replica placement."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "scaling",
+      "payload": {
+        "text": "**Scaling strategy and trade-offs.**\n\n*Horizontal scale.* Add nodes; vnodes automatically rebalance a slice of the ring. A 1000-node cluster with 256 vnodes/node means each new node drains 1/1000th of the keyspace from each existing node — fast, balanced, no operator intervention.\n\n*Replication factor.* RF=3 is the sweet spot: tolerates 1 failure with quorum reads/writes (W=2, R=2, since 2+2 > 3). RF=5 tolerates 2 failures but triples storage and replication traffic.\n\n*Cross-DC replication.* For multi-region, run RF=3 with replicas spread: 2 in the primary DC, 1 in a remote DC. This survives a DC loss with no data loss. For stronger locality, run independent RF=3 rings per DC with async cross-DC streaming — local reads are fast, but cross-DC consistency is eventual.\n\n*Storage compaction.* LSM-trees accumulate SSTables; without compaction, reads slow as the number of SSTables grows. Run tiered compaction for write-heavy workloads (lower write amp), leveled compaction for read-heavy (lower read amp). Compaction is the #1 cause of latency spikes — bound its IOPS.\n\n*Trade-offs made explicit.*\n- We chose AP over CP — system stays writable during a partition, but two clients may write concurrently to the same key and produce siblings.\n- We chose per-request W/R — caller picks speed vs consistency, but a misconfigured caller can get stale reads.\n- We chose vector clocks over last-write-wins — correct under concurrent writes, but clocks grow and require pruning.\n- We chose sloppy quorums + hinted handoff — writes always succeed, but a write may live on a non-replica node temporarily, complicating failure reasoning.\n- We chose gossip over a coordinator service — no SPOF, but cluster state lags 10-30s, so coordinators sometimes write to dead nodes (recovered via hint)."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q1",
+      "payload": {
+        "question": "You need strong consistency for a specific key (e.g. a bank balance). Which W and R should you use with N=3?",
+        "shape": "mcq",
+        "options": [
+          "W=1, R=1 (fastest path, accept eventual consistency).",
+          "W=2, R=2 (quorum: 2+2 > 3, so reads always see the latest write).",
+          "W=1, R=3 (write fast, read all replicas).",
+          "Any combination works as long as W + R >= 2."
+        ],
+        "answer_index": 1,
+        "rationale": "Strong consistency in a quorum system requires W + R > N, guaranteeing that the read quorum and write quorum always overlap on at least one replica that has the latest write. With N=3, W=2, R=2 satisfies 2+2 > 3. W=1,R=3 also satisfies 1+3 > 3 but is read-heavy. W=2,R=2 is the standard balance. Note: this gives you linearizable single-key reads/writes, but does NOT give you multi-key transactions — for those you need Paxos/Raft or LWT (lightweight transactions).",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q2",
+      "payload": {
+        "question": "During a network partition, two clients concurrently write different values to the same key on different sides of the partition. When the partition heals, what does get(key) return?",
+        "shape": "mcq",
+        "options": [
+          "The value with the later wall-clock timestamp (last-write-wins).",
+          "Both values as siblings; the application must reconcile them.",
+          "Whichever value was written first; the second is dropped.",
+          "An error indicating the key is corrupt."
+        ],
+        "answer_index": 1,
+        "rationale": "Dynamo returns both concurrent values as siblings because neither vector clock dominates the other. This is the correct behavior under eventual consistency: the store does not throw away either write, because it cannot know which one is 'right'. The application reads both, applies business logic to merge (e.g. sum for a counter, union for a set, or prompt the user), and writes back a new value whose vector clock dominates both. Last-write-wins (option A) is what Cassandra does by default — it's simpler but silently loses concurrent writes, which is wrong for anything where data loss matters.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-design-key-value-store-mental",
+      "payload": {
+        "text": "Engineering mental model",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-design-key-value-store-mental",
+      "payload": {
+        "text": "**Mental model.** Think of Design Key-Value Store as a deliberate boundary in a system. The boundary exists because something becomes harder to manage when everything is done in one place: latency, scale, failure isolation, consistency, cost, or team ownership. The useful question is not “what does Design Key-Value Store mean?” but “what pressure makes this boundary worth introducing, and what new failure mode does it create?”"
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-design-key-value-store-decision",
+      "payload": {
+        "title": "Design lens",
+        "body": "Before choosing Design Key-Value Store, name the workload, the critical user path, the dominant bottleneck, the failure you are trying to absorb, and the trade-off you are willing to accept. If you cannot name those five things, the design is probably premature.",
+        "kind": "info"
+      }
+    },
+    {
+      "type": "image",
+      "id": "upgrade-image-design-key-value-store",
+      "payload": {
+        "src": "/learning-visuals/design-key-value-store.svg",
+        "alt": "Original NO CAP systems visual for Design Key-Value Store.",
+        "caption": "Design Key-Value Store: a compact system-thinking visual.",
+        "credit": "Original NO CAP visual.",
+        "source_url": "https://github.com/donnemartin/system-design-primer"
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "upgrade-mermaid-design-key-value-store",
+      "payload": {
+        "code": "flowchart LR\n  A[Client] --> B[Service] --> C[Data layer] --> D[Replication] --> E[Durability]",
+        "caption": "Design Key-Value Store: a simplified system view showing the primary flow and the main state boundaries.",
+        "alt_text": "Design Key-Value Store: a simplified system view showing the primary flow and the main state boundaries."
+      }
+    },
+    {
+      "type": "code",
+      "id": "upgrade-code-design-key-value-store",
+      "payload": {
+        "language": "sql",
+        "code": "SELECT id, created_at\nFROM records\nWHERE tenant_id = ?\nORDER BY created_at DESC\nLIMIT 50;\n\n-- Ask: which index makes this query predictable at scale?",
+        "caption": "A minimal engineering sketch for reasoning about Design Key-Value Store."
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-design-key-value-store-numbers",
+      "payload": {
+        "text": "Back-of-the-envelope reasoning",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-design-key-value-store-numbers",
+      "payload": {
+        "text": "Numerical lens: write down traffic, payload size, read/write ratio, peak multiplier and durability target before choosing a component. The numbers should justify the architecture."
+      }
+    },
+    {
+      "type": "simulation",
+      "id": "upgrade-sim-design-key-value-store",
+      "payload": {
+        "title": "Interactive thought experiment: Design Key-Value Store",
+        "description": "Change the variables below and predict what breaks first in Design Key-Value Store. The production lab can later reuse these same inputs.",
+        "variables": [
+          {
+            "name": "traffic",
+            "description": "Requests/events per second",
+            "default": "1000"
+          },
+          {
+            "name": "latency",
+            "description": "Dependency latency",
+            "default": "50ms"
+          },
+          {
+            "name": "failure_rate",
+            "description": "Injected failure rate",
+            "default": "0%"
+          }
+        ],
+        "placeholder_note": "Interactive controls are deterministic; use the linked Labs section when a dedicated lab exists."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-design-key-value-store-hint",
+      "payload": {
+        "title": "Hint",
+        "body": "If you are stuck on Design Key-Value Store, start by drawing the request path and marking every network hop, stateful component, queue, cache and failure boundary. Then estimate where the system will saturate.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-design-key-value-store-1",
+      "payload": {
+        "shape": "prediction",
+        "question": "You increase traffic by 10× in a system using Design Key-Value Store. What should you inspect first?",
+        "options": [
+          "The newest framework version",
+          "The dominant bottleneck and its saturation signal",
+          "Only the UI",
+          "Nothing; the architecture should absorb any traffic automatically"
+        ],
+        "answer_index": 1,
+        "rationale": "System design is a constraint-and-bottleneck exercise. Start with the resource or dependency that will saturate first, then choose the smallest change that removes that bottleneck.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-design-key-value-store-2",
+      "payload": {
+        "shape": "mcq",
+        "question": "Which statement is the safest engineering habit when using Design Key-Value Store?",
+        "options": [
+          "Choose it because it is popular",
+          "Add it before measuring the problem",
+          "State the workload, failure mode and trade-off it is solving",
+          "Use the most distributed design possible"
+        ],
+        "answer_index": 2,
+        "rationale": "Good architecture starts from requirements, workload and failure assumptions. The component is the consequence of that reasoning, not the starting point.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "scenario",
+      "id": "upgrade-scenario-design-key-value-store",
+      "payload": {
+        "prompt": "Production scenario: your system uses Design Key-Value Store, traffic suddenly spikes, and p99 latency doubles. What is your first move?",
+        "context": "You have dashboards for traffic, latency, errors and saturation. You can change the architecture, but every change has operational cost.",
+        "options": [
+          {
+            "id": "a",
+            "text": "Add more instances immediately",
+            "outcome": "This may help, but only if compute saturation is the bottleneck.",
+            "correct": false
+          },
+          {
+            "id": "b",
+            "text": "Inspect the bottleneck and its saturation signal first",
+            "outcome": "Correct: diagnose before scaling or introducing a new pattern.",
+            "correct": true
+          },
+          {
+            "id": "c",
+            "text": "Disable monitoring to reduce overhead",
+            "outcome": "This removes the evidence you need to diagnose the incident.",
+            "correct": false
+          }
+        ],
+        "rationale": "Measure the limiting resource or dependency first. A bottleneck can be compute, database I/O, network, cache misses, lock contention, downstream latency, or queue backlog.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-design-key-value-store-interview",
+      "payload": {
+        "text": "Interview drill",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-design-key-value-store-interview",
+      "payload": {
+        "text": "**Answer this without notes:** When would you choose Design Key-Value Store, and when would you intentionally avoid it? Mention at least one bottleneck it addresses, one failure mode it introduces, and one alternative. Then quantify the workload you are designing for."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "field-guide-design-key-value-store",
+      "payload": {
+        "title": "Engineering lens",
+        "body": "For Design Key-Value Store, start with access patterns rather than brand names. Identify the dominant reads/writes, data relationships, consistency requirements, partition key, hot keys and failure behavior before choosing a storage strategy.",
+        "kind": "tip"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "numerical-lens-design-key-value-store",
+      "payload": {
+        "text": "### Numerical sanity check\n\nA rough capacity check: required write throughput ≈ peak writes/s × average record size. At 5,000 writes/s and 2 KB average payloads, the raw incoming data stream is about 10 MB/s before indexes, replication and overhead."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "field-question-design-key-value-store",
+      "payload": {
+        "shape": "prediction",
+        "question": "A team proposes Design Key-Value Store because it 'scales'. What workload characteristic would make that choice a poor fit?",
+        "context": "Do not optimize for a memorized definition. Reason from the workload and failure mode.",
+        "options": [
+          "Scale the same component immediately.",
+          "Measure the current bottleneck and state the assumption that changed.",
+          "Add more technologies until throughput improves.",
+          "Choose the most popular architecture."
+        ],
+        "answer_index": 1,
+        "rationale": "Good system design starts with the bottleneck and the changed constraint. The most popular or complex choice is not automatically correct.",
+        "difficulty": "interview"
+      }
+    }
+  ],
+  "trade_offs": {
+    "pros": [
+      "Always-available writes — any reachable node accepts the write (AP system).",
+      "Tunable consistency per request via W/R quorum sizes.",
+      "Linear horizontal scaling with virtual nodes for balanced redistribution.",
+      "Self-healing: read-repair + Merkle anti-entropy converge divergence automatically."
+    ],
+    "cons": [
+      "Eventually consistent — concurrent writes produce siblings the application must reconcile.",
+      "No multi-key transactions or JOINs in the base design.",
+      "Vector clocks grow under write-heavy keys; pruning is required.",
+      "Gossip convergence lags 10-30s on large clusters, causing transient bad routing."
+    ]
+  },
+  "failure_modes": [
+    "Hot key saturates its 3 replicas — needs write spreading.",
+    "Vector clock explosion on frequently-partitioned counters — needs dotted version vectors.",
+    "Hinted-handoff disk pressure when many nodes fail simultaneously.",
+    "Read-repair storms after a long partition heals.",
+    "Bootstrap hotspot when adding a node drains a huge token range."
+  ],
+  "common_mistakes": [
+    "Choosing W=1, R=1 for a financial key and assuming strong consistency.",
+    "Forgetting that W + R > N is required for quorum overlap.",
+    "Treating last-write-wins as safe for concurrent writes (it silently drops data).",
+    "Bounding hint storage to 0 — partitions longer than the hint window lose writes.",
+    "Ignoring rack awareness when placing replicas — a rack failure takes down all replicas."
+  ],
+  "where_you_see_it": [
+    "Amazon DynamoDB",
+    "Apache Cassandra",
+    "Riak KV",
+    "Voldemort (LinkedIn, now archived)",
+    "ScyllaDB (C++ rewrite of Cassandra)"
+  ],
+  "interview_prompts": [
+    "Design a distributed key-value store like Dynamo.",
+    "How do you handle concurrent writes to the same key during a network partition?",
+    "Explain how consistent hashing lets you add a node without rehashing everything.",
+    "What goes wrong if W + R <= N?"
+  ],
+  "real_system_mappings": [
+    {
+      "system": "Amazon DynamoDB",
+      "how": "Production descendant of the Dynamo paper. RF=3 across AZs, tunable consistency (eventual vs strong), LWT for Paxos-based conditional writes."
+    },
+    {
+      "system": "Apache Cassandra",
+      "how": "Open-source Dynamo-lineage store. Uses Murmur3 partitioner, tombstones for deletes, hinted handoff, and Merkle-tree anti-entropy via nodetool repair."
+    },
+    {
+      "system": "Riak KV",
+      "how": "The most literal Dynamo implementation — exposes siblings and vector clocks directly to the application for conflict resolution."
+    }
+  ],
+  "status": "published",
+  "sources": [
+    {
+      "title": "System Design Primer",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Open source"
+    },
+    {
+      "title": "ByteByteGo — Scale from zero to millions",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "ByteByteGo"
+    },
+    {
+      "title": "System Design Tutorial",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "GeeksforGeeks"
+    },
+    {
+      "title": "System Design Roadmap",
+      "url": "https://roadmap.sh/system-design",
+      "publisher": "roadmap.sh"
+    },
+    {
+      "title": "Case Studies reference",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Case Studies reference",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Case Studies reference",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "Reference"
+    }
+  ]
+}

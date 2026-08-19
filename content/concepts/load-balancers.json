@@ -1,0 +1,552 @@
+{
+  "slug": "load-balancers",
+  "version": 5,
+  "title": "Load Balancers",
+  "phase": "architecture-infrastructure",
+  "area": "Architecture & Infrastructure",
+  "estimated_minutes": 8,
+  "difficulty": "core",
+  "summary": "A load balancer distributes incoming traffic across multiple servers. It is the foundational scaling primitive: it enables horizontal scaling, fault tolerance, and rolling deploys. Without it, you have one server and a single point of failure.",
+  "why_it_matters": "A single server cannot handle meaningful traffic, cannot survive hardware failure, and cannot scale beyond one machine's CPU and RAM. Load balancing solves all three. Every production web service with more than one server uses load balancers. It is the #1 most important infrastructure component in system design.",
+  "prerequisites": [
+    "how-the-internet-works"
+  ],
+  "related": [
+    "horizontal-scaling",
+    "reverse-proxy",
+    "cdn"
+  ],
+  "used_in": [
+    "Every production web service with more than one server."
+  ],
+  "blocks": [
+    {
+      "type": "prose",
+      "id": "intro",
+      "payload": {
+        "text": "A load balancer sits in front of a pool of backend servers. Incoming requests arrive at the load balancer; it picks a backend and forwards the request; the backend responds; the load balancer relays the response to the client. To the client, the load balancer is the server. To the backend, the load balancer is the client.\n\nThe choice of which backend to pick is the **algorithm**. The choice of how to detect failures is the **health check**. These two decisions, plus whether to operate at L4 (transport) or L7 (application), define the load balancer."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "the-problem",
+      "payload": {
+        "text": "**The problem:**\n\nYou have one application server. At 100 requests/sec, it's fine — CPU at 30%, memory stable, 50ms latency. Life is good.\n\nThen traffic grows. At 1,000 requests/sec:\n- CPU hits 90%.\n- Memory pressure causes GC pauses.\n- Latency climbs to 200ms.\n- Users start seeing timeouts.\n\nAt 10,000 requests/sec, the server is dead. OOM crash, connection exhaustion, or the OS just stops responding.\n\n**The naive fix**: buy a bigger server. Double the CPU, double the RAM. But that only gets you 2x — you're still one machine, and now it's expensive. And it's still a single point of failure: if that one machine dies, your entire service is down.\n\n**The right fix**: add more servers and a load balancer to distribute traffic across them."
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "lb-architecture",
+      "payload": {
+        "code": "flowchart TD\n    N0[\"Clients\"]\n    N1[\"[Clients]\"]\n    N2[\"Load\"]\n    N3[\"Balancer\"]\n    N4[\"S1\"]\n    N5[\"S2\"]\n    N6[\"S3\"]\n    N7[\"[S1]\"]\n    N8[\"[S2]\"]\n    N9[\"[S3]\"]\n    N10[\"shared — S1/S2/S3 are stateless\"]\n    N11[\"Database\"]\n    N12[\"(shared\"]\n    N13[\"are\"]\n    N14[\"stateless)\"]\n    N15[\"The\"]\n    N16[\"the\"]\n    N17[\"single\"]\n    N18[\"entry\"]\n    N19[\"point.\"]\n    N20[\"dies,\"]\n    N21[\"stops\"]\n    N22[\"sending\"]\n    N23[\"traffic\"]\n    N24[\"it.\"]\n    N25[\"scale:\"]\n    N26[\"add\"]\n    N27[\"S4,\"]\n    N28[\"S5,\"]\n    N29[\"distributes\"]\n    N30[\"across\"]\n    N31[\"all.\"]\n    N32[\"stop new connections\"]\n    N33[\"deploy:\"]\n    N34[\"drain\"]\n    N35[\"(stop\"]\n    N36[\"new\"]\n    N37[\"connections),\"]\n    N38[\"update\"]\n    N39[\"S1,\"]\n    N40[\"add.\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40",
+        "caption": "A load balancer distributes traffic across a pool of stateless servers sharing one database.",
+        "alt_text": "A diagram of a load balancer in front of three stateless servers. Clients connect to the load balancer, which distributes requests across S1, S2, and S3. All three servers share a single database, so any server can handle any request. If S1 dies, the load balancer stops sending traffic to it. To scale, add more servers. To deploy, drain one server at a time."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "algorithms",
+      "payload": {
+        "text": "**Load balancing algorithms:**\n\n| Algorithm | How it works | Best for |\n|-----------|-------------|----------|\n| **Round Robin** | Cycle through backends in order. Simple, ignores load. | Even backend capacity, simple setups |\n| **Least Connections** | Pick the backend with fewest active requests. | Uneven request durations (some slow, some fast) |\n| **IP Hash** | Hash client IP → same client always goes to same backend. | Sticky sessions without cookies |\n| **Weighted** | Give stronger backends more traffic (weight). | Mixed-capacity backends (e.g., 4-core vs 8-core) |\n| **Random** | Pick a random backend. Cheap, surprisingly effective at scale. | Very large backend pools |\n| **Least Response Time** | Pick the backend with the fastest average response. | Latency-sensitive apps |\n\nProduction load balancers often combine: least-connections + health checks + slow-start for newly-added backends. NGINX and HAProxy default to round-robin; AWS ALB defaults to round-robin; Envoy defaults to least-connections."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "statelessness",
+      "payload": {
+        "title": "The statelessness rule",
+        "body": "For horizontal scaling to work, backends must be **stateless** — no in-memory sessions, no local file uploads, no per-server caches. All shared state lives in the database, Redis, or object storage. If a backend holds session state, you need sticky sessions (IP hash), which defeats the LB's ability to fail over. Move sessions to Redis. Move file uploads to S3. Then any backend can serve any request.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "l4-vs-l7",
+      "payload": {
+        "text": "**L4 vs L7 load balancing:**\n\n**L4 (transport layer)**: The load balancer sees TCP/UDP packets. It forwards bytes without parsing HTTP. Fast, simple, opaque.\n- Examples: HAProxy (L4 mode), AWS NLB, iptables.\n- Pros: very fast, low overhead, protocol-agnostic (works for any TCP service).\n- Cons: can't route by URL/headers, can't modify requests, no TLS termination.\n- Use cases: database connection pooling, gRPC, raw TCP services.\n\n**L7 (application layer)**: The load balancer parses HTTP. It can route by URL path, headers, cookies. It can terminate TLS, modify requests, add headers.\n- Examples: NGINX, AWS ALB, Envoy, HAProxy (L7 mode).\n- Pros: smart routing (path-based, header-based), TLS termination, content-based decisions.\n- Cons: slower (must parse HTTP), more overhead, HTTP-only.\n- Use cases: web APIs, microservices, path-based routing.\n\nMost modern systems use both: an L4 LB at the edge for raw throughput, L7 LBs behind it for smart routing."
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "l4-l7",
+      "payload": {
+        "code": "flowchart TD\n    N0[\"transport layer\"]\n    N1[\"LOAD\"]\n    N2[\"BALANCING\"]\n    N3[\"(transport\"]\n    N4[\"layer)\"]\n    N5[\"L4 LB\"]\n    N6[\"Server A\"]\n    N7[\"Client\"]\n    N8[\"[L4\"]\n    N9[\"LB]\"]\n    N10[\"[Server\"]\n    N11[\"Server B\"]\n    N12[\"The\"]\n    N13[\"sees\"]\n    N14[\"TCP\"]\n    N15[\"packets.\"]\n    N16[\"Forwards\"]\n    N17[\"bytes.\"]\n    N18[\"Fast.\"]\n    N19[\"Opaque.\"]\n    N20[\"HTTP\"]\n    N21[\"parsing.\"]\n    N22[\"L4 mode\"]\n    N23[\"Examples:\"]\n    N24[\"AWS\"]\n    N25[\"NLB,\"]\n    N26[\"HAProxy\"]\n    N27[\"(L4\"]\n    N28[\"mode)\"]\n    N29[\"application layer\"]\n    N30[\"(application\"]\n    N31[\"L7 LB\"]\n    N32[\"API Server A\"]\n    N33[\"[L7\"]\n    N34[\"api\"]\n    N35[\"[API\"]\n    N36[\"Server\"]\n    N37[\"CDN / static servers\"]\n    N38[\"static\"]\n    N39[\"[CDN\"]\n    N40[\"servers]\"]\n    N41[\"Admin Server (IP-restricted)\"]\n    N42[\"IP-restricted\"]\n    N43[\"admin\"]\n    N44[\"[Admin\"]\n    N45[\"(IP\"]\n    N46[\"restricted)]\"]\n    N47[\"parses\"]\n    N48[\"HTTP.\"]\n    N49[\"Routes\"]\n    N50[\"path,\"]\n    N51[\"header,\"]\n    N52[\"cookie.\"]\n    N53[\"Slower.\"]\n    N54[\"Flexible.\"]\n    N55[\"Can\"]\n    N56[\"terminate\"]\n    N57[\"TLS.\"]\n    N58[\"ALB,\"]\n    N59[\"NGINX,\"]\n    N60[\"Envoy\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44\n    N44 --> N45\n    N45 --> N46\n    N46 --> N47\n    N47 --> N48\n    N48 --> N49\n    N49 --> N50\n    N50 --> N51\n    N51 --> N52\n    N52 --> N53\n    N53 --> N54\n    N54 --> N55\n    N55 --> N56\n    N56 --> N57\n    N57 --> N58\n    N58 --> N59\n    N59 --> N60",
+        "caption": "L4 load balancing forwards TCP bytes. L7 parses HTTP and routes by content.",
+        "alt_text": "Two diagrams. L4 load balancing: the LB sees TCP packets and forwards bytes to server A or B. It doesn't parse HTTP. Fast and opaque. Examples include AWS NLB and HAProxy. L7 load balancing: the LB parses HTTP and routes by path — /api goes to API servers, /static goes to CDN, /admin goes to admin servers. Slower but flexible, can terminate TLS. Examples include AWS ALB and NGINX."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "health-checks",
+      "payload": {
+        "text": "**Health checks:**\n\nA load balancer must know which backends are alive. It does this via **health checks** — periodic requests to each backend to verify it's responding.\n\n- **Active health check**: the LB sends a request (e.g., `GET /health` every 5 seconds). If the backend responds 200, it's healthy. If it responds 5xx or times out 3 times in a row, the LB marks it unhealthy and stops sending traffic.\n- **Passive health check**: the LB monitors real traffic. If a backend starts returning 5xx errors or timing out, the LB marks it unhealthy without sending a separate health check.\n\nWithout health checks, a dead backend keeps receiving traffic until the LB notices. With health checks, the LB detects failure in seconds and routes around it.\n\n**Health endpoint best practices:**\n- `GET /health` should return 200 with no side effects.\n- `GET /health/ready` should check dependencies (DB, cache) and return 503 if any are down.\n- Health checks should be cheap (no DB queries — just a 'I'm alive' signal).\n- Health checks should have a short timeout (1-2s)."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q1",
+      "payload": {
+        "question": "Your web app stores user sessions in memory on each server. After adding a load balancer with round-robin, users complain they get logged out randomly. What is the root cause?",
+        "shape": "mcq",
+        "options": [
+          "The load balancer is misconfigured.",
+          "Sessions are stateful, so a user's request hits a different server than the one holding their session.",
+          "Round-robin is too slow — switch to least-connections.",
+          "The database is overloaded."
+        ],
+        "answer_index": 1,
+        "rationale": "In-memory sessions make servers stateful. Round-robin sends each request to a different server, so the user's session is on server A but their next request hits server B, which doesn't know them. The fix is either (a) move sessions to shared storage (Redis), making servers stateless, or (b) use sticky sessions (IP hash), which trades off failover for session continuity. Option (a) is strongly preferred — stateless servers are the foundation of horizontal scaling.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q2",
+      "payload": {
+        "question": "When would you choose L4 over L7 load balancing?",
+        "shape": "mcq",
+        "options": [
+          "When you need to route by URL path.",
+          "When you need maximum throughput and do not need HTTP-level routing.",
+          "When you need to terminate TLS at the LB.",
+          "L4 and L7 are interchangeable."
+        ],
+        "answer_index": 1,
+        "rationale": "L4 LBs operate on TCP/UDP bytes without parsing HTTP, so they are dramatically faster and cheaper per request. Use L4 for raw throughput (database connection pooling, gRPC, raw TCP services). Use L7 when you need HTTP-aware features: path-based routing, header manipulation, TLS termination, content-based routing.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q3",
+      "payload": {
+        "question": "Your load balancer has 3 backends. One backend starts returning 500 errors. What should happen?",
+        "shape": "mcq",
+        "options": [
+          "The LB keeps sending traffic to it — it might recover.",
+          "The LB's health check detects the errors, marks the backend unhealthy, and stops sending traffic to it. Traffic goes to the other 2.",
+          "The LB crashes.",
+          "The LB sends double traffic to the other 2 to compensate."
+        ],
+        "answer_index": 1,
+        "rationale": "Health checks detect failures automatically. If a backend starts returning 5xx errors (or timing out), the LB marks it unhealthy after a configurable threshold (e.g., 3 consecutive failures). New traffic goes to the healthy backends. The unhealthy backend is periodically re-checked; if it recovers, it's marked healthy and traffic resumes. This is called 'passive health checking' and is essential for fault tolerance.",
+        "difficulty": "core"
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "l4-l7-comparison-b2",
+      "payload": {
+        "code": "flowchart TB\n    Client[Client HTTPS request] --> LB\n\n    subgraph L4[L4 — Transport Layer]\n        LB4[L4 LB<br/>sees TCP bytes only] --> B1[Backend 1]\n        LB4 --> B2[Backend 2]\n        Note4[Routes by 4-tuple<br/>src IP+port, dst IP+port<br/>No TLS termination<br/>~millions of conn/sec]\n    end\n\n    subgraph L7[L7 — Application Layer]\n        LB7[L7 LB<br/>parses HTTP, terminates TLS] --> Path1{/api/* → API servers}\n        LB7 --> Path2{/static/* → CDN/object store}\n        LB7 --> Path3{/admin/* → admin pool<br/>IP-allowlist}\n        Note7[Routes by URL, headers, cookies<br/>TLS termination here<br/>~100K req/sec per node]\n    end\n\n    Client -.or.-> LB7\n\n    classDef l4 fill:#1e3a5f,stroke:#3b82f6,color:#e0e7ff\n    classDef l7 fill:#3a2e1e,stroke:#f59e0b,color:#fef3c7\n    classDef note fill:#2d1e3a,stroke:#a855f7,color:#f3e8ff\n    class LB4,B1,B2 l4\n    class LB7,Path1,Path2,Path3 l7\n    class Note4,Note7 note",
+        "caption": "L4 LBs forward TCP bytes by 4-tuple (fast, opaque). L7 LBs parse HTTP and route by path/headers (slower, flexible).",
+        "alt_text": "Two load balancer types compared. L4: the load balancer sees TCP packets only and forwards bytes to Backend 1 or Backend 2, routing by source/destination IP+port — no TLS termination, millions of connections per second. L7: the load balancer parses HTTP and terminates TLS, then routes by URL path: /api goes to API servers, /static to CDN, /admin to admin pool with IP allowlist — slower but flexible."
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "health-check-flow-b2",
+      "payload": {
+        "code": "flowchart TD\n    LB[Load Balancer] -->|every 5s: GET /health| B1[Backend 1]\n    LB -->|every 5s: GET /health| B2[Backend 2]\n    LB -->|every 5s: GET /health| B3[Backend 3]\n\n    B1 -->|200 OK| LB\n    B2 -->|200 OK| LB\n    B3 -->|timeout / 5xx| LB\n\n    LB --> Count{Consecutive<br/>failures >= threshold?}\n    Count -->|No| Healthy[Backend stays in rotation]\n    Count -->|Yes<br/>e.g. 3 in a row| Unhealthy[Mark UNHEALTHY<br/>stop sending traffic]\n    Unhealthy --> Recheck[Continue probing<br/>every 30s instead of 5s]\n    Recheck --> Recover{Recovers?}\n    Recover -->|2 successes in a row| Healthy\n    Recover -->|Still failing| Recheck\n\n    classDef ok fill:#1e3a5f,stroke:#3b82f6,color:#e0e7ff\n    classDef bad fill:#3a1e1e,stroke:#ef4444,color:#fee2e2\n    classDef warn fill:#3a2e1e,stroke:#f59e0b,color:#fef3c7\n    class B1,B2,Healthy,Recover ok\n    class B3,Unhealthy bad\n    class Count,Recheck warn",
+        "caption": "Active health check flow with consecutive-failure threshold and recovery hysteresis.",
+        "alt_text": "A load balancer polls each backend every 5 seconds with GET /health. Backends 1 and 2 return 200 OK. Backend 3 times out. The LB counts consecutive failures; if it crosses a threshold (e.g., 3 in a row), the backend is marked UNHEALTHY and removed from rotation. The LB continues probing every 30 seconds; recovery requires 2 consecutive successes before the backend rejoins the rotation."
+      }
+    },
+    {
+      "type": "table",
+      "id": "rr-vs-lc-b2",
+      "payload": {
+        "headers": [
+          "Dimension",
+          "Round Robin",
+          "Least Connections"
+        ],
+        "rows": [
+          [
+            "Decision basis",
+            "Cyclic position in pool",
+            "Current active connection count per backend"
+          ],
+          [
+            "Best when",
+            "All backends have equal capacity and similar request durations",
+            "Request durations vary widely (some slow, some fast)"
+          ],
+          [
+            "Failure mode",
+            "Slow backend accumulates queued requests because RR keeps sending to it",
+            "Avoids overloading slow backends; new requests go to the least-loaded"
+          ],
+          [
+            "Cost per decision",
+            "O(1) — increment a counter",
+            "O(N) — must compare all backends (or maintain a heap)"
+          ],
+          [
+            "State required",
+            "Last index (1 integer)",
+            "Per-backend connection count"
+          ],
+          [
+            "Sticky behavior",
+            "Deterministic given same client order",
+            "Adapts to live load"
+          ],
+          [
+            "Default in",
+            "NGINX, AWS ALB, HAProxy",
+            "Envoy, HAProxy (option), Linkerd"
+          ],
+          [
+            "Example fail",
+            "A 10s request hits backend A; RR sends 4 more to A in the meantime; A is overloaded while B sits idle.",
+            "LC sees A has 5 active connections; sends the next request to B (0 active)."
+          ]
+        ],
+        "caption": "Round-robin vs least-connections across the dimensions that actually matter in production."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "aws-alb-nlb-b2",
+      "payload": {
+        "text": "**Real example: AWS ALB vs NLB — when to pick which.**\n\nAWS offers two managed load balancers that look similar but solve very different problems.\n\n**Application Load Balancer (ALB)** operates at L7. It terminates TLS, parses HTTP, and routes by URL path, host header, or HTTP header. It supports weighted target groups (canary deploys), WebSocket and HTTP/2 natively, and integrates with ECS/Kubernetes via IP-target mode. ALB is the right choice for any HTTP-based API or web app — it can route `/api/v1/*` to one service and `/api/v2/*` to another on the same listener. It does NOT support non-HTTP protocols. Pricing is per-LCU (Load Balancer Capacity Unit, a blend of new connections, active connections, bandwidth, and rule evaluations).\n\n**Network Load Balancer (NLB)** operates at L4. It sees TCP/UDP packets, forwards them to targets by 4-tuple, and terminates nothing (TLS passthrough is the default). NLB is the right choice for: TCP-based protocols (database connections, SMTP, custom binary protocols), UDP (DNS, gaming, QUIC), extreme throughput (millions of connections/sec, zonal-static anycast IPs that survive AZ failures), and ultra-low-latency requirements where every microsecond of L7 parsing matters. Pricing is per NLB-hour + per-GB processed.\n\nA common production pattern uses both: a single NLB at the edge terminates TLS for the apex domain; ALBs behind it do path-based routing for each microservice. The NLB gives you a static, anycast IP that doesn't change across AZ failures; the ALBs give you per-service path routing and ECS integration. Costs are higher than a single ALB, but you get both the L4 throughput ceiling and the L7 flexibility."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "spof-b2",
+      "payload": {
+        "title": "Your load balancer is the single point of failure you forgot to design out",
+        "body": "A single LB in front of 50 stateless app servers is just 1 server with 50 backends — and that 1 server can die. AWS mitigates this with managed HA across AZs (ALB/NLB automatically), but self-hosted NGINX/HAProxy does NOT — you must run an active-active pair with VRRP/Keepalived or front them with an L4 anycast. The classic failure: a team runs HAProxy in Docker on one EC2 instance 'just for now', it dies in a maintenance event, the whole site is down even though every app server is healthy. Design the LB's redundancy before you need it.",
+        "kind": "warning"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q-algorithm-b2",
+      "payload": {
+        "question": "Your image-processing API has 6 backend servers. Each request downloads an image, generates 5 thumbnails, and uploads them to S3 — request durations range from 200ms (small image) to 30 seconds (huge image). Users report intermittent timeouts. The load balancer uses round-robin. What is the strongest fix?",
+        "shape": "mcq",
+        "options": [
+          "Add more backends — there's not enough capacity.",
+          "Switch the LB algorithm from round-robin to least-connections so that slow requests don't pile up on whichever backend happened to receive several in a row.",
+          "Increase the LB's health-check timeout.",
+          "Use sticky sessions so each user always hits the same backend."
+        ],
+        "answer_index": 1,
+        "rationale": "This is the textbook case where round-robin fails. RR doesn't see how many active connections each backend has — it just rotates. If backend 3 receives a 30-second request, then another, then another (purely by cyclic chance), it queues up dozens of slow jobs while backend 4 sits idle. Least-connections (LC) explicitly tracks active connections per backend and routes new requests to the least-loaded. With wildly varying request durations (200ms vs 30s — 150x spread), LC prevents the pile-up that RR creates. Option 1 (more backends) might mask the symptom but doesn't fix the routing pathology — the same RR pattern recurs at higher capacity. Option 3 (longer health-check timeout) makes the LB slower to detect real failures. Option 4 (sticky sessions) is actively harmful: it forces a user onto one backend regardless of load, defeats failover, and makes the problem worse if their requests are heavy. The deeper lesson: round-robin assumes roughly equal request durations. When that assumption breaks (image processing, video transcoding, ML inference), switch to least-connections or least-response-time.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "sticky-session-failure-b2",
+      "payload": {
+        "text": "**Real failure: the sticky-session trap that took down a major e-commerce site.**\n\nA pattern seen repeatedly in incident postmortems: a team runs N app servers behind a load balancer, holds user sessions in memory on each server, and uses sticky sessions to route each user to the server holding their session.\n\nWhat kills them: when one of the N servers dies (hardware, deploy, OOM), every user whose session lived on that server is suddenly logged out and loses in-flight cart contents. If 1 of 5 servers dies, 20% of users are simultaneously affected. The support team gets a flood of complaints, the engineering team rolls back the deploy, and the cause is misdiagnosed as 'the deploy' rather than the architecture.\n\nThe fix that prevents recurrence: externalize sessions to Redis. Now sessions survive any single server death, the load balancer can use round-robin or least-connections, deploys are zero-downtime, and the team can scale by adding servers without worrying about session affinity.\n\nThe deeper lesson: sticky sessions are not a scaling strategy — they're an admission that the architecture is not actually horizontally scaled. True horizontal scaling requires statelessness, and statelessness requires externalized state. Anything else is a single-point-of-failure dressed up as redundancy."
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-load-balancers-mental",
+      "payload": {
+        "text": "Engineering mental model",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-load-balancers-mental",
+      "payload": {
+        "text": "**Mental model.** Think of Load Balancers as a deliberate boundary in a system. The boundary exists because something becomes harder to manage when everything is done in one place: latency, scale, failure isolation, consistency, cost, or team ownership. The useful question is not “what does Load Balancers mean?” but “what pressure makes this boundary worth introducing, and what new failure mode does it create?”"
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-load-balancers-decision",
+      "payload": {
+        "title": "Design lens",
+        "body": "Before choosing Load Balancers, name the workload, the critical user path, the dominant bottleneck, the failure you are trying to absorb, and the trade-off you are willing to accept. If you cannot name those five things, the design is probably premature.",
+        "kind": "info"
+      }
+    },
+    {
+      "type": "image",
+      "id": "upgrade-image-load-balancers",
+      "payload": {
+        "src": "/learning-visuals/load-balancers.svg",
+        "alt": "Original NO CAP systems visual for Load Balancers.",
+        "caption": "Load Balancers: a compact system-thinking visual.",
+        "credit": "Original NO CAP visual.",
+        "source_url": "https://github.com/donnemartin/system-design-primer"
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "upgrade-mermaid-load-balancers",
+      "payload": {
+        "code": "flowchart LR\n U[Clients] --> LB[Load Balancer]\n LB --> A[API 1]\n LB --> B[API 2]\n LB --> C[API 3]\n H[Health checks] --> LB",
+        "caption": "A load balancer spreads traffic across healthy replicas and can remove failed instances from rotation.",
+        "alt_text": "A load balancer spreads traffic across healthy replicas and can remove failed instances from rotation."
+      }
+    },
+    {
+      "type": "code",
+      "id": "upgrade-code-load-balancers",
+      "payload": {
+        "language": "text",
+        "code": "// Pseudocode\nrequest = receive()\nresult = load_balancers(request)\nreturn result\n\n// Production questions:\n// 1. What happens on timeout?\n// 2. Can this operation be retried safely?\n// 3. What is the bottleneck?",
+        "caption": "A minimal engineering sketch for reasoning about Load Balancers."
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-load-balancers-numbers",
+      "payload": {
+        "text": "Back-of-the-envelope reasoning",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-load-balancers-numbers",
+      "payload": {
+        "text": "Numerical lens: write down traffic, payload size, read/write ratio, peak multiplier and durability target before choosing a component. The numbers should justify the architecture."
+      }
+    },
+    {
+      "type": "simulation",
+      "id": "upgrade-sim-load-balancers",
+      "payload": {
+        "title": "Interactive thought experiment: Load Balancers",
+        "description": "Change the variables below and predict what breaks first in Load Balancers. The production lab can later reuse these same inputs.",
+        "variables": [
+          {
+            "name": "traffic",
+            "description": "Requests per second",
+            "default": "5000"
+          },
+          {
+            "name": "instances",
+            "description": "Healthy application instances",
+            "default": "4"
+          },
+          {
+            "name": "failure_rate",
+            "description": "Fraction of failed instances",
+            "default": "0%"
+          }
+        ],
+        "placeholder_note": "Interactive controls are deterministic; use the linked Labs section when a dedicated lab exists."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-load-balancers-hint",
+      "payload": {
+        "title": "Hint",
+        "body": "If you are stuck on Load Balancers, start by drawing the request path and marking every network hop, stateful component, queue, cache and failure boundary. Then estimate where the system will saturate.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-load-balancers-1",
+      "payload": {
+        "shape": "prediction",
+        "question": "You increase traffic by 10× in a system using Load Balancers. What should you inspect first?",
+        "options": [
+          "The newest framework version",
+          "The dominant bottleneck and its saturation signal",
+          "Only the UI",
+          "Nothing; the architecture should absorb any traffic automatically"
+        ],
+        "answer_index": 1,
+        "rationale": "System design is a constraint-and-bottleneck exercise. Start with the resource or dependency that will saturate first, then choose the smallest change that removes that bottleneck.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-load-balancers-2",
+      "payload": {
+        "shape": "mcq",
+        "question": "Which statement is the safest engineering habit when using Load Balancers?",
+        "options": [
+          "Choose it because it is popular",
+          "Add it before measuring the problem",
+          "State the workload, failure mode and trade-off it is solving",
+          "Use the most distributed design possible"
+        ],
+        "answer_index": 2,
+        "rationale": "Good architecture starts from requirements, workload and failure assumptions. The component is the consequence of that reasoning, not the starting point.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "scenario",
+      "id": "upgrade-scenario-load-balancers",
+      "payload": {
+        "prompt": "Production scenario: your system uses Load Balancers, traffic suddenly spikes, and p99 latency doubles. What is your first move?",
+        "context": "You have dashboards for traffic, latency, errors and saturation. You can change the architecture, but every change has operational cost.",
+        "options": [
+          {
+            "id": "a",
+            "text": "Add more instances immediately",
+            "outcome": "This may help, but only if compute saturation is the bottleneck.",
+            "correct": false
+          },
+          {
+            "id": "b",
+            "text": "Inspect the bottleneck and its saturation signal first",
+            "outcome": "Correct: diagnose before scaling or introducing a new pattern.",
+            "correct": true
+          },
+          {
+            "id": "c",
+            "text": "Disable monitoring to reduce overhead",
+            "outcome": "This removes the evidence you need to diagnose the incident.",
+            "correct": false
+          }
+        ],
+        "rationale": "Measure the limiting resource or dependency first. A bottleneck can be compute, database I/O, network, cache misses, lock contention, downstream latency, or queue backlog.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-load-balancers-interview",
+      "payload": {
+        "text": "Interview drill",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-load-balancers-interview",
+      "payload": {
+        "text": "**Answer this without notes:** When would you choose Load Balancers, and when would you intentionally avoid it? Mention at least one bottleneck it addresses, one failure mode it introduces, and one alternative. Then quantify the workload you are designing for."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "field-guide-load-balancers",
+      "payload": {
+        "title": "Engineering lens",
+        "body": "For Load Balancers, treat the system as a control loop: observe load and failure, choose a bounded response, and measure whether the response stabilizes the system instead of simply moving the bottleneck somewhere else.",
+        "kind": "tip"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "numerical-lens-load-balancers",
+      "payload": {
+        "text": "### Numerical sanity check\n\nWhen estimating capacity, distinguish average from peak. If average traffic is 4,000 RPS and the observed peak-to-average factor is 3×, design the first pass around roughly 12,000 RPS, then leave headroom for failure and growth."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "field-question-load-balancers",
+      "payload": {
+        "shape": "prediction",
+        "question": "What is the earliest signal that Load Balancers is becoming the bottleneck: latency, saturation, errors, queue depth, or something else? Why?",
+        "context": "Do not optimize for a memorized definition. Reason from the workload and failure mode.",
+        "options": [
+          "Scale the same component immediately.",
+          "Measure the current bottleneck and state the assumption that changed.",
+          "Add more technologies until throughput improves.",
+          "Choose the most popular architecture."
+        ],
+        "answer_index": 1,
+        "rationale": "Good system design starts with the bottleneck and the changed constraint. The most popular or complex choice is not automatically correct.",
+        "difficulty": "interview"
+      }
+    }
+  ],
+  "trade_offs": {
+    "pros": [
+      "Horizontal scaling — add more servers to handle more traffic.",
+      "Fault tolerance — lose a server, traffic shifts to the others.",
+      "Rolling deploys — drain one server, update it, repeat. Zero downtime.",
+      "Health checking — bad backends are removed automatically."
+    ],
+    "cons": [
+      "The LB itself can be a single point of failure (mitigate with active-active pairs).",
+      "Adds a network hop and a small amount of latency (~1ms).",
+      "Requires stateless backends — moving session state to shared storage is real work.",
+      "Cost: LB software/hardware, plus the compute to run it."
+    ]
+  },
+  "failure_modes": [
+    "The LB itself fails — single point of failure. Mitigated by active-active LB pairs (both receive traffic, either can handle it all).",
+    "Sticky sessions as a default — they defeat failover and complicate scaling.",
+    "Forgetting health checks — a dead backend keeps receiving traffic until the LB notices.",
+    "Single LB without redundancy — the LB is now your SPOF.",
+    "Mixed L4 and L7 without thinking — L7 in front of L4 in front of L7 is over-engineering."
+  ],
+  "common_mistakes": [
+    "Sticky sessions as a default. They defeat failover and complicate scaling. Move sessions to Redis instead.",
+    "Forgetting health checks. A dead backend will keep receiving traffic until the LB notices.",
+    "Single LB without redundancy. The LB is now your SPOF.",
+    "Mixing L4 and L7 without thinking. L7 in front of L4 in front of L7 is a common over-engineering smell."
+  ],
+  "where_you_see_it": [
+    "Every production web service with more than one server.",
+    "NGINX, HAProxy, AWS ALB/NLB, Cloudflare load balancing, Envoy.",
+    "Service mesh sidecars (Istio, Linkerd) are LBs running next to your app."
+  ],
+  "interview_prompts": [
+    "Design a load balancer for a globally-distributed API with 1M requests per second.",
+    "How do you ensure your load balancer is not a single point of failure?",
+    "When would you use sticky sessions, and what do they cost you?",
+    "Explain the difference between L4 and L7 load balancing with examples.",
+    "How do health checks work? What's the difference between active and passive?"
+  ],
+  "real_system_mappings": [
+    {
+      "system": "NGINX",
+      "how": "The most popular open-source L7 LB. Used as a reverse proxy, load balancer, and static file server. Powers ~30% of the web."
+    },
+    {
+      "system": "AWS ALB",
+      "how": "Managed L7 load balancer with path-based routing, TLS termination, target group health checks, and integration with ECS/EKS. Pay per LCUs (load balancer capacity units)."
+    }
+  ],
+  "status": "published",
+  "sources": [
+    {
+      "title": "System Design Primer",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Open source"
+    },
+    {
+      "title": "ByteByteGo — Scale from zero to millions",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "ByteByteGo"
+    },
+    {
+      "title": "System Design Tutorial",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "GeeksforGeeks"
+    },
+    {
+      "title": "System Design Roadmap",
+      "url": "https://roadmap.sh/system-design",
+      "publisher": "roadmap.sh"
+    },
+    {
+      "title": "Architecture & Infrastructure reference",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Architecture & Infrastructure reference",
+      "url": "https://www.cloudflare.com/learning/cdn/what-is-a-cdn/",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Architecture & Infrastructure reference",
+      "url": "https://aws.amazon.com/architecture/",
+      "publisher": "Reference"
+    }
+  ]
+}

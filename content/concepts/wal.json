@@ -1,0 +1,462 @@
+{
+  "slug": "wal",
+  "version": 4,
+  "title": "Write-Ahead Log (WAL)",
+  "phase": "databases-data-systems",
+  "area": "Databases & Data Systems",
+  "estimated_minutes": 7,
+  "difficulty": "expert",
+  "summary": "The Write-Ahead Log (WAL) is the durability mechanism at the heart of every transactional database. Before any change is applied to the data files, a record of that change is appended to the WAL and fsynced. If the database crashes, the WAL is replayed on restart to bring the data files back to a consistent state — committed transactions survive, uncommitted ones don't. The WAL also powers streaming replication, point-in-time recovery, and transactional outboxes.",
+  "why_it_matters": "Without the WAL, the database cannot make the Durability guarantee in ACID. A power loss mid-write would corrupt the data files with no way to recover. The WAL is also the foundation of every other major database feature — replication, backups, point-in-time recovery, change data capture, and transactional outbox patterns all flow from the WAL. Understanding it explains why `fsync` settings matter, why replication lag exists, and why 'commit returned' doesn't always mean 'safe.'",
+  "prerequisites": [
+    "transactions"
+  ],
+  "related": [
+    "event-sourcing",
+    "transactions",
+    "replication",
+    "mvcc"
+  ],
+  "used_in": [
+    "Every transactional database — PostgreSQL, MySQL/InnoDB, Oracle, SQL Server.",
+    "Streaming replication in Postgres (WAL shipping) and MySQL (binlog).",
+    "Point-in-time recovery (PITR) — replay WAL up to a chosen timestamp.",
+    "Change Data Capture (CDC) — Debezium reads the WAL/binlog to stream changes to Kafka.",
+    "Transactional outbox pattern — the WAL is what makes the outbox reliable."
+  ],
+  "blocks": [
+    {
+      "type": "prose",
+      "id": "intro",
+      "payload": {
+        "text": "The Write-Ahead Log is, in concept, beautifully simple: **before any change is made to the data files, write a record describing the change to a separate append-only log, and fsync that log.** On crash, replay the log to reconstruct the data files.\n\nThis solves a fundamental storage problem: data files are large, structured, and randomly accessed. Writing a small update to a 1TB file is expensive — you have to seek to the right page, modify it, and write it back, ideally atomically. But random I/O with crash safety is hard.\n\nThe WAL turns this into sequential I/O, which is dramatically faster and crash-safe:\n1. Transaction begins; the engine stages changes in memory.\n2. As changes are made, they're appended to the WAL (an append-only file).\n3. On COMMIT, the WAL is fsynced — the changes are now durable on disk.\n4. The data files are updated later, in the background ('checkpointing').\n5. If a crash happens, the WAL is replayed on restart to bring the data files up to date.\n\nThe key insight: **durability is guaranteed by the WAL, not by the data files.** The data files can lag behind the WAL — that's fine, because the WAL is the source of truth that can always be replayed. As long as the WAL is fsynced before COMMIT returns, the transaction is durable."
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "wal-flow",
+      "payload": {
+        "code": "flowchart TD\n    N0[\"PostgreSQL\"]\n    N1[\"The\"]\n    N2[\"WAL\"]\n    N3[\"write\"]\n    N4[\"flow\"]\n    N5[\"(PostgreSQL)\"]\n    N6[\"Client:\"]\n    N7[\"BEGIN;\"]\n    N8[\"UPDATE\"]\n    N9[\"accounts\"]\n    N10[\"SET\"]\n    N11[\"bal\"]\n    N12[\"150\"]\n    N13[\"WHERE\"]\n    N14[\"COMMIT;\"]\n    N15[\"RAM\"]\n    N16[\"stages\"]\n    N17[\"the\"]\n    N18[\"change\"]\n    N19[\"shared_buffers\"]\n    N20[\"(RAM).\"]\n    N21[\"dirty page, not on disk\"]\n    N22[\"(dirty\"]\n    N23[\"page,\"]\n    N24[\"not\"]\n    N25[\"disk)\"]\n    N26[\"acct\"]\n    N27[\"new\"]\n    N28[\"record\"]\n    N29[\"appended:\"]\n    N30[\"'UPDATE\"]\n    N31[\"150'\"]\n    N32[\"WAL files\"]\n    N33[\"pg_wal\"]\n    N34[\"(WAL\"]\n    N35[\"files)\"]\n    N36[\"append\"]\n    N37[\"only,\"]\n    N38[\"sequential\"]\n    N39[\"rec_n\"]\n    N40[\"WAL file\"]\n    N41[\"fsync(WAL\"]\n    N42[\"file)\"]\n    N43[\"CRASH\"]\n    N44[\"BARRIER\"]\n    N45[\"only after fsync returns can COMMIT succeed\"]\n    N46[\"(only\"]\n    N47[\"after\"]\n    N48[\"fsync\"]\n    N49[\"returns\"]\n    N50[\"can\"]\n    N51[\"COMMIT\"]\n    N52[\"succeed)\"]\n    N53[\"client.\"]\n    N54[\"data files not yet updated — but the WAL has it.\"]\n    N55[\"(data\"]\n    N56[\"files\"]\n    N57[\"yet\"]\n    N58[\"updated\"]\n    N59[\"but\"]\n    N60[\"has\"]\n    N61[\"it.)\"]\n    N62[\"later, asynchronously\"]\n    N63[\"(later,\"]\n    N64[\"asynchronously)\"]\n    N65[\"Checkpointer\"]\n    N66[\"writes\"]\n    N67[\"dirty\"]\n    N68[\"pages\"]\n    N69[\"from\"]\n    N70[\"data\"]\n    N71[\"files.\"]\n    N72[\"records\"]\n    N73[\"checkpoint's\"]\n    N74[\"LSN\"]\n    N75[\"now\"]\n    N76[\"recycled.\"]\n    N77[\"Crash\"]\n    N78[\"between\"]\n    N79[\"step\"]\n    N80[\"and\"]\n    N81[\"replayed\"]\n    N82[\"restart\"]\n    N83[\"end\"]\n    N84[\"with\"]\n    N85[\"150.\"]\n    N86[\"Transaction\"]\n    N87[\"durable.\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44\n    N44 --> N45\n    N45 --> N46\n    N46 --> N47\n    N47 --> N48\n    N48 --> N49\n    N49 --> N50\n    N50 --> N51\n    N51 --> N52\n    N52 --> N53\n    N53 --> N54\n    N54 --> N55\n    N55 --> N56\n    N56 --> N57\n    N57 --> N58\n    N58 --> N59\n    N59 --> N60\n    N60 --> N61\n    N61 --> N62\n    N62 --> N63\n    N63 --> N64\n    N64 --> N65\n    N65 --> N66\n    N66 --> N67\n    N67 --> N68\n    N68 --> N69\n    N69 --> N70\n    N70 --> N71\n    N71 --> N72\n    N72 --> N73\n    N73 --> N74\n    N74 --> N75\n    N75 --> N76\n    N76 --> N77\n    N77 --> N78\n    N78 --> N79\n    N79 --> N80\n    N80 --> N81\n    N81 --> N82\n    N82 --> N83\n    N83 --> N84\n    N84 --> N85\n    N85 --> N86\n    N86 --> N87",
+        "caption": "WAL flow: changes are appended to the WAL and fsynced before COMMIT returns; data files are updated later by the checkpointer.",
+        "alt_text": "A five-step diagram of the PostgreSQL WAL flow. Step 1: the UPDATE stages the change in shared_buffers in RAM as a dirty page that is not yet on disk. Step 2: a WAL record describing the change (UPDATE acct equals 1 bal equals 150) is appended to the pg_wal files, which are append-only and sequential. Step 3: the WAL file is fsynced — this is the crash barrier; only after fsync returns can COMMIT succeed. Step 4: COMMIT returns to the client, even though the data files are not yet updated because the WAL has the change. Step 5: later, the checkpointer asynchronously writes dirty pages from shared_buffers to the data files, and WAL records up to the checkpoint's LSN can be recycled. If a crash happens between steps 4 and 5, the WAL is replayed on restart and the data files end up with bal equals 150, so the transaction is durable."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "durability-and-fsync",
+      "payload": {
+        "text": "The single most important setting in any transactional database is the fsync policy on the WAL. The guarantee chain is:\n\n- The application calls `COMMIT`.\n- The database appends the commit record to the WAL.\n- The database calls `fsync()` on the WAL file.\n- The kernel flushes the WAL to physical storage.\n- Only after fsync returns does the database tell the application 'committed.'\n\nIf fsync is honored, the transaction is durable — a power loss immediately after COMMIT returns will not lose the transaction. The WAL is on disk; on restart, it's replayed and the data files are brought up to date.\n\nIf `fsync` is disabled (e.g., `synchronous_commit = off` in PostgreSQL), COMMIT can return before the WAL is on disk. This is dramatically faster but trades durability for speed: a power loss can lose the last few committed transactions. Acceptable for some workloads (analytics, caches) — unacceptable for others (payments).\n\nRelated settings that affect durability:\n- `wal_level` (PostgreSQL) — minimal, replica, or logical. Determines how much info is in the WAL (more for replication, even more for logical decoding).\n- `synchronous_standby_names` — if set, COMMIT waits for at least one synchronous standby to confirm receipt of the WAL. Provides durability across machines.\n- `full_page_writes` — writes the full page image on first modification after a checkpoint, defending against partial page tears. Slightly slower but safer.\n\nThe lesson: tune the fsync / synchronous_commit knobs deliberately, knowing exactly which guarantee you're trading for speed."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "replication-and-cdc",
+      "payload": {
+        "title": "WAL powers replication, PITR, and CDC",
+        "body": "Once the WAL exists, a cascade of features fall out for free: (1) Streaming replication — a standby connects to the primary, receives WAL records over a socket, and replays them locally. Eventual consistency between primary and replica, with sub-second lag typically. (2) Point-in-time recovery (PITR) — keep WAL archives; restore a base backup and replay WAL up to a chosen timestamp. Recover from `DROP TABLE` mistakes. (3) Change Data Capture (CDC) — Debezium reads the WAL (or binlog in MySQL) and publishes every change as an event to Kafka, without placing load on the primary. This is the foundation of the outbox pattern, event sourcing, and CQRS read-model updates.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "checkpoint-and-recovery",
+      "payload": {
+        "text": "If every change is in the WAL, why do we need data files at all? Because the WAL is optimized for appends, not for queries. To answer `SELECT * FROM users WHERE id = 42`, you need an indexed, structured data file — not a sequential log.\n\nThe bridge between WAL and data files is the **checkpoint**:\n- Periodically (every few minutes by default), the database writes all dirty buffers from shared_buffers to the data files.\n- It records the WAL position (LSN — Log Sequence Number) at which the checkpoint occurred.\n- WAL records older than the checkpoint LSN are no longer needed for crash recovery and can be recycled.\n\nOn crash recovery:\n1. The database reads the last checkpoint record from the WAL.\n2. It replays the WAL forward from that point, applying each change to the data files.\n3. Uncommitted transactions (those without a commit record) are rolled back via the undo log (in PostgreSQL, the abort is recorded in the WAL itself).\n\nThe checkpoint bounds recovery time: you only need to replay WAL from the last checkpoint. If checkpoints are far apart, recovery takes longer; if too frequent, they slow down normal operation. PostgreSQL auto-tunes this with `checkpoint_timeout` (default 5 minutes) and `max_wal_size`.\n\nThis is also why `pg_start_backup()` and `pg_stop_backup()` for backups interact with the WAL — they create a checkpoint and ensure WAL archiving captures everything needed to make the backup consistent."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "comparing-implementations",
+      "payload": {
+        "text": "Different databases call the WAL by different names, but the concept is identical:\n\n- **PostgreSQL** — `pg_wal/` (formerly `pg_xlog/`). Records every change. `wal_level=logical` enables logical decoding for CDC.\n- **MySQL/InnoDB** — separate `redo log` (InnoDB's WAL) and `binlog` (MySQL server-level, used for replication). They're different logs and reconciled by an internal XA.\n- **Oracle** — `redo log` files, in groups for rotation. Archive logs (saved redo logs) enable PITR.\n- **SQL Server** — transaction log (.ldf file).\n- **Cassandra** — CommitLog, similar concept; SSTables are the equivalent of data files. Same LSM pattern.\n- **RocksDB / LevelDB** — also use a WAL, similar to Cassandra.\n\nThe architectural pattern is universal: sequential log for durability, structured files for queries, background process to bridge them. Whether you're debugging PostgreSQL recovery, MySQL replication, or Cassandra compaction, the underlying mechanism is the same.\n\nThis is also why the WAL is the foundation of the **transactional outbox pattern**: write your business data AND an event-to-publish row in the same transaction (so they're in the same WAL fsync), then a separate process reads the outbox table and publishes events to Kafka. Because the outbox write is in the same WAL as the business write, either both survive or neither does — atomicity across the database and the message queue, without 2PC."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q1",
+      "payload": {
+        "question": "Why does the database fsync the WAL but not the data files on COMMIT?",
+        "shape": "mcq",
+        "options": [
+          "Data files are too large to fsync quickly. The WAL is small and sequential, so fsyncing it is fast and enough for durability — the data files can be updated later.",
+          "The WAL doesn't need fsync — it's already in kernel cache.",
+          "Data files are written to a separate disk that doesn't need fsync.",
+          "It's a historical accident that nobody has fixed."
+        ],
+        "answer_index": 0,
+        "rationale": "The WAL is small and sequential, so fsync is fast and cheap. Data files are large and randomly accessed — fsyncing them on every COMMIT would be prohibitively slow. The trick: by fsyncing only the WAL, the database guarantees that the change is durable (the WAL has it), and the data files can be updated later by the checkpointer. On crash, the WAL is replayed to bring the data files up to date. This is the core WAL optimization: trade 'durability of data files' (which would require fsyncing random pages) for 'durability of the WAL' (which only requires fsyncing a sequential append). Same durability guarantee, far less I/O.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q2",
+      "payload": {
+        "question": "Your PostgreSQL primary crashes and restarts. The last checkpoint was 5 minutes ago. What happens to transactions committed in the last 5 minutes? To transactions that were in-progress at crash time?",
+        "shape": "mcq",
+        "options": [
+          "Committed transactions in the last 5 min are lost; in-progress transactions are replayed.",
+          "Committed transactions are replayed from the WAL and survive; in-progress transactions (no commit record in WAL) are rolled back. The 5 minutes of WAL are replayed on startup.",
+          "All transactions are lost — the database restores from backup.",
+          "Nothing happens — checkpoints aren't related to recovery."
+        ],
+        "answer_index": 1,
+        "rationale": "On restart, PostgreSQL reads the last checkpoint record from the WAL and replays WAL forward from that point. Every commit record in the WAL means 'this transaction committed' — those changes are applied to the data files. Every change without a corresponding commit record (because the transaction was in-progress at crash time) is rolled back — the WAL records what was done, and the database undoes it via the abort/cleanup logic. The 5 minutes of WAL since the last checkpoint are exactly what's needed to make the data files consistent with the committed state. This is the entire point of the WAL: crash recovery is automatic and correct. The only way to lose committed transactions is if the WAL itself was lost (e.g., fsync disabled, or storage failure) — which is why fsync is critical.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q3",
+      "payload": {
+        "question": "What's the trade-off when you set `synchronous_commit = off` in PostgreSQL?",
+        "shape": "mcq",
+        "options": [
+          "Faster commits in exchange for the possibility of losing committed transactions on power loss.",
+          "Slower commits in exchange for stronger durability.",
+          "No trade-off — it's strictly better.",
+          "Faster commits with no downside."
+        ],
+        "answer_index": 0,
+        "rationale": "`synchronous_commit = off` lets COMMIT return before the WAL is fsynced. This makes commits much faster (no fsync latency, which can be 1-10ms per commit on rotational disks, less on NVMe) but trades durability: if the database crashes or power is lost before the WAL reaches disk, transactions that 'committed' (returned to the application) can be lost. This is acceptable for some workloads (analytics, logs, caches) and unacceptable for others (payments, accounting). The setting is per-transaction, so a common pattern is to use it for high-throughput non-critical writes and leave it on for critical transactions. Note: this only affects durability, not atomicity — partial transactions still roll back cleanly.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q4",
+      "payload": {
+        "question": "How does the WAL enable the transactional outbox pattern for reliable event publishing?",
+        "shape": "mcq",
+        "options": [
+          "The WAL stores events directly, so consumers read from it.",
+          "You write business data and an outbox event row in the same transaction. Both go into the same WAL fsync. A separate process reads the outbox and publishes to Kafka. Atomicity across DB and queue is guaranteed because both writes are in the same WAL record.",
+          "It doesn't — the outbox pattern requires two-phase commit.",
+          "The WAL is the message queue; consumers subscribe to it directly."
+        ],
+        "answer_index": 1,
+        "rationale": "The outbox pattern solves the dual-write problem: how to atomically write to a database AND publish to a message queue. The trick: write your business data AND an outbox row (representing the event) in the same database transaction. Because both writes go into the same WAL and are committed by the same fsync, they're atomic — either both survive or neither does. A separate process (or Debezium CDC connector) reads the outbox table and publishes events to Kafka, marking each row as published. If the publishing process crashes, the outbox row still exists in the database, and on restart it's read and re-published (idempotency required on the consumer). The WAL is the foundation: it's what makes the same-transaction dual-write atomic. No 2PC required.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-wal-mental",
+      "payload": {
+        "text": "Engineering mental model",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-wal-mental",
+      "payload": {
+        "text": "**Mental model.** Think of Write-Ahead Log (WAL) as a deliberate boundary in a system. The boundary exists because something becomes harder to manage when everything is done in one place: latency, scale, failure isolation, consistency, cost, or team ownership. The useful question is not “what does Write-Ahead Log (WAL) mean?” but “what pressure makes this boundary worth introducing, and what new failure mode does it create?”"
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-wal-decision",
+      "payload": {
+        "title": "Design lens",
+        "body": "Before choosing Write-Ahead Log (WAL), name the workload, the critical user path, the dominant bottleneck, the failure you are trying to absorb, and the trade-off you are willing to accept. If you cannot name those five things, the design is probably premature.",
+        "kind": "info"
+      }
+    },
+    {
+      "type": "image",
+      "id": "upgrade-image-wal",
+      "payload": {
+        "src": "/learning-visuals/wal.svg",
+        "alt": "Original NO CAP systems visual for Write-Ahead Log (WAL).",
+        "caption": "Write-Ahead Log (WAL): a compact system-thinking visual.",
+        "credit": "Original NO CAP visual.",
+        "source_url": "https://github.com/donnemartin/system-design-primer"
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "upgrade-mermaid-wal",
+      "payload": {
+        "code": "flowchart LR\n  A[Client] --> B[Gateway] --> C[Service] --> D[State] --> E[Outcome]",
+        "caption": "Write-Ahead Log (WAL): a simplified system view showing the primary flow and the main state boundaries.",
+        "alt_text": "Write-Ahead Log (WAL): a simplified system view showing the primary flow and the main state boundaries."
+      }
+    },
+    {
+      "type": "code",
+      "id": "upgrade-code-wal",
+      "payload": {
+        "language": "text",
+        "code": "// Pseudocode\nrequest = receive()\nresult = wal(request)\nreturn result\n\n// Production questions:\n// 1. What happens on timeout?\n// 2. Can this operation be retried safely?\n// 3. What is the bottleneck?",
+        "caption": "A minimal engineering sketch for reasoning about Write-Ahead Log (WAL)."
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-wal-numbers",
+      "payload": {
+        "text": "Back-of-the-envelope reasoning",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-wal-numbers",
+      "payload": {
+        "text": "Numerical lens: write down traffic, payload size, read/write ratio, peak multiplier and durability target before choosing a component. The numbers should justify the architecture."
+      }
+    },
+    {
+      "type": "simulation",
+      "id": "upgrade-sim-wal",
+      "payload": {
+        "title": "Interactive thought experiment: Write-Ahead Log (WAL)",
+        "description": "Change the variables below and predict what breaks first in Write-Ahead Log (WAL). The production lab can later reuse these same inputs.",
+        "variables": [
+          {
+            "name": "traffic",
+            "description": "Requests/events per second",
+            "default": "1000"
+          },
+          {
+            "name": "latency",
+            "description": "Dependency latency",
+            "default": "50ms"
+          },
+          {
+            "name": "failure_rate",
+            "description": "Injected failure rate",
+            "default": "0%"
+          }
+        ],
+        "placeholder_note": "Interactive controls are deterministic; use the linked Labs section when a dedicated lab exists."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-wal-hint",
+      "payload": {
+        "title": "Hint",
+        "body": "If you are stuck on Write-Ahead Log (WAL), start by drawing the request path and marking every network hop, stateful component, queue, cache and failure boundary. Then estimate where the system will saturate.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-wal-1",
+      "payload": {
+        "shape": "prediction",
+        "question": "You increase traffic by 10× in a system using Write-Ahead Log (WAL). What should you inspect first?",
+        "options": [
+          "The newest framework version",
+          "The dominant bottleneck and its saturation signal",
+          "Only the UI",
+          "Nothing; the architecture should absorb any traffic automatically"
+        ],
+        "answer_index": 1,
+        "rationale": "System design is a constraint-and-bottleneck exercise. Start with the resource or dependency that will saturate first, then choose the smallest change that removes that bottleneck.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-wal-2",
+      "payload": {
+        "shape": "mcq",
+        "question": "Which statement is the safest engineering habit when using Write-Ahead Log (WAL)?",
+        "options": [
+          "Choose it because it is popular",
+          "Add it before measuring the problem",
+          "State the workload, failure mode and trade-off it is solving",
+          "Use the most distributed design possible"
+        ],
+        "answer_index": 2,
+        "rationale": "Good architecture starts from requirements, workload and failure assumptions. The component is the consequence of that reasoning, not the starting point.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "scenario",
+      "id": "upgrade-scenario-wal",
+      "payload": {
+        "prompt": "Production scenario: your system uses Write-Ahead Log (WAL), traffic suddenly spikes, and p99 latency doubles. What is your first move?",
+        "context": "You have dashboards for traffic, latency, errors and saturation. You can change the architecture, but every change has operational cost.",
+        "options": [
+          {
+            "id": "a",
+            "text": "Add more instances immediately",
+            "outcome": "This may help, but only if compute saturation is the bottleneck.",
+            "correct": false
+          },
+          {
+            "id": "b",
+            "text": "Inspect the bottleneck and its saturation signal first",
+            "outcome": "Correct: diagnose before scaling or introducing a new pattern.",
+            "correct": true
+          },
+          {
+            "id": "c",
+            "text": "Disable monitoring to reduce overhead",
+            "outcome": "This removes the evidence you need to diagnose the incident.",
+            "correct": false
+          }
+        ],
+        "rationale": "Measure the limiting resource or dependency first. A bottleneck can be compute, database I/O, network, cache misses, lock contention, downstream latency, or queue backlog.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-wal-interview",
+      "payload": {
+        "text": "Interview drill",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-wal-interview",
+      "payload": {
+        "text": "**Answer this without notes:** When would you choose Write-Ahead Log (WAL), and when would you intentionally avoid it? Mention at least one bottleneck it addresses, one failure mode it introduces, and one alternative. Then quantify the workload you are designing for."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "field-guide-wal",
+      "payload": {
+        "title": "Engineering lens",
+        "body": "For Write-Ahead Log (WAL), start with access patterns rather than brand names. Identify the dominant reads/writes, data relationships, consistency requirements, partition key, hot keys and failure behavior before choosing a storage strategy.",
+        "kind": "tip"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "numerical-lens-wal",
+      "payload": {
+        "text": "### Numerical sanity check\n\nA rough capacity check: required write throughput ≈ peak writes/s × average record size. At 5,000 writes/s and 2 KB average payloads, the raw incoming data stream is about 10 MB/s before indexes, replication and overhead."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "field-question-wal",
+      "payload": {
+        "shape": "prediction",
+        "question": "A team proposes Write-Ahead Log (WAL) because it 'scales'. What workload characteristic would make that choice a poor fit?",
+        "context": "Do not optimize for a memorized definition. Reason from the workload and failure mode.",
+        "options": [
+          "Scale the same component immediately.",
+          "Measure the current bottleneck and state the assumption that changed.",
+          "Add more technologies until throughput improves.",
+          "Choose the most popular architecture."
+        ],
+        "answer_index": 1,
+        "rationale": "Good system design starts with the bottleneck and the changed constraint. The most popular or complex choice is not automatically correct.",
+        "difficulty": "interview"
+      }
+    }
+  ],
+  "trade_offs": {
+    "pros": [
+      "Enables ACID durability — committed transactions survive crashes.",
+      "Sequential appends are fast and crash-safe; data files can be updated lazily.",
+      "Foundation for streaming replication, PITR, and CDC.",
+      "Foundation for the transactional outbox pattern (atomic DB + event publishing).",
+      "Recovery is automatic and correct on restart."
+    ],
+    "cons": [
+      "Every commit pays an fsync latency cost (mitigated by group commit, NVMe, or async commit).",
+      "WAL storage grows; must be archived or recycled after checkpoints.",
+      "Synchronous replication adds round-trip latency to commits.",
+      "Crash recovery time is bounded by the distance since the last checkpoint.",
+      "WAL throughput can become the write bottleneck on high-write workloads."
+    ]
+  },
+  "failure_modes": [
+    "fsync disabled or ignored by storage layer (e.g., lying SSDs) — silent data loss on power failure.",
+    "WAL disk full — database refuses new commits until space is freed.",
+    "Replication slot lag — replicas fall behind, WAL accumulates on primary.",
+    "Checkpoint spikes — aggressive checkpointing saturates I/O periodically.",
+    "Long recovery time — checkpoints too infrequent means long replay on crash.",
+    "Corrupted WAL — rare but catastrophic; the database cannot start."
+  ],
+  "common_mistakes": [
+    "Setting `fsync = off` for performance without understanding the durability loss.",
+    "Disabling `synchronous_commit` on critical (e.g., payment) workloads.",
+    "Not sizing WAL storage — a disk-full WAL halts all writes.",
+    "Not archiving WAL — losing the ability to do point-in-time recovery.",
+    "Leaving replication slots open on replicas that no longer consume — primary WAL grows indefinitely.",
+    "Forgetting that lying storage (consumer-grade SSDs that lie about fsync) breaks durability silently."
+  ],
+  "where_you_see_it": [
+    "Every transactional database — PostgreSQL, MySQL, Oracle, SQL Server.",
+    "Streaming replication setups — primary ships WAL to standbys.",
+    "Point-in-time recovery (PITR) — archived WAL replayed up to a chosen timestamp.",
+    "Change Data Capture (CDC) — Debezium reads WAL/binlog to stream changes.",
+    "Cassandra and RocksDB commit logs — same concept, different storage model."
+  ],
+  "interview_prompts": [
+    "What is a write-ahead log, and why does every transactional database have one?",
+    "Walk through what happens when a PostgreSQL database crashes mid-write. How does it recover?",
+    "What does `synchronous_commit = off` do, and when is it acceptable?",
+    "How does the WAL enable the transactional outbox pattern?",
+    "How does streaming replication use the WAL? What does 'replication lag' actually mean?",
+    "What's the relationship between checkpoints, WAL size, and crash recovery time?"
+  ],
+  "real_system_mappings": [
+    {
+      "system": "PostgreSQL",
+      "how": "pg_wal/ directory holds WAL segment files (default 16MB each). Streaming replication sends WAL records over a socket; physical replicas replay them. Logical decoding (wal_level=logical) powers CDC tools like Debezium and AWS DMS."
+    },
+    {
+      "system": "MySQL / InnoDB",
+      "how": "Has TWO logs: the InnoDB redo log (crash recovery) and the MySQL binlog (server-level replication). They're coordinated by an internal XA. The binlog is the foundation of statement-based and row-based replication in MySQL ecosystems."
+    },
+    {
+      "system": "Oracle",
+      "how": "Redo log files in groups (online redo logs) cycle through; archive logs are saved copies used for PITR. Oracle's Data Guard uses redo log shipping for standby databases — same pattern as PostgreSQL streaming replication."
+    },
+    {
+      "system": "Debezium (CDC across many databases)",
+      "how": "Reads the WAL (PostgreSQL), binlog (MySQL), redo log (Oracle), or transactional replication (SQL Server) to stream row-level changes to Kafka. No load on the application, no dual-write problem — the WAL is the source of truth."
+    }
+  ],
+  "status": "published",
+  "sources": [
+    {
+      "title": "System Design Primer",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Open source"
+    },
+    {
+      "title": "ByteByteGo — Scale from zero to millions",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "ByteByteGo"
+    },
+    {
+      "title": "System Design Tutorial",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "GeeksforGeeks"
+    },
+    {
+      "title": "System Design Roadmap",
+      "url": "https://roadmap.sh/system-design",
+      "publisher": "roadmap.sh"
+    },
+    {
+      "title": "Databases & Data Systems reference",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Databases & Data Systems reference",
+      "url": "https://www.postgresql.org/docs/",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Databases & Data Systems reference",
+      "url": "https://aws.amazon.com/what-is/database/",
+      "publisher": "Reference"
+    }
+  ]
+}

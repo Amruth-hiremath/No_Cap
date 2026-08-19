@@ -1,0 +1,526 @@
+{
+  "slug": "rate-limiting",
+  "version": 4,
+  "title": "Rate Limiting",
+  "phase": "scaling-performance",
+  "area": "Scaling & Performance",
+  "estimated_minutes": 7,
+  "difficulty": "core",
+  "summary": "Rate limiting caps how many requests a client can make in a time window. It protects services from abuse (DDoS, scraping), ensures fair resource sharing, and prevents cascading failures. Common algorithms: token bucket, leaky bucket, fixed window, sliding window.",
+  "why_it_matters": "Without rate limiting, a single aggressive client (or a bug in a client's retry loop) can overwhelm your service. Rate limiting is the first line of defense: it protects the service, ensures fair access for all clients, and provides predictable behavior under load. Every public API needs it.",
+  "prerequisites": [
+    "back-pressure"
+  ],
+  "related": [
+    "throttling",
+    "circuit-breaker",
+    "retry"
+  ],
+  "used_in": [
+    "Every public API.",
+    "Every service that handles untrusted clients.",
+    "Every API gateway."
+  ],
+  "blocks": [
+    {
+      "type": "prose",
+      "id": "intro",
+      "payload": {
+        "text": "Rate limiting caps how many requests a client can make in a time window. Example: '100 requests per minute per API key'. If the client exceeds the limit, the server returns **429 Too Many Requests** with a `Retry-After` header telling the client when to try again.\n\nRate limiting serves three purposes:\n1. **Protection**: prevents abuse (DDoS, scraping, brute force).\n2. **Fairness**: ensures one client can't monopolize resources.\n3. **Cost control**: caps the resources any single client can consume."
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "algorithms",
+      "payload": {
+        "code": "flowchart TD\n    N0[\"most common\"]\n    N1[\"TOKEN\"]\n    N2[\"BUCKET\"]\n    N3[\"(most\"]\n    N4[\"common)\"]\n    N5[\"capacity\"]\n    N6[\"Bucket\"]\n    N7[\"holds\"]\n    N8[\"tokens\"]\n    N9[\"(capacity).\"]\n    N10[\"Refills\"]\n    N11[\"second.\"]\n    N12[\"Each\"]\n    N13[\"request\"]\n    N14[\"consumes\"]\n    N15[\"token.\"]\n    N16[\"empty\"]\n    N17[\"429.\"]\n    N18[\"Allows\"]\n    N19[\"bursts\"]\n    N20[\"then\"]\n    N21[\"steady.\"]\n    N22[\"smooths traffic\"]\n    N23[\"LEAKY\"]\n    N24[\"(smooths\"]\n    N25[\"traffic)\"]\n    N26[\"bucket\"]\n    N27[\"Requests\"]\n    N28[\"enter\"]\n    N29[\"queue\"]\n    N30[\"(bucket).\"]\n    N31[\"Processed\"]\n    N32[\"fixed\"]\n    N33[\"rate\"]\n    N34[\"full\"]\n    N35[\"Smooths\"]\n    N36[\"into\"]\n    N37[\"steady\"]\n    N38[\"output.\"]\n    N39[\"simple, inaccurate\"]\n    N40[\"FIXED\"]\n    N41[\"WINDOW\"]\n    N42[\"(simple,\"]\n    N43[\"inaccurate)\"]\n    N44[\"e.g., per minute\"]\n    N45[\"Count\"]\n    N46[\"requests\"]\n    N47[\"per\"]\n    N48[\"window\"]\n    N49[\"(e.g.,\"]\n    N50[\"minute).\"]\n    N51[\"Reset\"]\n    N52[\"boundary.\"]\n    N53[\"Problem:\"]\n    N54[\"burst\"]\n    N55[\"edge.\"]\n    N56[\"accurate\"]\n    N57[\"SLIDING\"]\n    N58[\"(accurate)\"]\n    N59[\"the\"]\n    N60[\"last\"]\n    N61[\"seconds.\"]\n    N62[\"boundaries.\"]\n    N63[\"More\"]\n    N64[\"memory\"]\n    N65[\"expensive.\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44\n    N44 --> N45\n    N45 --> N46\n    N46 --> N47\n    N47 --> N48\n    N48 --> N49\n    N49 --> N50\n    N50 --> N51\n    N51 --> N52\n    N52 --> N53\n    N53 --> N54\n    N54 --> N55\n    N55 --> N56\n    N56 --> N57\n    N57 --> N58\n    N58 --> N59\n    N59 --> N60\n    N60 --> N61\n    N61 --> N62\n    N62 --> N63\n    N63 --> N64\n    N64 --> N65",
+        "caption": "Four rate limiting algorithms, each with different burst behavior.",
+        "alt_text": "Four diagrams. Token bucket: a bucket holds N tokens and refills at R per second. Each request consumes a token. If empty, the request is rejected. Allows bursts up to N, then R per second steady. Leaky bucket: requests enter a queue and are processed at a fixed rate. Smooths bursts into steady output. Fixed window: counts requests per minute and resets at the boundary. Problem: 2x burst at the edge. Sliding window: counts requests in the last N seconds. No burst at boundaries, but more expensive."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "token-bucket",
+      "payload": {
+        "text": "**Token bucket** is the most common algorithm:\n- The bucket has a **capacity** (max tokens, e.g., 100).\n- Tokens are added at a **refill rate** (e.g., 10/second).\n- Each request consumes 1 token.\n- If the bucket is empty, the request is rejected (429).\n\nThis allows short bursts (up to capacity) while maintaining an average rate (refill rate). It's used by AWS API Gateway, Stripe, and GitHub."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "distributed",
+      "payload": {
+        "text": "In a single-server system, rate limiting is easy: an in-memory counter per client. In a distributed system (multiple servers behind a load balancer), you need **shared state** — typically Redis:\n\n- Each server checks/updates the counter in Redis.\n- Redis `INCR` + `EXPIRE` is the standard pattern.\n- This adds 1 Redis round-trip per request (~1ms), which is acceptable.\n- For higher performance, use **sliding window logs** or **sliding window counters** (approximation)."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "429",
+      "payload": {
+        "title": "The 429 contract",
+        "body": "When rate limiting, return 429 Too Many Requests with: `Retry-After: 30` (seconds to wait) and a body explaining the limit. Good clients respect this. Bad clients get rate-limited repeatedly. Without the header, clients can't tell how long to wait and may retry immediately — causing more load.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q1",
+      "payload": {
+        "question": "Your API allows 100 requests per minute per API key. A client sends 200 requests in the first 10 seconds of the minute. What should happen?",
+        "shape": "mcq",
+        "options": [
+          "All 200 succeed — the client is within the per-minute limit.",
+          "The first 100 succeed; the rest get 429 Too Many Requests with Retry-After.",
+          "All 200 get 429 — the client is too aggressive.",
+          "The API queues the extra 100 for later."
+        ],
+        "answer_index": 1,
+        "rationale": "Rate limiting caps the total per window. After 100 requests in the first 10 seconds, the remaining 100 get 429 with a Retry-After header (telling the client to wait 50 seconds for the window to reset). This is the fixed window algorithm. Token bucket would allow the burst if capacity >= 200. The important thing is to return 429 with Retry-After so the client knows when to retry.",
+        "difficulty": "core"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q2",
+      "payload": {
+        "question": "You have 5 API servers behind a load balancer. You need to rate-limit clients at 100 requests/minute globally (not per server). What do you need?",
+        "shape": "mcq",
+        "options": [
+          "In-memory counters on each server.",
+          "A shared counter in Redis (or similar) that all servers check.",
+          "Rate limiting at the load balancer only.",
+          "No rate limiting — let each server handle it."
+        ],
+        "answer_index": 1,
+        "rationale": "In-memory counters on each server would allow 100 req/min per server — 500 total, not 100. To enforce 100 globally, all servers must share state. Redis is the standard solution: each server checks and increments the counter in Redis before processing. This adds ~1ms latency per request but ensures accurate global rate limiting. Some load balancers (AWS ALB, Cloudflare) also support rate limiting at the edge, which avoids the Redis dependency.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "token-bucket-diagram-b2",
+      "payload": {
+        "code": "flowchart LR\n    Refill[Refill process<br/>adds R tokens / sec<br/>up to capacity C] --> Bucket[(Token bucket<br/>capacity = C<br/>current = T)]\n\n    Req[Incoming request] --> Check{T >= 1?}\n    Check -->|Yes| Consume[Decrement T<br/>process request<br/>return 200]\n    Check -->|No| Reject[Return 429<br/>Retry-After: time-to-refill]\n\n    Bucket --> Check\n\n    subgraph Example[C=100, R=10/sec]\n        E1[t=0: T=100<br/>burst of 100 reqs succeeds] --> E2[t=5s: T=50<br/>50 more succeed]\n        E2 --> E3[t=10s: T=0<br/>next request: 429<br/>Retry-After: 0.1s]\n        E3 --> E4[t=20s: T=100<br/>refilled while idle<br/>burst again possible]\n    end\n\n    classDef store fill:#1e3a1e,stroke:#22c55e,color:#dcfce7\n    classDef ok fill:#1e3a5f,stroke:#3b82f6,color:#e0e7ff\n    classDef bad fill:#3a1e1e,stroke:#ef4444,color:#fee2e2\n    classDef ex fill:#3a2e1e,stroke:#f59e0b,color:#fef3c7\n    class Bucket store\n    class Consume ok\n    class Reject bad\n    class E1,E2,E3,E4 ex",
+        "caption": "Token bucket algorithm: tokens refill continuously; requests consume one; empty bucket rejects with 429 + Retry-After.",
+        "alt_text": "A refill process adds R tokens per second up to capacity C into a token bucket (capacity C, current T). Incoming requests check if T >= 1. If yes, decrement T and process the request (return 200). If no, return 429 with Retry-After set to the time until the next token refills. Example with C=100, R=10/sec: at t=0 T=100, a burst of 100 requests succeeds. At t=5s T=50, 50 more succeed. At t=10s T=0, the next request gets 429 with Retry-After: 0.1s. At t=20s T=100, the bucket has refilled while idle and another burst is possible."
+      }
+    },
+    {
+      "type": "table",
+      "id": "sliding-fixed-b2",
+      "payload": {
+        "headers": [
+          "Dimension",
+          "Fixed Window",
+          "Sliding Window (counter)",
+          "Sliding Window (log)"
+        ],
+        "rows": [
+          [
+            "How it works",
+            "Count requests in [t-60s, t]. Reset at minute boundary.",
+            "Maintain a counter per minute; current rate = weighted sum of current + previous minute's counter",
+            "Store timestamps of each request; count timestamps in [now-60s, now]"
+          ],
+          [
+            "Burst at boundary",
+            "Yes — 2x burst possible (100 at t=59s + 100 at t=61s = 200 in 2s)",
+            "Reduced — weighted counter smooths boundary",
+            "None — exact count in any 60s window"
+          ],
+          [
+            "Memory per client",
+            "1 integer (counter) + 1 timestamp",
+            "2 integers (current + previous counter)",
+            "O(N) — one timestamp per request in window"
+          ],
+          [
+            "Accuracy",
+            "Poor at boundaries",
+            "Good (within ~10%)",
+            "Exact"
+          ],
+          [
+            "CPU cost",
+            "O(1) per request",
+            "O(1) per request",
+            "O(N) per request (must scan or use sorted set)"
+          ],
+          [
+            "Typical use",
+            "Coarse API limits where burst at boundary is acceptable",
+            "Most production API rate limiters (Cloudflare, Stripe, GitHub)",
+            "Critical per-user limits where exactness matters (paid APIs)"
+          ],
+          [
+            "Real systems",
+            "Simple in-memory limits",
+            "Redis + sliding-window counter (common)",
+            "Redis sorted set (ZADD/ZREMRANGEBYSCORE)"
+          ]
+        ],
+        "caption": "Fixed window vs sliding window variants — accuracy and memory trade-offs."
+      }
+    },
+    {
+      "type": "video",
+      "id": "upgrade-video-rate-limiting",
+      "payload": {
+        "provider": "youtube",
+        "video_id": "k-Yaq8AHlFA",
+        "title": "Distributed-systems trade-off refresher",
+        "description": "Supplementary explanation. The NO CAP lesson remains self-contained.",
+        "source_url": "https://www.youtube.com/watch?v=k-Yaq8AHlFA"
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "distributed-rl-b2",
+      "payload": {
+        "code": "flowchart TB\n    Client[Client] --> LB[Load balancer]\n    LB --> A[App server A]\n    LB --> B[App server B]\n    LB --> C[App server C]\n\n    A -->|1. INCR key:rl:{user_id}:min<br/>2. check vs limit| Redis[(Redis cluster<br/>shared rate-limit state)]\n    B --> Redis\n    C --> Redis\n\n    Redis -->|counter value| A\n    Redis -->|counter value| B\n    Redis -->|counter value| C\n\n    A --> Decision{counter <= limit?}\n    B --> Decision2{counter <= limit?}\n    C --> Decision3{counter <= limit?}\n\n    Decision -->|Yes| OK1[Process request, return 200]\n    Decision -->|No| No1[Return 429 + Retry-After]\n    Decision2 -->|Yes| OK2[Process]\n    Decision2 -->|No| No2[429]\n    Decision3 -->|Yes| OK3[Process]\n    Decision3 -->|No| No3[429]\n\n    Note[Trade-off: +1ms Redis round-trip per request<br/>but accurate global rate limit across N servers<br/>Mitigation: token bucket local cache + periodic sync]\n\n    classDef server fill:#1e3a5f,stroke:#3b82f6,color:#e0e7ff\n    classDef store fill:#1e3a1e,stroke:#22c55e,color:#dcfce7\n    classDef ok fill:#1e3a1e,stroke:#22c55e,color:#dcfce7\n    classDef bad fill:#3a1e1e,stroke:#ef4444,color:#fee2e2\n    classDef note fill:#2d1e3a,stroke:#a855f7,color:#f3e8ff\n    class A,B,C server\n    class Redis store\n    class OK1,OK2,OK3 ok\n    class No1,No2,No3 bad\n    class Note note",
+        "caption": "Distributed rate limiting: all app servers share rate-limit state in Redis. Adds ~1ms latency but enforces accurate global limits.",
+        "alt_text": "A client request reaches a load balancer which routes to one of three app servers (A, B, or C). Each app server makes an INCR call to a shared Redis cluster, using a key like rl:user_id:min, and checks the counter against the limit. Redis returns the counter value. Each app server decides: if counter <= limit, process the request and return 200. If counter > limit, return 429 with Retry-After. The trade-off is +1ms Redis round-trip per request but accurate global rate limit enforcement across all servers. Mitigation for latency: token bucket local cache on each server with periodic sync to Redis."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "github-api-b2",
+      "payload": {
+        "text": "**Real example: GitHub API rate limits.**\n\nGitHub's REST API (documented at docs.github.com/rest) uses a token-bucket rate limiter per API key, with three tiers:\n\n- **Unauthenticated requests**: 60 requests/hour per IP. Very low — GitHub wants every script to authenticate so they can identify abusive clients.\n- **Authenticated requests (basic / OAuth token)**: 5,000 requests/hour per token. Standard for most integrations.\n- **GitHub Apps (per-installation)**: 5,000 requests/hour per installation, plus higher limits for specific high-volume endpoints (e.g., 12,500/hour for listing commits).\n\nEvery API response includes three headers that tell the client the current state:\n```\nX-RateLimit-Limit: 5000\nX-RateLimit-Remaining: 4993\nX-RateLimit-Reset: 1700000000   # Unix timestamp when the window resets\nX-RateLimit-Used: 7\nX-RateLimit-Resource: core\n```\n\nWhen the client exceeds the limit, GitHub returns HTTP 429 with `Retry-After: <seconds until reset>`. Good clients back off until the reset time; bad clients retry immediately and get more 429s, wasting both their own and GitHub's resources.\n\nThe headers are the key design lesson: rate limiting is a contract between client and server. The server enforces limits; the client cooperates by respecting `Retry-After`. Without the headers, clients can't cooperate — they either retry blindly (causing more load) or give up (causing user-visible failures). The `X-RateLimit-*` headers are now an industry-standard pattern, adopted by Stripe, Twitter/X, AWS, and most modern APIs.\n\nGitHub also implements **conditional requests** via `ETag` and `If-None-Match` as a complement to rate limiting: if the resource hasn't changed since the client's last fetch, GitHub returns `304 Not Modified` — and these conditional requests don't count against the rate limit. This is a great pattern: rate limiting caps abusive traffic; conditional requests make polite traffic cheaper."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "retry-after-b2",
+      "payload": {
+        "title": "The Retry-After header is not optional",
+        "body": "When your service returns 429, it MUST include `Retry-After: <seconds>` (RFC 7231). Without it, well-behaved clients don't know how long to wait — they either retry immediately (compounding the load) or back off exponentially with random jitter (often over-correcting). With it, the client knows exactly when to retry, and load spikes dissipate quickly. Pair it with `X-RateLimit-Limit`, `X-RateLimit-Remaining`, and `X-RateLimit-Reset` headers (GitHub's pattern) so clients can self-throttle proactively — never hitting the limit in the first place. Skipping these headers turns rate limiting from a contract into a guessing game.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q-token-bucket-b2",
+      "payload": {
+        "question": "Your API allows 100 requests per minute per API key, using a token bucket with capacity C=100 and refill rate R=10/sec. A client uses all 100 tokens in the first second, then immediately sends another request. What HTTP response should the server return, and what should the Retry-After header be?",
+        "shape": "mcq",
+        "options": [
+          "200 OK — the client is within the per-minute limit.",
+          "429 Too Many Requests with Retry-After: 0.1 — the bucket is empty; the next token refills in 1/R = 0.1s, so the client can retry immediately after that.",
+          "429 with Retry-After: 60 — the client must wait for the next minute window.",
+          "429 with no Retry-After — let the client figure it out."
+        ],
+        "answer_index": 1,
+        "rationale": "Token bucket's defining property: tokens refill continuously, not in window boundaries. Capacity C=100 means the bucket can absorb a burst of 100 requests instantaneously. Refill rate R=10/sec means 10 tokens reappear every second, evenly distributed (so 1 token every 100ms). After the client burns all 100 in second 0, the bucket is at 0. The next request must wait for the next token — which arrives in 1/R = 0.1 seconds. So the correct response is 429 with Retry-After: 0.1 (or 1, rounded up to whole seconds if your framework doesn't support fractional). Option 1 (200 OK) is wrong because the bucket is empty — the per-minute average rate would be 100/minute but token bucket enforces instantaneous capacity, which the client has exhausted. Option 3 (Retry-After: 60) describes fixed-window semantics, not token bucket. Token bucket never forces a full-minute wait — it only forces a wait until the next token. Option 4 (no Retry-After) is a hostile API design — clients can't cooperate without it. The deeper lesson: the algorithm choice (token bucket vs fixed window vs sliding window) directly determines the user-visible behavior on burst traffic. Token bucket allows bursts up to capacity and recovers smoothly. Fixed window rejects bursts near boundaries and resets abruptly. Choose the algorithm based on what burst behavior you want clients to experience.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "per-ip-vs-per-user-b2",
+      "payload": {
+        "text": "**Rate-limit key choice — per-IP, per-user, per-API-key.**\n\nThe rate-limit key determines what 'one client' means, and getting it wrong breaks either your service or your users. Three common choices:\n\n**Per-IP.** The simplest. Works for anonymous traffic and DDoS protection. But two critical failure modes:\n1. **Carrier-grade NAT (CGNAT)** — most mobile users and many home users share a single public IP with hundreds or thousands of other users. If you limit per-IP to 100 req/min, you'll rate-limit legitimate users because they're sharing an IP with a scraper. A single bad actor on a CGNAT IP can get everyone on that IP rate-limited.\n2. **IPv6 hoarding** — some scrapers have /64 IPv6 blocks (18 quintillion IPs). Per-IP rate limiting is meaningless if the attacker has essentially unlimited IPs.\n\n**Per-API-key.** The right choice for authenticated API traffic. Each registered API key gets a bucket; abuse is attributable; the rate limit can vary by tier (free vs paid). Failure modes: API keys leak (rotateable mitigation); a single user creates many API keys to evade limits (mitigation: rate limit by account, not just by key).\n\n**Per-user (authenticated).** Strongest. Each logged-in user gets a bucket, regardless of which API key or IP they use. The right choice for user-facing apps.\n\nThe production pattern: **layered limits.**\n- Edge / IP-level (Cloudflare, AWS WAF): protects against DDoS, volumetric abuse. High limit (e.g., 1000 req/min per IP).\n- API-key level (API gateway): per-application limit (e.g., 100 req/min per key).\n- User level (application): per-user limit (e.g., 30 req/min per logged-in user).\n- Endpoint level (application): per-endpoint limit (e.g., 5 req/min for password reset endpoint — protect against brute force).\n\nGitHub's API uses per-API-key (per-token) rate limits, but applies stricter per-endpoint limits for expensive operations (creating repos, listing commits). Stripe uses per-API-key with separate limits for different resource types. The principle: don't try to do all rate limiting at one layer — different attacks need different defense points, and different endpoints have different cost profiles."
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-rate-limiting-mental",
+      "payload": {
+        "text": "Engineering mental model",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-rate-limiting-mental",
+      "payload": {
+        "text": "**Mental model.** Think of Rate Limiting as a deliberate boundary in a system. The boundary exists because something becomes harder to manage when everything is done in one place: latency, scale, failure isolation, consistency, cost, or team ownership. The useful question is not “what does Rate Limiting mean?” but “what pressure makes this boundary worth introducing, and what new failure mode does it create?”"
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-rate-limiting-decision",
+      "payload": {
+        "title": "Design lens",
+        "body": "Before choosing Rate Limiting, name the workload, the critical user path, the dominant bottleneck, the failure you are trying to absorb, and the trade-off you are willing to accept. If you cannot name those five things, the design is probably premature.",
+        "kind": "info"
+      }
+    },
+    {
+      "type": "image",
+      "id": "upgrade-image-rate-limiting",
+      "payload": {
+        "src": "/learning-visuals/rate-limiting.svg",
+        "alt": "Original NO CAP systems visual for Rate Limiting.",
+        "caption": "Rate Limiting: a compact system-thinking visual.",
+        "credit": "Original NO CAP visual.",
+        "source_url": "https://github.com/donnemartin/system-design-primer"
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "upgrade-mermaid-rate-limiting",
+      "payload": {
+        "code": "flowchart LR\n  A[Client] --> B[Gateway] --> C[Service] --> D[State] --> E[Outcome]",
+        "caption": "Rate Limiting: a simplified system view showing the primary flow and the main state boundaries.",
+        "alt_text": "Rate Limiting: a simplified system view showing the primary flow and the main state boundaries."
+      }
+    },
+    {
+      "type": "code",
+      "id": "upgrade-code-rate-limiting",
+      "payload": {
+        "language": "text",
+        "code": "// Pseudocode\nrequest = receive()\nresult = rate_limiting(request)\nreturn result\n\n// Production questions:\n// 1. What happens on timeout?\n// 2. Can this operation be retried safely?\n// 3. What is the bottleneck?",
+        "caption": "A minimal engineering sketch for reasoning about Rate Limiting."
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-rate-limiting-numbers",
+      "payload": {
+        "text": "Back-of-the-envelope reasoning",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-rate-limiting-numbers",
+      "payload": {
+        "text": "Example: 10M requests/day ÷ 86,400 ≈ 116 requests/s average. Design for peak rather than average; a 10× peak is ≈ 1,160 requests/s."
+      }
+    },
+    {
+      "type": "simulation",
+      "id": "upgrade-sim-rate-limiting",
+      "payload": {
+        "title": "Interactive thought experiment: Rate Limiting",
+        "description": "Change the variables below and predict what breaks first in Rate Limiting. The production lab can later reuse these same inputs.",
+        "variables": [
+          {
+            "name": "traffic",
+            "description": "Requests/events per second",
+            "default": "1000"
+          },
+          {
+            "name": "latency",
+            "description": "Dependency latency",
+            "default": "50ms"
+          },
+          {
+            "name": "failure_rate",
+            "description": "Injected failure rate",
+            "default": "0%"
+          }
+        ],
+        "placeholder_note": "Interactive controls are deterministic; use the linked Labs section when a dedicated lab exists."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-rate-limiting-hint",
+      "payload": {
+        "title": "Hint",
+        "body": "If you are stuck on Rate Limiting, start by drawing the request path and marking every network hop, stateful component, queue, cache and failure boundary. Then estimate where the system will saturate.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-rate-limiting-1",
+      "payload": {
+        "shape": "prediction",
+        "question": "You increase traffic by 10× in a system using Rate Limiting. What should you inspect first?",
+        "options": [
+          "The newest framework version",
+          "The dominant bottleneck and its saturation signal",
+          "Only the UI",
+          "Nothing; the architecture should absorb any traffic automatically"
+        ],
+        "answer_index": 1,
+        "rationale": "System design is a constraint-and-bottleneck exercise. Start with the resource or dependency that will saturate first, then choose the smallest change that removes that bottleneck.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-rate-limiting-2",
+      "payload": {
+        "shape": "mcq",
+        "question": "Which statement is the safest engineering habit when using Rate Limiting?",
+        "options": [
+          "Choose it because it is popular",
+          "Add it before measuring the problem",
+          "State the workload, failure mode and trade-off it is solving",
+          "Use the most distributed design possible"
+        ],
+        "answer_index": 2,
+        "rationale": "Good architecture starts from requirements, workload and failure assumptions. The component is the consequence of that reasoning, not the starting point.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "scenario",
+      "id": "upgrade-scenario-rate-limiting",
+      "payload": {
+        "prompt": "Production scenario: your system uses Rate Limiting, traffic suddenly spikes, and p99 latency doubles. What is your first move?",
+        "context": "You have dashboards for traffic, latency, errors and saturation. You can change the architecture, but every change has operational cost.",
+        "options": [
+          {
+            "id": "a",
+            "text": "Add more instances immediately",
+            "outcome": "This may help, but only if compute saturation is the bottleneck.",
+            "correct": false
+          },
+          {
+            "id": "b",
+            "text": "Inspect the bottleneck and its saturation signal first",
+            "outcome": "Correct: diagnose before scaling or introducing a new pattern.",
+            "correct": true
+          },
+          {
+            "id": "c",
+            "text": "Disable monitoring to reduce overhead",
+            "outcome": "This removes the evidence you need to diagnose the incident.",
+            "correct": false
+          }
+        ],
+        "rationale": "Measure the limiting resource or dependency first. A bottleneck can be compute, database I/O, network, cache misses, lock contention, downstream latency, or queue backlog.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-rate-limiting-interview",
+      "payload": {
+        "text": "Interview drill",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-rate-limiting-interview",
+      "payload": {
+        "text": "**Answer this without notes:** When would you choose Rate Limiting, and when would you intentionally avoid it? Mention at least one bottleneck it addresses, one failure mode it introduces, and one alternative. Then quantify the workload you are designing for."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "field-guide-rate-limiting",
+      "payload": {
+        "title": "Engineering lens",
+        "body": "For Rate Limiting, treat the system as a control loop: observe load and failure, choose a bounded response, and measure whether the response stabilizes the system instead of simply moving the bottleneck somewhere else.",
+        "kind": "tip"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "numerical-lens-rate-limiting",
+      "payload": {
+        "text": "### Numerical sanity check\n\nWhen estimating capacity, distinguish average from peak. If average traffic is 4,000 RPS and the observed peak-to-average factor is 3×, design the first pass around roughly 12,000 RPS, then leave headroom for failure and growth."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "field-question-rate-limiting",
+      "payload": {
+        "shape": "prediction",
+        "question": "What is the earliest signal that Rate Limiting is becoming the bottleneck: latency, saturation, errors, queue depth, or something else? Why?",
+        "context": "Do not optimize for a memorized definition. Reason from the workload and failure mode.",
+        "options": [
+          "Scale the same component immediately.",
+          "Measure the current bottleneck and state the assumption that changed.",
+          "Add more technologies until throughput improves.",
+          "Choose the most popular architecture."
+        ],
+        "answer_index": 1,
+        "rationale": "Good system design starts with the bottleneck and the changed constraint. The most popular or complex choice is not automatically correct.",
+        "difficulty": "interview"
+      }
+    }
+  ],
+  "trade_offs": {
+    "pros": [
+      "Protects services from abuse and DDoS.",
+      "Ensures fair access for all clients.",
+      "Provides predictable behavior under load.",
+      "Enables business models (free tier: 100 req/min, paid: 10,000)."
+    ],
+    "cons": [
+      "Adds latency (Redis round-trip for distributed limiting).",
+      "Can reject legitimate traffic if limits are too aggressive.",
+      "Requires client cooperation (clients must respect 429 and Retry-After).",
+      "Algorithm choice matters — wrong algorithm causes edge-case bursts or false rejections."
+    ]
+  },
+  "failure_modes": [
+    "Limit too low — legitimate users get rate-limited.",
+    "Limit too high — abuse protection fails.",
+    "Per-server instead of global — 5 servers = 5x the limit.",
+    "No Retry-After header — clients retry immediately, causing more load."
+  ],
+  "common_mistakes": [
+    "Using in-memory counters in a distributed system (per-server, not global).",
+    "Forgetting the Retry-After header.",
+    "Not differentiating between authenticated and unauthenticated clients (stricter limits for anonymous).",
+    "Rate limiting only by IP (NAT breaks this — many users share one IP)."
+  ],
+  "where_you_see_it": [
+    "Every public API (GitHub: 5000/hr, Stripe: 100/sec, Twitter: 300/15min).",
+    "API gateways (AWS API Gateway, Kong, Apigee).",
+    "Cloudflare edge rate limiting (DDoS protection)."
+  ],
+  "interview_prompts": [
+    "What is rate limiting? Why is it important?",
+    "Compare token bucket, leaky bucket, fixed window, and sliding window algorithms.",
+    "How do you implement rate limiting in a distributed system?",
+    "What should the 429 response include?"
+  ],
+  "real_system_mappings": [
+    {
+      "system": "GitHub API",
+      "how": "Token bucket: 5000 requests/hour for authenticated users. Returns X-RateLimit-Remaining and X-RateLimit-Reset headers."
+    },
+    {
+      "system": "Cloudflare",
+      "how": "Edge rate limiting at the CDN layer — blocks abusive traffic before it reaches the origin. Configurable per-route limits."
+    }
+  ],
+  "status": "published",
+  "sources": [
+    {
+      "title": "System Design Primer",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Open source"
+    },
+    {
+      "title": "ByteByteGo — Scale from zero to millions",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "ByteByteGo"
+    },
+    {
+      "title": "System Design Tutorial",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "GeeksforGeeks"
+    },
+    {
+      "title": "System Design Roadmap",
+      "url": "https://roadmap.sh/system-design",
+      "publisher": "roadmap.sh"
+    },
+    {
+      "title": "Scaling & Performance reference",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Scaling & Performance reference",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Scaling & Performance reference",
+      "url": "https://highscalability.com/",
+      "publisher": "Reference"
+    }
+  ]
+}

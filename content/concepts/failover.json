@@ -1,0 +1,433 @@
+{
+  "slug": "failover",
+  "version": 4,
+  "title": "Failover",
+  "phase": "reliability-resilience",
+  "area": "Reliability & Resilience",
+  "estimated_minutes": 7,
+  "difficulty": "advanced",
+  "summary": "Failover is the process of switching to a redundant standby when the primary fails — promoting a replica database, redirecting traffic to a healthy region, or routing around a failed instance. The hard part isn't the switch itself; it's deciding when to fail over, doing it without split-brain, and recovering when the original primary comes back. Automatic failover trades speed for risk of false positives; manual failover trades speed for safety.",
+  "why_it_matters": "Every highly available system has redundant components, but redundancy only helps if traffic actually moves to the standby when the primary dies. Failover is what turns 'we have a replica' into 'we survived an outage.' Done badly, it causes split-brain, data loss, or cascading failures that are worse than the original problem. The 2017 AWS S3 outage was caused by a typo during failover debugging; the 2021 Facebook outage was caused by BGP failover gone wrong. Failover is a high-stakes operation that must be automated, tested, and bounded.",
+  "prerequisites": [
+    "replication",
+    "consensus",
+    "timeout"
+  ],
+  "related": [
+    "circuit-breaker",
+    "multi-region",
+    "disaster-recovery",
+    "leader-election"
+  ],
+  "used_in": [
+    "Databases (PostgreSQL, MySQL, Cassandra, MongoDB).",
+    "Load balancers and reverse proxies.",
+    "DNS and BGP routing.",
+    "Cloud regions and availability zones."
+  ],
+  "blocks": [
+    {
+      "type": "prose",
+      "id": "intro",
+      "payload": {
+        "text": "Failover is the act of switching to a standby when the primary fails. The setup is always: one **primary** (or active) serving traffic, and one or more **standbys** (or replicas) waiting. When the primary is detected as failed, a standby is promoted and traffic is redirected.\n\nThe same pattern applies at every layer:\n- **Database failover**: a read replica is promoted to primary.\n- **Instance failover**: a load balancer routes traffic away from a dead instance to healthy ones.\n- **Region failover**: DNS or anycast routing redirects traffic to a healthy region.\n- **VIP failover**: a virtual IP moves from one host to another (VRRP, Keepalived).\n\nThe mechanics differ but the hard parts are universal: detection, split-brain prevention, and recovery."
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "automatic-vs-manual",
+      "payload": {
+        "code": "flowchart TD\n    N0[\"fast, risky\"]\n    N1[\"AUTOMATIC\"]\n    N2[\"FAILOVER\"]\n    N3[\"(fast,\"]\n    N4[\"risky)\"]\n    N5[\"Health\"]\n    N6[\"checker\"]\n    N7[\"detects\"]\n    N8[\"primary\"]\n    N9[\"down.\"]\n    N10[\"Controller\"]\n    N11[\"promotes\"]\n    N12[\"replica\"]\n    N13[\"primary.\"]\n    N14[\"DNS/LB/VIP\"]\n    N15[\"Traffic\"]\n    N16[\"redirected\"]\n    N17[\"(DNS\"]\n    N18[\"VIP).\"]\n    N19[\"Time\"]\n    N20[\"recover:\"]\n    N21[\"seconds\"]\n    N22[\"minutes.\"]\n    N23[\"Risk:\"]\n    N24[\"false\"]\n    N25[\"positive\"]\n    N26[\"split\"]\n    N27[\"brain.\"]\n    N28[\"slow, safe\"]\n    N29[\"MANUAL\"]\n    N30[\"(slow,\"]\n    N31[\"safe)\"]\n    N32[\"call\"]\n    N33[\"engineer\"]\n    N34[\"paged.\"]\n    N35[\"not a network partition\"]\n    N36[\"Verifies\"]\n    N37[\"really\"]\n    N38[\"down\"]\n    N39[\"(not\"]\n    N40[\"network\"]\n    N41[\"partition).\"]\n    N42[\"Promotes\"]\n    N43[\"replica,\"]\n    N44[\"redirects\"]\n    N45[\"traffic.\"]\n    N46[\"15min\"]\n    N47[\"hours.\"]\n    N48[\"longer\"]\n    N49[\"outage.\"]\n    N50[\"stateful\"]\n    N51[\"DATABASE\"]\n    N52[\"(stateful)\"]\n    N53[\"Primary\"]\n    N54[\"writes\"]\n    N55[\"WAL\"]\n    N56[\"Replicas\"]\n    N57[\"A,B,C.\"]\n    N58[\"most caught up\"]\n    N59[\"dies.\"]\n    N60[\"Promote\"]\n    N61[\"(most\"]\n    N62[\"caught\"]\n    N63[\"up).\"]\n    N64[\"now\"]\n    N65[\"B,C\"]\n    N66[\"follow\"]\n    N67[\"data\"]\n    N68[\"loss\"]\n    N69[\"was\"]\n    N70[\"behind\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44\n    N44 --> N45\n    N45 --> N46\n    N46 --> N47\n    N47 --> N48\n    N48 --> N49\n    N49 --> N50\n    N50 --> N51\n    N51 --> N52\n    N52 --> N53\n    N53 --> N54\n    N54 --> N55\n    N55 --> N56\n    N56 --> N57\n    N57 --> N58\n    N58 --> N59\n    N59 --> N60\n    N60 --> N61\n    N61 --> N62\n    N62 --> N63\n    N63 --> N64\n    N64 --> N65\n    N65 --> N66\n    N66 --> N67\n    N67 --> N68\n    N68 --> N69\n    N69 --> N70",
+        "caption": "Automatic failover is fast but risks split-brain; manual is safe but slow. Stateful failover risks data loss if the replica is behind.",
+        "alt_text": "Three diagrams. Automatic failover: a health checker detects the primary is down, the controller promotes a replica to primary, and traffic is redirected via DNS or load balancer. Recovery takes seconds to minutes, but a false positive can cause split-brain. Manual failover: an on-call engineer is paged, verifies the primary is really down rather than a partition, then promotes a replica. Recovery takes fifteen minutes to hours, but the outage is longer. Database failover: the primary writes a write-ahead log that replicas follow. When the primary dies, the most caught-up replica is promoted; if it was behind, data is lost."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "split-brain",
+      "payload": {
+        "text": "The nightmare scenario in failover is **split-brain**: two nodes both believe they're the primary. This happens when the network partitions and the standby can't tell whether the primary is down or whether it's just unreachable from the standby's vantage point. It promotes itself. Now you have two primaries — both accepting writes — and reconciling them later is impossible without data loss.\n\nThe defense is a **quorum**: a consensus protocol (Raft, Paxos) requires a majority of nodes to agree on who's primary. If a node can't reach a majority, it doesn't promote itself. This is why etcd, ZooKeeper, and modern databases (CockroachDB, Spanner, YugabyteDB) use consensus for leader election.\n\nFor systems that don't use consensus (classic Postgres streaming replication), the standard trick is a **witness server** in a third location that breaks ties. Without it, a partition between primary and standby with no third party can cause split-brain."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "data-loss",
+      "payload": {
+        "text": "Stateful failover risks data loss. If the primary accepted writes that haven't yet reached the replica, promoting the replica means those writes are lost. This is the RPO (recovery point objective) — the amount of data you can tolerate losing.\n\n- **Synchronous replication**: the primary waits for the replica to acknowledge before committing. Zero data loss, but slower writes and the primary fails if the replica is slow.\n- **Asynchronous replication**: the primary commits immediately, the replica catches up later. Faster writes, but if the primary dies before the replica catches up, data is lost.\n\nPostgreSQL supports both: synchronous_commit=on for zero-loss, off for speed. Most production systems use a hybrid: synchronous to a local replica (within AZ), asynchronous to a remote replica (cross-region). The local replica gives fast failover with no data loss; the remote replica gives region-level disaster recovery with some RPO."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "fencing",
+      "payload": {
+        "title": "Fencing: shoot the other node in the head",
+        "body": "Before promoting a standby, you must guarantee the old primary is no longer accepting writes. This is called **fencing** or **STONITH** (Shoot The Other Node In The Head). Techniques include: power-cycling the old primary via a smart PDU, revoking its credentials, marking its storage read-only, or removing it from the cluster's quorum. Without fencing, a 'failed' primary that's actually still alive can keep writing and split-brain results. The classic horror story: old primary wakes up, accepts writes, then those writes are lost when the new primary catches up — and the user thinks their write was persisted.",
+        "kind": "warning"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "client-side",
+      "payload": {
+        "text": "Failover at the server side is only half the story. The client must also handle it:\n\n- **DNS failover**: clients cache DNS, so they keep hitting the old primary for the TTL duration (often minutes). Set short TTLs (60s) on critical records, or use a client that respects DNS TTLs (most don't).\n- **Connection rerouting**: when a connection breaks, the client must reconnect to the new primary. Smart drivers (PgJDBC, MySQL Connector/J) do this automatically; dumb drivers require a restart.\n- **Retry on failover**: when a write fails because the primary changed, the client should retry against the new primary. This requires the driver to refresh its endpoint list.\n\nThe Amazon RDS pattern is illustrative: the database has a single DNS endpoint. On failover, RDS atomically updates the DNS to point at the new primary. Smart clients reconnect; dumb clients need a restart. The failover itself takes 30-60 seconds; the DNS propagation adds up to the TTL."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q1",
+      "payload": {
+        "question": "Your primary database is in AZ-A, with an async replica in AZ-B. The link between AZs fails. AZ-B can't reach AZ-A. What's the risk if AZ-B auto-promotes?",
+        "shape": "mcq",
+        "options": [
+          "Nothing — AZ-B becomes the new primary, AZ-A is decommissioned.",
+          "Split-brain: AZ-A is still alive and accepting writes, AZ-B is now also accepting writes. When the link recovers, you have two divergent primaries.",
+          "The replica in AZ-B has no data, so it will reject all writes.",
+          "The failover will be blocked by the quorum check."
+        ],
+        "answer_index": 1,
+        "rationale": "A network partition between AZs is indistinguishable from a primary failure from AZ-B's perspective. If AZ-B auto-promotes without a quorum check, and AZ-A is actually still alive, both AZs now think they have the primary and both accept writes — split-brain. When the partition heals, the divergent write histories can't be reconciled without data loss. The fix is a quorum: a third witness (in AZ-C, or a cloud service) that breaks the tie. If AZ-B can't reach a majority, it doesn't promote. This is why databases like CockroachDB and Spanner use consensus.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q2",
+      "payload": {
+        "question": "Why is fencing necessary before promoting a standby?",
+        "shape": "mcq",
+        "options": [
+          "To make failover faster.",
+          "To guarantee the old primary can't accept writes anymore, preventing split-brain.",
+          "To free up the old primary's IP address.",
+          "Fencing is optional and rarely used in practice."
+        ],
+        "answer_index": 1,
+        "rationale": "Without fencing, the old primary might still be alive and accepting writes — for example, if the health checker thought it was down because of a network partition, not a real failure. When you promote a standby alongside a live old primary, you get split-brain and data divergence. Fencing guarantees the old primary is dead or read-only before the new one takes over: power-cycle it, revoke its credentials, fence its storage. The classic STONITH (Shoot The Other Node In The Head) approach in HA clusters exists precisely for this reason.",
+        "difficulty": "advanced"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q3",
+      "payload": {
+        "question": "You're choosing between synchronous and asynchronous replication for a database. Which trade-off are you making?",
+        "shape": "mcq",
+        "options": [
+          "Synchronous: zero data loss but slower writes; asynchronous: faster writes but possible data loss on failover.",
+          "Synchronous: faster writes; asynchronous: zero data loss.",
+          "Synchronous: works across regions; asynchronous: only within an AZ.",
+          "There's no real difference in modern databases."
+        ],
+        "answer_index": 0,
+        "rationale": "Synchronous replication means the primary waits for the replica's acknowledgment before committing — guarantees the replica has the data, so failover loses nothing, but every write pays the round-trip latency. Asynchronous replication commits locally and replicates later — faster writes, but if the primary dies before the replica catches up, those unreplicated writes are lost (the RPO is the replication lag, often seconds). Most production systems use a hybrid: synchronous to a local replica (zero loss, fast failover within an AZ), asynchronous to a remote replica (some loss, but cross-region DR).",
+        "difficulty": "core"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-failover-mental",
+      "payload": {
+        "text": "Engineering mental model",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-failover-mental",
+      "payload": {
+        "text": "**Mental model.** Think of Failover as a deliberate boundary in a system. The boundary exists because something becomes harder to manage when everything is done in one place: latency, scale, failure isolation, consistency, cost, or team ownership. The useful question is not “what does Failover mean?” but “what pressure makes this boundary worth introducing, and what new failure mode does it create?”"
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-failover-decision",
+      "payload": {
+        "title": "Design lens",
+        "body": "Before choosing Failover, name the workload, the critical user path, the dominant bottleneck, the failure you are trying to absorb, and the trade-off you are willing to accept. If you cannot name those five things, the design is probably premature.",
+        "kind": "info"
+      }
+    },
+    {
+      "type": "image",
+      "id": "upgrade-image-failover",
+      "payload": {
+        "src": "/learning-visuals/failover.svg",
+        "alt": "Original NO CAP systems visual for Failover.",
+        "caption": "Failover: a compact system-thinking visual.",
+        "credit": "Original NO CAP visual.",
+        "source_url": "https://github.com/donnemartin/system-design-primer"
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "upgrade-mermaid-failover",
+      "payload": {
+        "code": "flowchart LR\n  A[Client] --> B[Gateway] --> C[Service] --> D[State] --> E[Outcome]",
+        "caption": "Failover: a simplified system view showing the primary flow and the main state boundaries.",
+        "alt_text": "Failover: a simplified system view showing the primary flow and the main state boundaries."
+      }
+    },
+    {
+      "type": "code",
+      "id": "upgrade-code-failover",
+      "payload": {
+        "language": "text",
+        "code": "// Pseudocode\nrequest = receive()\nresult = failover(request)\nreturn result\n\n// Production questions:\n// 1. What happens on timeout?\n// 2. Can this operation be retried safely?\n// 3. What is the bottleneck?",
+        "caption": "A minimal engineering sketch for reasoning about Failover."
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-failover-numbers",
+      "payload": {
+        "text": "Back-of-the-envelope reasoning",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-failover-numbers",
+      "payload": {
+        "text": "Numerical lens: write down traffic, payload size, read/write ratio, peak multiplier and durability target before choosing a component. The numbers should justify the architecture."
+      }
+    },
+    {
+      "type": "simulation",
+      "id": "upgrade-sim-failover",
+      "payload": {
+        "title": "Interactive thought experiment: Failover",
+        "description": "Change the variables below and predict what breaks first in Failover. The production lab can later reuse these same inputs.",
+        "variables": [
+          {
+            "name": "traffic",
+            "description": "Requests/events per second",
+            "default": "1000"
+          },
+          {
+            "name": "latency",
+            "description": "Dependency latency",
+            "default": "50ms"
+          },
+          {
+            "name": "failure_rate",
+            "description": "Injected failure rate",
+            "default": "0%"
+          }
+        ],
+        "placeholder_note": "Interactive controls are deterministic; use the linked Labs section when a dedicated lab exists."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-failover-hint",
+      "payload": {
+        "title": "Hint",
+        "body": "If you are stuck on Failover, start by drawing the request path and marking every network hop, stateful component, queue, cache and failure boundary. Then estimate where the system will saturate.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-failover-1",
+      "payload": {
+        "shape": "prediction",
+        "question": "You increase traffic by 10× in a system using Failover. What should you inspect first?",
+        "options": [
+          "The newest framework version",
+          "The dominant bottleneck and its saturation signal",
+          "Only the UI",
+          "Nothing; the architecture should absorb any traffic automatically"
+        ],
+        "answer_index": 1,
+        "rationale": "System design is a constraint-and-bottleneck exercise. Start with the resource or dependency that will saturate first, then choose the smallest change that removes that bottleneck.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-failover-2",
+      "payload": {
+        "shape": "mcq",
+        "question": "Which statement is the safest engineering habit when using Failover?",
+        "options": [
+          "Choose it because it is popular",
+          "Add it before measuring the problem",
+          "State the workload, failure mode and trade-off it is solving",
+          "Use the most distributed design possible"
+        ],
+        "answer_index": 2,
+        "rationale": "Good architecture starts from requirements, workload and failure assumptions. The component is the consequence of that reasoning, not the starting point.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "scenario",
+      "id": "upgrade-scenario-failover",
+      "payload": {
+        "prompt": "Production scenario: your system uses Failover, traffic suddenly spikes, and p99 latency doubles. What is your first move?",
+        "context": "You have dashboards for traffic, latency, errors and saturation. You can change the architecture, but every change has operational cost.",
+        "options": [
+          {
+            "id": "a",
+            "text": "Add more instances immediately",
+            "outcome": "This may help, but only if compute saturation is the bottleneck.",
+            "correct": false
+          },
+          {
+            "id": "b",
+            "text": "Inspect the bottleneck and its saturation signal first",
+            "outcome": "Correct: diagnose before scaling or introducing a new pattern.",
+            "correct": true
+          },
+          {
+            "id": "c",
+            "text": "Disable monitoring to reduce overhead",
+            "outcome": "This removes the evidence you need to diagnose the incident.",
+            "correct": false
+          }
+        ],
+        "rationale": "Measure the limiting resource or dependency first. A bottleneck can be compute, database I/O, network, cache misses, lock contention, downstream latency, or queue backlog.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-failover-interview",
+      "payload": {
+        "text": "Interview drill",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-failover-interview",
+      "payload": {
+        "text": "**Answer this without notes:** When would you choose Failover, and when would you intentionally avoid it? Mention at least one bottleneck it addresses, one failure mode it introduces, and one alternative. Then quantify the workload you are designing for."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "field-guide-failover",
+      "payload": {
+        "title": "Engineering lens",
+        "body": "For Failover, treat the system as a control loop: observe load and failure, choose a bounded response, and measure whether the response stabilizes the system instead of simply moving the bottleneck somewhere else.",
+        "kind": "tip"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "numerical-lens-failover",
+      "payload": {
+        "text": "### Numerical sanity check\n\nWhen estimating capacity, distinguish average from peak. If average traffic is 4,000 RPS and the observed peak-to-average factor is 3×, design the first pass around roughly 12,000 RPS, then leave headroom for failure and growth."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "field-question-failover",
+      "payload": {
+        "shape": "prediction",
+        "question": "What is the earliest signal that Failover is becoming the bottleneck: latency, saturation, errors, queue depth, or something else? Why?",
+        "context": "Do not optimize for a memorized definition. Reason from the workload and failure mode.",
+        "options": [
+          "Scale the same component immediately.",
+          "Measure the current bottleneck and state the assumption that changed.",
+          "Add more technologies until throughput improves.",
+          "Choose the most popular architecture."
+        ],
+        "answer_index": 1,
+        "rationale": "Good system design starts with the bottleneck and the changed constraint. The most popular or complex choice is not automatically correct.",
+        "difficulty": "interview"
+      }
+    }
+  ],
+  "trade_offs": {
+    "pros": [
+      "Turns redundancy into actual availability — primary dies, traffic keeps flowing.",
+      "Automatic failover can recover from outages in seconds, before users notice.",
+      "Enables multi-AZ and multi-region deployments.",
+      "Decouples availability of any single node from the system."
+    ],
+    "cons": [
+      "Risk of split-brain if detection is wrong (network partitions look like failures).",
+      "Data loss on async replication if the replica is behind.",
+      "Automatic failover can cause cascading failures if it triggers too aggressively.",
+      "Recovery (failing back to the original primary) is often harder than the failover itself."
+    ]
+  },
+  "failure_modes": [
+    "Split-brain: two primaries both accepting writes after a partition.",
+    "Data loss when the promoted replica was behind the primary.",
+    "Failover storms: oscillating between primaries due to flapping health checks.",
+    "Dumb clients that don't reconnect to the new primary after failover."
+  ],
+  "common_mistakes": [
+    "No fencing — old primary keeps accepting writes.",
+    "No quorum — a single witness can't break ties, leading to split-brain.",
+    "Long DNS TTLs — clients keep hitting the dead primary for minutes.",
+    "Never testing failover — when you need it, the runbook is wrong."
+  ],
+  "where_you_see_it": [
+    "Databases: Amazon RDS Multi-AZ, PostgreSQL Patroni, MongoDB replica sets.",
+    "Load balancers: AWS ALB health checks reroute from dead instances.",
+    "DNS: Route 53 health-checked records, Cloudflare load balancing."
+  ],
+  "interview_prompts": [
+    "What is split-brain, and how do you prevent it?",
+    "Compare synchronous and asynchronous replication for failover. When would you use each?",
+    "What is fencing, and why is it necessary before promoting a standby?",
+    "How does DNS-based failover work, and what's its main weakness?"
+  ],
+  "real_system_mappings": [
+    {
+      "system": "Amazon RDS Multi-AZ",
+      "how": "Maintains a synchronous standby in a second AZ. On failure detection, RDS promotes the standby and atomically updates the DNS endpoint. Typical failover: 60-120 seconds. Application reconnects via the same DNS name."
+    },
+    {
+      "system": "Patroni (PostgreSQL HA)",
+      "how": "Uses etcd or ZooKeeper for leader election via consensus. A postgres primary is elected, others follow. Fencing is performed by removing the old primary's leader key, preventing split-brain."
+    }
+  ],
+  "status": "published",
+  "sources": [
+    {
+      "title": "System Design Primer",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Open source"
+    },
+    {
+      "title": "ByteByteGo — Scale from zero to millions",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "ByteByteGo"
+    },
+    {
+      "title": "System Design Tutorial",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "GeeksforGeeks"
+    },
+    {
+      "title": "System Design Roadmap",
+      "url": "https://roadmap.sh/system-design",
+      "publisher": "roadmap.sh"
+    },
+    {
+      "title": "Reliability & Resilience reference",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Reliability & Resilience reference",
+      "url": "https://sre.google/sre-book/table-of-contents/",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Reliability & Resilience reference",
+      "url": "https://aws.amazon.com/builders-library/",
+      "publisher": "Reference"
+    },
+    {
+      "title": "AWS Well-Architected",
+      "url": "https://aws.amazon.com/architecture/well-architected/",
+      "publisher": "AWS"
+    }
+  ]
+}

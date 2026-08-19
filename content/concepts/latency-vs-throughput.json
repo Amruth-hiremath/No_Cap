@@ -1,0 +1,487 @@
+{
+  "slug": "latency-vs-throughput",
+  "version": 4,
+  "title": "Latency vs Throughput",
+  "phase": "foundations",
+  "area": "Foundations",
+  "estimated_minutes": 7,
+  "difficulty": "core",
+  "summary": "Latency is how long one operation takes. Throughput is how many operations happen per unit time. They are related but distinct: you can have high throughput with high latency (batch processing) or low latency with low throughput (single-user app). Knowing which one to optimize is a core system design skill.",
+  "why_it_matters": "If you optimize throughput when your users care about latency, you'll build a system that handles lots of requests but feels slow. If you optimize latency when throughput matters, you'll build a system that feels fast but falls over under load. Most production systems need both — but they optimize them differently.",
+  "prerequisites": [
+    "performance-vs-scalability"
+  ],
+  "related": [
+    "availability-vs-consistency",
+    "back-pressure"
+  ],
+  "used_in": [
+    "Every system that serves users or processes data."
+  ],
+  "blocks": [
+    {
+      "type": "prose",
+      "id": "intro",
+      "payload": {
+        "text": "**Latency** is the time from 'I asked for something' to 'I got it.' Measured in milliseconds (or microseconds, or seconds). It's a per-operation metric.\n\n**Throughput** is how many operations complete per unit time. Measured in requests per second (RPS), messages per second, or transactions per second. It's an aggregate metric.\n\nA system can have low throughput and low latency (a personal blog), high throughput and high latency (batch ETL), or — the holy grail — high throughput and low latency (a well-designed API)."
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "latency-vs-throughput",
+      "payload": {
+        "code": "flowchart TD\n    N0[\"per request\"]\n    N1[\"LATENCY\"]\n    N2[\"(per\"]\n    N3[\"request)\"]\n    N4[\"Client\"]\n    N5[\"sends\"]\n    N6[\"request\"]\n    N7[\"Server\"]\n    N8[\"responds\"]\n    N9[\"50ms\"]\n    N10[\"Latency\"]\n    N11[\"aggregate\"]\n    N12[\"THROUGHPUT\"]\n    N13[\"(aggregate)\"]\n    N14[\"handles\"]\n    N15[\"10,000\"]\n    N16[\"requests\"]\n    N17[\"second\"]\n    N18[\"Throughput\"]\n    N19[\"RPS\"]\n    N20[\"RELATIONSHIP:\"]\n    N21[\"concurrency\"]\n    N22[\"latency\"]\n    N23[\"Little's Law\"]\n    N24[\"(Little's\"]\n    N25[\"Law)\"]\n    N26[\"increase\"]\n    N27[\"throughput:\"]\n    N28[\"faster per request\"]\n    N29[\"reduce\"]\n    N30[\"(faster\"]\n    N31[\"per\"]\n    N32[\"more parallel requests\"]\n    N33[\"(more\"]\n    N34[\"parallel\"]\n    N35[\"requests)\"]\n    N36[\"both\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36",
+        "caption": "Latency is per-request; throughput is aggregate. Little's Law connects them.",
+        "alt_text": "A diagram explaining latency versus throughput. Latency is the time from when a client sends a request to when the server responds — say, 50 milliseconds. Throughput is how many requests complete per second — say, 10,000 requests per second. They are related by Little's Law: throughput equals concurrency divided by latency. To increase throughput, you can reduce latency, increase concurrency, or both."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "little-law",
+      "payload": {
+        "text": "**Little's Law** connects them: `Throughput ≈ Concurrency / Latency`. If your system handles 100 concurrent requests at 50ms latency each, throughput ≈ 100 / 0.05 = 2,000 RPS. To increase throughput you can:\n- **Reduce latency** (faster per request) — optimize code, cache, index.\n- **Increase concurrency** (more parallel requests) — add servers, increase thread pool, use async I/O.\n- **Both** — the best systems do both."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "p99",
+      "payload": {
+        "title": "Always measure percentiles, not averages",
+        "body": "Average latency hides tail latency. If 99 requests take 10ms and 1 takes 1000ms, the average is ~20ms — looks fine. But 1% of your users see a 1-second delay. Always report p50 (median), p95, and p99. SLOs are usually written against p99: '99% of requests complete in under 200ms.'",
+        "kind": "warning"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "tradeoff",
+      "payload": {
+        "text": "Latency and throughput can conflict:\n- **Batching** increases throughput but adds latency (you wait for the batch to fill).\n- **Caching** reduces latency and increases throughput (fewer DB hits).\n- **Replication** can reduce read latency but add write latency (sync to replicas).\n- **Sharding** increases throughput but can add latency (cross-shard queries).\n\nThe right choice depends on what your users care about. A real-time game cares about latency. A data pipeline cares about throughput. A web API cares about both — but usually optimizes for p99 latency first, because a slow request feels worse than a rejected one."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q1",
+      "payload": {
+        "question": "Your API averages 50ms latency. But users complain it 'feels slow'. What should you check?",
+        "shape": "mcq",
+        "options": [
+          "The average is fine — users are wrong.",
+          "The p99 latency — there may be a long tail of slow requests hidden by the average.",
+          "The throughput — you need more servers.",
+          "The database size."
+        ],
+        "answer_index": 1,
+        "rationale": "Averages hide tail latency. If 99% of requests take 10ms and 1% take 1000ms, the average is ~20ms — but 1 in 100 users experiences a 1-second delay, which feels very slow. Always measure p50, p95, and p99 percentiles. The complaint 'feels slow' almost always points to p99 or p99.9 latency, not the average.",
+        "difficulty": "core"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q2",
+      "payload": {
+        "question": "You're building a batch ETL pipeline that processes 10TB of data nightly. What should you optimize for?",
+        "shape": "mcq",
+        "options": [
+          "Latency — each record should be processed as fast as possible.",
+          "Throughput — maximize records processed per second, even if individual records are slow.",
+          "Both equally.",
+          "Neither — just make it work."
+        ],
+        "answer_index": 1,
+        "rationale": "Batch ETL is throughput-bound. No user is waiting for an individual record — the job just needs to finish before the next day. Batching, parallelism, and pipeline depth all increase throughput at the cost of per-record latency, which is the right trade-off for batch. (Latency matters only in the sense of total job completion time.)",
+        "difficulty": "core"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "littles-law-deep",
+      "payload": {
+        "text": "**Little's Law, derived.** In 1961, John Little proved (and later published in 1961, formally in 2011) that for any stable queueing system: `L = λ × W` — the average number of items in the system (L) equals the arrival rate (λ) times the average time an item spends in the system (W). Rearranged for our purposes: **`throughput = concurrency / latency`**.\n\nThis is profound because it holds for *any* stable system — no assumptions about distribution, queue discipline, or service time. It connects three observable quantities you can always measure.\n\nConcrete example: your API server handles 100 concurrent requests (concurrency=100), each taking 50ms (latency=0.05s). Throughput = 100 / 0.05 = **2,000 RPS**. If you want 10,000 RPS, you have three dials:\n- **Reduce latency** to 10ms → 100 / 0.01 = 10,000 RPS.\n- **Increase concurrency** to 500 → 500 / 0.05 = 10,000 RPS.\n- **Both** → 250 / 0.025 = 10,000 RPS.\n\nThe hard part: which dial is movable? Reducing latency often means finding the actual bottleneck (CPU? DB? lock contention?). Increasing concurrency often means adding servers (more $), increasing thread pool size (more memory), or going async (more code complexity). Little's Law tells you the equation; the system design tells you which variables you can actually move."
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "littles-law-diagram",
+      "payload": {
+        "code": "flowchart LR\n    subgraph Inputs\n        L[Concurrency L<br/>in-flight requests]\n        W[Latency W<br/>seconds per request]\n    end\n    subgraph Output\n        T[Throughput<br/>L / W = req/s]\n    end\n    L --> T\n    W --> T\n    T --> Insight1[10 concurrent, 50ms = 200 RPS]\n    T --> Insight2[100 concurrent, 50ms = 2,000 RPS]\n    T --> Insight3[100 concurrent, 5ms = 20,000 RPS]\n    classDef input fill:#e8f0fe,stroke:#1967d2,color:#174ea6\n    classDef output fill:#fef7e0,stroke:#f9ab00,color:#b06000\n    classDef insight fill:#f3e8fd,stroke:#9334c6,color:#681da8\n    class L,W input\n    class T output\n    class Insight1,Insight2,Insight3 insight",
+        "caption": "Little's Law: throughput = concurrency / latency. Three numerical examples show how each variable moves the result.",
+        "alt_text": "A diagram of Little's Law. Two inputs (concurrency L and latency W) produce throughput (L / W). Three examples: 10 concurrent at 50ms gives 200 RPS; 100 concurrent at 50ms gives 2000 RPS; 100 concurrent at 5ms gives 20000 RPS."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "percentile-distribution-deep",
+      "payload": {
+        "text": "**Why p99 — not average — is the SLO.** Production latencies are never normally distributed. They have a long right tail: most requests finish fast (cache hits, simple queries), but a small fraction hit cold caches, GC pauses, lock contention, or disk seeks — and these outliers take 10x-100x the median.\n\nIf 99% of your requests take 10ms and 1% take 1000ms:\n- **Average**: ~20ms (looks great in dashboards).\n- **Median (p50)**: 10ms (also looks great).\n- **p95**: 10ms (still looks great).\n- **p99**: 1000ms — and this is what users complain about.\n\nThe average hides the tail because 1% of a billion requests is 10 million requests per billion — a *lot* of users. A user who hits your API 20 times in a session has a ~18% chance of seeing at least one p99 latency. So even if your p99 is rare, users experience it regularly.\n\nGood SLOs are written against multiple percentiles: 'p50 < 50ms, p95 < 100ms, p99 < 500ms.' This captures both the typical experience (p50) and the worst-case most users see (p99). p99.9 (one in a thousand) is useful for backend monitoring but rarely belongs in a user-facing SLO — only one in a thousand users sees it, and chasing p99.9 often means optimizing for noise.\n\nThe deeper insight: p99 is also a leading indicator. When p99 starts creeping up before p50 does, it usually means a bottleneck is forming (queue depth growing, cache hit rate dropping, GC pause increasing). Catching p99 drift early lets you act before users notice."
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "percentile-distribution",
+      "payload": {
+        "code": "flowchart LR\n    subgraph Distribution[Latency distribution - long right tail]\n        direction TB\n        P50[p50 median: 10ms<br/>50% of requests]\n        P90[p90: 12ms<br/>40% of requests]\n        P95[p95: 15ms<br/>5% of requests]\n        P99[p99: 1000ms<br/>1% of requests - tail]\n        P999[p99.9: 5000ms<br/>0.1% - backend noise]\n    end\n    subgraph UserImpact[User impact per session - 20 requests]\n        U1[Sees p50: 100% of users]\n        U2[Sees p95: 64% of users]\n        U3[Sees p99: 18% of users]\n        U4[Sees p99.9: 2% of users]\n    end\n    P50 --> U1\n    P95 --> U2\n    P99 --> U3\n    P999 --> U4\n    classDef typical fill:#e6f4ea,stroke:#188038,color:#0d652d\n    classDef tail fill:#fee,stroke:#c33,color:#900\n    class P50,P90,P95 typical\n    class P99,P999 tail\n    class U3,U4 tail",
+        "caption": "Latency distributions have a long right tail. Average (20ms) and p50 (10ms) hide it. A user making 20 requests/session has an 18% chance of seeing the p99 latency — so the tail matters even when it's rare.",
+        "alt_text": "A diagram of a latency distribution with a long right tail. P50 is 10ms (50% of requests), p90 is 12ms (40%), p95 is 15ms (5%), p99 is 1000ms (1% — the tail), p99.9 is 5000ms (0.1% — backend noise). The user impact per 20-request session: 100% see p50, 64% see p95, 18% see p99, 2% see p99.9. The tail is rare per-request but experienced regularly per-session."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "batch-vs-realtime",
+      "payload": {
+        "title": "Batch vs real-time — opposite optimization targets",
+        "body": "Batch processing optimizes for throughput at the cost of latency: collect 10,000 records, sort them, write to a columnar store, run analytics. Each record's 'latency' is hours, but throughput is enormous (Spark can process TB/hr). Real-time systems optimize for latency at the cost of throughput: each request is served from cache in <10ms, but the system can't match batch throughput because per-request overhead dominates. The architectural choice between batch and streaming is fundamentally a choice of which metric you're willing to sacrifice. Most mature systems do both: a real-time path for user-facing reads, a batch path for analytics. Lambda and Kappa architectures formalize this dual-path approach. Don't try to make one system do both — you'll get mediocre at each.",
+        "kind": "tip"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q-cdn-edge-latency",
+      "payload": {
+        "question": "Why does serving an image from a CDN edge PoP typically give 5-10ms latency, while serving the same image from the origin gives 80-300ms latency — even when the origin has plenty of bandwidth and CPU?",
+        "shape": "mcq",
+        "options": [
+          "The CDN compresses the image better than the origin can.",
+          "Latency is dominated by the speed of light through fiber. The CDN edge is physically close to the user (5-50 miles), while the origin may be across a continent or ocean (thousands of miles). No amount of bandwidth or CPU fixes the speed of light.",
+          "The origin server is slower because it has to fetch from a database.",
+          "CDN edge servers use faster SSDs than origin servers."
+        ],
+        "answer_index": 1,
+        "rationale": "Latency is bounded below by physics: light in fiber travels ~200km/ms (about 2/3 the speed of light in vacuum, due to fiber's refractive index). A user 5 miles from a CDN edge sees ~0.05ms one-way travel time — negligible. A user 2,500 miles from the origin sees ~25ms one-way, ~50ms round trip — and that's the absolute floor, before any router queueing, TCP handshake, TLS handshake, or server processing. Adding more bandwidth doesn't help (bandwidth is bytes/sec, not ms). Adding more CPU doesn't help (CPU is microseconds, not the milliseconds spent in transit). The only fix is moving the content closer to the user — which is exactly what a CDN does. This is why CDNs exist: they're not a bandwidth optimization, they're a speed-of-light optimization. Image compression (A), database fetches (C), and SSDs (D) are all microsecond-to-millisecond effects dwarfed by the speed of light over long distances.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "scenario",
+      "id": "scenario-queue-buildup",
+      "payload": {
+        "prompt": "Your API has p50 latency of 20ms, p99 latency of 100ms, and handles 500 RPS. Traffic doubles to 1000 RPS. p50 stays at 20ms but p99 jumps to 2000ms. Users start timing out. Diagnose using Little's Law.",
+        "context": "Your server has a fixed concurrency cap of 100 (thread pool). At 500 RPS × 0.02s avg latency, you have 10 in-flight requests — well under the cap. At 1000 RPS × 0.02s = 20 in-flight, still under the cap. But p99 of 2000ms means 1% of requests take 2s, holding a thread for that whole time.",
+        "options": [
+          {
+            "id": "a",
+            "text": "Latency isn't actually growing — the dashboard is wrong because averages are misleading.",
+            "outcome": "Wrong diagnosis. p99 jumping from 100ms to 2000ms is real, even if p50 stayed flat.",
+            "correct": false
+          },
+          {
+            "id": "b",
+            "text": "Throughput doubled, so per-Little's Law, concurrency doubled too. The 1% slow requests (now 10/s instead of 5/s) eat threads for 2s each, so 20 threads are stuck on slow requests. Fast requests queue behind them, raising p99 further.",
+            "outcome": "Correct — this is a queueing cascade. The slow tail dominates thread pool usage, even though most requests are still fast.",
+            "correct": true
+          },
+          {
+            "id": "c",
+            "text": "You need to add more CPU because the server is overloaded.",
+            "outcome": "Adding CPU doesn't help if the slowness is I/O or lock contention, not CPU. Diagnose first.",
+            "correct": false
+          },
+          {
+            "id": "d",
+            "text": "Increase the thread pool size — that will absorb the load.",
+            "outcome": "Might help marginally, but if the slow requests are I/O-bound (DB), more threads just means more concurrent DB load and likely DB saturation. Root cause is the slow tail, not thread count.",
+            "correct": false
+          }
+        ],
+        "rationale": "Little's Law says concurrency = throughput × latency. At 500 RPS with avg latency 0.02s, concurrency = 10. At 1000 RPS, concurrency = 20. But the AVERAGE hides the tail: 1% of requests take 2s. At 1000 RPS, that's 10 slow requests per second, each holding a thread for 2s — so 20 threads are permanently stuck on slow requests. Your 100-thread pool now has 80 threads for fast requests and 20 stuck on slow ones. As load grows, eventually all 100 threads are stuck on slow requests, fast requests queue, p99 explodes, and you have a cascading failure. The fix is not more threads (option D) — it's to find and fix the slow tail. Common causes: a slow DB query without an index, a synchronous call to a slow downstream service, a lock with high contention, or GC pauses. Profile the p99 requests specifically — not the average. Once the tail is fixed, throughput usually scales automatically. The deeper lesson: Little's Law applies to the *average*, but production systems fail at the *tail*. Always design for the tail.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-latency-vs-throughput-mental",
+      "payload": {
+        "text": "Engineering mental model",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-latency-vs-throughput-mental",
+      "payload": {
+        "text": "**Mental model.** Think of Latency vs Throughput as a deliberate boundary in a system. The boundary exists because something becomes harder to manage when everything is done in one place: latency, scale, failure isolation, consistency, cost, or team ownership. The useful question is not “what does Latency vs Throughput mean?” but “what pressure makes this boundary worth introducing, and what new failure mode does it create?”"
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-latency-vs-throughput-decision",
+      "payload": {
+        "title": "Design lens",
+        "body": "Before choosing Latency vs Throughput, name the workload, the critical user path, the dominant bottleneck, the failure you are trying to absorb, and the trade-off you are willing to accept. If you cannot name those five things, the design is probably premature.",
+        "kind": "info"
+      }
+    },
+    {
+      "type": "image",
+      "id": "upgrade-image-latency-vs-throughput",
+      "payload": {
+        "src": "/learning-visuals/latency-vs-throughput.svg",
+        "alt": "Original NO CAP systems visual for Latency vs Throughput.",
+        "caption": "Latency vs Throughput: a compact system-thinking visual.",
+        "credit": "Original NO CAP visual.",
+        "source_url": "https://github.com/donnemartin/system-design-primer"
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "upgrade-mermaid-latency-vs-throughput",
+      "payload": {
+        "code": "flowchart LR\n  A[Client] --> B[Gateway] --> C[Service] --> D[State] --> E[Outcome]",
+        "caption": "Latency vs Throughput: a simplified system view showing the primary flow and the main state boundaries.",
+        "alt_text": "Latency vs Throughput: a simplified system view showing the primary flow and the main state boundaries."
+      }
+    },
+    {
+      "type": "code",
+      "id": "upgrade-code-latency-vs-throughput",
+      "payload": {
+        "language": "text",
+        "code": "// Pseudocode\nrequest = receive()\nresult = latency_vs_throughput(request)\nreturn result\n\n// Production questions:\n// 1. What happens on timeout?\n// 2. Can this operation be retried safely?\n// 3. What is the bottleneck?",
+        "caption": "A minimal engineering sketch for reasoning about Latency vs Throughput."
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-latency-vs-throughput-numbers",
+      "payload": {
+        "text": "Back-of-the-envelope reasoning",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-latency-vs-throughput-numbers",
+      "payload": {
+        "text": "Example: 10M requests/day ÷ 86,400 ≈ 116 requests/s average. Design for peak rather than average; a 10× peak is ≈ 1,160 requests/s."
+      }
+    },
+    {
+      "type": "simulation",
+      "id": "upgrade-sim-latency-vs-throughput",
+      "payload": {
+        "title": "Interactive thought experiment: Latency vs Throughput",
+        "description": "Change the variables below and predict what breaks first in Latency vs Throughput. The production lab can later reuse these same inputs.",
+        "variables": [
+          {
+            "name": "traffic",
+            "description": "Requests/events per second",
+            "default": "1000"
+          },
+          {
+            "name": "latency",
+            "description": "Dependency latency",
+            "default": "50ms"
+          },
+          {
+            "name": "failure_rate",
+            "description": "Injected failure rate",
+            "default": "0%"
+          }
+        ],
+        "placeholder_note": "Interactive controls are deterministic; use the linked Labs section when a dedicated lab exists."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-latency-vs-throughput-hint",
+      "payload": {
+        "title": "Hint",
+        "body": "If you are stuck on Latency vs Throughput, start by drawing the request path and marking every network hop, stateful component, queue, cache and failure boundary. Then estimate where the system will saturate.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-latency-vs-throughput-1",
+      "payload": {
+        "shape": "prediction",
+        "question": "You increase traffic by 10× in a system using Latency vs Throughput. What should you inspect first?",
+        "options": [
+          "The newest framework version",
+          "The dominant bottleneck and its saturation signal",
+          "Only the UI",
+          "Nothing; the architecture should absorb any traffic automatically"
+        ],
+        "answer_index": 1,
+        "rationale": "System design is a constraint-and-bottleneck exercise. Start with the resource or dependency that will saturate first, then choose the smallest change that removes that bottleneck.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-latency-vs-throughput-2",
+      "payload": {
+        "shape": "mcq",
+        "question": "Which statement is the safest engineering habit when using Latency vs Throughput?",
+        "options": [
+          "Choose it because it is popular",
+          "Add it before measuring the problem",
+          "State the workload, failure mode and trade-off it is solving",
+          "Use the most distributed design possible"
+        ],
+        "answer_index": 2,
+        "rationale": "Good architecture starts from requirements, workload and failure assumptions. The component is the consequence of that reasoning, not the starting point.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "scenario",
+      "id": "upgrade-scenario-latency-vs-throughput",
+      "payload": {
+        "prompt": "Production scenario: your system uses Latency vs Throughput, traffic suddenly spikes, and p99 latency doubles. What is your first move?",
+        "context": "You have dashboards for traffic, latency, errors and saturation. You can change the architecture, but every change has operational cost.",
+        "options": [
+          {
+            "id": "a",
+            "text": "Add more instances immediately",
+            "outcome": "This may help, but only if compute saturation is the bottleneck.",
+            "correct": false
+          },
+          {
+            "id": "b",
+            "text": "Inspect the bottleneck and its saturation signal first",
+            "outcome": "Correct: diagnose before scaling or introducing a new pattern.",
+            "correct": true
+          },
+          {
+            "id": "c",
+            "text": "Disable monitoring to reduce overhead",
+            "outcome": "This removes the evidence you need to diagnose the incident.",
+            "correct": false
+          }
+        ],
+        "rationale": "Measure the limiting resource or dependency first. A bottleneck can be compute, database I/O, network, cache misses, lock contention, downstream latency, or queue backlog.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-latency-vs-throughput-interview",
+      "payload": {
+        "text": "Interview drill",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-latency-vs-throughput-interview",
+      "payload": {
+        "text": "**Answer this without notes:** When would you choose Latency vs Throughput, and when would you intentionally avoid it? Mention at least one bottleneck it addresses, one failure mode it introduces, and one alternative. Then quantify the workload you are designing for."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "field-guide-latency-vs-throughput",
+      "payload": {
+        "title": "Engineering lens",
+        "body": "For Latency vs Throughput, treat the system as a control loop: observe load and failure, choose a bounded response, and measure whether the response stabilizes the system instead of simply moving the bottleneck somewhere else.",
+        "kind": "tip"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "numerical-lens-latency-vs-throughput",
+      "payload": {
+        "text": "### Numerical sanity check\n\nWhen estimating capacity, distinguish average from peak. If average traffic is 4,000 RPS and the observed peak-to-average factor is 3×, design the first pass around roughly 12,000 RPS, then leave headroom for failure and growth."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "field-question-latency-vs-throughput",
+      "payload": {
+        "shape": "prediction",
+        "question": "What is the earliest signal that Latency vs Throughput is becoming the bottleneck: latency, saturation, errors, queue depth, or something else? Why?",
+        "context": "Do not optimize for a memorized definition. Reason from the workload and failure mode.",
+        "options": [
+          "Scale the same component immediately.",
+          "Measure the current bottleneck and state the assumption that changed.",
+          "Add more technologies until throughput improves.",
+          "Choose the most popular architecture."
+        ],
+        "answer_index": 1,
+        "rationale": "Good system design starts with the bottleneck and the changed constraint. The most popular or complex choice is not automatically correct.",
+        "difficulty": "interview"
+      }
+    }
+  ],
+  "trade_offs": {
+    "pros": [
+      "Latency optimizations (caching, indexing) often improve user experience directly.",
+      "Throughput optimizations (batching, sharding) often reduce cost per operation.",
+      "Little's Law gives a clear mental model for reasoning about both."
+    ],
+    "cons": [
+      "Latency and throughput can conflict (batching, replication, sharding add latency for throughput).",
+      "Optimizing one without the other can create bottlenecks (fast code + single DB = not scalable).",
+      "Percentile measurement is harder than average — requires real monitoring."
+    ]
+  },
+  "failure_modes": [
+    "Optimizing average latency when p99 is the problem.",
+    "Adding throughput (more servers) when latency is the bottleneck (slow code).",
+    "Batching for throughput in a latency-sensitive system (makes it feel slower)."
+  ],
+  "common_mistakes": [
+    "Reporting average latency instead of p99.",
+    "Treating 'fast' and 'scalable' as the same thing.",
+    "Forgetting that throughput without latency targets is meaningless — 1M RPS at 30s latency is useless for most apps."
+  ],
+  "where_you_see_it": [
+    "Every API with SLOs (usually p99 latency + throughput targets).",
+    "Every batch pipeline (throughput-bound).",
+    "Every real-time system (latency-bound)."
+  ],
+  "interview_prompts": [
+    "What's the difference between latency and throughput? When do they conflict?",
+    "What is Little's Law and how is it useful?",
+    "Why do we measure p99 instead of average latency?",
+    "Your system has high throughput but users say it feels slow. What do you investigate?"
+  ],
+  "real_system_mappings": [
+    {
+      "system": "CDNs (Cloudflare, Fastly)",
+      "how": "Optimize for latency — cache at the edge so users get content in <50ms globally. Throughput is achieved by massive parallelism across edge locations."
+    },
+    {
+      "system": "Kafka",
+      "how": "Optimizes for throughput — batches messages, appends to logs sequentially. Per-message latency is higher than a synchronous queue, but throughput is dramatically higher."
+    }
+  ],
+  "status": "published",
+  "sources": [
+    {
+      "title": "System Design Primer",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Open source"
+    },
+    {
+      "title": "ByteByteGo — Scale from zero to millions",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "ByteByteGo"
+    },
+    {
+      "title": "System Design Tutorial",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "GeeksforGeeks"
+    },
+    {
+      "title": "System Design Roadmap",
+      "url": "https://roadmap.sh/system-design",
+      "publisher": "roadmap.sh"
+    },
+    {
+      "title": "Foundations reference",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Foundations reference",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Foundations reference",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "Reference"
+    }
+  ]
+}

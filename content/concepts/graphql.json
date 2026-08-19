@@ -1,0 +1,441 @@
+{
+  "slug": "graphql",
+  "version": 3,
+  "title": "GraphQL — Query Language for APIs",
+  "phase": "networking-communication",
+  "area": "Networking & Communication",
+  "estimated_minutes": 7,
+  "difficulty": "advanced",
+  "summary": "GraphQL is a query language for APIs where the client describes the exact shape of the data it wants, and the server returns exactly that — no more, no less. It solves the two chronic REST problems — over-fetching (you GET a giant user object when you needed just the name) and under-fetching (you fetch a user, then their posts, then their comments — three round trips). GraphQL trades server-side complexity for client-side flexibility and performance.",
+  "why_it_matters": "GraphQL is the answer to a real production pain: mobile apps making 5+ round trips to render a single screen, fetching kilobytes of data they throw away. Facebook built it for this exact problem in 2012. Knowing when GraphQL is the right call — versus REST, gRPC, or a BFF (Backend For Frontend) — is one of the most common API design decisions in modern systems.",
+  "prerequisites": [
+    "rest"
+  ],
+  "related": [
+    "rpc",
+    "grpc",
+    "api-design",
+    "rest"
+  ],
+  "used_in": [
+    "GitHub's public API v4.",
+    "Shopify's Storefront API.",
+    "Facebook, Pinterest, Airbnb, and many mobile-first backends."
+  ],
+  "blocks": [
+    {
+      "type": "prose",
+      "id": "intro",
+      "payload": {
+        "text": "GraphQL flips the API contract inside out. In REST, the server defines resources and their shapes; the client fetches whatever the server exposes. In GraphQL, the server defines a **schema** of types and fields, and the **client** writes a query specifying exactly which fields it wants. The server resolves those fields and returns exactly that shape.\n\nThe four building blocks:\n\n- **Schema**: a strongly-typed definition of the data graph. Types, fields, relationships. Written in SDL (Schema Definition Language) or generated from code.\n- **Queries**: read operations. The client selects fields and nested relationships.\n- **Mutations**: write operations. Same shape, but the server executes them sequentially (queries can run in parallel).\n- **Subscriptions**: long-lived queries that stream results over a WebSocket when underlying data changes.\n\nThere is one endpoint — typically `POST /graphql` — and every operation is a POST with a query string in the body."
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "rest-vs-graphql",
+      "payload": {
+        "code": "flowchart TD\n    N0[\"REST\"]\n    N1[\"fetching\"]\n    N2[\"user's\"]\n    N3[\"recent\"]\n    N4[\"posts\"]\n    N5[\"and\"]\n    N6[\"comments\"]\n    N7[\" id, name, email, bio, avatar, created_at, ... \"]\n    N8[\"GET\"]\n    N9[\"users\"]\n    N10[\"id,\"]\n    N11[\"name,\"]\n    N12[\"email,\"]\n    N13[\"bio,\"]\n    N14[\"avatar,\"]\n    N15[\"created_at,\"]\n    N16[\"...\"]\n    N17[\" { id, title, body, author, tags, ... }, ... \"]\n    N18[\" id, title, body, author, tags, ... \"]\n    N19[\"title,\"]\n    N20[\"body,\"]\n    N21[\"author,\"]\n    N22[\"tags,\"]\n    N23[\" { id, body, author, ... }, ... \"]\n    N24[\" id, body, author, ... \"]\n    N25[\"101\"]\n    N26[\" ... \"]\n    N27[\"102\"]\n    N28[\"Problems:\"]\n    N29[\"latency on mobile\"]\n    N30[\"round\"]\n    N31[\"trips\"]\n    N32[\"(latency\"]\n    N33[\"mobile)\"]\n    N34[\"Over\"]\n    N35[\"fetch:\"]\n    N36[\"got\"]\n    N37[\"tags\"]\n    N38[\"didn't\"]\n    N39[\"need\"]\n    N40[\"Under\"]\n    N41[\"had\"]\n    N42[\"make\"]\n    N43[\"extra\"]\n    N44[\"calls\"]\n    N45[\"get\"]\n    N46[\"GRAPHQL\"]\n    N47[\"same\"]\n    N48[\"screen,\"]\n    N49[\"one\"]\n    N50[\"request\"]\n    N51[\"POST\"]\n    N52[\"graphql\"]\n    N53[\"query\"]\n    N54[\"id: 42\"]\n    N55[\"user(id:\"]\n    N56[\"42)\"]\n    N57[\"name\"]\n    N58[\"last: 5\"]\n    N59[\"posts(last:\"]\n    N60[\"title\"]\n    N61[\"last: 3\"]\n    N62[\" body author { name \"]\n    N63[\"comments(last:\"]\n    N64[\"body\"]\n    N65[\"author\"]\n    N66[\"Response\"]\n    N67[\"exactly\"]\n    N68[\"that\"]\n    N69[\"shape.\"]\n    N70[\"One\"]\n    N71[\"trip.\"]\n    N72[\"over\"]\n    N73[\"under\"]\n    N74[\"fetch.\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44\n    N44 --> N45\n    N45 --> N46\n    N46 --> N47\n    N47 --> N48\n    N48 --> N49\n    N49 --> N50\n    N50 --> N51\n    N51 --> N52\n    N52 --> N53\n    N53 --> N54\n    N54 --> N55\n    N55 --> N56\n    N56 --> N57\n    N57 --> N58\n    N58 --> N59\n    N59 --> N60\n    N60 --> N61\n    N61 --> N62\n    N62 --> N63\n    N63 --> N64\n    N64 --> N65\n    N65 --> N66\n    N66 --> N67\n    N67 --> N68\n    N68 --> N69\n    N69 --> N70\n    N70 --> N71\n    N71 --> N72\n    N72 --> N73\n    N73 --> N74",
+        "caption": "REST requires multiple round trips and over/under-fetches; GraphQL returns exactly the requested shape in one round trip.",
+        "alt_text": "A comparison of REST and GraphQL. REST example fetches user data in four sequential HTTP requests: GET /users/42, GET /users/42/posts, GET /posts/101/comments, GET /posts/102/comments. Problems listed: four round trips on mobile, over-fetching of unneeded fields like email and avatar, under-fetching requiring extra calls for comments. GraphQL example shows a single POST to /graphql with a nested query selecting just name and recent posts with titles and last three comments. Response is exactly that shape in one round trip with no over or under fetching."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "resolver-model",
+      "payload": {
+        "text": "Under the hood, GraphQL runs a **resolver function** for every field in the query. The resolver for `user(id: 42)` might call the users service. The resolver for `posts` on that user calls the posts service. The resolver for `comments` on each post calls the comments service. GraphQL assembles the response by walking the query tree and invoking resolvers.\n\nThis is where GraphQL's biggest pitfall lives: the **N+1 problem**. If a query asks for an author's name on each of 50 comments, a naive resolver issues 50 separate calls to the users service. GraphQL's default execution model is per-field, so without batching this becomes catastrophic.\n\nThe fix is **DataLoader** (and equivalents). DataLoader batches per-request: instead of fetching one user at a time, it collects all the user IDs requested during a single tick of execution, deduplicates them, and issues one bulk fetch. With DataLoader, the 50-comment author resolution becomes one call: `getUsers([1, 1, 7, 12, ...])`. This is essential — a GraphQL server without batching is unusable at scale.\n\nThe other performance concern is **query depth and complexity**. A query like `user { friends { friends { friends { ... } } } }` can walk the entire graph. Production GraphQL servers enforce a max depth, a complexity budget (each field costs points; queries over budget are rejected), and rate limits per client. Without these, a malicious query can DoS the server."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "when-to-use",
+      "payload": {
+        "text": "GraphQL shines when:\n- You have **many clients with different needs** (web wants more fields than mobile, an Apple Watch app wants almost nothing). Each client writes its own query; the server stays simple.\n- You are aggregating **multiple backend services**. GraphQL acts as a federation layer — the schema describes the unified graph, resolvers call the underlying microservices. This is the BFF (Backend For Frontend) pattern.\n- **Latency matters** and round trips are expensive (mobile, satellite, international).\n\nGraphQL hurts when:\n- You have a **simple, stable API** with one client. REST is simpler to operate; GraphQL's runtime complexity is not worth it.\n- **Caching matters more than flexibility**. REST gets HTTP caching for free (CDN, browser, reverse proxy); GraphQL POSTs are uncachable without Apollo's persisted queries or GET-with-hash tricks.\n- **You need binary efficiency**. gRPC + Protobuf is much smaller on the wire than GraphQL's JSON.\n- **Streaming or file upload** is core to the product. GraphQL subscriptions are awkward; file uploads are bolt-on.\n- **You cannot afford a stateful schema gateway**. REST + a thin reverse proxy is operationally simpler.\n\nThe realistic pattern at many companies: REST for simple public APIs (third-party integrators want predictable URLs), gRPC for internal service-to-service (efficient, typed), GraphQL for the client-facing BFF (flexibility, mobile round-trip reduction). They coexist — GraphQL is not a REST replacement, it is a tool for a specific problem."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "federation",
+      "payload": {
+        "title": "Schema federation — GraphQL at scale",
+        "body": "A single GraphQL server resolving every field becomes a monolith. Apollo Federation (and similar) lets multiple services each own a slice of the schema; a gateway stitches them into one graph at query time. Each service exposes its types and resolvers; the gateway routes field requests to the owning service. This is how large companies (Airbnb, Shopify) scale GraphQL without a monolith.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "schema-evolution",
+      "payload": {
+        "text": "GraphQL's schema is the contract, and how it evolves shapes the system's longevity. Three rules govern schema evolution in practice.\n\n**1. Adding fields is always safe.** New fields are additive — old clients do not query them, so they are not loaded, not serialized, not broken. This is the primary way GraphQL schemas grow.\n\n**2. Removing or renaming fields is breaking.** Existing clients query those fields; their queries return errors. The standard migration is three phases: deprecate the field (with a `@deprecated` directive that introspection surfaces), wait for client usage to drop to zero (tracked via field-level metrics), then remove. In practice, removals take months to years for public APIs.\n\n**3. Changing a field's type is breaking.** Going from `String` to `Int` breaks every client reading that field. The migration is to add a new field with the new type, deprecate the old, and migrate clients.\n\nThis is why GraphQL schemas feel verbose: the cost of a breaking change is high, so teams add many small, specific fields instead of one polymorphic one. The same pattern exists in Protobuf (field numbers, never reuse) and Thrift (field identifiers). The discipline is the same: design the schema to grow additively, instrument field usage so you know when something is safe to remove, and never break the contract silently.\n\nSchema governance becomes its own concern at scale. Tools like Apollo Studio track field usage across all clients, compute the blast radius of a proposed change, and warn before a deploy. Without this tooling, teams ship breaking changes by accident and break mobile clients that take weeks to update through app store review."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q1",
+      "payload": {
+        "question": "A mobile app needs to render a user profile screen showing the user's name, their last 5 posts' titles, and the last 3 comments on each. Today this takes 5 REST calls. What does GraphQL change?",
+        "shape": "mcq",
+        "options": [
+          "It makes the requests faster by using a binary protocol.",
+          "It lets the client describe the full data shape in one query; the server returns exactly that, eliminating over-fetch and under-fetch in a single round trip.",
+          "It caches the data on the server so subsequent requests are instant.",
+          "It replaces the database with a graph database, which is faster for joins."
+        ],
+        "answer_index": 1,
+        "rationale": "The defining value of GraphQL is exactly this: the client declares the data shape it needs (including nested relationships), and the server returns precisely that. No over-fetch (REST returning the full user when only the name was needed), no under-fetch (REST requiring a separate call per relationship), no multiple round trips. It uses JSON, not a binary protocol. Caching is actually harder than REST, not easier. It does not change the underlying database — GraphQL sits in front of whatever storage you have. The mobile round-trip reduction is the primary reason companies adopt GraphQL.",
+        "difficulty": "core"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q2",
+      "payload": {
+        "question": "Your GraphQL server is slow on a query that fetches a list of 100 posts and the author name for each. What is the most likely cause and the standard fix?",
+        "shape": "mcq",
+        "options": [
+          "The schema is too large — split it into multiple schemas.",
+          "The N+1 problem: the author resolver is called once per post, issuing 100 separate user-service calls. Fix with DataLoader to batch into one call.",
+          "GraphQL is inherently slow — switch to REST.",
+          "The JSON response is too large — add gzip."
+        ],
+        "answer_index": 1,
+        "rationale": "The N+1 problem is the most common GraphQL performance pitfall. The default execution model resolves each field independently, so `author` on each of 100 posts triggers 100 separate resolver calls — often 100 separate database queries or service calls. DataLoader fixes this by batching: during a single tick of execution, all `author.id` requests are collected, deduplicated, and resolved with a single bulk fetch. Without DataLoader, GraphQL at scale is unusable. Splitting the schema (option 1) does not help. Switching to REST (option 3) gives up GraphQL's benefits. Gzip (option 4) reduces bytes on the wire, not server work.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q3",
+      "payload": {
+        "question": "Which is a real disadvantage of GraphQL compared to REST?",
+        "shape": "mcq",
+        "options": [
+          "GraphQL does not support authentication or authorization.",
+          "GraphQL responses cannot be cached by HTTP caching (CDN, browser, reverse proxy) without persisted-query tricks, because operations are POSTs with a body.",
+          "GraphQL is slower than REST for every workload.",
+          "GraphQL cannot handle nested data relationships."
+        ],
+        "answer_index": 1,
+        "rationale": "HTTP caching (ETag, Cache-Control, Vary) works on GET requests with URL keys. GraphQL operations are typically POST with a body, so the URL is always `/graphql` and the cache key is useless — CDN and browser caches cannot distinguish queries. Workarounds exist (Apollo persisted queries convert POST to GET with a hash; automatic persisted queries; CDN-compatible GET requests), but they require setup. REST gets HTTP caching for free. This is a real, well-known trade-off. Options 1 and 4 are simply false — GraphQL handles auth and nested relationships. Option 3 is false — GraphQL is faster than equivalent multi-call REST for complex screens.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-graphql-mental",
+      "payload": {
+        "text": "Engineering mental model",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-graphql-mental",
+      "payload": {
+        "text": "**Mental model.** Think of GraphQL — Query Language for APIs as a deliberate boundary in a system. The boundary exists because something becomes harder to manage when everything is done in one place: latency, scale, failure isolation, consistency, cost, or team ownership. The useful question is not “what does GraphQL — Query Language for APIs mean?” but “what pressure makes this boundary worth introducing, and what new failure mode does it create?”"
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-graphql-decision",
+      "payload": {
+        "title": "Design lens",
+        "body": "Before choosing GraphQL — Query Language for APIs, name the workload, the critical user path, the dominant bottleneck, the failure you are trying to absorb, and the trade-off you are willing to accept. If you cannot name those five things, the design is probably premature.",
+        "kind": "info"
+      }
+    },
+    {
+      "type": "image",
+      "id": "upgrade-image-graphql",
+      "payload": {
+        "src": "/learning-visuals/graphql.svg",
+        "alt": "Original NO CAP systems visual for GraphQL — Query Language for APIs.",
+        "caption": "GraphQL — Query Language for APIs: a compact system-thinking visual.",
+        "credit": "Original NO CAP visual.",
+        "source_url": "https://github.com/donnemartin/system-design-primer"
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "upgrade-mermaid-graphql",
+      "payload": {
+        "code": "flowchart LR\n  A[Client] --> B[Gateway] --> C[Service] --> D[State] --> E[Outcome]",
+        "caption": "GraphQL — Query Language for APIs: a simplified system view showing the primary flow and the main state boundaries.",
+        "alt_text": "GraphQL — Query Language for APIs: a simplified system view showing the primary flow and the main state boundaries."
+      }
+    },
+    {
+      "type": "code",
+      "id": "upgrade-code-graphql",
+      "payload": {
+        "language": "bash",
+        "code": "curl -i https://api.example.com/v1/graphql\n\n# Look for:\n# - status code\n# - latency\n# - retryability\n# - response size",
+        "caption": "A minimal engineering sketch for reasoning about GraphQL — Query Language for APIs."
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-graphql-numbers",
+      "payload": {
+        "text": "Back-of-the-envelope reasoning",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-graphql-numbers",
+      "payload": {
+        "text": "Numerical lens: write down traffic, payload size, read/write ratio, peak multiplier and durability target before choosing a component. The numbers should justify the architecture."
+      }
+    },
+    {
+      "type": "simulation",
+      "id": "upgrade-sim-graphql",
+      "payload": {
+        "title": "Interactive thought experiment: GraphQL — Query Language for APIs",
+        "description": "Change the variables below and predict what breaks first in GraphQL — Query Language for APIs. The production lab can later reuse these same inputs.",
+        "variables": [
+          {
+            "name": "traffic",
+            "description": "Requests/events per second",
+            "default": "1000"
+          },
+          {
+            "name": "latency",
+            "description": "Dependency latency",
+            "default": "50ms"
+          },
+          {
+            "name": "failure_rate",
+            "description": "Injected failure rate",
+            "default": "0%"
+          }
+        ],
+        "placeholder_note": "Interactive controls are deterministic; use the linked Labs section when a dedicated lab exists."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-graphql-hint",
+      "payload": {
+        "title": "Hint",
+        "body": "If you are stuck on GraphQL — Query Language for APIs, start by drawing the request path and marking every network hop, stateful component, queue, cache and failure boundary. Then estimate where the system will saturate.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-graphql-1",
+      "payload": {
+        "shape": "prediction",
+        "question": "You increase traffic by 10× in a system using GraphQL — Query Language for APIs. What should you inspect first?",
+        "options": [
+          "The newest framework version",
+          "The dominant bottleneck and its saturation signal",
+          "Only the UI",
+          "Nothing; the architecture should absorb any traffic automatically"
+        ],
+        "answer_index": 1,
+        "rationale": "System design is a constraint-and-bottleneck exercise. Start with the resource or dependency that will saturate first, then choose the smallest change that removes that bottleneck.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-graphql-2",
+      "payload": {
+        "shape": "mcq",
+        "question": "Which statement is the safest engineering habit when using GraphQL — Query Language for APIs?",
+        "options": [
+          "Choose it because it is popular",
+          "Add it before measuring the problem",
+          "State the workload, failure mode and trade-off it is solving",
+          "Use the most distributed design possible"
+        ],
+        "answer_index": 2,
+        "rationale": "Good architecture starts from requirements, workload and failure assumptions. The component is the consequence of that reasoning, not the starting point.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "scenario",
+      "id": "upgrade-scenario-graphql",
+      "payload": {
+        "prompt": "Production scenario: your system uses GraphQL — Query Language for APIs, traffic suddenly spikes, and p99 latency doubles. What is your first move?",
+        "context": "You have dashboards for traffic, latency, errors and saturation. You can change the architecture, but every change has operational cost.",
+        "options": [
+          {
+            "id": "a",
+            "text": "Add more instances immediately",
+            "outcome": "This may help, but only if compute saturation is the bottleneck.",
+            "correct": false
+          },
+          {
+            "id": "b",
+            "text": "Inspect the bottleneck and its saturation signal first",
+            "outcome": "Correct: diagnose before scaling or introducing a new pattern.",
+            "correct": true
+          },
+          {
+            "id": "c",
+            "text": "Disable monitoring to reduce overhead",
+            "outcome": "This removes the evidence you need to diagnose the incident.",
+            "correct": false
+          }
+        ],
+        "rationale": "Measure the limiting resource or dependency first. A bottleneck can be compute, database I/O, network, cache misses, lock contention, downstream latency, or queue backlog.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-graphql-interview",
+      "payload": {
+        "text": "Interview drill",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-graphql-interview",
+      "payload": {
+        "text": "**Answer this without notes:** When would you choose GraphQL — Query Language for APIs, and when would you intentionally avoid it? Mention at least one bottleneck it addresses, one failure mode it introduces, and one alternative. Then quantify the workload you are designing for."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "field-guide-graphql",
+      "payload": {
+        "title": "Engineering lens",
+        "body": "A useful engineering lens for GraphQL - Query Language for APIs: define the problem it solves, the simpler design that fails first, the constraint that forces you to introduce this concept, and the new failure modes the concept creates.",
+        "kind": "tip"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "numerical-lens-graphql",
+      "payload": {
+        "text": "### Numerical sanity check\n\nBack-of-the-envelope reasoning beats fake precision. State your traffic, payload, concurrency and growth assumptions explicitly, then calculate enough to know whether the current architecture is orders of magnitude away from the target."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "field-question-graphql",
+      "payload": {
+        "shape": "prediction",
+        "question": "Imagine the simplest version of a system using GraphQL - Query Language for APIs. What breaks first as traffic grows by 10×, and what would you change before reaching 100×?",
+        "context": "Do not optimize for a memorized definition. Reason from the workload and failure mode.",
+        "options": [
+          "Scale the same component immediately.",
+          "Measure the current bottleneck and state the assumption that changed.",
+          "Add more technologies until throughput improves.",
+          "Choose the most popular architecture."
+        ],
+        "answer_index": 1,
+        "rationale": "Good system design starts with the bottleneck and the changed constraint. The most popular or complex choice is not automatically correct.",
+        "difficulty": "interview"
+      }
+    }
+  ],
+  "trade_offs": {
+    "pros": [
+      "Eliminates over-fetching and under-fetching — the client gets exactly the shape it asks for.",
+      "One round trip for arbitrarily nested data — huge win on mobile.",
+      "Strongly-typed schema with introspection — tooling generates client code automatically.",
+      "Schema federation lets multiple services own slices of one graph.",
+      "Client-driven evolution — new fields are additive; clients adopt when ready."
+    ],
+    "cons": [
+      "Server complexity: resolvers, DataLoader, query complexity analysis, depth limits.",
+      "HTTP caching breaks — POST queries are uncachable without persisted-query tricks.",
+      "N+1 problem if not carefully managed with batching.",
+      "Security surface: arbitrary queries can DoS the server without depth/complexity limits.",
+      "Operationally heavier than REST — you run a query runtime, not a thin controller."
+    ]
+  },
+  "failure_modes": [
+    "Unbounded query depth (`user { friends { friends { ... } } }`) exhausts server resources.",
+    "N+1 resolver calls turn a 100-item list into 100 backend calls.",
+    "Expensive fields (image rendering, aggregation) called frequently without a complexity budget.",
+    "Single GraphQL endpoint becomes a stateful single point of failure.",
+    "Schema sprawl — deprecating fields across many clients is harder than versioning a REST URL."
+  ],
+  "common_mistakes": [
+    "Treating GraphQL as a database — it is a query layer in front of services and storage.",
+    "Forgetting DataLoader and shipping an N+1-prone server.",
+    "No query depth limit or complexity budget — first malicious query takes the server down.",
+    "Exposing every internal field — GraphQL's introspection leaks your schema; gate it.",
+    "Building a GraphQL gateway without a federation strategy — the gateway becomes a monolith.",
+    "Expecting REST-style caching to work — it does not, plan for persisted queries."
+  ],
+  "where_you_see_it": [
+    "GitHub API v4 — the canonical large-scale public GraphQL API.",
+    "Shopify Storefront API — merchants' clients fetch exactly the storefront data they need.",
+    "Mobile-first BFFs at Airbnb, Pinterest, Facebook (the original use case).",
+    "Apollo Federation for stitching microservice schemas into one graph."
+  ],
+  "interview_prompts": [
+    "REST vs GraphQL vs gRPC — when would you choose each? Give a real example of each.",
+    "What is the N+1 problem in GraphQL, and how does DataLoader solve it?",
+    "How would you secure a public GraphQL API against malicious queries?",
+    "A mobile app makes 5 round trips per screen and you are asked to make it faster. Do you reach for GraphQL? What else would you consider?",
+    "How does caching work (or fail to work) with GraphQL, and how do persisted queries fix it?"
+  ],
+  "real_system_mappings": [
+    {
+      "system": "GitHub API v4",
+      "how": "Replaced the REST v3 API for complex queries. Clients fetch exactly the repository/issue/PR fields they need in a single call; rate limits enforced via a token budget that scales with field complexity."
+    },
+    {
+      "system": "Shopify Storefront API",
+      "how": "GraphQL-first storefront API for merchant-built storefronts. Merchants' clients (often embedded in browsers or apps) write queries tailored to the storefront they are rendering — no over-fetching regardless of store size."
+    },
+    {
+      "system": "Apollo Federation at Airbnb",
+      "how": "Multiple services each own a slice of a unified schema; an Apollo gateway stitches them at query time. Each service evolves independently while clients see one graph."
+    }
+  ],
+  "status": "published",
+  "sources": [
+    {
+      "title": "System Design Primer",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Open source"
+    },
+    {
+      "title": "ByteByteGo — Scale from zero to millions",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "ByteByteGo"
+    },
+    {
+      "title": "System Design Tutorial",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "GeeksforGeeks"
+    },
+    {
+      "title": "System Design Roadmap",
+      "url": "https://roadmap.sh/system-design",
+      "publisher": "roadmap.sh"
+    },
+    {
+      "title": "Networking & Communication reference",
+      "url": "https://www.rfc-editor.org/",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Networking & Communication reference",
+      "url": "https://developer.mozilla.org/en-US/docs/Web/HTTP",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Networking & Communication reference",
+      "url": "https://www.cloudflare.com/learning/network-layer/what-is-a-protocol/",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Cloudflare Learning Center",
+      "url": "https://www.cloudflare.com/learning/",
+      "publisher": "Cloudflare"
+    }
+  ]
+}

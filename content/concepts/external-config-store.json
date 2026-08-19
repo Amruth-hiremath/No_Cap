@@ -1,0 +1,413 @@
+{
+  "slug": "external-config-store",
+  "version": 3,
+  "title": "External Config Store",
+  "phase": "design-patterns",
+  "area": "Design Patterns",
+  "estimated_minutes": 7,
+  "difficulty": "core",
+  "summary": "An External Config Store moves configuration out of the application code or deployment artifact into a separate service the application reads at runtime. This enables changing behavior — feature flags, thresholds, endpoint URLs, kill switches — without rebuilding or redeploying. The config store becomes the control plane for the fleet: one update propagates to thousands of instances in seconds, with audit history, gradual rollouts, and instant rollback. Without it, every behavioral change requires a deployment, which is slow, risky, and impossible during incidents.",
+  "why_it_matters": "Configuration changes are 10× more frequent than code changes in mature systems. Without an external store, every knob is a redeploy — slow during normal operations, fatal during an incident when you need to flip a kill switch in seconds, not minutes. The external config store is what makes operational agility possible: turn off a feature flag mid-incident, gradually roll out a new behavior to 1% then 10% then 100%, or roll back instantly when something breaks. It's the foundation of feature-flag-driven development and the twelve-factor config principle.",
+  "prerequisites": [
+    "application-layer"
+  ],
+  "related": [
+    "sidecar"
+  ],
+  "used_in": [
+    "Feature flag systems (LaunchDarkly, Unleash, Flagsmith).",
+    "Dynamic application configuration (Spring Cloud Config, AWS AppConfig, Consul KV, etcd).",
+    "Service mesh control planes (Istio, Linkerd) — pushing config to sidecars.",
+    "Kill switches during incidents — disable a feature without deploying."
+  ],
+  "blocks": [
+    {
+      "type": "prose",
+      "id": "intro",
+      "payload": {
+        "text": "The twelve-factor app methodology says: 'Store config in the environment.' The External Config Store pattern takes this further: store config in a dedicated service that the application queries at startup and (optionally) polls or streams for live updates.\n\nWhat counts as config? Anything that varies between deployments or over time without changing code:\n- **Environment-specific values**: database URLs, API keys, feature-flag states, logging levels, rate-limit thresholds.\n- **Feature flags**: enable/disable features per user, percentage, or environment.\n- **Operational knobs**: circuit-breaker thresholds, retry counts, timeouts, batch sizes.\n- **Kill switches**: emergency off-switches for problematic features.\n- **Routing rules**: percentage of traffic to a new version, A/B test assignments.\n\nWhat does NOT count as config?\n- Application code (obviously).\n- Things that change with every code change (those belong in code).\n- Data (large volumes belong in databases, not config stores).\n\nThe store itself can be:\n- **Environment variables / files** — simplest; no live updates; requires redeploy to change.\n- **KV store** (etcd, Consul, ZooKeeper, Redis) — supports live reads, sometimes watch/streaming.\n- **Dedicated config service** (Spring Cloud Config, AWS AppConfig) — adds versioning, audit, rollout.\n- **Feature-flag platform** (LaunchDarkly, Unleash, Flagsmith) — adds targeting, percentage rollout, A/B test integration.\n- **Service mesh control plane** (Istio Pilot) — pushes config to sidecars across the fleet."
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "topology",
+      "payload": {
+        "code": "flowchart TD\n    N0[\"External\"]\n    N1[\"Config\"]\n    N2[\"Store\"]\n    N3[\"(etcd\"]\n    N4[\"Consul\"]\n    N5[\"LaunchDarkly\"]\n    N6[\"AppConfig)\"]\n    N7[\"versioned\"]\n    N8[\"who, when\"]\n    N9[\"audited\"]\n    N10[\"(who,\"]\n    N11[\"when)\"]\n    N12[\"watch\"]\n    N13[\"stream\"]\n    N14[\"updates\"]\n    N15[\"push\"]\n    N16[\"poll\"]\n    N17[\"App\"]\n    N18[\"reads\"]\n    N19[\"config\"]\n    N20[\"startup,\"]\n    N21[\"subscribes\"]\n    N22[\"uses\"]\n    N23[\"live\"]\n    N24[\"Operators\"]\n    N25[\"update\"]\n    N26[\"once\"]\n    N27[\"all\"]\n    N28[\"apps\"]\n    N29[\"see\"]\n    N30[\"seconds.\"]\n    N31[\"redeploy.\"]\n    N32[\"rebuild.\"]\n    N33[\"Rollback\"]\n    N34[\"flip\"]\n    N35[\"the\"]\n    N36[\"value\"]\n    N37[\"back.\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37",
+        "caption": "External Config Store: operators push config once, all running instances pick it up via polling or streaming. Behavioral changes without redeployment.",
+        "alt_text": "A diagram showing an External Config Store at the top — etcd, Consul, LaunchDarkly, or AWS AppConfig — that is versioned, audited, and supports watch or stream updates. Two application instances are shown below, both pulling or subscribing to config. The caption notes that operators update config once and all apps see it in seconds, with no redeploy or rebuild; rollback is just flipping the value back."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "live-vs-startup",
+      "payload": {
+        "text": "Two ways to consume config:\n\n**1. Startup only (static)**: the app reads config at startup, then never again. Simplest; no live updates. Changing config requires a restart. Used for things that genuinely shouldn't change at runtime (e.g., listening port).\n\n**2. Live updates (dynamic)**: the app subscribes to config changes via polling, long-polling, watch/streaming (etcd watch, gRPC streams), or push (sidecar). When config changes, the app updates its internal config in-place — without restart. Used for feature flags, kill switches, thresholds, routing rules.\n\nThe live-update case is where the pattern really pays off. Examples:\n- Disable a misbehaving feature mid-incident — flip a flag, all instances pick it up in seconds.\n- Gradually roll out a new feature — 1% → 10% → 50% → 100% over hours or days.\n- Tune a circuit breaker threshold based on real production behavior without deploying.\n- A/B test two algorithms with 50/50 traffic split.\n\nImplementation choices for live updates:\n- **Poll interval**: every N seconds. Simple but laggy and chatty.\n- **Long polling**: client holds a connection open, server responds on change. Lower latency, less chattiness.\n- **Watch / streaming**: server pushes updates to subscribed clients. Lowest latency, most efficient. Used by etcd, Consul, Kubernetes controllers.\n- **Push via sidecar**: a sidecar (e.g., Istio's Envoy) watches the control plane and updates its config; the app is unaware.\n\nRegardless of the mechanism, the app must be designed to safely reload config: thread-safe access to config values, no long-lived caching that hides updates, and ideally hot-reload without dropping in-flight requests."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "feature-flags",
+      "payload": {
+        "title": "Feature Flags = External Config + Targeting",
+        "body": "A feature flag is a boolean (or string) in an external config store, evaluated per-request based on context (user ID, tenant, region, percentage). Feature-flag platforms (LaunchDarkly, Unleash, Flagsmith, AWS AppConfig with CloudWatch Evidently) add: targeting rules (‘this flag is on for users 1-1000, off otherwise’), percentage rollouts, audit trails, integration with A/B test analytics, and SDKs in every language. This is the dominant pattern for shipping code dark — code in production, hidden behind a flag, enabled gradually.",
+        "kind": "key"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "tradeoffs",
+      "payload": {
+        "text": "Strengths:\n- **Agility**: change behavior without deploying — seconds, not minutes.\n- **Safety**: roll back instantly; no redeploy.\n- **Gradual rollout**: 1% → 100% with confidence gates.\n- **Environment parity**: same code, different config — easy to test in staging with prod-like config.\n- **Auditability**: who changed what when — required for compliance.\n- **Multi-tenant targeting**: different config per tenant or per region.\n\nCosts and risks:\n- **New SPOF**: if the config store is down, can apps start? Can they reload? Apps must cache last-known-good config and fail open.\n- **Eventual consistency**: when you flip a flag, some instances see it before others. Brief inconsistency is normal.\n- **State divergence**: with hundreds of flags, you can lose track of what's on where. ‘Stale flags’ accumulate — code paths for flags that have been on for years.\n- **Testing complexity**: with N flags, you have 2^N combinations. Most teams test only the default.\n- **Secret management**: config often contains secrets (DB passwords, API keys). Use a real secret manager (Vault, AWS Secrets Manager), not the config store.\n- **Cache invalidation**: cached config that doesn't refresh causes weird bugs.\n\nA common discipline: every flag has an owner, an expiration date, and a rollout plan. Flags that live forever are debt."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q1",
+      "payload": {
+        "question": "A misbehaving feature is causing elevated errors in production. Without an external config store, what's the recovery? With one?",
+        "shape": "mcq",
+        "options": [
+          "Both cases require a code rollback: revert the commit, redeploy, wait for rollout. Same time either way.",
+          "Without a config store: revert the commit, rebuild, deploy (10+ minutes). With a config store: flip the feature flag, all instances pick it up in seconds.",
+          "Without a config store: nothing, you have to wait for the feature to fix itself. With a config store: flip the flag.",
+          "Both cases are handled by an automated canary system; human action isn't needed."
+        ],
+        "answer_index": 1,
+        "rationale": "The whole point of an external config store is decoupling behavioral changes from deployments. Without one, the only way to disable a feature is to revert the code and redeploy — which takes 10-30 minutes minimum in most pipelines, during which the incident continues. With a config store, you flip a feature flag, every running instance picks it up via polling or watch within seconds, and the feature is effectively gone. This is why feature flags tied to external config are standard practice for incident response. The other options are wrong: (a) is wrong because deployment-based rollback is much slower than config flip; (c) is wrong because without a config store you can still roll back code; (d) is wrong because while canary systems help, they're not a replacement for human-triggered flag flips during incidents."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q2",
+      "payload": {
+        "question": "What is the main risk introduced by making the external config store a critical part of your system?",
+        "shape": "mcq",
+        "options": [
+          "It's too expensive to operate.",
+          "It becomes a new single point of failure — if it's down, apps can't start or can't reload config. Apps must cache last-known-good config and fail open.",
+          "It cannot handle secrets, so all sensitive config must go back to environment variables.",
+          "It makes the application too slow because every request must query the config store."
+        ],
+        "answer_index": 1,
+        "rationale": "The central risk of an external config store is that it becomes a SPOF for application startup and live updates. If the store is down when an app starts, the app can't get its config — and may fail to start at all, causing an outage. If the store is down during a config change, the change can't propagate. The standard mitigations: (1) apps must cache last-known-good config locally and use it when the store is unreachable; (2) startup should fall back to cached config rather than fail; (3) the config store itself must be highly available (replicated, multi-AZ); (4) for live updates, transient store unavailability is fine — apps continue with current config. Cost (a) is real but secondary. Secrets (c) can go in the config store but typically belong in a dedicated secret manager. Performance (d) is a non-issue because apps cache config locally and don't query per-request.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-external-config-store-mental",
+      "payload": {
+        "text": "Engineering mental model",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-external-config-store-mental",
+      "payload": {
+        "text": "**Mental model.** Think of External Config Store as a deliberate boundary in a system. The boundary exists because something becomes harder to manage when everything is done in one place: latency, scale, failure isolation, consistency, cost, or team ownership. The useful question is not “what does External Config Store mean?” but “what pressure makes this boundary worth introducing, and what new failure mode does it create?”"
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-external-config-store-decision",
+      "payload": {
+        "title": "Design lens",
+        "body": "Before choosing External Config Store, name the workload, the critical user path, the dominant bottleneck, the failure you are trying to absorb, and the trade-off you are willing to accept. If you cannot name those five things, the design is probably premature.",
+        "kind": "info"
+      }
+    },
+    {
+      "type": "image",
+      "id": "upgrade-image-external-config-store",
+      "payload": {
+        "src": "/learning-visuals/external-config-store.svg",
+        "alt": "Original NO CAP systems visual for External Config Store.",
+        "caption": "External Config Store: a compact system-thinking visual.",
+        "credit": "Original NO CAP visual.",
+        "source_url": "https://github.com/donnemartin/system-design-primer"
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "upgrade-mermaid-external-config-store",
+      "payload": {
+        "code": "flowchart LR\n  A[Client] --> B[Service] --> C[Data layer] --> D[Replication] --> E[Durability]",
+        "caption": "External Config Store: a simplified system view showing the primary flow and the main state boundaries.",
+        "alt_text": "External Config Store: a simplified system view showing the primary flow and the main state boundaries."
+      }
+    },
+    {
+      "type": "code",
+      "id": "upgrade-code-external-config-store",
+      "payload": {
+        "language": "sql",
+        "code": "SELECT id, created_at\nFROM records\nWHERE tenant_id = ?\nORDER BY created_at DESC\nLIMIT 50;\n\n-- Ask: which index makes this query predictable at scale?",
+        "caption": "A minimal engineering sketch for reasoning about External Config Store."
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-external-config-store-numbers",
+      "payload": {
+        "text": "Back-of-the-envelope reasoning",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-external-config-store-numbers",
+      "payload": {
+        "text": "Numerical lens: write down traffic, payload size, read/write ratio, peak multiplier and durability target before choosing a component. The numbers should justify the architecture."
+      }
+    },
+    {
+      "type": "simulation",
+      "id": "upgrade-sim-external-config-store",
+      "payload": {
+        "title": "Interactive thought experiment: External Config Store",
+        "description": "Change the variables below and predict what breaks first in External Config Store. The production lab can later reuse these same inputs.",
+        "variables": [
+          {
+            "name": "traffic",
+            "description": "Requests/events per second",
+            "default": "1000"
+          },
+          {
+            "name": "latency",
+            "description": "Dependency latency",
+            "default": "50ms"
+          },
+          {
+            "name": "failure_rate",
+            "description": "Injected failure rate",
+            "default": "0%"
+          }
+        ],
+        "placeholder_note": "Interactive controls are deterministic; use the linked Labs section when a dedicated lab exists."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-external-config-store-hint",
+      "payload": {
+        "title": "Hint",
+        "body": "If you are stuck on External Config Store, start by drawing the request path and marking every network hop, stateful component, queue, cache and failure boundary. Then estimate where the system will saturate.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-external-config-store-1",
+      "payload": {
+        "shape": "prediction",
+        "question": "You increase traffic by 10× in a system using External Config Store. What should you inspect first?",
+        "options": [
+          "The newest framework version",
+          "The dominant bottleneck and its saturation signal",
+          "Only the UI",
+          "Nothing; the architecture should absorb any traffic automatically"
+        ],
+        "answer_index": 1,
+        "rationale": "System design is a constraint-and-bottleneck exercise. Start with the resource or dependency that will saturate first, then choose the smallest change that removes that bottleneck.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-external-config-store-2",
+      "payload": {
+        "shape": "mcq",
+        "question": "Which statement is the safest engineering habit when using External Config Store?",
+        "options": [
+          "Choose it because it is popular",
+          "Add it before measuring the problem",
+          "State the workload, failure mode and trade-off it is solving",
+          "Use the most distributed design possible"
+        ],
+        "answer_index": 2,
+        "rationale": "Good architecture starts from requirements, workload and failure assumptions. The component is the consequence of that reasoning, not the starting point.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "scenario",
+      "id": "upgrade-scenario-external-config-store",
+      "payload": {
+        "prompt": "Production scenario: your system uses External Config Store, traffic suddenly spikes, and p99 latency doubles. What is your first move?",
+        "context": "You have dashboards for traffic, latency, errors and saturation. You can change the architecture, but every change has operational cost.",
+        "options": [
+          {
+            "id": "a",
+            "text": "Add more instances immediately",
+            "outcome": "This may help, but only if compute saturation is the bottleneck.",
+            "correct": false
+          },
+          {
+            "id": "b",
+            "text": "Inspect the bottleneck and its saturation signal first",
+            "outcome": "Correct: diagnose before scaling or introducing a new pattern.",
+            "correct": true
+          },
+          {
+            "id": "c",
+            "text": "Disable monitoring to reduce overhead",
+            "outcome": "This removes the evidence you need to diagnose the incident.",
+            "correct": false
+          }
+        ],
+        "rationale": "Measure the limiting resource or dependency first. A bottleneck can be compute, database I/O, network, cache misses, lock contention, downstream latency, or queue backlog.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-external-config-store-interview",
+      "payload": {
+        "text": "Interview drill",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-external-config-store-interview",
+      "payload": {
+        "text": "**Answer this without notes:** When would you choose External Config Store, and when would you intentionally avoid it? Mention at least one bottleneck it addresses, one failure mode it introduces, and one alternative. Then quantify the workload you are designing for."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "field-guide-external-config-store",
+      "payload": {
+        "title": "Engineering lens",
+        "body": "For External Config Store, start with access patterns rather than brand names. Identify the dominant reads/writes, data relationships, consistency requirements, partition key, hot keys and failure behavior before choosing a storage strategy.",
+        "kind": "tip"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "numerical-lens-external-config-store",
+      "payload": {
+        "text": "### Numerical sanity check\n\nA rough capacity check: required write throughput ≈ peak writes/s × average record size. At 5,000 writes/s and 2 KB average payloads, the raw incoming data stream is about 10 MB/s before indexes, replication and overhead."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "field-question-external-config-store",
+      "payload": {
+        "shape": "prediction",
+        "question": "A team proposes External Config Store because it 'scales'. What workload characteristic would make that choice a poor fit?",
+        "context": "Do not optimize for a memorized definition. Reason from the workload and failure mode.",
+        "options": [
+          "Scale the same component immediately.",
+          "Measure the current bottleneck and state the assumption that changed.",
+          "Add more technologies until throughput improves.",
+          "Choose the most popular architecture."
+        ],
+        "answer_index": 1,
+        "rationale": "Good system design starts with the bottleneck and the changed constraint. The most popular or complex choice is not automatically correct.",
+        "difficulty": "interview"
+      }
+    }
+  ],
+  "trade_offs": {
+    "pros": [
+      "Behavioral changes without redeployment — seconds instead of minutes.",
+      "Instant rollback — flip a flag, all instances pick it up.",
+      "Gradual rollout — 1% → 100% with confidence gates.",
+      "Per-tenant, per-region, per-user targeting.",
+      "Audit trail — who changed what when.",
+      "Environment parity — same code, different config."
+    ],
+    "cons": [
+      "New single point of failure — if the store is down, apps can't reload or (sometimes) start.",
+      "Eventual consistency — brief inconsistency across the fleet during a config change.",
+      "Flag staleness — old flags accumulate as debt.",
+      "Testing complexity — 2^N combinations for N flags; most teams test only the default.",
+      "Not suitable for secrets — use a dedicated secret manager.",
+      "Cache invalidation bugs — stale cached config causes subtle issues."
+    ]
+  },
+  "failure_modes": [
+    "Config store outage prevents app startup — apps must cache last-known-good config and fail open.",
+    "Bad config pushed to all instances simultaneously — kill switches go off; need staged rollout and instant rollback.",
+    "Flag staleness — flags that are always-on but never cleaned up; code paths for long-dead flags.",
+    "Inconsistent views — some instances see the new config, others the old; behavior diverges briefly.",
+    "Secrets in config store — accessible to anyone with config read access; security incident.",
+    "Config schema drift — the config store has fields the app no longer reads (or vice versa)."
+  ],
+  "common_mistakes": [
+    "Using environment variables for everything — fine for static config, useless for live updates or per-tenant targeting.",
+    "Putting secrets in the config store instead of a dedicated secret manager.",
+    "Not caching config locally — app fails when the store is briefly unreachable.",
+    "Never cleaning up stale flags — flags accumulate as tech debt.",
+    "Pushing config changes to 100% of fleet at once — should roll out gradually, like any deploy.",
+    "Treating config changes as low-risk — they're not; they affect production behavior and need the same safeguards (review, rollout, rollback) as code."
+  ],
+  "where_you_see_it": [
+    "Feature-flag platforms (LaunchDarkly, Unleash, Flagsmith, GrowthBook).",
+    "Cloud-native config (AWS AppConfig, GCP Remote Config, Azure App Configuration).",
+    "Service mesh control planes (Istio Pilot, Linkerd) — pushing config to sidecars.",
+    "Spring Cloud Config, Consul KV, etcd for distributed config.",
+    "Twelve-factor app methodology — config in the environment (the original formulation)."
+  ],
+  "interview_prompts": [
+    "What is an external config store? What problems does it solve that environment variables don't?",
+    "How would you design a feature-flag system to support gradual rollout and instant rollback across a fleet of 1,000 instances?",
+    "What are the failure modes of an external config store, and how do you mitigate them?",
+    "How does an external config store relate to a service mesh control plane?",
+    "When should config be in code, in env vars, in a config store, or in a secret manager? Give criteria."
+  ],
+  "real_system_mappings": [
+    {
+      "system": "LaunchDarkly",
+      "how": "A managed feature-flag platform with SDKs in every major language. Supports per-user targeting, percentage rollout, audit trails, and live updates via streaming. Used by thousands of companies to decouple deploy from release."
+    },
+    {
+      "system": "etcd + Kubernetes",
+      "how": "Kubernetes stores all cluster state and config in etcd. Controllers and pods watch etcd (via the API server) for changes and react live — the entire control plane is built on the external config store pattern."
+    },
+    {
+      "system": "AWS AppConfig",
+      "how": "AWS's managed configuration service with validators, deployment strategies (linear/canary rollout), and CloudWatch alarms for automatic rollback on error rate spikes — a textbook external config store with safety rails."
+    }
+  ],
+  "status": "published",
+  "sources": [
+    {
+      "title": "System Design Primer",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Open source"
+    },
+    {
+      "title": "ByteByteGo — Scale from zero to millions",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "ByteByteGo"
+    },
+    {
+      "title": "System Design Tutorial",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "GeeksforGeeks"
+    },
+    {
+      "title": "System Design Roadmap",
+      "url": "https://roadmap.sh/system-design",
+      "publisher": "roadmap.sh"
+    },
+    {
+      "title": "Design Patterns reference",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Design Patterns reference",
+      "url": "https://learn.microsoft.com/en-us/azure/architecture/patterns/",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Design Patterns reference",
+      "url": "https://martinfowler.com/",
+      "publisher": "Reference"
+    }
+  ]
+}

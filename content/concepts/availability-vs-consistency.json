@@ -1,0 +1,487 @@
+{
+  "slug": "availability-vs-consistency",
+  "version": 4,
+  "title": "Availability vs Consistency",
+  "phase": "foundations",
+  "area": "Foundations",
+  "estimated_minutes": 7,
+  "difficulty": "core",
+  "summary": "Availability means every request gets a response. Consistency means every read sees the latest write. In distributed systems, you often have to choose between them — especially during network partitions. This trade-off is the heart of CAP theorem.",
+  "why_it_matters": "Every distributed system makes this trade-off, whether explicitly or implicitly. A bank ledger prioritizes consistency (never show a wrong balance). A social feed prioritizes availability (show something, even if slightly stale). Choosing wrong means either lost money or angry users.",
+  "prerequisites": [
+    "latency-vs-throughput"
+  ],
+  "related": [
+    "cap-theorem",
+    "consistency-patterns",
+    "availability-patterns"
+  ],
+  "used_in": [
+    "Every distributed database and every multi-node service."
+  ],
+  "blocks": [
+    {
+      "type": "prose",
+      "id": "intro",
+      "payload": {
+        "text": "**Availability** means every non-failed node returns a response (not an error or timeout) for every request. The response might be stale, but it's not an error.\n\n**Consistency** (in the CAP sense, i.e., linearizability) means every read sees the most recent write, as if there were a single copy of the data.\n\nIn a single-machine system, you get both for free — there's only one copy. In a distributed system, when the network between nodes fails (a partition), you must choose: refuse to respond (lose availability) or respond with possibly-stale data (lose consistency)."
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "av-vs-cons",
+      "payload": {
+        "code": "flowchart TD\n    N0[\"linearizable\"]\n    N1[\"CONSISTENCY\"]\n    N2[\"(linearizable)\"]\n    N3[\"Write\"]\n    N4[\"Node\"]\n    N5[\"syncs\"]\n    N6[\"Read\"]\n    N7[\"from\"]\n    N8[\"sees\"]\n    N9[\"the\"]\n    N10[\"write\"]\n    N11[\"Guarantee:\"]\n    N12[\"every\"]\n    N13[\"read\"]\n    N14[\"latest\"]\n    N15[\"write.\"]\n    N16[\"Cost:\"]\n    N17[\"can't\"]\n    N18[\"reach\"]\n    N19[\"reads\"]\n    N20[\"fail.\"]\n    N21[\"eventually consistent\"]\n    N22[\"AVAILABILITY\"]\n    N23[\"(eventually\"]\n    N24[\"consistent)\"]\n    N25[\"responds\"]\n    N26[\"maybe stale\"]\n    N27[\"(maybe\"]\n    N28[\"stale)\"]\n    N29[\"request\"]\n    N30[\"gets\"]\n    N31[\"response.\"]\n    N32[\"might\"]\n    N33[\"see\"]\n    N34[\"old\"]\n    N35[\"data\"]\n    N36[\"until\"]\n    N37[\"replication\"]\n    N38[\"catches\"]\n    N39[\"up.\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39",
+        "caption": "Consistency requires coordination (and refuses during partition). Availability responds always (but may be stale).",
+        "alt_text": "Two diagrams comparing consistency and availability. In the consistency model: a write goes to Node A, which synchronizes to Node B before acknowledging. A subsequent read from Node B sees the latest write. The guarantee is that every read sees the latest write, but the cost is that if Node B can't reach Node A, reads fail. In the availability model: a write goes to Node A and gets an immediate OK. A read from Node B gets an immediate response, but it might be stale. The guarantee is that every request gets a response, but the cost is that reads might see old data until replication catches up."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "examples",
+      "payload": {
+        "text": "Real-world examples make this concrete:\n\n- **Bank balance**: must be consistent. If you transfer $100, a subsequent read MUST reflect it. If the system is partitioned, the bank refuses the read (unavailable) rather than showing a wrong balance.\n- **Social media feed**: can be eventually consistent. If you post a tweet and a follower's feed updates 5 seconds later, that's fine. The system stays available during partitions.\n- **Shopping cart**: must be consistent. You can't show a wrong item count — users would lose trust.\n- **Like counter**: can be eventually consistent. '1,234 likes' vs '1,235 likes' doesn't matter for a few seconds."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "choose",
+      "payload": {
+        "title": "How to choose",
+        "body": "Ask: 'What happens if the user sees stale data?'\n\n- If it causes **financial loss, data corruption, or safety issues** → choose consistency.\n- If it causes **minor inconvenience or temporary confusion** → choose availability.\n- Most systems have **mixed requirements**: consistent for writes (payments), eventually consistent for reads (feeds). This is the common pattern.",
+        "kind": "success"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "beyond-cap",
+      "payload": {
+        "text": "CAP theorem (next lesson) formalizes this trade-off during partitions. But even without partitions, there's a latency-vs-consistency trade-off: stronger consistency requires more coordination (quorum reads/writes, consensus rounds), which adds latency. This is captured by **PACELC**: during a Partition, choose A or C; Else (normal operation), choose L (latency) or C."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q1",
+      "payload": {
+        "question": "You're designing a ride-sharing app's driver location tracker. Drivers broadcast their location every 4 seconds. Should the tracker prioritize consistency or availability?",
+        "shape": "mcq",
+        "options": [
+          "Consistency — every rider must see the exact current driver location.",
+          "Availability — riders should always see a driver location, even if it's a few seconds stale.",
+          "Both — no trade-off needed.",
+          "Neither — location tracking is always exact."
+        ],
+        "answer_index": 1,
+        "rationale": "Driver locations update every 4 seconds anyway, so a few seconds of staleness is inherent in the system. Refusing to show a driver's location during a network partition (consistency) would make the app feel broken and prevent ride matching. Availability is the right choice — show the last known location, which is at most 4 seconds old. This is why Uber uses eventually consistent systems for location tracking.",
+        "difficulty": "core"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q2",
+      "payload": {
+        "question": "Your payment system processes credit card charges. During a network partition between your primary DB and the replica, a user checks their balance. What should happen?",
+        "shape": "mcq",
+        "options": [
+          "Show the balance from the replica — it's probably close enough.",
+          "Refuse the read and return an error — the balance might be wrong.",
+          "Always show $0 to be safe.",
+          "Crash the app."
+        ],
+        "answer_index": 1,
+        "rationale": "For payments, consistency is critical. If the replica hasn't received the latest transaction, the user might see a higher balance than they actually have, leading to overdrafts and disputes. Refusing the read (returning an error or 'try again later') is the correct behavior — it's better to be temporarily unavailable than to show wrong financial data. This is why banks prioritize consistency over availability.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "tunable-consistency-deep",
+      "payload": {
+        "text": "**Tunable consistency — most production systems are mixed.** Real distributed databases don't make you pick one side of CAP for the whole system. They let you choose **per operation** based on the workload.\n\nIn DynamoDB, every read/write specifies a consistency level:\n- `EventuallyConsistentRead` (default, 1 read capacity unit per 4KB): reads from any replica, may be stale, but cheapest and most available.\n- `StronglyConsistentRead` (2 read capacity units per 4KB): reads from the leader, always returns the latest write, but fails if the leader is unreachable (CP behavior).\n\nIn Cassandra, every query specifies `CONSISTENCY LEVEL`:\n- `ONE` — read from any one replica (AP, fastest, may be stale).\n- `QUORUM` — read from a majority of replicas (tunable CP, slower, strongly consistent if writes are also QUORUM).\n- `ALL` — read from every replica (CP, slowest, fails if any replica is down).\n\nThis is the right design: a banking app uses strongly consistent reads for balances and eventually consistent reads for transaction history thumbnails. A social feed uses eventually consistent reads everywhere. The database doesn't force you into one bucket — the application code picks per operation, and the cost (latency, capacity, availability) is paid per operation."
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "cap-triangle-diagram",
+      "payload": {
+        "code": "flowchart TD\n    C((Consistency<br/>linearizable))\n    A((Availability<br/>every request responds))\n    P((Partition tolerance<br/>survives network splits))\n    C --- A\n    A --- P\n    P --- C\n    CP[CP systems<br/>reject on partition<br/>e.g., Spanner, HBase,<br/>MongoDB majority]\n    AP[AP systems<br/>serve stale data on partition<br/>e.g., Cassandra, DynamoDB,<br/>CouchDB]\n    CA[CA systems<br/>only valid without partitions<br/>= single-machine DB<br/>e.g., Postgres on one box]\n    C -.-> CP\n    P -.-> CP\n    A -.-> AP\n    P -.-> AP\n    C -.-> CA\n    A -.-> CA\n    classDef cap fill:#e8f0fe,stroke:#1967d2,stroke-width:2px,color:#174ea6\n    classDef cp fill:#fee,stroke:#c33,color:#900\n    classDef ap fill:#fff4e5,stroke:#cc7a00,color:#995500\n    classDef ca fill:#f3e8fd,stroke:#9334c6,color:#681da8\n    class C,A,P cap\n    class CP cp\n    class AP ap\n    class CA ca",
+        "caption": "CAP triangle. Because partitions (P) are inevitable on real networks, distributed systems are either CP (sacrifice availability during partition) or AP (sacrifice strong consistency). CA only exists for single-machine systems with no partition to tolerate.",
+        "alt_text": "A CAP triangle with Consistency, Availability, and Partition tolerance at the corners. CP systems (like Spanner, HBase, MongoDB with majority) prioritize consistency by rejecting requests during a partition. AP systems (like Cassandra, DynamoDB, CouchDB) prioritize availability by serving possibly stale data. CA systems only work without partitions, which means single-machine databases like Postgres on one box."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "bank-vs-social-comparison",
+      "payload": {
+        "text": "**Bank vs social feed — same database, different choices.**\n\n| Aspect | Bank ledger | Social feed |\n|--------|-------------|-------------|\n| Critical data | account balance, transaction history | posts, likes, comments |\n| Cost of stale read | overdraft, financial loss, disputes | user sees post 5s late |\n| Cost of unavailability | can't process payments, revenue loss | user refreshes, minor annoyance |\n| CAP choice | CP (consistency > availability) | AP (availability > consistency) |\n| Consistency level | strong (linearizable) | eventual |\n| Replication | synchronous, quorum writes | asynchronous, accept on any replica |\n| Latency cost | higher (must coordinate) | lower (no coordination) |\n| Real example | Spanner for AdWords billing | Cassandra for Instagram feed |\n\nBoth can run on the same physical infrastructure — the difference is the consistency policy chosen per operation. Modern distributed databases (DynamoDB, Spanner, CockroachDB, Cassandra) let you tune per operation. This is why 'AP vs CP' is the wrong question at the database level — the right question is 'per operation, which consistency level do you need?'\n\nThe architect's job is to identify, for each piece of data, what failure costs more: stale reads (favor CP) or unavailability (favor AP). Most systems have both: payment state is CP, social feed state is AP, in the same database cluster."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "dynamodb-tunable-example",
+      "payload": {
+        "title": "Real system: DynamoDB's tunable consistency",
+        "body": "DynamoDB lets you set `ConsistentRead=true` per request. Strongly consistent reads cost 2x the read capacity units (RCU) of eventually consistent reads, and they fail if the leader replica is unreachable. Eventually consistent reads are cheaper, faster, and always available — but may return stale data. The DynamoDB team's recommendation is explicit: use strongly consistent reads for writes that other parts of the system will immediately read back (e.g., write an order, then read it back to confirm) — use eventually consistent reads for everything else (e.g., listing all orders, showing a dashboard). This is a per-operation, not per-table, decision — and it's why DynamoDB can power both Amazon's shopping cart (must be consistent) and its recommendation feed (can be eventually consistent) on the same infrastructure.",
+        "kind": "tip"
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "partition-scenario",
+      "payload": {
+        "code": "flowchart TD\n    subgraph Normal[Normal operation - no partition]\n        W1[Write to leader] --> R1[Sync to replica 1]\n        W1 --> R2[Sync to replica 2]\n        R1 --> A1[ACK write]\n        R2 --> A1\n        A1 --> Done1[Strong read from any replica<br/>sees the write]\n    end\n    subgraph Partitioned[Network partition - leader cut off from replica 2]\n        W2[Write to leader] --> R3[Sync to replica 1 only]\n        R3 --> A2[ACK write - CP path]\n        A2 --> Q1{Read from replica 2?}\n        Q1 -->|CP: refuse the read| Err[Return error<br/>unavailable but safe]\n        Q1 -->|AP: serve stale| Stale[Return old value<br/>available but stale]\n        W3[Write to replica 2] --> A3[ACK - AP path]\n        A3 --> Diverge[Replicas now diverge.<br/>Reconcile on heal via<br/>read-repair or vector clocks]\n    end\n    classDef cp fill:#fee,stroke:#c33,color:#900\n    classDef ap fill:#fff4e5,stroke:#cc7a00,color:#995500\n    classDef ok fill:#e6f4ea,stroke:#188038,color:#0d652d\n    class Err cp\n    class Stale,Diverge ap\n    class Done1 ok",
+        "caption": "Network partition scenario. CP systems refuse reads from the unreachable side (return error). AP systems serve stale data and reconcile later (eventual consistency).",
+        "alt_text": "A flowchart contrasting normal operation and partitioned operation. In normal operation, a write to the leader syncs to both replicas before ACKing, and strong reads from any replica see the write. In a partition, the leader can only sync to one replica. CP path: ACK the write, but refuse reads from the unreachable replica (return error - unavailable but safe). AP path: serve stale reads from the unreachable replica, and accept writes on that replica too (available but stale, replicas diverge, reconcile on heal)."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q-mixed-consistency",
+      "payload": {
+        "question": "You're building an e-commerce checkout flow. Which data should use strongly consistent reads/writes, and which can be eventually consistent?",
+        "shape": "mcq",
+        "options": [
+          "Everything must be strongly consistent — it's e-commerce, accuracy matters.",
+          "Inventory and payment state must be strongly consistent (CP). Product reviews, recommendations, and order history thumbnails can be eventually consistent (AP). The mix is fine — modern databases support per-operation consistency levels.",
+          "Everything can be eventually consistent — eventual consistency is always fine.",
+          "Only the payment confirmation needs strong consistency; everything else can be eventually consistent."
+        ],
+        "answer_index": 1,
+        "rationale": "Mixed consistency is the right answer. Inventory must be strongly consistent — if you sell the last item to two customers, you have an overpromise and a customer service disaster. Payment state must be strongly consistent — partial charges or stale balance reads cause disputes. But product reviews (a user sees a review 5 seconds after it's posted — fine), recommendations (slightly stale behavioral signals don't matter), and order history thumbnails (the user can refresh) can all be eventually consistent. The mix lets you optimize: strongly consistent reads cost more (DynamoDB charges 2x RCU; Cassandra QUORUM is slower than ONE), so use them only where they're needed. Option A (everything strongly consistent) is overkill — you pay the latency and capacity cost everywhere, even where it's not needed. Option C (everything eventually consistent) is dangerous — you'd oversell inventory. Option D is too narrow — inventory matters too, not just payment.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "scenario",
+      "id": "scenario-cassandra-choice",
+      "payload": {
+        "prompt": "You're designing a distributed counter for 'likes' on a viral post. Expected: 10,000 likes/sec at peak on a single popular post. Choose between (a) strongly consistent (CP) writes via Cassandra QUORUM, or (b) eventually consistent (AP) writes via Cassandra ONE with read-repair. Justify.",
+        "context": "Likes are integer counters. The post is viral for ~1 hour. Users don't care if the displayed count is off by a few hundred for a few seconds. But the final count must be correct (advertisers pay based on engagement).",
+        "options": [
+          {
+            "id": "a",
+            "text": "QUORUM writes — strongly consistent, advertisers see the exact count.",
+            "outcome": "Wrong. At 10K writes/sec with QUORUM (3 replicas), you're doing 30K cross-node writes/sec, with consensus overhead. Latency will spike and you may not keep up — losing likes.",
+            "correct": false
+          },
+          {
+            "id": "b",
+            "text": "ONE writes (AP) during the viral hour, then a periodic reconciliation job computes the authoritative count and stores it as the 'final' count for advertisers.",
+            "outcome": "Correct — the displayed count is eventually consistent (good enough for users), the final count is computed via aggregation (correct for advertisers), and the write path scales to 10K/sec without coordination overhead.",
+            "correct": true
+          },
+          {
+            "id": "c",
+            "text": "Use a single strongly consistent counter stored in Postgres.",
+            "outcome": "Won't scale — a single Postgres row with 10K writes/sec will lock-thrash and fail.",
+            "correct": false
+          },
+          {
+            "id": "d",
+            "text": "Use a CRDT counter (HyperLogLog or G-Counter).",
+            "outcome": "G-Counter (a state-based CRDT) is actually a good answer here, but it's an implementation detail of option B — the conceptual choice is still AP.",
+            "correct": false
+          }
+        ],
+        "rationale": "The data tells you the answer: (1) users tolerate staleness for displayed likes (5s late is invisible); (2) advertisers need the final count correct, not the live count; (3) 10K writes/sec on one counter exceeds what a strongly consistent path can handle. So you decouple the two requirements: write eventually (AP, ONE consistency), then periodically (say every 60s) aggregate the deltas into an authoritative count that advertisers see. The write path scales linearly (no coordination), the aggregation job is cheap (sum a batch of deltas), and the displayed count is at most 60s stale. Option A (QUORUM) over-pays for consistency that nobody needs on the hot path. Option C (single Postgres row) is the textbook example of how not to scale a counter — row locks will serialize all 10K writes/sec. Option D (CRDT) is actually a smart implementation detail of option B — G-Counters are CRDTs that converge eventually without coordination, perfect for distributed counters. But the conceptual CAP choice is still AP. The deeper lesson: when you have multiple readers with different requirements (users vs advertisers), build multiple paths — don't make the hot path pay for the strictest reader's requirements.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-availability-vs-consistency-mental",
+      "payload": {
+        "text": "Engineering mental model",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-availability-vs-consistency-mental",
+      "payload": {
+        "text": "**Mental model.** Think of Availability vs Consistency as a deliberate boundary in a system. The boundary exists because something becomes harder to manage when everything is done in one place: latency, scale, failure isolation, consistency, cost, or team ownership. The useful question is not “what does Availability vs Consistency mean?” but “what pressure makes this boundary worth introducing, and what new failure mode does it create?”"
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-availability-vs-consistency-decision",
+      "payload": {
+        "title": "Design lens",
+        "body": "Before choosing Availability vs Consistency, name the workload, the critical user path, the dominant bottleneck, the failure you are trying to absorb, and the trade-off you are willing to accept. If you cannot name those five things, the design is probably premature.",
+        "kind": "info"
+      }
+    },
+    {
+      "type": "image",
+      "id": "upgrade-image-availability-vs-consistency",
+      "payload": {
+        "src": "/learning-visuals/availability-vs-consistency.svg",
+        "alt": "Original NO CAP systems visual for Availability vs Consistency.",
+        "caption": "Availability vs Consistency: a compact system-thinking visual.",
+        "credit": "Original NO CAP visual.",
+        "source_url": "https://github.com/donnemartin/system-design-primer"
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "upgrade-mermaid-availability-vs-consistency",
+      "payload": {
+        "code": "flowchart LR\n  A[Client] --> B[Gateway] --> C[Service] --> D[State] --> E[Outcome]",
+        "caption": "Availability vs Consistency: a simplified system view showing the primary flow and the main state boundaries.",
+        "alt_text": "Availability vs Consistency: a simplified system view showing the primary flow and the main state boundaries."
+      }
+    },
+    {
+      "type": "code",
+      "id": "upgrade-code-availability-vs-consistency",
+      "payload": {
+        "language": "text",
+        "code": "// Pseudocode\nrequest = receive()\nresult = availability_vs_consistency(request)\nreturn result\n\n// Production questions:\n// 1. What happens on timeout?\n// 2. Can this operation be retried safely?\n// 3. What is the bottleneck?",
+        "caption": "A minimal engineering sketch for reasoning about Availability vs Consistency."
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-availability-vs-consistency-numbers",
+      "payload": {
+        "text": "Back-of-the-envelope reasoning",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-availability-vs-consistency-numbers",
+      "payload": {
+        "text": "Numerical lens: write down traffic, payload size, read/write ratio, peak multiplier and durability target before choosing a component. The numbers should justify the architecture."
+      }
+    },
+    {
+      "type": "simulation",
+      "id": "upgrade-sim-availability-vs-consistency",
+      "payload": {
+        "title": "Interactive thought experiment: Availability vs Consistency",
+        "description": "Change the variables below and predict what breaks first in Availability vs Consistency. The production lab can later reuse these same inputs.",
+        "variables": [
+          {
+            "name": "traffic",
+            "description": "Requests/events per second",
+            "default": "1000"
+          },
+          {
+            "name": "latency",
+            "description": "Dependency latency",
+            "default": "50ms"
+          },
+          {
+            "name": "failure_rate",
+            "description": "Injected failure rate",
+            "default": "0%"
+          }
+        ],
+        "placeholder_note": "Interactive controls are deterministic; use the linked Labs section when a dedicated lab exists."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-availability-vs-consistency-hint",
+      "payload": {
+        "title": "Hint",
+        "body": "If you are stuck on Availability vs Consistency, start by drawing the request path and marking every network hop, stateful component, queue, cache and failure boundary. Then estimate where the system will saturate.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-availability-vs-consistency-1",
+      "payload": {
+        "shape": "prediction",
+        "question": "You increase traffic by 10× in a system using Availability vs Consistency. What should you inspect first?",
+        "options": [
+          "The newest framework version",
+          "The dominant bottleneck and its saturation signal",
+          "Only the UI",
+          "Nothing; the architecture should absorb any traffic automatically"
+        ],
+        "answer_index": 1,
+        "rationale": "System design is a constraint-and-bottleneck exercise. Start with the resource or dependency that will saturate first, then choose the smallest change that removes that bottleneck.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-availability-vs-consistency-2",
+      "payload": {
+        "shape": "mcq",
+        "question": "Which statement is the safest engineering habit when using Availability vs Consistency?",
+        "options": [
+          "Choose it because it is popular",
+          "Add it before measuring the problem",
+          "State the workload, failure mode and trade-off it is solving",
+          "Use the most distributed design possible"
+        ],
+        "answer_index": 2,
+        "rationale": "Good architecture starts from requirements, workload and failure assumptions. The component is the consequence of that reasoning, not the starting point.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "scenario",
+      "id": "upgrade-scenario-availability-vs-consistency",
+      "payload": {
+        "prompt": "Production scenario: your system uses Availability vs Consistency, traffic suddenly spikes, and p99 latency doubles. What is your first move?",
+        "context": "You have dashboards for traffic, latency, errors and saturation. You can change the architecture, but every change has operational cost.",
+        "options": [
+          {
+            "id": "a",
+            "text": "Add more instances immediately",
+            "outcome": "This may help, but only if compute saturation is the bottleneck.",
+            "correct": false
+          },
+          {
+            "id": "b",
+            "text": "Inspect the bottleneck and its saturation signal first",
+            "outcome": "Correct: diagnose before scaling or introducing a new pattern.",
+            "correct": true
+          },
+          {
+            "id": "c",
+            "text": "Disable monitoring to reduce overhead",
+            "outcome": "This removes the evidence you need to diagnose the incident.",
+            "correct": false
+          }
+        ],
+        "rationale": "Measure the limiting resource or dependency first. A bottleneck can be compute, database I/O, network, cache misses, lock contention, downstream latency, or queue backlog.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-availability-vs-consistency-interview",
+      "payload": {
+        "text": "Interview drill",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-availability-vs-consistency-interview",
+      "payload": {
+        "text": "**Answer this without notes:** When would you choose Availability vs Consistency, and when would you intentionally avoid it? Mention at least one bottleneck it addresses, one failure mode it introduces, and one alternative. Then quantify the workload you are designing for."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "field-guide-availability-vs-consistency",
+      "payload": {
+        "title": "Engineering lens",
+        "body": "A useful engineering lens for Availability vs Consistency: define the problem it solves, the simpler design that fails first, the constraint that forces you to introduce this concept, and the new failure modes the concept creates.",
+        "kind": "tip"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "numerical-lens-availability-vs-consistency",
+      "payload": {
+        "text": "### Numerical sanity check\n\nBack-of-the-envelope reasoning beats fake precision. State your traffic, payload, concurrency and growth assumptions explicitly, then calculate enough to know whether the current architecture is orders of magnitude away from the target."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "field-question-availability-vs-consistency",
+      "payload": {
+        "shape": "prediction",
+        "question": "Imagine the simplest version of a system using Availability vs Consistency. What breaks first as traffic grows by 10×, and what would you change before reaching 100×?",
+        "context": "Do not optimize for a memorized definition. Reason from the workload and failure mode.",
+        "options": [
+          "Scale the same component immediately.",
+          "Measure the current bottleneck and state the assumption that changed.",
+          "Add more technologies until throughput improves.",
+          "Choose the most popular architecture."
+        ],
+        "answer_index": 1,
+        "rationale": "Good system design starts with the bottleneck and the changed constraint. The most popular or complex choice is not automatically correct.",
+        "difficulty": "interview"
+      }
+    }
+  ],
+  "trade_offs": {
+    "pros": [
+      "Consistency prevents bugs where users see wrong data (critical for finance, inventory, safety).",
+      "Availability keeps the system usable during partitions (critical for social, content, real-time).",
+      "Naming the trade-off explicitly prevents 'why is this slow/stale?' confusion later."
+    ],
+    "cons": [
+      "Strong consistency requires coordination (quorum, consensus) — adds latency and reduces availability during partitions.",
+      "Eventual consistency requires handling stale reads in application code (conflict resolution, idempotency).",
+      "Mixed systems (consistent writes, eventually consistent reads) add complexity."
+    ]
+  },
+  "failure_modes": [
+    "Choosing availability for financial data — leads to lost money and disputes.",
+    "Choosing consistency for social feeds — makes the system feel slow and unavailable.",
+    "Forgetting that 'eventual consistency' means 'eventually converged', not 'eventually correct' — conflicts can still occur."
+  ],
+  "common_mistakes": [
+    "Treating 'consistency' as binary — it's a spectrum (linearizable, sequential, causal, eventual).",
+    "Assuming 'eventually consistent' means 'always eventually correct' — it means eventually converged, which can still be wrong.",
+    "Forgetting that strong consistency has a latency cost, not just an availability cost."
+  ],
+  "where_you_see_it": [
+    "Every distributed database (Cassandra = AP, Spanner = CP).",
+    "Every multi-region service (must choose per-operation).",
+    "Every payment system (must be consistent for writes)."
+  ],
+  "interview_prompts": [
+    "What's the difference between availability and consistency? When would you choose each?",
+    "Give an example of a system that should prioritize consistency, and one that should prioritize availability.",
+    "Can you have both? What's the cost?"
+  ],
+  "real_system_mappings": [
+    {
+      "system": "DynamoDB",
+      "how": "Configurable consistency: eventually consistent reads (default) for availability, or strongly consistent reads (optional) for correctness. The user chooses per request."
+    },
+    {
+      "system": "Google Spanner",
+      "how": "Strongly consistent (CP) using Paxos consensus across regions. Trades higher latency for consistency — used for financial systems like AdWords billing."
+    }
+  ],
+  "status": "published",
+  "sources": [
+    {
+      "title": "System Design Primer",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Open source"
+    },
+    {
+      "title": "ByteByteGo — Scale from zero to millions",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "ByteByteGo"
+    },
+    {
+      "title": "System Design Tutorial",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "GeeksforGeeks"
+    },
+    {
+      "title": "System Design Roadmap",
+      "url": "https://roadmap.sh/system-design",
+      "publisher": "roadmap.sh"
+    },
+    {
+      "title": "Foundations reference",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Foundations reference",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Foundations reference",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "Reference"
+    }
+  ]
+}

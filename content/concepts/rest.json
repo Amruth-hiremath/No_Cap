@@ -1,0 +1,403 @@
+{
+  "slug": "rest",
+  "version": 4,
+  "title": "REST — Representational State Transfer",
+  "phase": "networking-communication",
+  "area": "Networking & Communication",
+  "estimated_minutes": 7,
+  "difficulty": "core",
+  "summary": "REST is an architectural style for APIs that uses HTTP verbs on resources identified by URLs. It is stateless, cacheable, and uniform. Most public web APIs use REST (or something close to it) because it is simple, widely understood, and works over standard HTTP.",
+  "why_it_matters": "REST is the default API style for most web systems. Knowing how to design good REST APIs — resource naming, status codes, pagination, versioning — is a core skill. Choosing REST vs gRPC vs GraphQL is a common system-design decision.",
+  "prerequisites": [
+    "http"
+  ],
+  "related": [
+    "graphql",
+    "rpc",
+    "grpc",
+    "api-design"
+  ],
+  "used_in": [
+    "Almost every public web API.",
+    "Most microservice communication."
+  ],
+  "blocks": [
+    {
+      "type": "prose",
+      "id": "intro",
+      "payload": {
+        "text": "REST (Representational State Transfer) is not a protocol — it's an **architectural style** defined by Roy Fielding in 2000. It constrains how you design APIs over HTTP so they are scalable, simple, and cacheable.\n\nThe core idea: treat everything as a **resource** identified by a URL, and use HTTP verbs (GET, POST, PUT, DELETE) to act on those resources."
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "rest-mapping",
+      "payload": {
+        "code": "flowchart TD\n    N0[\"RESOURCE:\"]\n    N1[\"users\"]\n    N2[\"GET\"]\n    N3[\"fetch\"]\n    N4[\"user\"]\n    N5[\"POST\"]\n    N6[\"create\"]\n    N7[\"new\"]\n    N8[\"PUT\"]\n    N9[\"replace\"]\n    N10[\"PATCH\"]\n    N11[\"partially\"]\n    N12[\"update\"]\n    N13[\"DELETE\"]\n    N14[\"delete\"]\n    N15[\"posts\"]\n    N16[\"NESTED\"]\n    N17[\"RESOURCES:\"]\n    N18[\"101\"]\n    N19[\"comments\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19",
+        "caption": "REST maps HTTP verbs to CRUD operations on resource URLs.",
+        "alt_text": "A diagram showing how REST maps HTTP verbs to operations on a resource URL. GET /users/42 fetches user 42. POST /users creates a new user. PUT /users/42 replaces user 42. PATCH partially updates. DELETE removes. Nested resources like /users/42/posts/101/comments express relationships."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "constraints",
+      "payload": {
+        "text": "REST has 6 constraints (Fielding's original definition):\n\n1. **Client-server**: separation of concerns. UI (client) and data (server) evolve independently.\n2. **Stateless**: each request contains all info needed. No server-side session. Enables scaling.\n3. **Cacheable**: responses declare if they're cacheable (Cache-Control, ETag). Improves performance.\n4. **Uniform interface**: resources identified by URLs, manipulated via representations (JSON/XML), self-descriptive messages, HATEOAS.\n5. **Layered**: client doesn't know if it's talking to the server directly or through a proxy/CDN.\n6. **Code-on-demand** (optional): server can send executable code (JavaScript) to the client.\n\nMost 'REST APIs' in practice only follow the first 3-4 constraints. True HATEOAS (Hypermedia As The Engine Of Application State) is rare."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "rest-vs-rpc",
+      "payload": {
+        "title": "REST vs RPC",
+        "body": "REST thinks in terms of resources and verbs: `DELETE /users/42`. RPC thinks in terms of actions: `POST /deleteUser {id: 42}`. REST is more uniform and cacheable; RPC is more natural for complex operations. gRPC (later lesson) is a modern, high-performance RPC framework.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "best-practices",
+      "payload": {
+        "text": "Good REST API design:\n\n- **Plural nouns**: `/users` not `/user`. `/users/42/posts` not `/getUserPosts`.\n- **Versioning**: `/v1/users` or `Accept: application/vnd.api+json;version=1`. Never break existing clients.\n- **Pagination**: `GET /users?page=2&limit=20` or cursor-based `GET /users?after=abc123`.\n- **Status codes**: 200 OK, 201 Created, 204 No Content, 400 Bad Request, 404 Not Found, 429 Too Many Requests, 500 Internal Server Error.\n- **Filtering**: `GET /users?role=admin&active=true` — query params for filtering, not separate endpoints.\n- **Consistent error format**: `{\"error\": {\"code\": \"NOT_FOUND\", \"message\": \"User 42 not found\"}}`"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q1",
+      "payload": {
+        "question": "Which URL design is most RESTful?",
+        "shape": "mcq",
+        "options": [
+          "POST /createUser with body {name: 'Ada'}",
+          "GET /getUserById?id=42",
+          "POST /users with body {name: 'Ada'}",
+          "GET /users/42/create"
+        ],
+        "answer_index": 2,
+        "rationale": "REST uses plural nouns for resources and HTTP verbs for actions. POST /users creates a new user resource — the verb (POST) implies creation, and /users is the collection. Options 1 and 2 embed the action in the URL (RPC style), which is not RESTful. Option 4 doesn't make sense semantically.",
+        "difficulty": "core"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q2",
+      "payload": {
+        "question": "Your REST API returns a list of 10,000 users. How should you handle this?",
+        "shape": "mcq",
+        "options": [
+          "Return all 10,000 in one response — simpler for clients.",
+          "Return a 413 Payload Too Large error.",
+          "Paginate: return 20-50 per page with cursor or offset pagination.",
+          "Return a 503 and ask the client to retry later."
+        ],
+        "answer_index": 2,
+        "rationale": "Returning 10,000 records in one response is slow, memory-intensive, and unusable for most clients. Pagination is the standard solution — return a page of 20-50 records with a cursor or offset to fetch the next page. Cursor-based pagination is preferred for large datasets (it's stable under inserts), but offset pagination is simpler. 413 and 503 don't solve the problem — they just refuse it.",
+        "difficulty": "core"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-rest-mental",
+      "payload": {
+        "text": "Engineering mental model",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-rest-mental",
+      "payload": {
+        "text": "**Mental model.** Think of REST — Representational State Transfer as a deliberate boundary in a system. The boundary exists because something becomes harder to manage when everything is done in one place: latency, scale, failure isolation, consistency, cost, or team ownership. The useful question is not “what does REST — Representational State Transfer mean?” but “what pressure makes this boundary worth introducing, and what new failure mode does it create?”"
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-rest-decision",
+      "payload": {
+        "title": "Design lens",
+        "body": "Before choosing REST — Representational State Transfer, name the workload, the critical user path, the dominant bottleneck, the failure you are trying to absorb, and the trade-off you are willing to accept. If you cannot name those five things, the design is probably premature.",
+        "kind": "info"
+      }
+    },
+    {
+      "type": "image",
+      "id": "upgrade-image-rest",
+      "payload": {
+        "src": "/learning-visuals/rest.svg",
+        "alt": "Original NO CAP systems visual for REST — Representational State Transfer.",
+        "caption": "REST — Representational State Transfer: a compact system-thinking visual.",
+        "credit": "Original NO CAP visual.",
+        "source_url": "https://github.com/donnemartin/system-design-primer"
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "upgrade-mermaid-rest",
+      "payload": {
+        "code": "flowchart LR\n  A[Client] --> B[Gateway] --> C[Service] --> D[State] --> E[Outcome]",
+        "caption": "REST — Representational State Transfer: a simplified system view showing the primary flow and the main state boundaries.",
+        "alt_text": "REST — Representational State Transfer: a simplified system view showing the primary flow and the main state boundaries."
+      }
+    },
+    {
+      "type": "code",
+      "id": "upgrade-code-rest",
+      "payload": {
+        "language": "bash",
+        "code": "curl -i https://api.example.com/v1/rest\n\n# Look for:\n# - status code\n# - latency\n# - retryability\n# - response size",
+        "caption": "A minimal engineering sketch for reasoning about REST — Representational State Transfer."
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-rest-numbers",
+      "payload": {
+        "text": "Back-of-the-envelope reasoning",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-rest-numbers",
+      "payload": {
+        "text": "Numerical lens: write down traffic, payload size, read/write ratio, peak multiplier and durability target before choosing a component. The numbers should justify the architecture."
+      }
+    },
+    {
+      "type": "simulation",
+      "id": "upgrade-sim-rest",
+      "payload": {
+        "title": "Interactive thought experiment: REST — Representational State Transfer",
+        "description": "Change the variables below and predict what breaks first in REST — Representational State Transfer. The production lab can later reuse these same inputs.",
+        "variables": [
+          {
+            "name": "traffic",
+            "description": "Requests/events per second",
+            "default": "1000"
+          },
+          {
+            "name": "latency",
+            "description": "Dependency latency",
+            "default": "50ms"
+          },
+          {
+            "name": "failure_rate",
+            "description": "Injected failure rate",
+            "default": "0%"
+          }
+        ],
+        "placeholder_note": "Interactive controls are deterministic; use the linked Labs section when a dedicated lab exists."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-rest-hint",
+      "payload": {
+        "title": "Hint",
+        "body": "If you are stuck on REST — Representational State Transfer, start by drawing the request path and marking every network hop, stateful component, queue, cache and failure boundary. Then estimate where the system will saturate.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-rest-1",
+      "payload": {
+        "shape": "prediction",
+        "question": "You increase traffic by 10× in a system using REST — Representational State Transfer. What should you inspect first?",
+        "options": [
+          "The newest framework version",
+          "The dominant bottleneck and its saturation signal",
+          "Only the UI",
+          "Nothing; the architecture should absorb any traffic automatically"
+        ],
+        "answer_index": 1,
+        "rationale": "System design is a constraint-and-bottleneck exercise. Start with the resource or dependency that will saturate first, then choose the smallest change that removes that bottleneck.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-rest-2",
+      "payload": {
+        "shape": "mcq",
+        "question": "Which statement is the safest engineering habit when using REST — Representational State Transfer?",
+        "options": [
+          "Choose it because it is popular",
+          "Add it before measuring the problem",
+          "State the workload, failure mode and trade-off it is solving",
+          "Use the most distributed design possible"
+        ],
+        "answer_index": 2,
+        "rationale": "Good architecture starts from requirements, workload and failure assumptions. The component is the consequence of that reasoning, not the starting point.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "scenario",
+      "id": "upgrade-scenario-rest",
+      "payload": {
+        "prompt": "Production scenario: your system uses REST — Representational State Transfer, traffic suddenly spikes, and p99 latency doubles. What is your first move?",
+        "context": "You have dashboards for traffic, latency, errors and saturation. You can change the architecture, but every change has operational cost.",
+        "options": [
+          {
+            "id": "a",
+            "text": "Add more instances immediately",
+            "outcome": "This may help, but only if compute saturation is the bottleneck.",
+            "correct": false
+          },
+          {
+            "id": "b",
+            "text": "Inspect the bottleneck and its saturation signal first",
+            "outcome": "Correct: diagnose before scaling or introducing a new pattern.",
+            "correct": true
+          },
+          {
+            "id": "c",
+            "text": "Disable monitoring to reduce overhead",
+            "outcome": "This removes the evidence you need to diagnose the incident.",
+            "correct": false
+          }
+        ],
+        "rationale": "Measure the limiting resource or dependency first. A bottleneck can be compute, database I/O, network, cache misses, lock contention, downstream latency, or queue backlog.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-rest-interview",
+      "payload": {
+        "text": "Interview drill",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-rest-interview",
+      "payload": {
+        "text": "**Answer this without notes:** When would you choose REST — Representational State Transfer, and when would you intentionally avoid it? Mention at least one bottleneck it addresses, one failure mode it introduces, and one alternative. Then quantify the workload you are designing for."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "field-guide-rest",
+      "payload": {
+        "title": "Engineering lens",
+        "body": "A useful engineering lens for REST - Representational State Transfer: define the problem it solves, the simpler design that fails first, the constraint that forces you to introduce this concept, and the new failure modes the concept creates.",
+        "kind": "tip"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "numerical-lens-rest",
+      "payload": {
+        "text": "### Numerical sanity check\n\nBack-of-the-envelope reasoning beats fake precision. State your traffic, payload, concurrency and growth assumptions explicitly, then calculate enough to know whether the current architecture is orders of magnitude away from the target."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "field-question-rest",
+      "payload": {
+        "shape": "prediction",
+        "question": "Imagine the simplest version of a system using REST - Representational State Transfer. What breaks first as traffic grows by 10×, and what would you change before reaching 100×?",
+        "context": "Do not optimize for a memorized definition. Reason from the workload and failure mode.",
+        "options": [
+          "Scale the same component immediately.",
+          "Measure the current bottleneck and state the assumption that changed.",
+          "Add more technologies until throughput improves.",
+          "Choose the most popular architecture."
+        ],
+        "answer_index": 1,
+        "rationale": "Good system design starts with the bottleneck and the changed constraint. The most popular or complex choice is not automatically correct.",
+        "difficulty": "interview"
+      }
+    }
+  ],
+  "trade_offs": {
+    "pros": [
+      "Simple and widely understood — every developer knows HTTP.",
+      "Cacheable — HTTP caching (ETag, Cache-Control) works out of the box.",
+      "Stateless — easy to scale (any server handles any request).",
+      "Browser-friendly — works without special client libraries."
+    ],
+    "cons": [
+      "Over-fetching or under-fetching — the client gets the whole resource or must make multiple requests. (GraphQL solves this.)",
+      "Text-based (JSON) — less efficient than binary protocols (gRPC/Protobufs).",
+      "Request-response only — not suitable for streaming or server push (use WebSockets/SSE).",
+      "Multiple round trips — fetching related resources requires multiple requests."
+    ]
+  },
+  "failure_modes": [
+    "Returning 200 OK with an error body — breaks HTTP semantics and client error handling.",
+    "Using GET for operations with side effects — breaks caching and violates HTTP.",
+    "No pagination — large responses crash clients and servers.",
+    "Breaking changes without versioning — existing clients stop working."
+  ],
+  "common_mistakes": [
+    "Embedding verbs in URLs (e.g., /getUser) — use HTTP verbs instead.",
+    "Forgetting idempotency — POST is not idempotent, so retries can duplicate resources.",
+    "Returning huge nested objects — use pagination and expansion (?expand=posts)."
+  ],
+  "where_you_see_it": [
+    "Almost every public web API (GitHub, Stripe, Twitter).",
+    "Most microservice communication over HTTP.",
+    "Mobile app backends."
+  ],
+  "interview_prompts": [
+    "What are the REST constraints? Which ones do most 'REST APIs' actually follow?",
+    "REST vs GraphQL vs gRPC — when would you choose each?",
+    "How do you version a REST API?"
+  ],
+  "real_system_mappings": [
+    {
+      "system": "GitHub API",
+      "how": "Textbook REST: plural nouns, HTTP verbs, pagination via Link headers, versioning via URL (/v3/), HATEOAS links in responses."
+    },
+    {
+      "system": "Stripe API",
+      "how": "REST with idempotency keys and expandable resources (?expand[]=customer) to avoid over-fetching."
+    }
+  ],
+  "status": "published",
+  "sources": [
+    {
+      "title": "System Design Primer",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Open source"
+    },
+    {
+      "title": "ByteByteGo — Scale from zero to millions",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "ByteByteGo"
+    },
+    {
+      "title": "System Design Tutorial",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "GeeksforGeeks"
+    },
+    {
+      "title": "System Design Roadmap",
+      "url": "https://roadmap.sh/system-design",
+      "publisher": "roadmap.sh"
+    },
+    {
+      "title": "Networking & Communication reference",
+      "url": "https://www.rfc-editor.org/",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Networking & Communication reference",
+      "url": "https://developer.mozilla.org/en-US/docs/Web/HTTP",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Networking & Communication reference",
+      "url": "https://www.cloudflare.com/learning/network-layer/what-is-a-protocol/",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Cloudflare Learning Center",
+      "url": "https://www.cloudflare.com/learning/",
+      "publisher": "Cloudflare"
+    }
+  ]
+}

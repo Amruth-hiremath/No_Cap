@@ -1,0 +1,447 @@
+{
+  "slug": "qps-estimation",
+  "version": 4,
+  "title": "QPS Estimation",
+  "phase": "interview-preparation",
+  "area": "Interview Preparation",
+  "estimated_minutes": 7,
+  "difficulty": "core",
+  "summary": "QPS (queries per second) estimation converts daily active users and behavior into the request rate the system must handle: DAU × actions/user/day ÷ 86400 = average QPS. The same formula split by operation type gives read QPS vs write QPS, the most important architecture-driving ratio. Peak QPS is 3-5x average for normal workloads and 10-100x for event-driven spikes. QPS estimation is the first and most central of the four capacity-estimation skills.",
+  "why_it_matters": "QPS is the number that drives almost every architecture decision: how many app instances you need, whether you need a cache, whether you need to shard, whether a single load balancer can handle it. A 1k QPS system fits on one machine; a 100k QPS system requires load balancing, caching, and possibly sharding; a 1M QPS system requires global edge infrastructure. Knowing how to derive QPS from DAU — and how to split it into reads vs writes — is the single most-tested quantitative skill in system design interviews.",
+  "prerequisites": [
+    "capacity-estimation"
+  ],
+  "related": [
+    "storage-estimation",
+    "bandwidth-estimation",
+    "capacity-estimation"
+  ],
+  "used_in": [
+    "Every system design interview.",
+    "Production capacity planning (sizing app tiers, DBs, caches).",
+    "Rate-limit design (per-user and per-service limits).",
+    "Autoscaling thresholds (trigger scale-out at N% of max QPS)."
+  ],
+  "blocks": [
+    {
+      "type": "prose",
+      "id": "intro",
+      "payload": {
+        "text": "**QPS estimation** computes the request rate a system must handle, derived from user counts and behavior. The base formula:\n\n```\nQPS = (DAU × actions_per_user_per_day) / 86400\n```\n\nwhere 86,400 is the number of seconds in a day. The result is the **average** QPS — what the system handles in steady state.\n\nExample: 200M DAU, 50 reads/user/day.\n- Reads/day = 200M × 50 = 10B reads/day.\n- Average QPS = 10B / 86400 ≈ 115,000 QPS (115k QPS).\n\nThis is the starting point. Two refinements make it useful:\n\n1. **Peak QPS.** Real traffic is never uniform; it has peaks. Peak is typically 3-5x average for normal workloads, 10-100x for event-driven spikes (Super Bowl, breaking news). Design for peak, not average. So 115k average QPS → design for 500k peak QPS.\n\n2. **Read QPS vs write QPS.** Most systems have very different read and write rates — typically 10:1 to 100:1. The read:write ratio drives the entire caching strategy: read-heavy systems are cache-friendly; write-heavy systems need different patterns. Split QPS into reads and writes before making any architecture decision."
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "flow",
+      "payload": {
+        "code": "flowchart TD\n    N0[\"Twitter-like\"]\n    N1[\"QPS\"]\n    N2[\"ESTIMATION\"]\n    N3[\"WORKED\"]\n    N4[\"EXAMPLE\"]\n    N5[\"(Twitter\"]\n    N6[\"like)\"]\n    N7[\"Inputs:\"]\n    N8[\"DAU\"]\n    N9[\"200\"]\n    N10[\"writes\"]\n    N11[\"Tweets\"]\n    N12[\"per\"]\n    N13[\"user\"]\n    N14[\"day\"]\n    N15[\"(writes)\"]\n    N16[\"reads\"]\n    N17[\"Timeline\"]\n    N18[\"(reads)\"]\n    N19[\"Peak\"]\n    N20[\"factor\"]\n    N21[\"average\"]\n    N22[\"STEP\"]\n    N23[\"AVERAGE\"]\n    N24[\"Writes\"]\n    N25[\"200M\"]\n    N26[\"Reads\"]\n    N27[\"10B\"]\n    N28[\"avg\"]\n    N29[\"Write\"]\n    N30[\"(avg)\"]\n    N31[\"86400\"]\n    N32[\"11.5k\"]\n    N33[\"Read\"]\n    N34[\"115k\"]\n    N35[\"Read:Write\"]\n    N36[\"ratio\"]\n    N37[\"100:1\"]\n    N38[\"cache\"]\n    N39[\"friendly\"]\n    N40[\"PEAK\"]\n    N41[\"3-5x for normal traffic, 10-100x for events\"]\n    N42[\"for\"]\n    N43[\"normal\"]\n    N44[\"traffic,\"]\n    N45[\"100x\"]\n    N46[\"events):\"]\n    N47[\"peak\"]\n    N48[\"(peak)\"]\n    N49[\"60k\"]\n    N50[\"575k\"]\n    N51[\"Design\"]\n    N52[\"headroom:\"]\n    N53[\"~1.2M\"]\n    N54[\"read\"]\n    N55[\"ARCHITECTURE\"]\n    N56[\"DECISIONS\"]\n    N57[\"100k\"]\n    N58[\"multiple\"]\n    N59[\"app\"]\n    N60[\"instances\"]\n    N61[\"aggressive\"]\n    N62[\"caching\"]\n    N63[\"aside\"]\n    N64[\"write\"]\n    N65[\"through\"]\n    N66[\"appropriate\"]\n    N67[\"single\"]\n    N68[\"may\"]\n    N69[\"not\"]\n    N70[\"suffice;\"]\n    N71[\"consider\"]\n    N72[\"sharding\"]\n    N73[\"behind\"]\n    N74[\"COMPARISON\"]\n    N75[\"ACROSS\"]\n    N76[\"SCALES\"]\n    N77[\"10k\"]\n    N78[\"servers\"]\n    N79[\"Redis\"]\n    N80[\"cluster\"]\n    N81[\"with\"]\n    N82[\"replicas\"]\n    N83[\"100\"]\n    N84[\"multi\"]\n    N85[\"region\"]\n    N86[\"CDN\"]\n    N87[\"sharded\"]\n    N88[\"CDN-first, like Google/Netflix\"]\n    N89[\"10M\"]\n    N90[\"global\"]\n    N91[\"edge\"]\n    N92[\"infrastructure\"]\n    N93[\"(CDN\"]\n    N94[\"first,\"]\n    N95[\"like\"]\n    N96[\"Google\"]\n    N97[\"Netflix)\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44\n    N44 --> N45\n    N45 --> N46\n    N46 --> N47\n    N47 --> N48\n    N48 --> N49\n    N49 --> N50\n    N50 --> N51\n    N51 --> N52\n    N52 --> N53\n    N53 --> N54\n    N54 --> N55\n    N55 --> N56\n    N56 --> N57\n    N57 --> N58\n    N58 --> N59\n    N59 --> N60\n    N60 --> N61\n    N61 --> N62\n    N62 --> N63\n    N63 --> N64\n    N64 --> N65\n    N65 --> N66\n    N66 --> N67\n    N67 --> N68\n    N68 --> N69\n    N69 --> N70\n    N70 --> N71\n    N71 --> N72\n    N72 --> N73\n    N73 --> N74\n    N74 --> N75\n    N75 --> N76\n    N76 --> N77\n    N77 --> N78\n    N78 --> N79\n    N79 --> N80\n    N80 --> N81\n    N81 --> N82\n    N82 --> N83\n    N83 --> N84\n    N84 --> N85\n    N85 --> N86\n    N86 --> N87\n    N87 --> N88\n    N88 --> N89\n    N89 --> N90\n    N90 --> N91\n    N91 --> N92\n    N92 --> N93\n    N93 --> N94\n    N94 --> N95\n    N95 --> N96\n    N96 --> N97",
+        "caption": "QPS estimation: DAU × actions / 86400 = average QPS; multiply by 3-5x for peak; split read vs write.",
+        "alt_text": "QPS estimation worked example for a Twitter-like system. Inputs: 200 million DAU, 5 tweets per user per day as writes, 50 timeline reads per day, peak factor 3 to 5x average. Step 1 average QPS: writes per day equals 1 billion, reads per day equals 10 billion, write QPS average equals 11.5 thousand, read QPS average equals 115 thousand, read to write ratio 100 to 1 — cache-friendly. Step 2 peak QPS: peak factor 3 to 5x for normal traffic, 10 to 100x for events. Write QPS peak equals 60 thousand, read QPS peak equals 575 thousand. Design for 2x peak headroom — about 1.2 million read QPS. Step 3 architecture decisions: read QPS above 100k means multiple app instances plus aggressive caching; read to write 100 to 1 means cache-aside or write-through is appropriate; write QPS 60k peak means single DB may not suffice, consider sharding or write-behind. Comparison across scales: 10k read QPS needs 1-2 app servers plus Redis plus 1 DB; 100k read QPS needs 10-20 app servers plus Redis cluster plus DB with read replicas; 1M read QPS needs 100-plus app servers plus multi-region plus CDN plus sharded DB; 10M read QPS needs global edge infrastructure like Google or Netflix."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "read-write-ratio",
+      "payload": {
+        "text": "**The read:write ratio drives architecture.**\n\nSplitting QPS into read and write is the most important refinement. The read:write ratio determines which caching strategy, which database, and which scaling pattern fits the system:\n\n- **100:1 or higher (read-heavy):** Cache-aside or write-through is ideal. The cache hit rate will be high (because reads dominate and re-reads are common), and the cost of cache invalidation on writes is amortized across many reads. Most web apps (Twitter, Facebook, Instagram, news sites) are 100:1 or higher.\n\n- **10:1 (moderate read):** Cache-aside still works, but the cache hit rate is lower. Consider write-through to keep the cache fresher without doubling write load.\n\n- **1:1 (balanced):** Caching is less effective because writes evict/invalidate frequently. Consider write-behind (for coalescing) or skip the cache entirely. Analytics pipelines, message queues.\n\n- **1:10 (write-heavy):** Caching is rarely useful. The bottleneck is write throughput. Consider: write-behind for coalescing, LSM-tree databases (Cassandra) for write-optimized storage, partitioning by time/key, and eventual consistency. IoT telemetry, event logging, clickstream.\n\nThe deeper insight: **read-heavy workloads are cache-friendly; write-heavy workloads are not.** Many engineers apply cache-aside reflexively to every system, but for write-heavy workloads the cache hurts more than it helps (invalidation cost dominates). Knowing the read:write ratio before designing is essential.\n\nIn interviews, always split read and write QPS before discussing architecture. The interviewer is testing whether you recognize that the caching strategy depends on the ratio."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "peak",
+      "payload": {
+        "title": "Peak QPS is what you design for",
+        "body": "Average QPS tells you the steady-state load; peak QPS is what the system must handle without degrading. Peak factors vary by workload: 2-3x for steady internal tools, 3-5x for normal consumer apps, 5-10x for media/entertainment, 10-100x for event-driven spikes (Super Bowl, Black Friday, breaking news). The system designed for 115k average QPS but only 200k peak will collapse at peak. The standard rule: estimate average, multiply by 3-5x for normal peak, design for 2x peak headroom. So 115k average → design for ~1M peak QPS. This is why \"what if a tweet goes viral\" is a great interview question — it tests peak thinking.",
+        "kind": "warning"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "per-user-actions",
+      "payload": {
+        "text": "**Estimating actions-per-user-per-day.**\n\nThe hardest input to estimate is actions-per-user-per-day, because it varies enormously by system. Some reference points from real systems:\n\n- **Twitter:** ~5 tweets/user/day for active posters; ~50 timeline reads/user/day for active readers.\n- **WhatsApp:** ~50 messages/user/day; ~150 reads/user/day (each conversation generates many reads).\n- **Google Search:** ~10-20 searches/user/day for heavy users.\n- **Netflix:** ~1-2 hours of streaming/user/day = continuous low-QPS streaming.\n- **Instagram:** ~50 feed reads/user/day, ~10 stories viewed, ~1-2 posts.\n- **YouTube:** ~10 video plays/user/day.\n\nFor interview estimates, state your assumption explicitly and let the interviewer correct it. Wrong assumptions are fine; silent assumptions are not. The structure is: \"I assume a typical user performs N actions per day — does that sound reasonable?\"\n\nA useful sanity check: if your estimated QPS implies more requests than there are internet users, you are wrong. The global internet has ~5B users; if your \"search engine\" QPS implies 100B searches/day, that is 20 searches per user per day on Earth — possible but high. Sanity-check your numbers against global scale.\n\nThe other sanity check: a single beefy server handles ~5-10k QPS for typical web workloads. If your estimate is 10 QPS, a single server is fine; if it is 1M QPS, you need 100-200 servers. The translation from QPS to instance count is the architecture decision the estimation is supposed to drive."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "interview-flow",
+      "payload": {
+        "text": "**The QPS estimation interview step-by-step.**\n\n1. **State DAU.** \"Assume 200M DAU for Twitter.\"\n2. **State actions/user/day, split by read and write.** \"Assume 5 tweets/user/day (writes) and 50 timeline reads/user/day (reads).\"\n3. **Compute daily totals.** Writes/day = 200M × 5 = 1B. Reads/day = 200M × 50 = 10B.\n4. **Convert to QPS.** Write QPS = 1B / 86400 ≈ 11.5k. Read QPS = 10B / 86400 ≈ 115k.\n5. **Compute peak.** Peak = avg × 3-5x. Write peak ≈ 60k. Read peak ≈ 575k.\n6. **Compute read:write ratio.** 100:1 → cache-friendly.\n7. **Translate to architecture.** \"At 575k peak read QPS, we need a load balancer + ~100 app servers (assuming 5k QPS each) + Redis cluster (cache absorbs 90% of reads) + read replicas on the DB. Write QPS of 60k is high for a single DB; consider sharding or write-behind for counters.\"\n\nThe whole exercise takes 1-2 minutes if you have the conversions memorized. The conversions that matter: 1 day = 86400 sec (round to 100k for estimation); 1B/day ≈ 11.6k QPS; 1M/day ≈ 11.6 QPS.\n\nThe numbers do not need to be exact. They need to be reasonable and to drive a coherent architecture. An interviewer who hears \"500k peak QPS → load balancer + 100 app servers + Redis cluster + read replicas\" knows the candidate can connect numbers to design."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q1",
+      "payload": {
+        "question": "WhatsApp has ~1B DAU and ~50 messages/user/day. What is the average write QPS?",
+        "shape": "mcq",
+        "options": [
+          "~5,000 QPS",
+          "~580,000 QPS (1B × 50 / 86400 ≈ 580k)",
+          "~50,000 QPS",
+          "~5,000,000 QPS"
+        ],
+        "answer_index": 1,
+        "rationale": "Compute: 1B DAU × 50 messages/user/day = 50B messages/day. Convert to per-second: 50B / 86400 ≈ 580,000 messages/sec. This is the average write QPS. (At peak, multiply by 3-5x → 1.7M-2.9M peak write QPS.) This is the actual scale WhatsApp operated at with ~50 engineers, on Erlang. The takeaway: 580k average write QPS is well into the range where you need horizontal scaling, multiple data centers, and aggressive optimization — which is exactly what WhatsApp did.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q2",
+      "payload": {
+        "question": "You estimate a system at 10k average read QPS and 1k average write QPS (10:1 read:write ratio). The interviewer asks whether to use cache-aside or write-behind. What is the right answer?",
+        "shape": "mcq",
+        "options": [
+          "Write-behind — it has lower write latency.",
+          "Cache-aside — at a 10:1 read:write ratio, reads dominate and the cache hit rate will be high; cache-aside is the simplest pattern that works.",
+          "Write-through — for guaranteed freshness.",
+          "No cache — at this scale, the database can handle it directly."
+        ],
+        "answer_index": 1,
+        "rationale": "A 10:1 read:write ratio is solidly read-heavy. Cache-aside is the simplest pattern that fits: reads check the cache first, writes invalidate. The cache hit rate will be high because reads dominate and re-reads are common. Write-behind is for write-heavy workloads where coalescing matters — at 1k write QPS, a single database can handle the writes directly without write-behind. Write-through adds write latency for a freshness guarantee that the user did not ask for. No cache wastes performance. The deeper lesson: the read:write ratio drives the caching strategy. Read-heavy → cache-aside. Write-heavy → write-behind or no cache. Don't reach for the most complex pattern by default.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q3",
+      "payload": {
+        "question": "Your estimate gives 50k average read QPS. You size the system for 50k. At 9am Monday, traffic spikes to 200k QPS and the system crashes. What went wrong?",
+        "shape": "mcq",
+        "options": [
+          "The estimate was wrong; QPS is actually higher.",
+          "You sized for average, not peak. Peak is typically 3-5x average for normal workloads and 10-100x for spikes. You should have designed for at least 200k-500k peak QPS.",
+          "The database was undersized.",
+          "The load balancer failed."
+        ],
+        "answer_index": 1,
+        "rationale": "Sizing for average QPS is the classic capacity-planning mistake. Average QPS is steady-state; peak QPS is what the system must handle without degradation. Peak is typically 3-5x average for normal workloads, and morning Monday spikes are common — a 4x spike (50k → 200k) is well within normal peak factor. The system should have been designed for 200k-500k peak QPS (with 2x headroom, ~1M QPS). The deeper lesson: design for peak, not average. The same estimation methodology applies, but multiply by the peak factor before sizing components.",
+        "difficulty": "core"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-qps-estimation-mental",
+      "payload": {
+        "text": "Engineering mental model",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-qps-estimation-mental",
+      "payload": {
+        "text": "**Mental model.** Think of QPS Estimation as a deliberate boundary in a system. The boundary exists because something becomes harder to manage when everything is done in one place: latency, scale, failure isolation, consistency, cost, or team ownership. The useful question is not “what does QPS Estimation mean?” but “what pressure makes this boundary worth introducing, and what new failure mode does it create?”"
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-qps-estimation-decision",
+      "payload": {
+        "title": "Design lens",
+        "body": "Before choosing QPS Estimation, name the workload, the critical user path, the dominant bottleneck, the failure you are trying to absorb, and the trade-off you are willing to accept. If you cannot name those five things, the design is probably premature.",
+        "kind": "info"
+      }
+    },
+    {
+      "type": "image",
+      "id": "upgrade-image-qps-estimation",
+      "payload": {
+        "src": "/learning-visuals/qps-estimation.svg",
+        "alt": "Original NO CAP systems visual for QPS Estimation.",
+        "caption": "QPS Estimation: a compact system-thinking visual.",
+        "credit": "Original NO CAP visual.",
+        "source_url": "https://github.com/donnemartin/system-design-primer"
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "upgrade-mermaid-qps-estimation",
+      "payload": {
+        "code": "flowchart LR\n  A[Client] --> B[Gateway] --> C[Service] --> D[State] --> E[Outcome]",
+        "caption": "QPS Estimation: a simplified system view showing the primary flow and the main state boundaries.",
+        "alt_text": "QPS Estimation: a simplified system view showing the primary flow and the main state boundaries."
+      }
+    },
+    {
+      "type": "code",
+      "id": "upgrade-code-qps-estimation",
+      "payload": {
+        "language": "text",
+        "code": "// Pseudocode\nrequest = receive()\nresult = qps_estimation(request)\nreturn result\n\n// Production questions:\n// 1. What happens on timeout?\n// 2. Can this operation be retried safely?\n// 3. What is the bottleneck?",
+        "caption": "A minimal engineering sketch for reasoning about QPS Estimation."
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-qps-estimation-numbers",
+      "payload": {
+        "text": "Back-of-the-envelope reasoning",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-qps-estimation-numbers",
+      "payload": {
+        "text": "Example: 10M requests/day ÷ 86,400 ≈ 116 requests/s average. Design for peak rather than average; a 10× peak is ≈ 1,160 requests/s."
+      }
+    },
+    {
+      "type": "simulation",
+      "id": "upgrade-sim-qps-estimation",
+      "payload": {
+        "title": "Interactive thought experiment: QPS Estimation",
+        "description": "Change the variables below and predict what breaks first in QPS Estimation. The production lab can later reuse these same inputs.",
+        "variables": [
+          {
+            "name": "traffic",
+            "description": "Requests/events per second",
+            "default": "1000"
+          },
+          {
+            "name": "latency",
+            "description": "Dependency latency",
+            "default": "50ms"
+          },
+          {
+            "name": "failure_rate",
+            "description": "Injected failure rate",
+            "default": "0%"
+          }
+        ],
+        "placeholder_note": "Interactive controls are deterministic; use the linked Labs section when a dedicated lab exists."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-qps-estimation-hint",
+      "payload": {
+        "title": "Hint",
+        "body": "If you are stuck on QPS Estimation, start by drawing the request path and marking every network hop, stateful component, queue, cache and failure boundary. Then estimate where the system will saturate.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-qps-estimation-1",
+      "payload": {
+        "shape": "prediction",
+        "question": "You increase traffic by 10× in a system using QPS Estimation. What should you inspect first?",
+        "options": [
+          "The newest framework version",
+          "The dominant bottleneck and its saturation signal",
+          "Only the UI",
+          "Nothing; the architecture should absorb any traffic automatically"
+        ],
+        "answer_index": 1,
+        "rationale": "System design is a constraint-and-bottleneck exercise. Start with the resource or dependency that will saturate first, then choose the smallest change that removes that bottleneck.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-qps-estimation-2",
+      "payload": {
+        "shape": "mcq",
+        "question": "Which statement is the safest engineering habit when using QPS Estimation?",
+        "options": [
+          "Choose it because it is popular",
+          "Add it before measuring the problem",
+          "State the workload, failure mode and trade-off it is solving",
+          "Use the most distributed design possible"
+        ],
+        "answer_index": 2,
+        "rationale": "Good architecture starts from requirements, workload and failure assumptions. The component is the consequence of that reasoning, not the starting point.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "scenario",
+      "id": "upgrade-scenario-qps-estimation",
+      "payload": {
+        "prompt": "Production scenario: your system uses QPS Estimation, traffic suddenly spikes, and p99 latency doubles. What is your first move?",
+        "context": "You have dashboards for traffic, latency, errors and saturation. You can change the architecture, but every change has operational cost.",
+        "options": [
+          {
+            "id": "a",
+            "text": "Add more instances immediately",
+            "outcome": "This may help, but only if compute saturation is the bottleneck.",
+            "correct": false
+          },
+          {
+            "id": "b",
+            "text": "Inspect the bottleneck and its saturation signal first",
+            "outcome": "Correct: diagnose before scaling or introducing a new pattern.",
+            "correct": true
+          },
+          {
+            "id": "c",
+            "text": "Disable monitoring to reduce overhead",
+            "outcome": "This removes the evidence you need to diagnose the incident.",
+            "correct": false
+          }
+        ],
+        "rationale": "Measure the limiting resource or dependency first. A bottleneck can be compute, database I/O, network, cache misses, lock contention, downstream latency, or queue backlog.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-qps-estimation-interview",
+      "payload": {
+        "text": "Interview drill",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-qps-estimation-interview",
+      "payload": {
+        "text": "**Answer this without notes:** When would you choose QPS Estimation, and when would you intentionally avoid it? Mention at least one bottleneck it addresses, one failure mode it introduces, and one alternative. Then quantify the workload you are designing for."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "field-guide-qps-estimation",
+      "payload": {
+        "title": "Engineering lens",
+        "body": "A useful engineering lens for QPS Estimation: define the problem it solves, the simpler design that fails first, the constraint that forces you to introduce this concept, and the new failure modes the concept creates.",
+        "kind": "tip"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "numerical-lens-qps-estimation",
+      "payload": {
+        "text": "### Numerical sanity check\n\nBack-of-the-envelope reasoning beats fake precision. State your traffic, payload, concurrency and growth assumptions explicitly, then calculate enough to know whether the current architecture is orders of magnitude away from the target."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "field-question-qps-estimation",
+      "payload": {
+        "shape": "prediction",
+        "question": "Imagine the simplest version of a system using QPS Estimation. What breaks first as traffic grows by 10×, and what would you change before reaching 100×?",
+        "context": "Do not optimize for a memorized definition. Reason from the workload and failure mode.",
+        "options": [
+          "Scale the same component immediately.",
+          "Measure the current bottleneck and state the assumption that changed.",
+          "Add more technologies until throughput improves.",
+          "Choose the most popular architecture."
+        ],
+        "answer_index": 1,
+        "rationale": "Good system design starts with the bottleneck and the changed constraint. The most popular or complex choice is not automatically correct.",
+        "difficulty": "interview"
+      }
+    }
+  ],
+  "trade_offs": {
+    "pros": [
+      "Single number (QPS) drives almost every architecture decision.",
+      "Read:write split reveals the caching strategy and DB scaling pattern.",
+      "Peak factor forces realistic design for non-uniform traffic.",
+      "Fast to compute (1-2 minutes in an interview).",
+      "Sanity-checkable against global scale (does this imply more QPS than the internet has users?)."
+    ],
+    "cons": [
+      "Captures steady-state, not failure cascades.",
+      "Actions-per-user assumptions vary wildly by system — easy to be off by 10x.",
+      "Does not capture per-request latency (QPS without latency is half the picture).",
+      "Peak factors are workload-dependent — using a fixed 5x may over- or under-provision.",
+      "Ignores long-tail latency (p99 vs p50 matters for user experience)."
+    ]
+  },
+  "failure_modes": [
+    "Sizing for average instead of peak — system collapses at peak.",
+    "Treating read and write QPS as interchangeable — they drive different architecture.",
+    "Wrong actions-per-user assumption (off by 10x) — silently wrong, never corrected.",
+    "Forgetting to divide by 86400 (86400x error) — \"1B reads/day\" treated as \"1B QPS\".",
+    "Not sanity-checking against global scale — implies more QPS than the internet supports.",
+    "Treating the estimate as exact — building for exactly 575k QPS rather than a range."
+  ],
+  "common_mistakes": [
+    "Not splitting read and write QPS — interviewer cannot see if you recognize the read:write ratio matters.",
+    "Using 1M seconds/day (instead of 86,400) — small error but compounds.",
+    "Sizing for average, not peak.",
+    "Not translating QPS into instance counts (\"100k QPS means ~20 app servers at 5k QPS each\").",
+    "Assuming uniform traffic — real systems have peaks, surges, and quiet hours.",
+    "Treating QPS as the only number — bandwidth and storage matter too, and may dominate."
+  ],
+  "where_you_see_it": [
+    "Every system design interview — QPS is the first number asked for.",
+    "Production capacity planning (sizing app tiers, DBs, caches).",
+    "Rate-limit design (per-user and per-service QPS limits).",
+    "Autoscaling thresholds (scale out at N% of max QPS).",
+    "API quota design (per-user request limits)."
+  ],
+  "interview_prompts": [
+    "Estimate the read and write QPS for Twitter with 200M DAU.",
+    "WhatsApp has 1B users sending 50 messages/day. What is the write QPS? What does this imply for the architecture?",
+    "Your system has 100k average read QPS. How do you size the app tier, the cache, and the DB?",
+    "Why is the read:write ratio more important than the absolute QPS for choosing a caching strategy?",
+    "Your estimated QPS implies more requests than the global internet supports. What does that tell you?"
+  ],
+  "real_system_mappings": [
+    {
+      "system": "WhatsApp at 1B users",
+      "how": "WhatsApp handled ~50B messages/day = ~580k average write QPS, with ~50 engineers on Erlang. Their architecture was QPS-driven: vertical scaling of Erlang nodes, with horizontal scaling across regions. One of the highest QPS-per-engineer ratios in industry."
+    },
+    {
+      "system": "Twitter / X at peak",
+      "how": "Twitter's peak QPS during major events (World Cup, elections) reaches 100k+ tweets/sec and millions of timeline reads/sec — designed with horizontal scaling, fanout-on-write timelines in Redis, and aggressive caching."
+    },
+    {
+      "system": "Netflix streaming",
+      "how": "Netflix's QPS for video plays is modest (~10k/sec globally), but bandwidth per request is enormous (Mbps per stream). QPS underestimates their load — bandwidth is the dominant constraint. This illustrates why QPS alone is not enough."
+    },
+    {
+      "system": "Cloudflare / AWS rate limits",
+      "how": "Rate limits are QPS-based: Cloudflare's free plan limits 1000 req/day per IP; AWS API Gateway quotas are typically 10 RPS default, 5000 RPS on request. These limits are direct applications of QPS estimation to capacity planning."
+    }
+  ],
+  "status": "published",
+  "sources": [
+    {
+      "title": "System Design Primer",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Open source"
+    },
+    {
+      "title": "ByteByteGo — Scale from zero to millions",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "ByteByteGo"
+    },
+    {
+      "title": "System Design Tutorial",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "GeeksforGeeks"
+    },
+    {
+      "title": "System Design Roadmap",
+      "url": "https://roadmap.sh/system-design",
+      "publisher": "roadmap.sh"
+    },
+    {
+      "title": "Interview Preparation reference",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Interview Preparation reference",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Interview Preparation reference",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "Reference"
+    },
+    {
+      "title": "ByteByteGo — Scaling Websites",
+      "url": "https://bytebytego.com/guides/how-to-scale-a-website-to-support-millions-of-users/",
+      "publisher": "ByteByteGo"
+    }
+  ]
+}

@@ -1,0 +1,450 @@
+{
+  "slug": "design-file-storage",
+  "version": 3,
+  "title": "Design File Storage System",
+  "phase": "case-studies",
+  "area": "Case Studies",
+  "estimated_minutes": 12,
+  "difficulty": "interview",
+  "summary": "Design a Dropbox-style file storage and sync system. Covers chunked uploads with resumable transfer, content-addressed storage with SHA-256 chunk deduplication, a metadata DB mapping files to chunk hashes, async block-fetch sync to other devices, and operational-transform / last-writer-wins conflict resolution. The deep dive walks through why dedup at the chunk level saves 30-70% of storage in real corpora and how the 'selective sync' client avoids downloading everything to every device.",
+  "why_it_matters": "Dropbox is the canonical 'file sync' system-design problem because it sits at the intersection of three hard problems: efficient storage at exabyte scale (dedup), cross-device consistency with offline edits (conflict resolution), and delta sync over flaky networks (chunking). The content-addressed chunking pattern is reused in git, in every modern backup system (Borg, Restic, ZFS dedup), and in container image registries (OCI layers). If you understand Dropbox, you understand the storage layer of every sync product.",
+  "prerequisites": [
+    "object-storage",
+    "consistent-hashing",
+    "sharding",
+    "transactions"
+  ],
+  "related": [
+    "design-key-value-store",
+    "object-storage",
+    "consistent-hashing"
+  ],
+  "used_in": [
+    "Dropbox",
+    "Google Drive",
+    "Microsoft OneDrive",
+    "Apple iCloud Drive",
+    "Box"
+  ],
+  "blocks": [
+    {
+      "type": "prose",
+      "id": "problem",
+      "payload": {
+        "text": "**What are we designing?** A Dropbox-style file storage and sync system. A user has files on their laptop; they want the same files on their phone, their desktop, and shared with collaborators. When a file changes on one device, the others should converge — usually within seconds, even on flaky networks, even when the same file was edited offline on two devices.\n\nThe defining challenges are (1) **efficient transfer** — you do not want to re-upload a 10 GB file when 1 KB changes, (2) **efficient storage** — if 10M users have the same 'install.pdf', you want one copy on disk, not 10M, and (3) **conflict resolution** — when two devices edit the same file offline, what does the merged result look like?"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "requirements",
+      "payload": {
+        "text": "**Functional requirements.**\n- A client (desktop / mobile / web) can upload, download, list, and delete files.\n- Files sync across all of a user's devices within seconds of an edit.\n- Files can be shared with other users (read or read-write).\n- Large file edits transfer only the changed bytes (delta sync).\n- File history is preserved (a user can restore a deleted file or an old version).\n- Offline edits are supported; conflicts are surfaced to the user.\n\n**Non-functional requirements.**\n- **Upload/download latency**: small file < 1 s end-to-end; 1 GB file with 10% changed transfers < 30 s on residential broadband.\n- **Storage efficiency**: dedup ratio > 30% across user base (realistic for typical corpora).\n- **Durability**: 11 nines (objects replicated 3x across AZs, bit-rot detected via checksums).\n- **Availability**: 99.9% (sync is not life-critical; brief outages are tolerable).\n- **Scale**: 500M users, 100B files, exabyte-scale storage.\n\n**Non-goals.** No real-time collaborative editing (that's Google Docs / CRDT territory), no end-to-end encryption by default (v1 is server-visible; E2EE is a separate, much harder problem because dedup across users breaks)."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "capacity",
+      "payload": {
+        "text": "**Capacity estimation.**\n\n*Storage.* 500M users x avg 20 GB stored = 10 EB raw. With 50% dedup (cross-user + intra-user + version-similarity), 5 EB actual. Replicated 3x = 15 EB on disk. Object storage on S3-class infrastructure.\n\n*Throughput.* Avg user generates 1 MB/day of new chunks = 500M users x 1 MB = 500 GB/day ingress = ~6 MB/s — trivial. Peak: mornings 9-10 AM local time across each timezone = ~50x = 300 MB/s aggregate.\n\n*Metadata.* 100B files x 1KB metadata = 100 TB. Chunk index: ~1T chunks (avg file = 10 chunks of 1 MB) x 64 bytes (hash + size + refcount) = 64 GB — fits in a sharded key-value store (Redis cluster + persistent backend).\n\n*Sync notifications.* Every file change triggers a notification to all devices of all users who have access. Avg 2 devices per user + avg 1 share = 3 notifications per change. 100B files x 1 change/yr = 300B notifications/yr = ~10K/sec. Pushed via WebSocket / long-poll."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "apis",
+      "payload": {
+        "text": "**APIs.**\n\n```\n# Client opens a file for upload (resumable, chunked)\nPOST /v1/files/upload_session\n  -> { session_id, chunk_size: 4MB }\n\n# Append chunks (each chunk has its own presigned URL)\nPUT  <presigned S3 URL>   chunk_bytes\nPOST /v1/files/upload_session/:id/commit\n  { chunks: [{hash, size, sequence}], path, parent_rev }\n  -> { file_id, rev }\n\n# Pull changes\nGET  /v1/files/sync?cursor=...\n  -> { changes: [...], next_cursor }\n\n# Download a file (returns chunk URLs)\nGET  /v1/files/:id\n  -> { chunks: [{hash, url, size, sequence}] }\n\n# Subscribe to push notifications\nWS   /v1/notifications   -> server-pushed change events\n```\n\nThe chunked upload with presigned S3 URLs is the same valet-key pattern as Instagram. The `parent_rev` in the commit call is what enables conflict detection: if the server's current rev != parent_rev, the server knows the client was operating on a stale version."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "data-model",
+      "payload": {
+        "text": "**Data model.**\n\n*Files* (sharded SQL, sharded by owner_id):\n```\nfiles (\n  id PK, owner_id, parent_id, name, type,\n  rev, parent_rev, deleted, mtime, size\n  INDEX (parent_id)                       -- list dir\n  INDEX (owner_id, mtime)                 -- sync cursor\n)\n```\n\n*File versions* (history):\n```\nfile_versions (\n  file_id, rev, created_at, chunks_blob, deleted, PRIMARY KEY (file_id, rev)\n)\n```\n\n*Chunks* (content-addressed, global):\n```\nchunks (\n  hash PK, size, refcount, storage_url, created_at\n  INDEX (refcount)                        -- for GC sweep\n)\n```\n\n*Sync cursors* per device (so a client can resume after offline):\n```\nsync_cursors (user_id, device_id, cursor PK, last_seen_at)\n```\n\n*Block storage* (S3):\n```\nbucket: nocap-blocks\nkey:    {first_2_hash_chars}/{hash}      -- sharded prefix for S3 partition distribution\n```\n\n**Critical invariant**: the `chunks` table uses content-addressed hashes. The same chunk uploaded by two different users lands on the same hash key, the refcount is incremented, and only one copy is stored in S3. This is the dedup win."
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "arch",
+      "payload": {
+        "code": "flowchart TD\n    N0[\"Device A: laptop\"]\n    N1[\"Device B: phone\"]\n    N2[\"[Device\"]\n    N3[\"laptop]\"]\n    N4[\"phone]\"]\n    N5[\"workspace\"]\n    N6[\"notes.md\"]\n    N7[\"1\"]\n    N8[\"6\"]\n    N9[\"(1)\"]\n    N10[\"edit\"]\n    N11[\"save\"]\n    N12[\"(6)\"]\n    N13[\"pull\"]\n    N14[\"changes\"]\n    N15[\"Client Watcher\"]\n    N16[\"[Client\"]\n    N17[\"Watcher]\"]\n    N18[\"detects\"]\n    N19[\"file\"]\n    N20[\"change\"]\n    N21[\"chunks\"]\n    N22[\"into\"]\n    N23[\"4MB\"]\n    N24[\"blocks\"]\n    N25[\"SHA\"]\n    N26[\"256\"]\n    N27[\"each\"]\n    N28[\"block\"]\n    N29[\"Metadata Service\"]\n    N30[\"[Metadata\"]\n    N31[\"Service]\"]\n    N32[\"POST\"]\n    N33[\"upload_session\"]\n    N34[\"PUT\"]\n    N35[\"NEW\"]\n    N36[\"chunk\"]\n    N37[\"presigned\"]\n    N38[\"URL\"]\n    N39[\"chunks already known to server skipped\"]\n    N40[\"(chunks\"]\n    N41[\"already\"]\n    N42[\"known\"]\n    N43[\"server\"]\n    N44[\"skipped)\"]\n    N45[\"Block Store: S3\"]\n    N46[\"[Block\"]\n    N47[\"Store:\"]\n    N48[\"S3]\"]\n    N49[\"bucket:\"]\n    N50[\"nocap\"]\n    N51[\"hash_prefix\"]\n    N52[\"hash\"]\n    N53[\"key:\"]\n    N54[\"{hash_prefix}\"]\n    N55[\"{hash}\"]\n    N56[\"dedup:\"]\n    N57[\"same\"]\n    N58[\"object\"]\n    N59[\"Metadata DB\"]\n    N60[\"3\"]\n    N61[\"DB]\"]\n    N62[\"(3)\"]\n    N63[\"file.rev\"]\n    N64[\"files,\"]\n    N65[\"file_versions,\"]\n    N66[\"conflict\"]\n    N67[\"check:\"]\n    N68[\"parent_rev\"]\n    N69[\"server_rev?\"]\n    N70[\"yes:\"]\n    N71[\"commit,\"]\n    N72[\"new\"]\n    N73[\"rev\"]\n    N74[\"no:\"]\n    N75[\"CONFLICT\"]\n    N76[\"last\"]\n    N77[\"writer\"]\n    N78[\"wins,\"]\n    N79[\"old\"]\n    N80[\"kept\"]\n    N81[\"version\"]\n    N82[\"Notification Service\"]\n    N83[\"[Notification\"]\n    N84[\"publish\"]\n    N85[\"'file_changed'\"]\n    N86[\"topic\"]\n    N87[\"fan\"]\n    N88[\"out\"]\n    N89[\"all\"]\n    N90[\"devices\"]\n    N91[\"shares\"]\n    N92[\"WebSocket Gateway\"]\n    N93[\"[WebSocket\"]\n    N94[\"Gateway]\"]\n    N95[\"Device\"]\n    N96[\"5\"]\n    N97[\"(5)\"]\n    N98[\"pulls\"]\n    N99[\"only\"]\n    N100[\"the\"]\n    N101[\"doesn't\"]\n    N102[\"have\"]\n    N103[\"computed by diffing chunk lists\"]\n    N104[\"(computed\"]\n    N105[\"diffing\"]\n    N106[\"lists)\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44\n    N44 --> N45\n    N45 --> N46\n    N46 --> N47\n    N47 --> N48\n    N48 --> N49\n    N49 --> N50\n    N50 --> N51\n    N51 --> N52\n    N52 --> N53\n    N53 --> N54\n    N54 --> N55\n    N55 --> N56\n    N56 --> N57\n    N57 --> N58\n    N58 --> N59\n    N59 --> N60\n    N60 --> N61\n    N61 --> N62\n    N62 --> N63\n    N63 --> N64\n    N64 --> N65\n    N65 --> N66\n    N66 --> N67\n    N67 --> N68\n    N68 --> N69\n    N69 --> N70\n    N70 --> N71\n    N71 --> N72\n    N72 --> N73\n    N73 --> N74\n    N74 --> N75\n    N75 --> N76\n    N76 --> N77\n    N77 --> N78\n    N78 --> N79\n    N79 --> N80\n    N80 --> N81\n    N81 --> N82\n    N82 --> N83\n    N83 --> N84\n    N84 --> N85\n    N85 --> N86\n    N86 --> N87\n    N87 --> N88\n    N88 --> N89\n    N89 --> N90\n    N90 --> N91\n    N91 --> N92\n    N92 --> N93\n    N93 --> N94\n    N94 --> N95\n    N95 --> N96\n    N96 --> N97\n    N97 --> N98\n    N98 --> N99\n    N99 --> N100\n    N100 --> N101\n    N101 --> N102\n    N102 --> N103\n    N103 --> N104\n    N104 --> N105\n    N105 --> N106",
+        "caption": "Dropbox-style file sync: client chunks + hashes blocks, uploads only new blocks to content-addressed S3, metadata service updates revision (with conflict check), notification fans out to other devices which pull only the delta chunks.",
+        "alt_text": "Diagram of a Dropbox-style file sync system. Device A edits notes.md; a client watcher detects the change, chunks the file into 4 megabyte blocks, and SHA-256 hashes each block. The client calls the metadata service to start an upload session and PUTs each new chunk to a presigned S3 URL — chunks whose hashes the server already knows are skipped, which is the dedup win. Blocks live in a content-addressed S3 bucket keyed by hash prefix plus hash. The metadata service increments the file revision, but only if parent_rev equals the current server revision; otherwise a conflict is recorded and last-writer-wins, keeping the old version as history. The notification service publishes the change to a file_changed topic that fans out to all devices that have access to the file. Device B receives a WebSocket push, pulls only the new chunks it does not already have by diffing chunk lists, and assembles the new file locally."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "chunking-dedup",
+      "payload": {
+        "text": "**Deep dive: chunking and deduplication.**\n\n**Fixed-size chunking.** Split a file into fixed 4MB blocks. Simple. Problem: if a user inserts one byte at the start of a 1GB file, every subsequent chunk shifts and is 'new' — 250 chunks re-uploaded.\n\n**Content-defined chunking (CDC).** Use a rolling hash (Rabin-Karp or Buzhash) to find chunk boundaries based on content, not byte offset. The boundary is wherever the rolling hash hits a specific value (e.g. `hash & 0xFFFF == 0` — average 64KB chunk). Insertions only shift the chunk containing the insertion; all subsequent chunks realign to the same content-defined boundaries. This is what restic, borg, and ZFS dedup use.\n\n**Why dedup is a big deal.** Real Dropbox measurements show 30-50% storage savings from (a) cross-user dedup (everyone has the same installers, memes, school handouts), (b) intra-user dedup (a user copies a 1GB folder — second copy is free), and (c) version dedup (saving a 10MB PDF after editing one line = 99% of chunks unchanged).\n\n**Reference counting and GC.** Each chunk has a refcount = number of file_versions referencing it. When a file is deleted, refcounts on its chunks are decremented; a chunk is eligible for S3 deletion when refcount hits 0. The GC sweep runs nightly, deleting unreferenced chunks (with a grace period of 7 days for safety against in-flight commits).\n\n**Encryption trade-off.** Dedup across users requires the server to see chunk hashes. If we client-side encrypt with a per-user key, two users with the same file produce different ciphertext and different hashes — dedup breaks. Dropbox chooses server-side dedup; Spider Oak and Tarsnap choose client-side encryption and accept worse dedup. This is a fundamental tension: dedup-vs-privacy."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "sync-conflict",
+      "payload": {
+        "text": "**Deep dive: sync protocol and conflict resolution.**\n\n**Push protocol.** Each file has a monotonically increasing revision number `rev`. When a client commits a change, it includes `parent_rev` (the rev it had when it started editing). The server: if `parent_rev == server.rev`, fast-forward and return new `rev`. If `parent_rev != server.rev`, the file changed on another device while we were editing — conflict.\n\n**Last-writer-wins + version history (Dropbox's actual approach).** On conflict, the server commits the new version as the new head and renames the previously-current version to `notes (conflicted copy, laptop's edit).md`. Both versions are visible to the user, who manually merges. This is simple, predictable, and never loses data — but it pushes merge burden onto the user.\n\n**Operational Transform / CRDT (Google Docs approach).** For rich-text collaborative editing, OT or CRDTs merge concurrent edits automatically. This is much harder to implement correctly (OT is famously tricky — Google spent years getting it right) and is overkill for files. Dropbox's deliberate choice: keep the model simple, surface conflicts, let humans merge.\n\n**Delta sync.** On pull, the client sends its current chunk list for the file; the server responds with the set of chunks it doesn't have. The client downloads only new chunks via presigned S3 URLs and assembles the file locally. A 1KB edit to a 10GB file transfers 1 chunk (~4MB) — not 10GB.\n\n**Selective sync.** Mobile clients don't want every file. Selective sync lets the user mark folders as 'online-only' — the metadata is synced, but chunks are not downloaded until the file is opened. This is implemented as a per-device flag on the file metadata; the client lazily fetches chunks on access."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "bottlenecks",
+      "payload": {
+        "text": "**Bottlenecks and failure modes.**\n\n- **Hash collision.** Two different chunks hash to the same SHA-256. Probability ~10^-60 — negligible, but if it happens, the second user silently corrupts the first. *Mitigation*: also store chunk size; on hash collision, treat as distinct (store under hash+size). For SHA-256 this is essentially never triggered.\n\n- **Metadata DB hotspot.** A user with 1M files in one folder blows up directory listing. *Mitigation*: cap files per folder (Dropbox: 1M); shard by owner_id; cache listings.\n\n- **Notification storm.** A shared folder with 1000 users gets 100 changes/min = 1M notifications/min. *Mitigation*: coalesce notifications within a 5s window; per-device rate limit.\n\n- **Upload of a chunk fails midway.** *Mitigation*: presigned S3 multipart upload — each part retries independently; the commit only succeeds when all parts are uploaded.\n\n- **Client offline during commit.** The commit is queued locally and retried when online. *Mitigation*: client stores a local pending-commits queue; idempotent commit (server dedups by client-generated commit_id).\n\n- **Garbage collection race.** A chunk's refcount hits 0 and GC deletes it while a client is mid-upload-commit referencing it. *Mitigation*: 7-day grace period; refcount increments happen BEFORE upload completes (pre-reservation).\n\n- **Conflict floods.** Two users editing a shared file every second. *Mitigation*: rate-limit commits per file; surface a 'too many edits, switch to live collaboration' message."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "scaling",
+      "payload": {
+        "text": "**Scaling strategy and trade-offs.**\n\n*Metadata sharding.* Shard files by owner_id (a user's files all live on one shard — enables fast directory listing and sync cursor advances). 100B files / 1M users avg = 100K files per user; manageable per-shard.\n\n*Block storage.* S3 with hash-prefix sharding (`{hash[0:2]}/{hash}`) to spread hot keys across S3 partition servers. S3 already does internal replication; we don't need a second replication layer.\n\n*Multi-region.* Metadata DB is multi-region replicated (eventually consistent; conflicts are rare because a user typically edits from one region at a time). Block storage is global (S3 cross-region replication).\n\n*Client-side caching.* The client keeps a local LMDB cache of chunk hashes it already has, so the server-side 'what chunks do you need' diff is computed client-side, not server-side. Saves server CPU and bandwidth.\n\n*Trade-offs made explicit.*\n- We chose chunk-level content-addressed dedup — **gained** 30-50% storage savings, **lost** the ability to do client-side per-user encryption (the dedup-vs-privacy tension).\n- We chose last-writer-wins + conflicted copies — **gained** simplicity and predictability, **lost** automatic concurrent-edit merging (would require OT/CRDT, a separate engineering effort).\n- We chose CDC over fixed-size chunking — **gained** better delta sync on insertions, **lost** some implementation complexity (rolling hash, edge cases).\n- We chose 4MB chunk size — **gained** balance between per-chunk overhead and dedup granularity, **lost** some dedup efficiency vs 64KB chunks (but 64KB means 16x more chunk rows in the DB).\n- We chose server-side rendering of metadata only — **gained** small payloads, **lost** the ability to do server-side search of file contents (would require a separate search index — see design-search-system)."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q1",
+      "payload": {
+        "question": "User inserts one byte at the start of a 1 GB file. With fixed-size 4MB chunking, how much data is re-uploaded?",
+        "shape": "mcq",
+        "options": [
+          "About 1 GB — every chunk after the insertion shifts by one byte, so all chunks become 'new'.",
+          "About 4 MB — only the first chunk changes; the others stay aligned.",
+          "About 1 byte — only the inserted byte is uploaded.",
+          "0 bytes — the client detects the insertion and sends only an op."
+        ],
+        "answer_index": 0,
+        "rationale": "Fixed-size chunking splits at byte offsets 0, 4MB, 8MB, etc. An insertion at offset 0 shifts every subsequent boundary by 1 byte, so every chunk's content changes and gets a new hash. This is the famous 'insertion shift' problem and the reason real systems use content-defined chunking (CDC) with a rolling hash — boundaries follow content, so an insertion only affects the chunk containing the insertion point. Option B is the CDC behavior, not fixed-size. Option C would require delta-encoding at the byte level, which doesn't compose with dedup. Option D is what OT/CRDT systems do, but they require rich-text semantics, not arbitrary binary files.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q2",
+      "payload": {
+        "question": "Two users both edit the same shared file offline and reconnect. What does the Dropbox-style system do?",
+        "shape": "mcq",
+        "options": [
+          "Server commits the second commit as the new head and renames the prior version as a 'conflicted copy' for the user to manually merge.",
+          "Server rejects the second commit and asks the user to refresh.",
+          "Server automatically merges the two edits using operational transform.",
+          "Server picks whichever edit was timestamped earlier."
+        ],
+        "answer_index": 0,
+        "rationale": "Dropbox uses last-writer-wins + conflicted copies: the second commit's parent_rev no longer matches the server's current rev (which was bumped by the first commit), so the server treats it as a conflict. The new commit becomes the head; the previous head is preserved as 'notes (conflicted copy,DEVICE's edit).md'. The user is responsible for manual merge. This is simple and never loses data — but pushes merge work to the user. Option B is wrong because rejecting is hostile UX. Option C (OT/CRDT) is what Google Docs does, but it requires rich-text semantics and is famously hard; Dropbox deliberately avoids it for arbitrary files. Option D (earlier timestamp wins) is wrong — timestamps are unreliable across clocks and would lose the later edit.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-design-file-storage-mental",
+      "payload": {
+        "text": "Engineering mental model",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-design-file-storage-mental",
+      "payload": {
+        "text": "**Mental model.** Think of Design File Storage System as a deliberate boundary in a system. The boundary exists because something becomes harder to manage when everything is done in one place: latency, scale, failure isolation, consistency, cost, or team ownership. The useful question is not “what does Design File Storage System mean?” but “what pressure makes this boundary worth introducing, and what new failure mode does it create?”"
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-design-file-storage-decision",
+      "payload": {
+        "title": "Design lens",
+        "body": "Before choosing Design File Storage System, name the workload, the critical user path, the dominant bottleneck, the failure you are trying to absorb, and the trade-off you are willing to accept. If you cannot name those five things, the design is probably premature.",
+        "kind": "info"
+      }
+    },
+    {
+      "type": "image",
+      "id": "upgrade-image-design-file-storage",
+      "payload": {
+        "src": "/learning-visuals/design-file-storage.svg",
+        "alt": "Original NO CAP systems visual for Design File Storage System.",
+        "caption": "Design File Storage System: a compact system-thinking visual.",
+        "credit": "Original NO CAP visual.",
+        "source_url": "https://github.com/donnemartin/system-design-primer"
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "upgrade-mermaid-design-file-storage",
+      "payload": {
+        "code": "flowchart LR\n  C[Client] --> S[Service] --> D[(Data layer)]\n  D --> R[Replication] --> F[Durability]",
+        "caption": "Design File Storage System: a simplified system view showing the primary flow and the main state boundaries.",
+        "alt_text": "Design File Storage System: a simplified system view showing the primary flow and the main state boundaries."
+      }
+    },
+    {
+      "type": "code",
+      "id": "upgrade-code-design-file-storage",
+      "payload": {
+        "language": "text",
+        "code": "// Pseudocode\nrequest = receive()\nresult = design_file_storage(request)\nreturn result\n\n// Production questions:\n// 1. What happens on timeout?\n// 2. Can this operation be retried safely?\n// 3. What is the bottleneck?",
+        "caption": "A minimal engineering sketch for reasoning about Design File Storage System."
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-design-file-storage-numbers",
+      "payload": {
+        "text": "Back-of-the-envelope reasoning",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-design-file-storage-numbers",
+      "payload": {
+        "text": "Example: 5M writes/day × 1 KB/row ≈ 5 GB/day of logical data. Add indexes, replication, backups and growth headroom before sizing a real store."
+      }
+    },
+    {
+      "type": "simulation",
+      "id": "upgrade-sim-design-file-storage",
+      "payload": {
+        "title": "Interactive thought experiment: Design File Storage System",
+        "description": "Change the variables below and predict what breaks first in Design File Storage System. The production lab can later reuse these same inputs.",
+        "variables": [
+          {
+            "name": "traffic",
+            "description": "Requests/events per second",
+            "default": "1000"
+          },
+          {
+            "name": "latency",
+            "description": "Dependency latency",
+            "default": "50ms"
+          },
+          {
+            "name": "failure_rate",
+            "description": "Injected failure rate",
+            "default": "0%"
+          }
+        ],
+        "placeholder_note": "Interactive controls are deterministic; use the linked Labs section when a dedicated lab exists."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-design-file-storage-hint",
+      "payload": {
+        "title": "Hint",
+        "body": "If you are stuck on Design File Storage System, start by drawing the request path and marking every network hop, stateful component, queue, cache and failure boundary. Then estimate where the system will saturate.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-design-file-storage-1",
+      "payload": {
+        "shape": "prediction",
+        "question": "You increase traffic by 10× in a system using Design File Storage System. What should you inspect first?",
+        "options": [
+          "The newest framework version",
+          "The dominant bottleneck and its saturation signal",
+          "Only the UI",
+          "Nothing; the architecture should absorb any traffic automatically"
+        ],
+        "answer_index": 1,
+        "rationale": "System design is a constraint-and-bottleneck exercise. Start with the resource or dependency that will saturate first, then choose the smallest change that removes that bottleneck.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-design-file-storage-2",
+      "payload": {
+        "shape": "mcq",
+        "question": "Which statement is the safest engineering habit when using Design File Storage System?",
+        "options": [
+          "Choose it because it is popular",
+          "Add it before measuring the problem",
+          "State the workload, failure mode and trade-off it is solving",
+          "Use the most distributed design possible"
+        ],
+        "answer_index": 2,
+        "rationale": "Good architecture starts from requirements, workload and failure assumptions. The component is the consequence of that reasoning, not the starting point.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "scenario",
+      "id": "upgrade-scenario-design-file-storage",
+      "payload": {
+        "prompt": "Production scenario: your system uses Design File Storage System, traffic suddenly spikes, and p99 latency doubles. What is your first move?",
+        "context": "You have dashboards for traffic, latency, errors and saturation. You can change the architecture, but every change has operational cost.",
+        "options": [
+          {
+            "id": "a",
+            "text": "Add more instances immediately",
+            "outcome": "This may help, but only if compute saturation is the bottleneck.",
+            "correct": false
+          },
+          {
+            "id": "b",
+            "text": "Inspect the bottleneck and its saturation signal first",
+            "outcome": "Correct: diagnose before scaling or introducing a new pattern.",
+            "correct": true
+          },
+          {
+            "id": "c",
+            "text": "Disable monitoring to reduce overhead",
+            "outcome": "This removes the evidence you need to diagnose the incident.",
+            "correct": false
+          }
+        ],
+        "rationale": "Measure the limiting resource or dependency first. A bottleneck can be compute, database I/O, network, cache misses, lock contention, downstream latency, or queue backlog.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-design-file-storage-interview",
+      "payload": {
+        "text": "Interview drill",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-design-file-storage-interview",
+      "payload": {
+        "text": "**Answer this without notes:** When would you choose Design File Storage System, and when would you intentionally avoid it? Mention at least one bottleneck it addresses, one failure mode it introduces, and one alternative. Then quantify the workload you are designing for."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "field-guide-design-file-storage",
+      "payload": {
+        "title": "Engineering lens",
+        "body": "A useful engineering lens for Design File Storage System: define the problem it solves, the simpler design that fails first, the constraint that forces you to introduce this concept, and the new failure modes the concept creates.",
+        "kind": "tip"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "numerical-lens-design-file-storage",
+      "payload": {
+        "text": "### Numerical sanity check\n\nBack-of-the-envelope reasoning beats fake precision. State your traffic, payload, concurrency and growth assumptions explicitly, then calculate enough to know whether the current architecture is orders of magnitude away from the target."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "field-question-design-file-storage",
+      "payload": {
+        "shape": "prediction",
+        "question": "Imagine the simplest version of a system using Design File Storage System. What breaks first as traffic grows by 10×, and what would you change before reaching 100×?",
+        "context": "Do not optimize for a memorized definition. Reason from the workload and failure mode.",
+        "options": [
+          "Scale the same component immediately.",
+          "Measure the current bottleneck and state the assumption that changed.",
+          "Add more technologies until throughput improves.",
+          "Choose the most popular architecture."
+        ],
+        "answer_index": 1,
+        "rationale": "Good system design starts with the bottleneck and the changed constraint. The most popular or complex choice is not automatically correct.",
+        "difficulty": "interview"
+      }
+    }
+  ],
+  "trade_offs": {
+    "pros": [
+      "Content-addressed chunking gives 30-50% storage dedup across users and versions.",
+      "Delta sync transfers only changed chunks — 1KB edit to a 10GB file = 4MB transfer.",
+      "Presigned S3 uploads keep block bytes off the API servers.",
+      "Last-writer-wins + conflicted copies is simple, predictable, and never loses data."
+    ],
+    "cons": [
+      "Cross-user dedup requires server-visible hashes — breaks per-user client-side encryption.",
+      "LWW + conflicted copies pushes merge burden to the user (vs OT/CRDT's auto-merge).",
+      "CDC (rolling hash) is more complex than fixed-size chunking.",
+      "Conflict floods on heavily-shared, frequently-edited files are unhandled — needs live collaboration."
+    ]
+  },
+  "failure_modes": [
+    "Hash collision corrupts unrelated user data — mitigate by also keying on size, or treat as distinct.",
+    "Metadata DB hotspot on huge folders — needs per-folder file cap and sharding by owner_id.",
+    "Notification storm on large shared folders — coalesce and per-device rate limit.",
+    "Garbage collection race deletes in-flight chunk — needs 7-day grace period and pre-reserved refcounts.",
+    "Client offline during commit — needs local pending-commits queue with idempotent commit_id.",
+    "Conflict floods on shared, frequently-edited files — would need live collaboration (out of scope)."
+  ],
+  "common_mistakes": [
+    "Fixed-size chunking — insertion at start re-uploads every chunk.",
+    "No content-addressed dedup — every user stores their own copy of common files.",
+    "Treating metadata and block storage as one DB — metadata queries mix with large-block traffic.",
+    "Rejecting conflicts instead of preserving both versions — loses user data.",
+    "Not enforcing parent_rev on commit — concurrent edits silently overwrite each other.",
+    "Synchronous notification fan-out on commit — slow and blocks the upload."
+  ],
+  "where_you_see_it": [
+    "Dropbox (Magritte / Magic Pocket storage, content-addressed blocks)",
+    "Google Drive (similar chunking + sync)",
+    "Microsoft OneDrive",
+    "Apple iCloud Drive",
+    "Restic / BorgBackup (backup tools using CDC dedup)",
+    "OCI container image layers (content-addressed)"
+  ],
+  "interview_prompts": [
+    "Design Dropbox. How do you avoid re-uploading a 10 GB file when 1 KB changes?",
+    "Two users edit the same shared file offline. What happens when they reconnect?",
+    "How do you save storage when 1M users have the same 'install.pdf'?",
+    "How would you add end-to-end encryption without losing cross-user dedup?",
+    "Your chunk GC deletes a chunk that a client is mid-uploading. How do you prevent this race?"
+  ],
+  "real_system_mappings": [
+    {
+      "system": "Dropbox",
+      "how": "Magic Pocket is Dropbox's in-house content-addressed block storage replacing S3 (post-2016); chunks are content-addressed by hash; client does chunking and dedup; metadata in sharded MySQL; sync via long-poll/WebSocket. Documented in Dropbox Tech Blog posts on Magic Pocket and Brotli diffing."
+    },
+    {
+      "system": "Google Drive",
+      "how": "Similar chunking and content-addressed storage; supports concurrent editing of Google Docs via operational transform (the harder problem solved only for native Docs formats)."
+    },
+    {
+      "system": "Restic / BorgBackup",
+      "how": "Open-source backup tools using content-defined chunking (Rabin-Karp rolling hash) for dedup; same core algorithm as commercial file sync."
+    }
+  ],
+  "status": "published",
+  "sources": [
+    {
+      "title": "System Design Primer",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Open source"
+    },
+    {
+      "title": "ByteByteGo — Scale from zero to millions",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "ByteByteGo"
+    },
+    {
+      "title": "System Design Tutorial",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "GeeksforGeeks"
+    },
+    {
+      "title": "System Design Roadmap",
+      "url": "https://roadmap.sh/system-design",
+      "publisher": "roadmap.sh"
+    },
+    {
+      "title": "Case Studies reference",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Case Studies reference",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Case Studies reference",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "Reference"
+    }
+  ]
+}

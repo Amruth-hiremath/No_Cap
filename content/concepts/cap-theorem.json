@@ -1,25 +1,25 @@
 {
   "slug": "cap-theorem",
-  "version": 1,
+  "version": 3,
   "title": "CAP Theorem",
-  "phase": "Distributed Systems",
-  "area": "Distributed Systems",
-  "estimated_minutes": 15,
+  "phase": "foundations",
+  "area": "Foundations",
+  "estimated_minutes": 7,
   "difficulty": "core",
   "prerequisites": [
-    "load-balancing",
-    "caching"
+    "load-balancers",
+    "cache-aside"
   ],
   "related": [],
   "used_in": [
-    "Every distributed database \u2014 Cassandra, DynamoDB, Spanner, MongoDB."
+    "Every distributed database — Cassandra, DynamoDB, Spanner, MongoDB."
   ],
   "blocks": [
     {
       "type": "prose",
       "id": "why",
       "payload": {
-        "text": "CAP is the most quoted \u2014 and most misunderstood \u2014 theorem in distributed systems. Eric Brewer conjectured in 2000, Gilbert and Lynch proved in 2002, that a distributed system can provide at most two of three guarantees: Consistency, Availability, Partition tolerance. The practical takeaway is sharper than the slogan: because partitions are inevitable on real networks, you are really choosing between C and A when a partition occurs. You cannot have all three."
+        "text": "CAP is the most quoted — and most misunderstood — theorem in distributed systems. Eric Brewer conjectured in 2000, Gilbert and Lynch proved in 2002, that a distributed system can provide at most two of three guarantees: Consistency, Availability, Partition tolerance. The practical takeaway is sharper than the slogan: because partitions are inevitable on real networks, you are really choosing between C and A when a partition occurs. You cannot have all three."
       }
     },
     {
@@ -32,19 +32,19 @@
       }
     },
     {
-      "type": "diagram",
+      "type": "mermaid",
       "id": "triangle",
       "payload": {
-        "ascii": "                    C\n                   / \\\n                  /   \\\n                 /     \\\n                /  CP   \\\n               /         \\\n              /    AP     \\\n             /             \\\n            A---------------P\n\n  CP: Consistency + Partition tolerance\n      -> reject requests during partition (sacrifice A)\n      -> e.g., Spanner, HBase, MongoDB (with majority write concern)\n\n  AP: Availability + Partition tolerance\n      -> serve stale data during partition (sacrifice C)\n      -> e.g., Cassandra, DynamoDB, CouchDB\n\n  CA: Consistency + Availability\n      -> only possible when there are no partitions\n      -> e.g., a single-machine database (PostgreSQL on one box)",
+        "code": "flowchart TD\n    N0[\"CP:\"]\n    N1[\"Consistency\"]\n    N2[\"Partition\"]\n    N3[\"tolerance\"]\n    N4[\"sacrifice A\"]\n    N5[\"reject\"]\n    N6[\"requests\"]\n    N7[\"during\"]\n    N8[\"partition\"]\n    N9[\"(sacrifice\"]\n    N10[\"with majority write concern\"]\n    N11[\"e.g.,\"]\n    N12[\"Spanner,\"]\n    N13[\"HBase,\"]\n    N14[\"MongoDB\"]\n    N15[\"(with\"]\n    N16[\"majority\"]\n    N17[\"write\"]\n    N18[\"concern)\"]\n    N19[\"AP:\"]\n    N20[\"Availability\"]\n    N21[\"sacrifice C\"]\n    N22[\"serve\"]\n    N23[\"stale\"]\n    N24[\"data\"]\n    N25[\"Cassandra,\"]\n    N26[\"DynamoDB,\"]\n    N27[\"CouchDB\"]\n    N28[\"CA:\"]\n    N29[\"only\"]\n    N30[\"possible\"]\n    N31[\"when\"]\n    N32[\"there\"]\n    N33[\"are\"]\n    N34[\"partitions\"]\n    N35[\"PostgreSQL on one box\"]\n    N36[\"single\"]\n    N37[\"machine\"]\n    N38[\"database\"]\n    N39[\"(PostgreSQL\"]\n    N40[\"one\"]\n    N41[\"box)\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41",
         "caption": "CAP triangle. Because partitions are inevitable, real distributed systems are CP or AP.",
-        "voice_alt_text": "A triangle diagram showing the three CAP properties at the corners. CP systems prioritize consistency and partition tolerance by rejecting requests during a partition. AP systems prioritize availability and partition tolerance by serving possibly stale data. CA systems only work without partitions, which means single-machine databases."
+        "alt_text": "A triangle diagram showing the three CAP properties at the corners. CP systems prioritize consistency and partition tolerance by rejecting requests during a partition. AP systems prioritize availability and partition tolerance by serving possibly stale data. CA systems only work without partitions, which means single-machine databases."
       }
     },
     {
       "type": "prose",
       "id": "the-real-choice",
       "payload": {
-        "text": "The common framing 'pick two' is misleading because Partition tolerance is not optional on a real network \u2014 partitions will happen, and your system must handle them. So the real choice is: when a partition occurs, do you (a) refuse to serve requests you cannot prove are correct (CP \u2014 sacrifice availability), or (b) serve requests with the data you have, accepting it may be stale (AP \u2014 sacrifice strong consistency)? Both are valid; the choice depends on the workload."
+        "text": "The common framing 'pick two' is misleading because Partition tolerance is not optional on a real network — partitions will happen, and your system must handle them. So the real choice is: when a partition occurs, do you (a) refuse to serve requests you cannot prove are correct (CP — sacrifice availability), or (b) serve requests with the data you have, accepting it may be stale (AP — sacrifice strong consistency)? Both are valid; the choice depends on the workload."
       }
     },
     {
@@ -60,7 +60,7 @@
       "type": "prose",
       "id": "examples",
       "payload": {
-        "text": "CP systems: Google Spanner, HBase, MongoDB with majority write concern, any system using synchronous replication with quorum. They reject writes during partition rather than risk divergence. AP systems: Cassandra, DynamoDB, CouchDB, Riak \u2014 they accept writes on any reachable node and reconcile later (eventual consistency). CA systems: a single PostgreSQL instance. Not distributed, so no partition to tolerate \u2014 but also no fault tolerance."
+        "text": "CP systems: Google Spanner, HBase, MongoDB with majority write concern, any system using synchronous replication with quorum. They reject writes during partition rather than risk divergence. AP systems: Cassandra, DynamoDB, CouchDB, Riak — they accept writes on any reachable node and reconcile later (eventual consistency). CA systems: a single PostgreSQL instance. Not distributed, so no partition to tolerate — but also no fault tolerance."
       }
     },
     {
@@ -75,7 +75,7 @@
           "Availability is impossible in distributed systems."
         ],
         "answer_index": 1,
-        "rationale": "The 'pick two' framing is misleading because partitions are inevitable on real networks \u2014 P is not optional. The real guarantee is: during a partition, you cannot have both C and A. You either reject requests (CP) or serve possibly-stale data (AP). When there is no partition, you can have both. PACELC extends this: even without partition, you choose between latency and consistency on every write.",
+        "rationale": "The 'pick two' framing is misleading because partitions are inevitable on real networks — P is not optional. The real guarantee is: during a partition, you cannot have both C and A. You either reject requests (CP) or serve possibly-stale data (AP). When there is no partition, you can have both. PACELC extends this: even without partition, you choose between latency and consistency on every write.",
         "difficulty": "solid"
       }
     },
@@ -85,13 +85,334 @@
       "payload": {
         "question": "You are designing a social media feed storage. Writes are user posts; reads are feed fetches. Which CAP trade-off makes sense?",
         "options": [
-          "CP \u2014 feeds must always show the latest post.",
-          "AP \u2014 a slightly stale feed is fine; the system must stay up during partitions.",
-          "CA \u2014 single machine is enough.",
+          "CP — feeds must always show the latest post.",
+          "AP — a slightly stale feed is fine; the system must stay up during partitions.",
+          "CA — single machine is enough.",
           "All three are achievable with modern databases."
         ],
         "answer_index": 1,
-        "rationale": "Social media feeds tolerate staleness well \u2014 a user seeing a post 5 seconds late is not a problem. But the system being down during a partition is a major business problem. AP (eventual consistency) is the right choice: accept writes on any node, reconcile via read-repair or anti-entropy. This is why Cassandra and DynamoDB are popular for social feed storage. Note: some subsets (like payment state) might warrant CP \u2014 mixed systems are common.",
+        "rationale": "Social media feeds tolerate staleness well — a user seeing a post 5 seconds late is not a problem. But the system being down during a partition is a major business problem. AP (eventual consistency) is the right choice: accept writes on any node, reconcile via read-repair or anti-entropy. This is why Cassandra and DynamoDB are popular for social feed storage. Note: some subsets (like payment state) might warrant CP — mixed systems are common.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "cap-real-choice-deep",
+      "payload": {
+        "text": "**The 'pick two' slogan is wrong.** The popular framing — 'CAP says pick two of three: C, A, or P' — is misleading because **P is not optional on a real network**. Network partitions *will* happen: cables get cut, routers fail, switches reboot, configs get pushed wrong. If your system cannot tolerate partitions, it will fail every time the network hiccups.\n\nThe real theorem is sharper: **during a partition**, you must choose between C and A. You can have both when the network is healthy. This is why PACELC is a better model:\n- **P (if Partition):** choose between **A** (availability) and **C** (consistency).\n- **E (Else — normal operation):** choose between **L** (latency) and **C** (consistency).\n\nEven when the network is healthy, strong consistency has a latency cost: you must coordinate (a quorum round, a Paxos round, a 2PC commit) before you can ACK. That coordination adds round-trips, which adds latency. So every distributed write implicitly chooses: do you pay the latency for strong consistency (CP), or do you ACK early and accept eventual consistency (AP)?"
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "cap-triangle-labeled",
+      "payload": {
+        "code": "flowchart TD\n    C((C: Consistency<br/>every read sees<br/>latest write))\n    A((A: Availability<br/>every non-failed node<br/>responds))\n    P((P: Partition tolerance<br/>survives network splits))\n    C ---|cannot have both during partition| A\n    A ---|P is inevitable<br/>on real networks| P\n    P ---|cannot have both during partition| C\n    CP[CP systems<br/>reject writes during partition<br/>sacrifice A<br/>Examples: Spanner, HBase,<br/>MongoDB majority, etcd, ZooKeeper]\n    AP[AP systems<br/>accept writes on any node<br/>sacrifice strong C<br/>Examples: Cassandra, DynamoDB,<br/>CouchDB, Riak, Redis Cluster]\n    CA[CA: only valid if P never happens<br/>= single-machine database<br/>Examples: Postgres on one box,<br/>MySQL on one box]\n    C -.-> CP\n    P -.-> CP\n    A -.-> AP\n    P -.-> AP\n    C -.-> CA\n    A -.-> CA\n    classDef corner fill:#e8f0fe,stroke:#1967d2,stroke-width:2px,color:#174ea6\n    classDef cp fill:#fee,stroke:#c33,color:#900\n    classDef ap fill:#fff4e5,stroke:#cc7a00,color:#995500\n    classDef ca fill:#f3e8fd,stroke:#9334c6,color:#681da8\n    class C,A,P corner\n    class CP cp\n    class AP ap\n    class CA ca",
+        "caption": "CAP triangle with system labels. Real distributed systems are CP (reject on partition) or AP (serve stale). CA is only valid for single-machine databases.",
+        "alt_text": "A CAP triangle. C, A, P at the corners. CP systems (Spanner, HBase, MongoDB majority, etcd, ZooKeeper) sacrifice availability during partitions. AP systems (Cassandra, DynamoDB, CouchDB, Riak, Redis Cluster) sacrifice strong consistency. CA only works without partitions — single-machine databases like Postgres or MySQL on one box."
+      }
+    },
+    {
+      "type": "video",
+      "id": "upgrade-video-cap-theorem",
+      "payload": {
+        "provider": "youtube",
+        "video_id": "k-Yaq8AHlFA",
+        "title": "CAP Theorem — visual explanation",
+        "description": "Supplementary explanation. The NO CAP lesson remains self-contained.",
+        "source_url": "https://www.youtube.com/watch?v=k-Yaq8AHlFA"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "cassandra-vs-spanner-deep",
+      "payload": {
+        "text": "**Cassandra (AP) vs Spanner (CP) — two design philosophies.**\n\n**Cassandra** was designed at Facebook for inbox search — a workload that needed to scale to billions of rows, survive any single node failure, and accept writes at very high throughput. The team chose AP: every node accepts writes, conflicts are reconciled later (last-write-wins by default, or custom conflict resolution), and the system is eventually consistent. Reads can be at `ONE` (any replica, may be stale), `QUORUM` (majority, strongly consistent if writes are also QUORUM), or `ALL`. The trade-off: writes never block on coordination, throughput scales linearly with nodes, but reads may return stale data unless you pay for QUORUM.\n\n**Spanner** was designed at Google for AdWords billing — a workload where every dollar of ad spend must be correctly attributed, even across datacenters. The team chose CP: writes go through a Paxos leader, the leader synchronously replicates to a quorum across datacenters, and the write ACKs only after the quorum confirms. Spanner uses TrueTime (Google's GPS-synced atomic clocks) to give every transaction a globally-meaningful commit timestamp, enabling external consistency (linearizability across datacenters). The trade-off: writes have cross-datacenter latency (typically 10-100ms depending on regions), and during a partition, the minority side rejects writes.\n\nThe choice wasn't 'Cassandra is better' or 'Spanner is better' — it was 'which failure costs more for this workload?' Facebook inbox search: staleness is fine, throughput is critical → AP. Google billing: correctness is critical, can afford latency → CP. Same trade-off, opposite choices, both right for their workloads."
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "partition-simulation",
+      "payload": {
+        "code": "flowchart TD\n    subgraph Healthy[Network healthy - both nodes reachable]\n        W1[Client writes 'set x=5']\n        W1 --> L1[Leader receives write]\n        L1 --> S1[Sync to follower]\n        S1 --> A1[ACK to client - both CP and AP succeed]\n        A1 --> R1[Subsequent read returns 5<br/>from either node]\n    end\n    subgraph Partitioned[Network partition - leader cannot reach follower]\n        W2[Client writes 'set x=6']\n        W2 --> L2[Leader receives write]\n        L2 --> S2{Can sync to follower?}\n        S2 -->|No - partitioned| CPPath[CP path:<br/>reject the write<br/>return error<br/>unavailable but consistent]\n        S2 -->|No - partitioned| APPath[AP path:<br/>accept write locally<br/>return OK<br/>available but may diverge]\n        CPPath --> CPRead[Reads may fail<br/>until partition heals<br/>but never return stale data]\n        APPath --> APRead[Reads from either side<br/>may return different values<br/>until reconciliation on heal]\n    end\n    classDef healthy fill:#e6f4ea,stroke:#188038,color:#0d652d\n    classDef cp fill:#fee,stroke:#c33,color:#900\n    classDef ap fill:#fff4e5,stroke:#cc7a00,color:#995500\n    class A1,R1 healthy\n    class CPPath,CPRead cp\n    class APPath,APRead ap",
+        "caption": "Partition simulation. CP path rejects writes it can't prove are consistent (unavailable but safe). AP path accepts writes locally (available but may diverge until reconciliation).",
+        "alt_text": "A flowchart showing partition behavior. In healthy operation, a write to the leader syncs to the follower, ACKs, and subsequent reads return the new value from either node. During a partition, the leader can't reach the follower. CP path: reject the write, return error (unavailable but consistent). Reads may fail until the partition heals, but never return stale data. AP path: accept the write locally, return OK (available but may diverge). Reads from either side may return different values until reconciliation on heal."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "pacelc-extension",
+      "payload": {
+        "title": "PACELC — CAP's missing latency dimension",
+        "body": "CAP only addresses what happens during a partition. But even when the network is healthy, strong consistency has a latency cost: you must coordinate (Paxos round, quorum write, 2PC) before ACKing. PACELC, introduced by Abadi in 2010, makes this explicit: if there is a Partition, choose between A and C; Else (normal operation), choose between L (latency) and C. Example systems: Spanner is PA/EL (sacrifices consistency both during partition and normally for latency? No — Spanner is PC/EC: prioritizes consistency in both cases, accepting higher latency). Cassandra is PA/EL: sacrifices consistency during partitions (PA) and also sacrifices consistency for latency normally (EL) — that's why Cassandra ONE reads are so fast. DynamoDB is PA/EL by default but tunable to PC/EC per request. The PACELC model captures that 'low latency' and 'strong consistency' are on opposite ends of a spectrum, even without partitions.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q-pacelc-cassandra",
+      "payload": {
+        "question": "Cassandra's default consistency level is ONE for both reads and writes — read from one replica, ACK after one replica acknowledges the write. In PACELC terms, what is Cassandra?",
+        "shape": "mcq",
+        "options": [
+          "PC/EC — prioritizes consistency during partitions and normally.",
+          "PA/EL — sacrifices consistency during partitions (PA) and sacrifices consistency for latency in normal operation (EL).",
+          "PA/EC — sacrifices consistency during partitions but prioritizes consistency normally.",
+          "PC/EL — prioritizes consistency during partitions but sacrifices consistency for latency normally."
+        ],
+        "answer_index": 1,
+        "rationale": "Cassandra at ONE consistency is PA/EL. PA: during a partition, any reachable node accepts writes — sacrifices strong consistency for availability (writes don't fail because of the partition). EL: even when the network is healthy, ONE-level writes ACK after a single replica confirms — sacrifices strong consistency (the other replicas may not yet have the write) for low latency (no coordination needed). The result is a system that's very fast and always writable, but reads may return stale data. This is intentional — Cassandra was designed for high-throughput, always-writable workloads like inbox search. If you change consistency to QUORUM on both reads and writes, Cassandra becomes PC/EC: writes block until a quorum confirms (sacrificing availability during partitions, and adding latency normally). The deeper lesson: consistency is not a database property, it's a per-operation choice. PACELC tells you the cost of that choice in two different conditions (during partition vs normally).",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "scenario",
+      "id": "scenario-cap-payment",
+      "payload": {
+        "prompt": "You're designing a multi-region payment system. Each region processes payments locally for low latency. A user in Singapore pays $100; the Singapore region ACKs within 50ms. The user immediately checks their balance from a US session. What CAP choice should the system make, and what does the user see?",
+        "context": "Singapore-to-US network latency is ~180ms one-way. A synchronous cross-region write (CP) would ACK in ~360ms minimum. An asynchronous cross-region write (AP) ACKs in <50ms but the US region may not yet have the write.",
+        "options": [
+          {
+            "id": "a",
+            "text": "Choose CP: synchronous replication across regions. Singapore ACKs after US confirms. User always sees consistent balance. Latency: 360ms+ per payment.",
+            "outcome": "Correct for safety, but 360ms payment latency is bad UX and may exceed 3DSecure timeout windows. Singapore users will complain payments feel slow.",
+            "correct": false
+          },
+          {
+            "id": "b",
+            "text": "Choose AP: ACK locally in 50ms, replicate asynchronously. US may briefly show stale balance. Risk: user might double-spend if they immediately transact from the US session.",
+            "outcome": "Correct for latency, but unsafe for payments — users could overdraw by transacting before the cross-region replication completes.",
+            "correct": false
+          },
+          {
+            "id": "c",
+            "text": "Mixed: synchronous replication only for balance-affecting writes (CP), asynchronous for read-mostly data (AP). Singapore ACKs after local + leader quorum, not full cross-region sync. Cross-region replication is async but fast (<1s). Balance reads route to the leader's region (CP read).",
+            "outcome": "Correct — pay the consistency cost only for the operations that need it. Latency stays low (local quorum ~50ms), cross-region consistency is eventual (<1s), and balance reads always hit the leader for correctness.",
+            "correct": true
+          },
+          {
+            "id": "d",
+            "text": "Single region only — don't go multi-region. Eliminate the CAP problem by not distributing.",
+            "outcome": "Solves CAP but kills latency for non-US users and creates a single point of failure for the whole payment system.",
+            "correct": false
+          }
+        ],
+        "rationale": "The architect's response to CAP is rarely 'pick a side globally' — it's 'pick per operation, and route reads to the right place.' Payments are the canonical CP workload: correctness matters more than latency, and double-charging or overdrawing is unacceptable. But synchronous cross-region replication (option A) over-pays: 360ms latency is bad UX and may break external integrations. Option B (AP everywhere) under-pays: it's unsafe for balance-affecting operations. Option C is the right architecture: use a quorum within a single region for the synchronous ACK (50ms — fast because it's local), then asynchronous cross-region replication for global availability. Reads that must be correct (balance checks, transaction confirmation) route to the leader's region — pay the latency for those specific reads. Writes that don't need to be globally consistent immediately (audit logs, analytics) go AP. This is why DynamoDB Global Tables, CockroachDB, and Spanner all offer per-operation tunable consistency. The deeper lesson: CAP is not a database-level choice; it's a per-operation choice. Build a system where the hot path is fast (local quorum) and correctness-critical reads pay the cross-region cost only when needed.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-cap-theorem-mental",
+      "payload": {
+        "text": "Engineering mental model",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-cap-theorem-mental",
+      "payload": {
+        "text": "**Mental model.** Think of CAP Theorem as a deliberate boundary in a system. The boundary exists because something becomes harder to manage when everything is done in one place: latency, scale, failure isolation, consistency, cost, or team ownership. The useful question is not “what does CAP Theorem mean?” but “what pressure makes this boundary worth introducing, and what new failure mode does it create?”"
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-cap-theorem-decision",
+      "payload": {
+        "title": "Design lens",
+        "body": "Before choosing CAP Theorem, name the workload, the critical user path, the dominant bottleneck, the failure you are trying to absorb, and the trade-off you are willing to accept. If you cannot name those five things, the design is probably premature.",
+        "kind": "info"
+      }
+    },
+    {
+      "type": "image",
+      "id": "upgrade-image-cap-theorem",
+      "payload": {
+        "src": "/learning-visuals/cap-theorem.svg",
+        "alt": "Original NO CAP systems visual for CAP Theorem.",
+        "caption": "CAP Theorem: a compact system-thinking visual.",
+        "credit": "Original NO CAP visual.",
+        "source_url": "https://github.com/donnemartin/system-design-primer"
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "upgrade-mermaid-cap-theorem",
+      "payload": {
+        "code": "flowchart TD\n P[Network partition occurs] --> C{What does the system prefer?}\n C -->|Consistency| CP[CP: reject or delay some requests]\n C -->|Availability| AP[AP: serve a potentially stale value]\n CP --> T[Partition tolerance remains] ; AP --> T",
+        "caption": "During a partition, a distributed system chooses between preserving strong consistency and preserving availability.",
+        "alt_text": "During a partition, a distributed system chooses between preserving strong consistency and preserving availability."
+      }
+    },
+    {
+      "type": "code",
+      "id": "upgrade-code-cap-theorem",
+      "payload": {
+        "language": "text",
+        "code": "// Pseudocode\nrequest = receive()\nresult = cap_theorem(request)\nreturn result\n\n// Production questions:\n// 1. What happens on timeout?\n// 2. Can this operation be retried safely?\n// 3. What is the bottleneck?",
+        "caption": "A minimal engineering sketch for reasoning about CAP Theorem."
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-cap-theorem-numbers",
+      "payload": {
+        "text": "Back-of-the-envelope reasoning",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-cap-theorem-numbers",
+      "payload": {
+        "text": "Numerical lens: write down traffic, payload size, read/write ratio, peak multiplier and durability target before choosing a component. The numbers should justify the architecture."
+      }
+    },
+    {
+      "type": "simulation",
+      "id": "upgrade-sim-cap-theorem",
+      "payload": {
+        "title": "Interactive thought experiment: CAP Theorem",
+        "description": "Change the variables below and predict what breaks first in CAP Theorem. The production lab can later reuse these same inputs.",
+        "variables": [
+          {
+            "name": "traffic",
+            "description": "Requests/events per second",
+            "default": "1000"
+          },
+          {
+            "name": "latency",
+            "description": "Dependency latency",
+            "default": "50ms"
+          },
+          {
+            "name": "failure_rate",
+            "description": "Injected failure rate",
+            "default": "0%"
+          }
+        ],
+        "placeholder_note": "Interactive controls are deterministic; use the linked Labs section when a dedicated lab exists."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-cap-theorem-hint",
+      "payload": {
+        "title": "Hint",
+        "body": "If you are stuck on CAP Theorem, start by drawing the request path and marking every network hop, stateful component, queue, cache and failure boundary. Then estimate where the system will saturate.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-cap-theorem-1",
+      "payload": {
+        "shape": "prediction",
+        "question": "You increase traffic by 10× in a system using CAP Theorem. What should you inspect first?",
+        "options": [
+          "The newest framework version",
+          "The dominant bottleneck and its saturation signal",
+          "Only the UI",
+          "Nothing; the architecture should absorb any traffic automatically"
+        ],
+        "answer_index": 1,
+        "rationale": "System design is a constraint-and-bottleneck exercise. Start with the resource or dependency that will saturate first, then choose the smallest change that removes that bottleneck.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-cap-theorem-2",
+      "payload": {
+        "shape": "mcq",
+        "question": "Which statement is the safest engineering habit when using CAP Theorem?",
+        "options": [
+          "Choose it because it is popular",
+          "Add it before measuring the problem",
+          "State the workload, failure mode and trade-off it is solving",
+          "Use the most distributed design possible"
+        ],
+        "answer_index": 2,
+        "rationale": "Good architecture starts from requirements, workload and failure assumptions. The component is the consequence of that reasoning, not the starting point.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "scenario",
+      "id": "upgrade-scenario-cap-theorem",
+      "payload": {
+        "prompt": "Production scenario: your system uses CAP Theorem, traffic suddenly spikes, and p99 latency doubles. What is your first move?",
+        "context": "You have dashboards for traffic, latency, errors and saturation. You can change the architecture, but every change has operational cost.",
+        "options": [
+          {
+            "id": "a",
+            "text": "Add more instances immediately",
+            "outcome": "This may help, but only if compute saturation is the bottleneck.",
+            "correct": false
+          },
+          {
+            "id": "b",
+            "text": "Inspect the bottleneck and its saturation signal first",
+            "outcome": "Correct: diagnose before scaling or introducing a new pattern.",
+            "correct": true
+          },
+          {
+            "id": "c",
+            "text": "Disable monitoring to reduce overhead",
+            "outcome": "This removes the evidence you need to diagnose the incident.",
+            "correct": false
+          }
+        ],
+        "rationale": "Measure the limiting resource or dependency first. A bottleneck can be compute, database I/O, network, cache misses, lock contention, downstream latency, or queue backlog.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-cap-theorem-interview",
+      "payload": {
+        "text": "Interview drill",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-cap-theorem-interview",
+      "payload": {
+        "text": "**Answer this without notes:** When would you choose CAP Theorem, and when would you intentionally avoid it? Mention at least one bottleneck it addresses, one failure mode it introduces, and one alternative. Then quantify the workload you are designing for."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "field-guide-cap-theorem",
+      "payload": {
+        "title": "Engineering lens",
+        "body": "A useful engineering lens for CAP Theorem: define the problem it solves, the simpler design that fails first, the constraint that forces you to introduce this concept, and the new failure modes the concept creates.",
+        "kind": "tip"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "numerical-lens-cap-theorem",
+      "payload": {
+        "text": "### Numerical sanity check\n\nBack-of-the-envelope reasoning beats fake precision. State your traffic, payload, concurrency and growth assumptions explicitly, then calculate enough to know whether the current architecture is orders of magnitude away from the target."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "field-question-cap-theorem",
+      "payload": {
+        "shape": "prediction",
+        "question": "Imagine the simplest version of a system using CAP Theorem. What breaks first as traffic grows by 10×, and what would you change before reaching 100×?",
+        "context": "Do not optimize for a memorized definition. Reason from the workload and failure mode.",
+        "options": [
+          "Scale the same component immediately.",
+          "Measure the current bottleneck and state the assumption that changed.",
+          "Add more technologies until throughput improves.",
+          "Choose the most popular architecture."
+        ],
+        "answer_index": 1,
+        "rationale": "Good system design starts with the bottleneck and the changed constraint. The most popular or complex choice is not automatically correct.",
         "difficulty": "interview"
       }
     }
@@ -104,18 +425,18 @@
     ],
     "cons": [
       "Frequently misquoted as 'pick two' when P is not optional.",
-      "Binary C vs A is too coarse \u2014 real systems are tunable (quorum sizes, consistency levels).",
+      "Binary C vs A is too coarse — real systems are tunable (quorum sizes, consistency levels).",
       "Does not address latency, which is often the real cost of strong consistency."
     ]
   },
   "common_mistakes": [
     "Quoting CAP as 'pick two of three' without acknowledging partitions are inevitable.",
-    "Assuming 'eventual consistency' means 'eventually correct' \u2014 it means eventually converged, which can still be wrong.",
+    "Assuming 'eventual consistency' means 'eventually correct' — it means eventually converged, which can still be wrong.",
     "Choosing AP for everything. Some data (payments, inventory) demands CP.",
     "Forgetting that CAP is about partition behavior, not normal operation."
   ],
   "where_you_see_it": [
-    "Every distributed database \u2014 Cassandra (AP), Spanner (CP), DynamoDB (AP), MongoDB (configurable).",
+    "Every distributed database — Cassandra (AP), Spanner (CP), DynamoDB (AP), MongoDB (configurable).",
     "Microservice architectures face the same trade-off when services cannot reach each other.",
     "The NO CAP app itself: D1 is CP (single region, SQLite), Workers KV is AP (eventual consistency across regions)."
   ],
@@ -126,21 +447,58 @@
     "PACELC extends CAP. Explain the difference."
   ],
   "status": "published",
-  "summary": "CAP is the most quoted \u2014 and most misunderstood \u2014 theorem in distributed systems. A distributed system can provide at most two of three guarantees: Consistency, Availability, Partition tolerance.",
+  "summary": "CAP is the most quoted — and most misunderstood — theorem in distributed systems. A distributed system can provide at most two of three guarantees: Consistency, Availability, Partition tolerance.",
   "why_it_matters": "Because partitions are inevitable on real networks, the real choice is between consistency and availability when a partition occurs. This trade-off shapes every distributed database design.",
   "failure_modes": [
-    "Split-brain \u2014 network partition causes two primaries, divergent writes, data loss on heal.",
-    "Stale reads \u2014 AP system serves outdated data that violates business invariants.",
-    "Write unavailability \u2014 CP system rejects writes during partition, blocking users."
+    "Split-brain — network partition causes two primaries, divergent writes, data loss on heal.",
+    "Stale reads — AP system serves outdated data that violates business invariants.",
+    "Write unavailability — CP system rejects writes during partition, blocking users."
   ],
   "real_system_mappings": [
     {
       "system": "Cassandra",
-      "how": "AP system \u2014 accepts writes on any reachable node, reconciles via read-repair and anti-entropy."
+      "how": "AP system — accepts writes on any reachable node, reconciles via read-repair and anti-entropy."
     },
     {
       "system": "Google Spanner",
-      "how": "CP system \u2014 synchronous replication with Paxos consensus, rejects writes during partition."
+      "how": "CP system — synchronous replication with Paxos consensus, rejects writes during partition."
+    }
+  ],
+  "sources": [
+    {
+      "title": "System Design Primer",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Open source"
+    },
+    {
+      "title": "ByteByteGo — Scale from zero to millions",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "ByteByteGo"
+    },
+    {
+      "title": "System Design Tutorial",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "GeeksforGeeks"
+    },
+    {
+      "title": "System Design Roadmap",
+      "url": "https://roadmap.sh/system-design",
+      "publisher": "roadmap.sh"
+    },
+    {
+      "title": "Foundations reference",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Foundations reference",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Foundations reference",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "Reference"
     }
   ]
 }

@@ -1,0 +1,443 @@
+{
+  "slug": "saga-pattern",
+  "version": 4,
+  "title": "Saga Pattern",
+  "phase": "distributed-systems",
+  "area": "Distributed Systems",
+  "estimated_minutes": 7,
+  "difficulty": "advanced",
+  "summary": "A saga is a sequence of local transactions, each on a different service, where every step has a compensating action that semantically undoes its effect if a later step fails. Unlike Two-Phase Commit, sagas never block — the system stays available under failure — but they sacrifice isolation: intermediate states are visible to other transactions, and the application must be designed to handle them. Sagas are the de facto standard for cross-service transactions in modern microservice architectures and the answer most senior engineers give to 'how do you do distributed transactions?'",
+  "why_it_matters": "Cross-service workflows are unavoidable in microservices: 'place order' must update the order service, charge via the payment service, reserve inventory, and enqueue shipping. Doing this atomically requires either 2PC (which blocks and is too slow across services) or a saga. The saga's power is its resilience — if the payment service is down, the order can be held in a 'pending' state and retried later, without blocking inventory or shipping. Its challenge is design: every step needs a meaningful compensating action, intermediate states must be tolerable, and the system must be idempotent across retries. Mastering sagas — choosing choreography vs. orchestration, designing compensations, handling non-recoverable failures — is the difference between a microservice architecture that scales and one that breaks in production.",
+  "prerequisites": [
+    "distributed-transactions"
+  ],
+  "related": [
+    "event-sourcing",
+    "two-phase-commit",
+    "message-queues-async"
+  ],
+  "used_in": [
+    "E-commerce checkout flows (order -> payment -> inventory -> shipping).",
+    "Travel booking systems (flight + hotel + car across multiple providers).",
+    "Account opening workflows (KYC -> account -> card -> welcome email).",
+    "Multi-step data pipelines (extract -> transform -> load -> notify)."
+  ],
+  "blocks": [
+    {
+      "type": "prose",
+      "id": "intro",
+      "payload": {
+        "text": "A saga is a long-lived transaction modeled as a sequence of local transactions T1, T2, ..., Tn, each on a different service. Each Ti has a **compensating transaction** Ci that semantically undoes Ti's effect. If Ti fails, the saga executes C(i-1), C(i-2), ..., C1 in reverse order to roll back the work that was already done.\n\nExample: place-order saga.\n- T1: Order service creates the order (status=pending). C1: Order service marks the order as cancelled.\n- T2: Payment service charges the customer. C2: Payment service refunds the charge.\n- T3: Inventory service reserves stock. C3: Inventory service releases the reservation.\n- T4: Shipping service enqueues a shipment. C4: Shipping service cancels the shipment.\n\nIf T3 fails (out of stock), the saga runs C2 (refund) and C1 (cancel order). The customer is made whole: no charge, no order. Crucially, the cancellation is a *new write* — the original order record exists for a brief moment, then is updated to 'cancelled.' Other services may have observed the intermediate 'pending' state. This is the saga's defining trade-off: resilience without blocking, in exchange for visible intermediate states and the loss of ACID isolation.\n\nThe original sagas paper (Garcia-Molina & Salem, 1987) predates microservices by decades — they were designed for long-running database transactions that could not hold locks. The same problem now spans microservices."
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "saga-flow",
+      "payload": {
+        "code": "flowchart TD\n    N0[\"central coordinator\"]\n    N1[\"ORCHESTRATED\"]\n    N2[\"SAGA\"]\n    N3[\"(central\"]\n    N4[\"coordinator)\"]\n    N5[\"Orchestrator\"]\n    N6[\"Order.create()\"]\n    N7[\"OrderCreated\"]\n    N8[\"Payment.charge()\"]\n    N9[\"PaymentCharged\"]\n    N10[\"out of stock\"]\n    N11[\"Inventory.reserve()\"]\n    N12[\"FAILS\"]\n    N13[\"(out\"]\n    N14[\"stock)\"]\n    N15[\"reverse order\"]\n    N16[\"compensation\"]\n    N17[\"phase\"]\n    N18[\"(reverse\"]\n    N19[\"order):\"]\n    N20[\"Payment.refund()\"]\n    N21[\"PaymentRefunded\"]\n    N22[\"Order.cancel()\"]\n    N23[\"OrderCancelled\"]\n    N24[\"State\"]\n    N25[\"machine\"]\n    N26[\"persists\"]\n    N27[\"orchestrator;\"]\n    N28[\"restartable\"]\n    N29[\"crash.\"]\n    N30[\"no central coordinator\"]\n    N31[\"CHOREOGRAPHED\"]\n    N32[\"(no\"]\n    N33[\"central\"]\n    N34[\"Order\"]\n    N35[\"service\"]\n    N36[\"event\"]\n    N37[\"Payment\"]\n    N38[\"Inventory\"]\n    N39[\"refunds\"]\n    N40[\"InventoryReserveFailed\"]\n    N41[\"(refunds)\"]\n    N42[\"cancels\"]\n    N43[\"(cancels)\"]\n    N44[\"Each\"]\n    N45[\"listens\"]\n    N46[\"for\"]\n    N47[\"events\"]\n    N48[\"and\"]\n    N49[\"acts\"]\n    N50[\"independently.\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44\n    N44 --> N45\n    N45 --> N46\n    N46 --> N47\n    N47 --> N48\n    N48 --> N49\n    N49 --> N50",
+        "caption": "Two saga variants: orchestrated (central coordinator) vs choreographed (event-driven).",
+        "alt_text": "Two diagrams comparing saga variants. The orchestrated saga has a central orchestrator that calls each service in sequence: Order create, Payment charge, Inventory reserve. When Inventory reserve fails, the orchestrator runs compensations in reverse: Payment refund, Order cancel. The orchestrator persists its state machine, so it can resume on crash. The choreographed saga has no central coordinator. The Order service emits an OrderCreated event; the Payment service reacts by charging and emits PaymentCharged; the Inventory service reacts by reserving and emits either InventoryReserved or InventoryReserveFailed. On failure, the Payment service listens for InventoryReserveFailed, refunds, and emits PaymentRefunded; the Order service listens for PaymentRefunded and cancels. Each service acts independently based on events."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "choreography-vs-orchestration",
+      "payload": {
+        "text": "There are two ways to coordinate a saga:\n\n**Choreography**: each service emits an event when it finishes its step; the next service listens for that event and acts. No central coordinator. Simple to start, naturally decoupled, but the workflow logic is distributed across services — debugging is hard, and as the chain grows, it becomes difficult to understand the full flow. Best for short sagas (2-3 steps) with stable business logic.\n\n**Orchestration**: a central orchestrator (e.g., AWS Step Functions, Temporal, Camunda) calls each service in order, handles failures and compensations, and persists the saga state so it can resume on crash. Easier to reason about, easier to add new steps, and gives you a single place to monitor and modify the workflow. But the orchestrator is a new component to manage, and tightly couples the orchestrator to every service.\n\nThe general guidance: start with choreography for simple workflows; switch to orchestration once the saga grows past 3-4 steps, has complex branching, or requires central monitoring. Temporal and AWS Step Functions have made orchestration cheap enough that many teams default to it.\n\nRegardless of variant, the orchestrator (or the event chain) must persist saga state so it survives crashes — a saga that loses its place on crash is broken."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "isolation",
+      "payload": {
+        "title": "Isolation is lost — design for it",
+        "body": "Sagas do not provide ACID isolation. Between T1 (order created) and T4 (shipping enqueued), other transactions can see the intermediate 'pending' order. If two sagas concurrent on the same customer both reserve inventory, one will succeed and the other will compensate. The application must handle this: status enums (pending, confirmed, cancelled), idempotency on every step, optimistic concurrency control (version fields), and explicit handling of 'cannot compensate' scenarios (e.g., a refund that fails because the card is expired). This is the saga's deepest challenge — not the protocol, but the application-level invariants that must be designed around lost isolation.",
+        "kind": "warning"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "compensations",
+      "payload": {
+        "text": "Designing compensations is the hardest part of saga design. Key principles:\n\n1. **Compensations are semantic, not technical.** A refund is a new business transaction that creates a refund record. It is not an undo log. The original charge remains in the database; the refund is a separate entry that nets it out.\n2. **Compensations must be idempotent.** They may be retried due to network failures. A refund keyed on the original charge ID can be safely retried — the second call sees the refund already exists and no-ops.\n3. **Some actions cannot be compensated.** Sending an email cannot be un-sent. The compensation is to send a follow-up 'sorry, we cancelled your order' email. The saga must explicitly handle non-recoverable side effects.\n4. **Compensations can also fail.** A refund can fail (card expired, bank down). The saga must retry, fall back to manual intervention (a queue for human review), or accept the inconsistency (with monitoring).\n5. **Pivot points.** A saga has a 'pivot' — the step after which the business is committed to going forward. Before the pivot, failures trigger full rollback. After the pivot, failures are handled differently (e.g., retry indefinitely rather than compensate). For an order saga, the pivot is often 'payment captured' — once you have the customer's money, you do not refund just because shipping failed; you retry shipping.\n\nThe compensation design is where most saga implementations get it wrong — usually by forgetting case (3) or (4)."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "outbox",
+      "payload": {
+        "text": "The transactional **outbox pattern** is the foundation of every saga step. To 'emit an event after a local transaction,' you cannot dual-write (DB then publish) — that loses events on crash. The outbox: write the business data AND the event to an outbox table in the **same** local database transaction. Both commit atomically. A separate process (poller or CDC like Debezium) reads the outbox and publishes the event to the broker.\n\nThis makes each saga step reliable: the local transaction either fully commits (business data + outbox event) or fully rolls back. The event is guaranteed to be published eventually (at-least-once), so the next saga step is guaranteed to be triggered. The cost: eventual consistency (the event appears in the broker seconds after the DB write) and idempotency on consumers.\n\nWithout the outbox, saga implementations either lose events (broken) or use 2PC across DB and broker (slow, blocking). The outbox is the standard solution and is used by Stripe, Uber, Netflix, and every modern event-driven architecture."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q1",
+      "payload": {
+        "question": "In a place-order saga, step T2 (Payment.charge) succeeds, but step T3 (Inventory.reserve) fails. What does the saga do?",
+        "shape": "mcq",
+        "options": [
+          "Retry T3 indefinitely until inventory is available.",
+          "Run C2 (Payment.refund) to undo T2, then run C1 (Order.cancel) to undo T1. The customer is made whole.",
+          "Run C2 only — the order remains in a 'pending payment' state.",
+          "Abort the saga and leave the customer charged with no order."
+        ],
+        "answer_index": 1,
+        "rationale": "When a saga step fails, the saga runs compensating transactions in reverse order: C2 (refund the charge) and then C1 (cancel the order). The customer ends up with no charge and no order — semantically, the transaction never happened. This is the saga's defining behavior: failures trigger compensating actions, not technical rollbacks. Note that this is a semantic undo, not a database rollback — the order record exists for a moment in 'pending' state before being updated to 'cancelled.' Other services may have observed the pending state; the application must be designed to handle this. Choice A (retry indefinitely) might be valid for transient failures, but for an 'out of stock' semantic failure, retrying is wrong — the customer should be refunded and notified.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q2",
+      "payload": {
+        "question": "What is the difference between choreography and orchestration in sagas, and when do you choose each?",
+        "shape": "mcq",
+        "options": [
+          "Choreography uses a central coordinator; orchestration uses events. Choose choreography for simple flows.",
+          "Choreography is event-driven with no central coordinator; orchestration has a central coordinator that calls each service. Choose choreography for short, stable flows; orchestration for complex, branching flows.",
+          "They are the same thing with different names.",
+          "Choreography is faster; orchestration is safer. Always prefer orchestration."
+        ],
+        "answer_index": 1,
+        "rationale": "Choreography: each service emits an event when its step completes; the next service listens and acts. No central coordinator. Simple to start, naturally decoupled, but harder to debug as the chain grows because the workflow logic is distributed across services. Orchestration: a central orchestrator (Temporal, AWS Step Functions, Camunda) calls each service in order, handles failures and compensations, and persists saga state. Easier to reason about and monitor, but the orchestrator is a new component. The general guidance: choreography for short, stable flows (2-3 steps, business logic unlikely to change); orchestration for complex flows (4+ steps, branching, requiring central monitoring or frequent modification). Many teams start with choreography and migrate to orchestration as complexity grows.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q3",
+      "payload": {
+        "question": "Why does every saga step need the transactional outbox pattern, and what goes wrong without it?",
+        "shape": "mcq",
+        "options": [
+          "Without the outbox, the local transaction takes too long.",
+          "Without the outbox, the dual-write (DB then publish) loses events if the publish call crashes — the DB write is committed but the next saga step never triggers.",
+          "Without the outbox, the broker cannot scale.",
+          "Without the outbox, the saga cannot run compensations."
+        ],
+        "answer_index": 1,
+        "rationale": "The dual-write problem: if you write to the database and then publish to the broker, a crash between the two leaves the database updated but the event lost. The next saga step never triggers, and the saga is stuck. The outbox fixes this by writing the business data AND the event to an outbox table in the same local transaction. Both commit atomically. A separate process (poller or CDC like Debezium) reads the outbox and publishes the event to the broker. If the publisher crashes, the next poll re-publishes — at-least-once delivery, never lost. The cost: eventual consistency (the event appears seconds after the DB write) and idempotency on consumers. Without the outbox, every saga implementation is either broken (loses events) or slow and blocking (uses 2PC across DB and broker).",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-saga-pattern-mental",
+      "payload": {
+        "text": "Engineering mental model",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-saga-pattern-mental",
+      "payload": {
+        "text": "**Mental model.** Think of Saga Pattern as a deliberate boundary in a system. The boundary exists because something becomes harder to manage when everything is done in one place: latency, scale, failure isolation, consistency, cost, or team ownership. The useful question is not “what does Saga Pattern mean?” but “what pressure makes this boundary worth introducing, and what new failure mode does it create?”"
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-saga-pattern-decision",
+      "payload": {
+        "title": "Design lens",
+        "body": "Before choosing Saga Pattern, name the workload, the critical user path, the dominant bottleneck, the failure you are trying to absorb, and the trade-off you are willing to accept. If you cannot name those five things, the design is probably premature.",
+        "kind": "info"
+      }
+    },
+    {
+      "type": "image",
+      "id": "upgrade-image-saga-pattern",
+      "payload": {
+        "src": "/learning-visuals/saga-pattern.svg",
+        "alt": "Original NO CAP systems visual for Saga Pattern.",
+        "caption": "Saga Pattern: a compact system-thinking visual.",
+        "credit": "Original NO CAP visual.",
+        "source_url": "https://github.com/donnemartin/system-design-primer"
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "upgrade-mermaid-saga-pattern",
+      "payload": {
+        "code": "flowchart LR\n  A[Client] --> B[Gateway] --> C[Service] --> D[State] --> E[Outcome]",
+        "caption": "Saga Pattern: a simplified system view showing the primary flow and the main state boundaries.",
+        "alt_text": "Saga Pattern: a simplified system view showing the primary flow and the main state boundaries."
+      }
+    },
+    {
+      "type": "code",
+      "id": "upgrade-code-saga-pattern",
+      "payload": {
+        "language": "text",
+        "code": "// Pseudocode\nrequest = receive()\nresult = saga_pattern(request)\nreturn result\n\n// Production questions:\n// 1. What happens on timeout?\n// 2. Can this operation be retried safely?\n// 3. What is the bottleneck?",
+        "caption": "A minimal engineering sketch for reasoning about Saga Pattern."
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-saga-pattern-numbers",
+      "payload": {
+        "text": "Back-of-the-envelope reasoning",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-saga-pattern-numbers",
+      "payload": {
+        "text": "Numerical lens: write down traffic, payload size, read/write ratio, peak multiplier and durability target before choosing a component. The numbers should justify the architecture."
+      }
+    },
+    {
+      "type": "simulation",
+      "id": "upgrade-sim-saga-pattern",
+      "payload": {
+        "title": "Interactive thought experiment: Saga Pattern",
+        "description": "Change the variables below and predict what breaks first in Saga Pattern. The production lab can later reuse these same inputs.",
+        "variables": [
+          {
+            "name": "traffic",
+            "description": "Requests/events per second",
+            "default": "1000"
+          },
+          {
+            "name": "latency",
+            "description": "Dependency latency",
+            "default": "50ms"
+          },
+          {
+            "name": "failure_rate",
+            "description": "Injected failure rate",
+            "default": "0%"
+          }
+        ],
+        "placeholder_note": "Interactive controls are deterministic; use the linked Labs section when a dedicated lab exists."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-saga-pattern-hint",
+      "payload": {
+        "title": "Hint",
+        "body": "If you are stuck on Saga Pattern, start by drawing the request path and marking every network hop, stateful component, queue, cache and failure boundary. Then estimate where the system will saturate.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-saga-pattern-1",
+      "payload": {
+        "shape": "prediction",
+        "question": "You increase traffic by 10× in a system using Saga Pattern. What should you inspect first?",
+        "options": [
+          "The newest framework version",
+          "The dominant bottleneck and its saturation signal",
+          "Only the UI",
+          "Nothing; the architecture should absorb any traffic automatically"
+        ],
+        "answer_index": 1,
+        "rationale": "System design is a constraint-and-bottleneck exercise. Start with the resource or dependency that will saturate first, then choose the smallest change that removes that bottleneck.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-saga-pattern-2",
+      "payload": {
+        "shape": "mcq",
+        "question": "Which statement is the safest engineering habit when using Saga Pattern?",
+        "options": [
+          "Choose it because it is popular",
+          "Add it before measuring the problem",
+          "State the workload, failure mode and trade-off it is solving",
+          "Use the most distributed design possible"
+        ],
+        "answer_index": 2,
+        "rationale": "Good architecture starts from requirements, workload and failure assumptions. The component is the consequence of that reasoning, not the starting point.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "scenario",
+      "id": "upgrade-scenario-saga-pattern",
+      "payload": {
+        "prompt": "Production scenario: your system uses Saga Pattern, traffic suddenly spikes, and p99 latency doubles. What is your first move?",
+        "context": "You have dashboards for traffic, latency, errors and saturation. You can change the architecture, but every change has operational cost.",
+        "options": [
+          {
+            "id": "a",
+            "text": "Add more instances immediately",
+            "outcome": "This may help, but only if compute saturation is the bottleneck.",
+            "correct": false
+          },
+          {
+            "id": "b",
+            "text": "Inspect the bottleneck and its saturation signal first",
+            "outcome": "Correct: diagnose before scaling or introducing a new pattern.",
+            "correct": true
+          },
+          {
+            "id": "c",
+            "text": "Disable monitoring to reduce overhead",
+            "outcome": "This removes the evidence you need to diagnose the incident.",
+            "correct": false
+          }
+        ],
+        "rationale": "Measure the limiting resource or dependency first. A bottleneck can be compute, database I/O, network, cache misses, lock contention, downstream latency, or queue backlog.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-saga-pattern-interview",
+      "payload": {
+        "text": "Interview drill",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-saga-pattern-interview",
+      "payload": {
+        "text": "**Answer this without notes:** When would you choose Saga Pattern, and when would you intentionally avoid it? Mention at least one bottleneck it addresses, one failure mode it introduces, and one alternative. Then quantify the workload you are designing for."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "field-guide-saga-pattern",
+      "payload": {
+        "title": "Engineering lens",
+        "body": "A useful engineering lens for Saga Pattern: define the problem it solves, the simpler design that fails first, the constraint that forces you to introduce this concept, and the new failure modes the concept creates.",
+        "kind": "tip"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "numerical-lens-saga-pattern",
+      "payload": {
+        "text": "### Numerical sanity check\n\nBack-of-the-envelope reasoning beats fake precision. State your traffic, payload, concurrency and growth assumptions explicitly, then calculate enough to know whether the current architecture is orders of magnitude away from the target."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "field-question-saga-pattern",
+      "payload": {
+        "shape": "prediction",
+        "question": "Imagine the simplest version of a system using Saga Pattern. What breaks first as traffic grows by 10×, and what would you change before reaching 100×?",
+        "context": "Do not optimize for a memorized definition. Reason from the workload and failure mode.",
+        "options": [
+          "Scale the same component immediately.",
+          "Measure the current bottleneck and state the assumption that changed.",
+          "Add more technologies until throughput improves.",
+          "Choose the most popular architecture."
+        ],
+        "answer_index": 1,
+        "rationale": "Good system design starts with the bottleneck and the changed constraint. The most popular or complex choice is not automatically correct.",
+        "difficulty": "interview"
+      }
+    }
+  ],
+  "trade_offs": {
+    "pros": [
+      "Non-blocking — the system stays available under failure, unlike 2PC.",
+      "Resilient — failures trigger compensations, not indefinite blocking.",
+      "Fits the microservice model — each service owns its data and emits events.",
+      "Scales naturally — no central coordinator needed for choreography variant.",
+      "Foundation of modern event-driven architectures."
+    ],
+    "cons": [
+      "No ACID isolation — intermediate states are visible to other transactions.",
+      "Requires designing a compensation for every step — semantic, not technical.",
+      "Some actions cannot be compensated (sent emails, real-world side effects).",
+      "Compensations can fail too — requires retry and manual intervention paths.",
+      "Debugging is hard — distributed traces and correlation IDs are essential."
+    ]
+  },
+  "failure_modes": [
+    "Lost events from naive dual-write — fixed by the transactional outbox pattern.",
+    "Compensation failure — refund fails; mitigated by retry queue and manual intervention.",
+    "Non-compensatable side effects — sent emails; mitigated by follow-up 'sorry' messages.",
+    "Out-of-order events in choreography — events arrive in wrong order; mitigated by correlation IDs and idempotency.",
+    "Concurrent sagas on the same resource — race conditions; mitigated by optimistic concurrency and version fields.",
+    "Orchestrator crash — saga state must be persisted; mitigated by durable orchestrators (Temporal, Step Functions)."
+  ],
+  "common_mistakes": [
+    "Using dual-write (DB then publish) instead of the outbox pattern — loses events.",
+    "Designing compensations as technical rollbacks instead of semantic undos.",
+    "Forgetting that some actions cannot be compensated — sent emails, real-world side effects.",
+    "Not making compensations idempotent — retries cause double refunds.",
+    "Assuming isolation — other transactions see intermediate states; design for it.",
+    "Not propagating correlation IDs — debugging becomes impossible across services.",
+    "Using choreography for long, complex flows — switch to orchestration."
+  ],
+  "where_you_see_it": [
+    "E-commerce checkout (order, payment, inventory, shipping across services).",
+    "Travel booking (flight + hotel + car across multiple providers).",
+    "Account opening (KYC, account creation, card issuance, welcome email).",
+    "Multi-step data pipelines (extract, transform, load, notify).",
+    "Workflow engines (Temporal, AWS Step Functions, Camunda, Airflow for data)."
+  ],
+  "interview_prompts": [
+    "Design a place-order saga across order, payment, inventory, and shipping services. Walk through the happy path and a failure case.",
+    "What is the difference between choreography and orchestration? When do you choose each?",
+    "Why does every saga step need the outbox pattern? What goes wrong without it?",
+    "How do you design a compensation for an action that has real-world side effects (sent email, shipped package)?",
+    "Compare sagas and 2PC. Why have sagas displaced 2PC in microservices?"
+  ],
+  "real_system_mappings": [
+    {
+      "system": "Temporal",
+      "how": "Open-source workflow orchestration engine that runs sagas as durable, resumable state machines. Each step is a function call; failures and compensations are first-class. Used by Stripe, Snap, HashiCorp, and many others for cross-service workflows. State persists across crashes; retries and compensations are declarative."
+    },
+    {
+      "system": "AWS Step Functions",
+      "how": "Managed orchestrator for saga-style workflows. Define states (success, failure, compensation) in ASL; AWS runs the state machine durably. Integrated with Lambda, SQS, SNS, and DynamoDB. Common for AWS-native microservice orchestration."
+    },
+    {
+      "system": "Netflix",
+      "how": "Uses choreographed sagas for much of its microservice architecture — each service emits events to Kafka, others react. Compensations are designed per use case. The scale and resilience requirements forced them away from 2PC-style coordination."
+    },
+    {
+      "system": "Uber Cadence (now Temporal)",
+      "how": "Uber built Cadence (the predecessor of Temporal) to manage long-running sagas across their microservices — trip booking, driver matching, payments. The saga state machine persists durably; even multi-day workflows (driver onboarding) are sagas."
+    }
+  ],
+  "status": "published",
+  "sources": [
+    {
+      "title": "System Design Primer",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Open source"
+    },
+    {
+      "title": "ByteByteGo — Scale from zero to millions",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "ByteByteGo"
+    },
+    {
+      "title": "System Design Tutorial",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "GeeksforGeeks"
+    },
+    {
+      "title": "System Design Roadmap",
+      "url": "https://roadmap.sh/system-design",
+      "publisher": "roadmap.sh"
+    },
+    {
+      "title": "Distributed Systems reference",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Distributed Systems reference",
+      "url": "https://raft.github.io/",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Distributed Systems reference",
+      "url": "https://www.usenix.org/",
+      "publisher": "Reference"
+    }
+  ]
+}

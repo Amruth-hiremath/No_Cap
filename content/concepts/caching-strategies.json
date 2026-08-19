@@ -1,0 +1,536 @@
+{
+  "slug": "caching-strategies",
+  "version": 5,
+  "title": "Caching Strategies",
+  "phase": "cache-aside",
+  "area": "Caching",
+  "estimated_minutes": 8,
+  "difficulty": "core",
+  "summary": "Caching stores frequently accessed data in faster storage. The strategy you choose — cache-aside, write-through, write-behind, or refresh-ahead — determines when data is written to the cache, how stale it can be, and what happens during failures. Choosing the wrong strategy causes stale data, cache stampedes, or data loss.",
+  "why_it_matters": "Caching is the single most impactful performance optimization in most systems. A well-placed cache can reduce latency by 100x and reduce database load by 90%. But a poorly chosen caching strategy causes stale data, race conditions, and cache stampedes that take down the database. Understanding the four strategies — and when to use each — is a core system design skill.",
+  "prerequisites": [
+    "latency-vs-throughput"
+  ],
+  "related": [
+    "cache-aside",
+    "write-through",
+    "write-behind",
+    "refresh-ahead"
+  ],
+  "used_in": [
+    "Every read-heavy system.",
+    "Every performance-sensitive API.",
+    "Netflix, Twitter, Facebook."
+  ],
+  "blocks": [
+    {
+      "type": "prose",
+      "id": "intro",
+      "payload": {
+        "text": "A cache is a faster, smaller storage layer that sits between the application and the slower, larger source of truth (usually a database). The application checks the cache first; on a hit, it returns the cached value (fast). On a miss, it fetches from the database (slow) and writes the result to the cache for next time.\n\nThe **caching strategy** determines when and how data is written to the cache. There are four main strategies, each with different trade-offs in freshness, write latency, and failure behavior."
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "strategies",
+      "payload": {
+        "code": "flowchart TD\n    N0[\"lazy loading\"]\n    N1[\"CACHE\"]\n    N2[\"ASIDE\"]\n    N3[\"(lazy\"]\n    N4[\"loading)\"]\n    N5[\"Read:\"]\n    N6[\"Cache\"]\n    N7[\"MISS\"]\n    N8[\"write\"]\n    N9[\"return\"]\n    N10[\"Write:\"]\n    N11[\"invalidate\"]\n    N12[\"Pros:\"]\n    N13[\"cache\"]\n    N14[\"only\"]\n    N15[\"holds\"]\n    N16[\"what's\"]\n    N17[\"read.\"]\n    N18[\"Fault\"]\n    N19[\"tolerant.\"]\n    N20[\"Cons:\"]\n    N21[\"stale\"]\n    N22[\"data\"]\n    N23[\"window.\"]\n    N24[\"Stampede\"]\n    N25[\"miss.\"]\n    N26[\"WRITE\"]\n    N27[\"THROUGH\"]\n    N28[\"synchronously\"]\n    N29[\"App\"]\n    N30[\"(synchronously)\"]\n    N31[\"HIT\"]\n    N32[\"always\"]\n    N33[\"fresh.\"]\n    N34[\"reads.\"]\n    N35[\"must write to both\"]\n    N36[\"higher\"]\n    N37[\"latency\"]\n    N38[\"(must\"]\n    N39[\"both).\"]\n    N40[\"write-back\"]\n    N41[\"BEHIND\"]\n    N42[\"(write\"]\n    N43[\"back)\"]\n    N44[\"immediately\"]\n    N45[\"asynchronously, batched\"]\n    N46[\"(asynchronously,\"]\n    N47[\"batched)\"]\n    N48[\"very\"]\n    N49[\"fast\"]\n    N50[\"writes.\"]\n    N51[\"load\"]\n    N52[\"smoothed.\"]\n    N53[\"loss\"]\n    N54[\"crashes\"]\n    N55[\"before\"]\n    N56[\"flush.\"]\n    N57[\"REFRESH\"]\n    N58[\"AHEAD\"]\n    N59[\"proactively\"]\n    N60[\"refreshes\"]\n    N61[\"popular\"]\n    N62[\"items\"]\n    N63[\"BEFORE\"]\n    N64[\"they\"]\n    N65[\"expire.\"]\n    N66[\"never\"]\n    N67[\"wastes\"]\n    N68[\"resources\"]\n    N69[\"nobody\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44\n    N44 --> N45\n    N45 --> N46\n    N46 --> N47\n    N47 --> N48\n    N48 --> N49\n    N49 --> N50\n    N50 --> N51\n    N51 --> N52\n    N52 --> N53\n    N53 --> N54\n    N54 --> N55\n    N55 --> N56\n    N56 --> N57\n    N57 --> N58\n    N58 --> N59\n    N59 --> N60\n    N60 --> N61\n    N61 --> N62\n    N62 --> N63\n    N63 --> N64\n    N64 --> N65\n    N65 --> N66\n    N66 --> N67\n    N67 --> N68\n    N68 --> N69",
+        "caption": "Four caching strategies: cache-aside, write-through, write-behind, refresh-ahead.",
+        "alt_text": "Four diagrams. Cache aside: on read, check cache, miss, fetch from DB, write to cache, return. On write, update DB and invalidate cache. Pros: cache only holds what's read, fault-tolerant. Cons: stale data window, stampede on miss. Write through: write to cache and DB synchronously. Pros: cache always fresh. Cons: higher write latency. Write behind: write to cache and return immediately, DB updated asynchronously. Pros: very fast writes. Cons: data loss if cache crashes. Refresh ahead: cache proactively refreshes popular items before they expire. Pros: popular items never miss. Cons: wastes resources."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "cache-aside",
+      "payload": {
+        "text": "**Cache Aside (Lazy Loading)** — the most common strategy.\n\nThe application manages the cache explicitly:\n1. Check cache for the key.\n2. If hit → return the cached value.\n3. If miss → fetch from DB, write to cache with TTL, return.\n\nWrites update the database, then **invalidate** (delete) the cache entry. The next read will miss and re-populate from the DB.\n\n**Pros:**\n- Cache only holds data that's actually read (no wasted memory).\n- Fault-tolerant: if the cache crashes, the system still works (just slower).\n- Simple to implement.\n\n**Cons:**\n- Stale data: between a write and the cache invalidation, reads can return old data. TTLs cap the staleness window.\n- Cache stampede: when a popular key expires, N concurrent requests all miss and all fetch from the DB simultaneously.\n- Application code is aware of the cache (not transparent)."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "stampede",
+      "payload": {
+        "title": "Cache stampede (thundering herd)",
+        "body": "When a popular cache entry expires, the next N requests all see a miss at the same time. They all fetch from the DB, all write to the cache. The DB takes N× the expected load for a brief window. Mitigations: (1) cache locking — only one request fetches, others wait; (2) early refresh — refresh before expiry; (3) probabilistic early expiration — add jitter to TTLs so they don't all expire at once.",
+        "kind": "warning"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "write-through",
+      "payload": {
+        "text": "**Write Through** — the cache is always fresh.\n\nWrites go to both the cache AND the database synchronously. The application writes to the cache; the cache writes to the DB and returns only after both succeed. Reads always hit the cache.\n\n**Pros:**\n- Cache is always fresh — no stale reads.\n- Read performance is optimal (always cache hit, assuming data has been written).\n- Simple read path (no DB fallback).\n\n**Cons:**\n- Higher write latency (must write to cache + DB synchronously).\n- If the cache is down, writes fail (unless you add fallback logic).\n- Cache holds everything ever written, even if never read (wasted memory).\n\nBest for: data that's written once and read many times, where staleness is unacceptable."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "write-behind",
+      "payload": {
+        "text": "**Write Behind (Write-Back)** — the fastest writes, but risky.\n\nWrites go to the cache only. The cache returns immediately. A background process writes to the DB asynchronously (batched, delayed).\n\n**Pros:**\n- Extremely fast writes (only one write to cache, no DB round-trip).\n- DB load is smoothed (batched writes).\n- Survives brief DB outages (writes queue in cache).\n\n**Cons:**\n- **Data loss risk**: if the cache crashes before flushing to DB, committed writes are lost.\n- Reads from the DB (by other services, analytics) can see stale data.\n- Complex to implement (write queue, flush logic, ordering).\n\nBest for: high-write, low-criticality data (counters, analytics events, telemetry). Never use for payments or transactions."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "refresh-ahead",
+      "payload": {
+        "text": "**Refresh Ahead** — popular items never expire.\n\nThe cache proactively refreshes entries before their TTL expires. A background process watches for entries nearing expiry; if they're frequently accessed, it refreshes them from the DB before they expire.\n\n**Pros:**\n- Popular items never miss — the user never waits for a DB fetch.\n- Smooths DB load (refreshes are spread over time, not bursty).\n\n**Cons:**\n- Wastes resources refreshing items that nobody reads.\n- Complex to implement (need to track access frequency).\n- If the refresh fails, the item expires normally.\n\nBest for: systems with clear 'hot' items (home page content, popular product pages, trending topics)."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q1",
+      "payload": {
+        "question": "Your cache aside system uses a 5-minute TTL on user profiles. A user updates their bio, the DB write succeeds, but the cache invalidation call fails (cache is briefly down). What happens?",
+        "shape": "mcq",
+        "options": [
+          "The user sees their new bio immediately.",
+          "The user may see stale bio for up to 5 minutes, then it self-corrects.",
+          "The database rolls back the write.",
+          "The cache becomes permanently inconsistent."
+        ],
+        "answer_index": 1,
+        "rationale": "The write succeeded, but the cache still holds the old bio. Until the TTL expires (up to 5 minutes), reads return stale data. Once the TTL expires, the next read misses, fetches the updated bio from the DB, and the cache is correct again. This is why TTLs are a safety net, not just an optimization — they cap the maximum staleness window even when invalidation fails. Without a TTL, a failed invalidation would mean stale data forever.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q2",
+      "payload": {
+        "question": "You need to cache analytics events that are written at 100,000 events/sec but only read for dashboards (rarely). Which strategy is best?",
+        "shape": "mcq",
+        "options": [
+          "Write-through — cache is always fresh for dashboard reads.",
+          "Write-behind — fast writes, batched DB flush. Dashboard reads can tolerate slight staleness.",
+          "Cache-aside — only cache what's read.",
+          "Refresh-ahead — proactively refresh popular events."
+        ],
+        "answer_index": 1,
+        "rationale": "Write-behind is ideal for high-write, low-criticality data. Writes go to cache only (fast, 1ms), and the DB is updated asynchronously in batches. The DB load is smoothed (100K writes/sec become batched flushes). Dashboard reads can tolerate slight staleness — they're not user-facing. Write-through would be too slow (synchronous DB writes at 100K/sec). Cache-aside doesn't help writes. Refresh-ahead is for read-heavy hot items, not write-heavy events.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q3",
+      "payload": {
+        "question": "A popular product page's cache entry expires. Within the same second, 1000 users request the page. What happens, and how do you mitigate it?",
+        "shape": "mcq",
+        "options": [
+          "Nothing special — the cache refills normally.",
+          "All 1000 requests miss simultaneously, hammering the database. Mitigate with cache locking or early refresh.",
+          "The cache automatically extends its TTL.",
+          "The load balancer blocks the requests."
+        ],
+        "answer_index": 1,
+        "rationale": "This is a cache stampede (thundering herd). All 1000 requests see a miss, all fetch from the database, all write to the cache. The database briefly takes 1000x the expected load. Mitigations: (a) cache locking — only the first miss fetches, others wait; (b) early refresh — refresh the cache before it expires, in the background; (c) probabilistic early expiration — add jitter to the TTL so misses spread out over time.",
+        "difficulty": "hard"
+      }
+    },
+    {
+      "type": "video",
+      "id": "upgrade-video-caching-strategies",
+      "payload": {
+        "provider": "youtube",
+        "video_id": "Fy0jVMICp1Y",
+        "title": "Database Replication & Caching",
+        "description": "Supplementary explanation. The NO CAP lesson remains self-contained.",
+        "source_url": "https://www.youtube.com/watch?v=Fy0jVMICp1Y"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "cache-hierarchy-deep",
+      "payload": {
+        "text": "**Cache hierarchy — layered caches compose.** Production systems rarely have one cache. They have a stack: each layer is faster but smaller, and each serves misses from the layer below.\n\nA typical web app stack:\n1. **Browser cache** (per-user, seconds-to-days TTL). Static assets with hashes in filenames (e.g., `app.abc123.js`) cached for a year. HTML cached for seconds.\n2. **CDN edge cache** (per-PoP, minutes-to-hours TTL). Static assets, sometimes HTML, cached at 300+ PoPs globally. ~10ms latency to user.\n3. **App-server in-process cache** (per-instance, seconds TTL). Frequently accessed config, computed values. ~0.01ms latency. Lost on restart.\n4. **Distributed cache (Redis/Memcached)** (shared, seconds-to-minutes TTL). User profiles, session data, query results. ~1ms latency. Survives app restarts.\n5. **Database query cache** (per-DB, often disabled). Cached query results. Often more trouble than it's worth (invalidation is hard).\n6. **Database buffer pool** (per-DB, transparent). Pages cached in RAM. ~0.1ms latency. The OS page cache provides another layer.\n\nThe key insight: each layer only holds a fraction of the data, and each layer serves ~90% of its requests from cache. So 1000 user requests might result in 100 CDN misses (10%), of which 10 reach the app (90% served from CDN), of which 1 reaches the DB (90% served from Redis). The DB sees 0.1% of original load. This is why a small cache can carry a 1000x-larger database."
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "cache-hierarchy-diagram",
+      "payload": {
+        "code": "flowchart TD\n    User[User browser<br/>cache TTL: 1 year for hashed assets] --> CDN[CDN edge PoP<br/>~330 sites globally<br/>TTL: minutes-hours<br/>latency: 10ms]\n    CDN --> App[App server<br/>in-process cache<br/>TTL: seconds<br/>latency: 0.01ms]\n    App --> Redis[(Distributed cache<br/>Redis cluster<br/>TTL: minutes<br/>latency: 1ms)]\n    App --> DB[(Database<br/>+ buffer pool + OS page cache<br/>latency: 10-100ms)]\n    Redis --> DB\n    Notes[Each layer serves ~90% of its requests.<br/>1000 user requests → 100 CDN misses → 10 app misses → 1 DB hit.<br/>DB sees 0.1% of original load.]\n    classDef user fill:#e8f0fe,stroke:#1967d2,color:#174ea6\n    classDef cache fill:#e6f4ea,stroke:#188038,color:#0d652d\n    classDef db fill:#fef7e0,stroke:#f9ab00,color:#b06000\n    class User user\n    class CDN,App,Redis cache\n    class DB db",
+        "caption": "Layered cache hierarchy. Each layer is faster, smaller, and serves ~90% of its incoming requests — so a small cache can carry a 1000x-larger database.",
+        "alt_text": "A diagram of cache hierarchy. User browser cache (TTL 1 year for hashed assets) connects to CDN edge (330 PoPs, minutes-hours TTL, 10ms latency). CDN connects to app server in-process cache (TTL seconds, 0.01ms latency). App server connects to Redis distributed cache (TTL minutes, 1ms latency). Redis and app server both connect to the database (with buffer pool and OS page cache, 10-100ms latency). Each layer serves ~90% of its requests, so 1000 user requests become 100 CDN misses, 10 app misses, 1 DB hit. DB sees 0.1% of original load."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "strategies-comparison-table",
+      "payload": {
+        "text": "**All four strategies, side by side.**\n\n| Strategy | When written to cache | Read path | Write latency | Staleness | Failure risk | Best for |\n|----------|----------------------|-----------|---------------|-----------|--------------|----------|\n| **Cache-aside** | On read miss (lazy) | cache → DB on miss | low (DB only) | up to TTL | cache crash = slow, not broken | read-heavy, can tolerate staleness |\n| **Write-through** | On write (sync to both) | cache always hits | high (cache + DB sync) | none | cache down = write fails | writes-once-read-many, freshness critical |\n| **Write-behind** | On write (cache only, DB async) | cache always hits | very low (cache only) | DB may lag seconds-minutes | cache crash = data loss | high-write, low-criticality (counters, telemetry) |\n| **Refresh-ahead** | Proactively before TTL expires | cache always hits (for popular items) | low | none (for popular items) | wasted work on cold items | hot items (home page, trending) |\n\nThe right strategy depends on (1) read:write ratio, (2) staleness tolerance, (3) write latency tolerance, and (4) data-loss tolerance. Most systems combine: cache-aside as the default, write-through for transactional state, write-behind for counters and analytics, refresh-ahead for hot keys.\n\nThe architect's rule: start with cache-aside. Add complexity only when measurements prove you need it. Most cache-related outages come from over-engineering (write-behind on data you can't afford to lose) or under-engineering (cache-aside on a hot key without stampede protection)."
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "cache-stampede-diagram",
+      "payload": {
+        "code": "flowchart TD\n    TTL[Popular key's<br/>TTL expires at T=0] --> Q[Within 100ms, 1000 requests arrive]\n    Q --> M1[Request 1: MISS - fetch from DB]\n    Q --> M2[Request 2: MISS - fetch from DB]\n    Q --> M3[Request 3: MISS - fetch from DB]\n    Q --> Mn[Request N: MISS - fetch from DB]\n    M1 --> DB1[(Database<br/>gets 1000 queries<br/>in 100ms)]\n    M2 --> DB1\n    M3 --> DB1\n    Mn --> DB1\n    DB1 --> Crash{DB<br/>saturated?}\n    Crash -->|Yes| Down[System down<br/>cascading failure]\n    Crash -->|No| Recov[Survives<br/>but slow]\n    DB1 --> Mitigation{Mitigation<br/>in place?}\n    Mitigation -->|Lock| Lock[Cache lock:<br/>only req 1 fetches,<br/>others wait]\n    Mitigation -->|Jitter| Jitter[Probabilistic early<br/>expiration: TTL + jitter<br/>spreads misses over time]\n    Mitigation -->|Refresh-ahead| RA[Refresh-ahead:<br/>refresh before expiry<br/>no miss ever happens]\n    classDef problem fill:#fee,stroke:#c33,color:#900\n    classDef mitigation fill:#e6f4ea,stroke:#188038,color:#0d652d\n    class Down problem\n    class Lock,Jitter,RA mitigation",
+        "caption": "Cache stampede: when a popular key expires, N concurrent requests all miss simultaneously, hammering the DB. Three mitigations: cache locking, probabilistic TTL jitter, refresh-ahead.",
+        "alt_text": "A flowchart of cache stampede. A popular key's TTL expires. Within 100ms, 1000 requests arrive. All 1000 see a MISS and fetch from the DB simultaneously. The DB gets 1000 queries in 100ms — it may saturate (system down, cascading failure) or barely survive but slow. Mitigations: cache lock (only the first request fetches, others wait), probabilistic early expiration with jitter (TTL is randomized so misses spread out over time), refresh-ahead (refresh before expiry so no miss ever happens)."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "netflix-evcache-real",
+      "payload": {
+        "title": "Real system: Netflix EVCache",
+        "body": "Netflix's EVCache is a Memcached-based distributed cache deployed across multiple AWS regions. It serves 90%+ of Netflix's read traffic — user profiles, watch history, content metadata, recommendations. The architecture: each region has its own EVCache cluster (multiple shards for horizontal scaling, with replicas for HA). Writes go to the local region's EVCache synchronously (write-through for user state, cache-aside for content metadata), then replicate cross-region via EVCache's replication layer (asynchronous, ~seconds latency). On a region failure, Netflix routes traffic to a healthy region via Route 53 — the cache there may be slightly stale but the system stays available. This is a textbook example of layered caching (CDN → app → EVCache → Cassandra) and per-workload strategy choice (write-through for user state, cache-aside for content). The key insight: Netflix didn't pick one caching strategy — they use multiple, tuned per workload.",
+        "kind": "tip"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q-write-behind-payment",
+      "payload": {
+        "question": "Your team lead proposes using write-behind caching for the payment system: 'Writes are 100x faster, the DB catches up in a few seconds, what could go wrong?' What's the right response?",
+        "shape": "mcq",
+        "options": [
+          "Agree — write-behind is faster, and payments will sync eventually.",
+          "Disagree — if the cache crashes before flushing to DB, committed payments are lost. Payments require write-through (or no caching of writes at all). Write-behind is for telemetry and counters, not transactions.",
+          "Compromise — use write-behind but with frequent DB flushes (every 100ms).",
+          "Compromise — use write-behind but with a sync flag on important payments."
+        ],
+        "answer_index": 1,
+        "rationale": "Write-behind's defining failure mode is data loss on cache crash. If the cache ACKs a write to the user but the cache dies before flushing to the DB, that write is gone — no transaction log, no recovery. For payments, this is unacceptable: a user who got a 'payment received' ACK but whose payment was lost will dispute the charge, and you have no record to defend yourself. The rule: write-behind is for data you can afford to lose (telemetry, counters, analytics events). Write-through (or no caching at all) is for data you cannot lose (payments, orders, user accounts). Options C and D are 'compromises' that don't address the fundamental risk — even a 100ms flush window means up to 100ms of committed writes can be lost. The correct response is to push back: payments don't go through write-behind. If payment write latency is the problem, the fix is connection pooling, faster storage, or sharding — not a write-behind cache.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "scenario",
+      "id": "scenario-stampede-real",
+      "payload": {
+        "prompt": "Your e-commerce site caches the home page product carousel in Redis with a 5-minute TTL. At peak (Black Friday), the carousel is requested 10,000 times/sec. Every 5 minutes, your database CPU spikes to 100% for ~10 seconds. Diagnose and fix.",
+        "context": "The carousel requires joining 5 tables to compute (DB query: ~500ms). When the cache hits, response is 2ms. When it misses, response is 502ms. At the 5-minute TTL boundary, all 10K req/sec suddenly see misses.",
+        "options": [
+          {
+            "id": "a",
+            "text": "Make the carousel query faster — add indexes, denormalize.",
+            "outcome": "Helps marginally but doesn't fix the spike pattern. The DB will still get hit by all 10K concurrent requests at once.",
+            "correct": false
+          },
+          {
+            "id": "b",
+            "text": "Add cache locking — only the first miss fetches from DB, others wait for the result. The DB sees 1 query, not 10,000.",
+            "outcome": "Correct for the spike, but adds latency for the 9,999 waiters (up to 500ms) and adds a single point of failure (the lock holder).",
+            "correct": true
+          },
+          {
+            "id": "c",
+            "text": "Use refresh-ahead: proactively refresh the cache 30 seconds before expiry, in the background. Popular items never miss.",
+            "outcome": "Correct for the spike and the latency — but you're computing the carousel every 4.5 minutes regardless of demand. Wasteful if the carousel is rarely read.",
+            "correct": true
+          },
+          {
+            "id": "d",
+            "text": "Set TTL to infinity — never expire.",
+            "outcome": "Catastrophic — the carousel would be frozen at the first cached version forever, never updating as products change.",
+            "correct": false
+          }
+        ],
+        "rationale": "The diagnosis is a textbook cache stampede. At the TTL boundary, 10,000 concurrent requests all see MISS, all fetch the 500ms query from the DB simultaneously, and the DB spikes. The fundamental fix is to ensure only one (or a few) requests pay the DB cost — options B (lock) and C (refresh-ahead) both do this. Option B (cache locking) is the simplest fix: the first MISS acquires a lock and fetches, other requests wait. The DB sees 1 query, the 9,999 waiters see ~500ms latency (not great but not catastrophic). Option C (refresh-ahead) is better for the hot carousel case: refresh in the background 30 seconds before expiry — users never see a miss, the DB is queried once every 4.5 minutes. The trade-off: refresh-ahead computes the carousel even if nobody reads it. For a home page carousel, that's fine — it's always being read. Option A (query optimization) addresses a different problem (slow query) and doesn't fix the spike pattern. Option D (infinite TTL) would freeze the carousel forever. The best production answer combines B + C + jitter: refresh-ahead for the proactive refresh, cache locking as a safety net, and TTL jitter (e.g., 5min ± 30s) so multiple carousels don't all expire simultaneously. The deeper lesson: caching without stampede protection is a ticking bomb on hot keys. Always include stampede mitigation in the cache design, not as an afterthought.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-caching-strategies-mental",
+      "payload": {
+        "text": "Engineering mental model",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-caching-strategies-mental",
+      "payload": {
+        "text": "**Mental model.** Think of Caching Strategies as a deliberate boundary in a system. The boundary exists because something becomes harder to manage when everything is done in one place: latency, scale, failure isolation, consistency, cost, or team ownership. The useful question is not “what does Caching Strategies mean?” but “what pressure makes this boundary worth introducing, and what new failure mode does it create?”"
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-caching-strategies-decision",
+      "payload": {
+        "title": "Design lens",
+        "body": "Before choosing Caching Strategies, name the workload, the critical user path, the dominant bottleneck, the failure you are trying to absorb, and the trade-off you are willing to accept. If you cannot name those five things, the design is probably premature.",
+        "kind": "info"
+      }
+    },
+    {
+      "type": "image",
+      "id": "upgrade-image-caching-strategies",
+      "payload": {
+        "src": "/learning-visuals/caching-strategies.svg",
+        "alt": "Original NO CAP systems visual for Caching Strategies.",
+        "caption": "Caching Strategies: a compact system-thinking visual.",
+        "credit": "Original NO CAP visual.",
+        "source_url": "https://github.com/donnemartin/system-design-primer"
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "upgrade-mermaid-caching-strategies",
+      "payload": {
+        "code": "flowchart LR\n U[Client] --> A[Application]\n A -->|hit| C[(Cache)]\n A -->|miss| D[(Database)]\n D --> C\n C --> A",
+        "caption": "Cache-aside keeps the application in control: a cache hit is fast, while a miss loads from the database and populates the cache.",
+        "alt_text": "Cache-aside keeps the application in control: a cache hit is fast, while a miss loads from the database and populates the cache."
+      }
+    },
+    {
+      "type": "code",
+      "id": "upgrade-code-caching-strategies",
+      "payload": {
+        "language": "text",
+        "code": "// Pseudocode\nrequest = receive()\nresult = caching_strategies(request)\nreturn result\n\n// Production questions:\n// 1. What happens on timeout?\n// 2. Can this operation be retried safely?\n// 3. What is the bottleneck?",
+        "caption": "A minimal engineering sketch for reasoning about Caching Strategies."
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-caching-strategies-numbers",
+      "payload": {
+        "text": "Back-of-the-envelope reasoning",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-caching-strategies-numbers",
+      "payload": {
+        "text": "Example: 10M requests/day ÷ 86,400 ≈ 116 requests/s average. Design for peak rather than average; a 10× peak is ≈ 1,160 requests/s."
+      }
+    },
+    {
+      "type": "simulation",
+      "id": "upgrade-sim-caching-strategies",
+      "payload": {
+        "title": "Interactive thought experiment: Caching Strategies",
+        "description": "Change the variables below and predict what breaks first in Caching Strategies. The production lab can later reuse these same inputs.",
+        "variables": [
+          {
+            "name": "traffic",
+            "description": "Requests/events per second",
+            "default": "1000"
+          },
+          {
+            "name": "latency",
+            "description": "Dependency latency",
+            "default": "50ms"
+          },
+          {
+            "name": "failure_rate",
+            "description": "Injected failure rate",
+            "default": "0%"
+          }
+        ],
+        "placeholder_note": "Interactive controls are deterministic; use the linked Labs section when a dedicated lab exists."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-caching-strategies-hint",
+      "payload": {
+        "title": "Hint",
+        "body": "If you are stuck on Caching Strategies, start by drawing the request path and marking every network hop, stateful component, queue, cache and failure boundary. Then estimate where the system will saturate.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-caching-strategies-1",
+      "payload": {
+        "shape": "prediction",
+        "question": "You increase traffic by 10× in a system using Caching Strategies. What should you inspect first?",
+        "options": [
+          "The newest framework version",
+          "The dominant bottleneck and its saturation signal",
+          "Only the UI",
+          "Nothing; the architecture should absorb any traffic automatically"
+        ],
+        "answer_index": 1,
+        "rationale": "System design is a constraint-and-bottleneck exercise. Start with the resource or dependency that will saturate first, then choose the smallest change that removes that bottleneck.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-caching-strategies-2",
+      "payload": {
+        "shape": "mcq",
+        "question": "Which statement is the safest engineering habit when using Caching Strategies?",
+        "options": [
+          "Choose it because it is popular",
+          "Add it before measuring the problem",
+          "State the workload, failure mode and trade-off it is solving",
+          "Use the most distributed design possible"
+        ],
+        "answer_index": 2,
+        "rationale": "Good architecture starts from requirements, workload and failure assumptions. The component is the consequence of that reasoning, not the starting point.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "scenario",
+      "id": "upgrade-scenario-caching-strategies",
+      "payload": {
+        "prompt": "Production scenario: your system uses Caching Strategies, traffic suddenly spikes, and p99 latency doubles. What is your first move?",
+        "context": "You have dashboards for traffic, latency, errors and saturation. You can change the architecture, but every change has operational cost.",
+        "options": [
+          {
+            "id": "a",
+            "text": "Add more instances immediately",
+            "outcome": "This may help, but only if compute saturation is the bottleneck.",
+            "correct": false
+          },
+          {
+            "id": "b",
+            "text": "Inspect the bottleneck and its saturation signal first",
+            "outcome": "Correct: diagnose before scaling or introducing a new pattern.",
+            "correct": true
+          },
+          {
+            "id": "c",
+            "text": "Disable monitoring to reduce overhead",
+            "outcome": "This removes the evidence you need to diagnose the incident.",
+            "correct": false
+          }
+        ],
+        "rationale": "Measure the limiting resource or dependency first. A bottleneck can be compute, database I/O, network, cache misses, lock contention, downstream latency, or queue backlog.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-caching-strategies-interview",
+      "payload": {
+        "text": "Interview drill",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-caching-strategies-interview",
+      "payload": {
+        "text": "**Answer this without notes:** When would you choose Caching Strategies, and when would you intentionally avoid it? Mention at least one bottleneck it addresses, one failure mode it introduces, and one alternative. Then quantify the workload you are designing for."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "field-guide-caching-strategies",
+      "payload": {
+        "title": "Engineering lens",
+        "body": "For Caching Strategies, reason in this order: what data is hottest, where can it live closer to the caller, what makes it stale, and what happens on a miss or cache failure. A cache is an optimization boundary, not the source of truth.",
+        "kind": "tip"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "numerical-lens-caching-strategies",
+      "payload": {
+        "text": "### Numerical sanity check\n\nA useful first-order model is cache_load = request_rate × (1 - hit_rate). If traffic is 20,000 req/s and the hit rate is 90%, roughly 2,000 req/s still reaches the origin before considering misses caused by expiration or eviction."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "field-question-caching-strategies",
+      "payload": {
+        "shape": "prediction",
+        "question": "You have a read-heavy Caching Strategies path. Traffic doubles overnight. What metric would you inspect first, and what would convince you to add another cache layer?",
+        "context": "Do not optimize for a memorized definition. Reason from the workload and failure mode.",
+        "options": [
+          "Scale the same component immediately.",
+          "Measure the current bottleneck and state the assumption that changed.",
+          "Add more technologies until throughput improves.",
+          "Choose the most popular architecture."
+        ],
+        "answer_index": 1,
+        "rationale": "Good system design starts with the bottleneck and the changed constraint. The most popular or complex choice is not automatically correct.",
+        "difficulty": "interview"
+      }
+    }
+  ],
+  "trade_offs": {
+    "pros": [
+      "Dramatically reduces latency — cache hits are 100x faster than DB reads.",
+      "Reduces database load — hot data served from cache, DB handles cold reads only.",
+      "Multiple strategies for different use cases (freshness vs speed vs complexity)."
+    ],
+    "cons": [
+      "Stale data — every strategy has some window where cache and DB diverge.",
+      "Cache stampede — popular key expiry can overwhelm the DB.",
+      "Operational complexity — monitoring cache hit rate, eviction policy, memory usage.",
+      "Data loss risk (write-behind) — if cache crashes before flushing to DB."
+    ]
+  },
+  "failure_modes": [
+    "Stale data window — cache and DB diverge between write and invalidation.",
+    "Cache stampede — popular key expiry causes thundering herd.",
+    "Cache thrashing — keys evicted before they're read again (cache too small for working set).",
+    "Data loss (write-behind) — cache crash before DB flush."
+  ],
+  "common_mistakes": [
+    "No TTL. Without a TTL, a cache invalidation failure means stale data forever.",
+    "Caching everything. Caching rarely-read data wastes memory and adds invalidation complexity.",
+    "Forgetting cache stampede protection on hot keys.",
+    "Updating cache before DB. If the cache write succeeds but the DB write fails, you are now inconsistent. Always write DB first, then cache."
+  ],
+  "where_you_see_it": [
+    "Netflix (EVCache — multi-tier caching: CDN → origin cache → DB).",
+    "Redis / Memcached (in-memory key-value stores implementing cache-aside).",
+    "CDN edge caching (Cloudflare, Fastly — cache static content at the edge)."
+  ],
+  "interview_prompts": [
+    "Compare cache-aside, write-through, write-behind, and refresh-ahead.",
+    "What is a cache stampede, and how do you prevent it?",
+    "Your cache and database diverged. How do you detect it, and how do you fix it?",
+    "When would you NOT use caching? What are the risks?"
+  ],
+  "real_system_mappings": [
+    {
+      "system": "Netflix EVCache",
+      "how": "Multi-tier caching: CDN edge → origin cache (EVCache, built on Memcached) → database. 90%+ of reads served from cache. Cache-aside for content metadata, write-through for user state."
+    },
+    {
+      "system": "Redis",
+      "how": "In-memory key-value store used as a cache. Supports cache-aside (GET/SET/DEL), write-behind (with background sync to DB), and TTLs. Most popular cache in production."
+    }
+  ],
+  "status": "published",
+  "sources": [
+    {
+      "title": "System Design Primer",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Open source"
+    },
+    {
+      "title": "ByteByteGo — Scale from zero to millions",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "ByteByteGo"
+    },
+    {
+      "title": "System Design Tutorial",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "GeeksforGeeks"
+    },
+    {
+      "title": "System Design Roadmap",
+      "url": "https://roadmap.sh/system-design",
+      "publisher": "roadmap.sh"
+    },
+    {
+      "title": "Caching reference",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Caching reference",
+      "url": "https://aws.amazon.com/caching/",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Caching reference",
+      "url": "https://redis.io/docs/latest/develop/get-started/",
+      "publisher": "Reference"
+    }
+  ]
+}

@@ -1,0 +1,454 @@
+{
+  "slug": "design-hotel-reservation",
+  "version": 3,
+  "title": "Design Hotel Reservation",
+  "phase": "case-studies",
+  "area": "Case Studies",
+  "estimated_minutes": 12,
+  "difficulty": "interview",
+  "summary": "Design a hotel booking system (Booking.com / Expedia). Covers inventory as a (hotel_id, room_type_id, date) cube, the concurrency problem of two users booking the last room (pessimistic vs optimistic locking), overbooking as a deliberate strategy, the search-and-filter query for available hotels by date range, and the reservation state machine with payment + cancellation flows. The deep dive walks through why naive `SELECT FOR UPDATE` on per-date rows is too coarse and how to model inventory at the date grain with version counters.",
+  "why_it_matters": "Hotel reservations are the canonical 'inventory with concurrency' problem. Every booking platform — airlines, movie tickets, restaurants, concert venues, hospital appointments — faces the same fundamental challenge: multiple users competing for a finite, time-bucketed resource, with cancellation, expiration, and overbooking on top. The patterns here (date-cube inventory, optimistic locking via version, idempotent holds, overbooking math) are reusable across any reservation domain. Booking.com handles millions of bookings per day with this exact architecture.",
+  "prerequisites": [
+    "transactions",
+    "sql-vs-nosql",
+    "isolation-levels",
+    "sharding"
+  ],
+  "related": [
+    "transactions",
+    "isolation-levels",
+    "design-rate-limiter"
+  ],
+  "used_in": [
+    "Booking.com",
+    "Expedia",
+    "Airbnb (listing availability)",
+    "Marriott / Hilton direct booking",
+    "Airline seat inventory (same pattern)",
+    "OpenTable (restaurant reservations)"
+  ],
+  "blocks": [
+    {
+      "type": "prose",
+      "id": "problem",
+      "payload": {
+        "text": "**What are we designing?** A hotel reservation system. A user searches for available hotels by city + date range + guest count; sees results with prices; books a specific room type; the system holds the inventory, takes payment, and confirms. Other users searching concurrently must not see the same room as available. Cancellations return inventory to the pool.\n\nThe defining challenges are (1) **inventory as a time-cube** — a hotel has rooms of multiple types, and each room type has independent availability per night, so the inventory is a (hotel_id, room_type_id, date) cube, (2) **concurrency control** — when two users race for the last room, exactly one must win and the other must see 'unavailable', and (3) **overbooking** — airlines and hotels deliberately sell more seats than they have, betting on no-shows; we must support this safely."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "requirements",
+      "payload": {
+        "text": "**Functional requirements.**\n- Search hotels by city, check-in date, check-out date, guest count, with filters (stars, amenities, price).\n- View real-time availability and price for a specific hotel + room type + date range.\n- Book a room: hold inventory for ~15 min during payment, then commit on success or release on failure.\n- Cancel a booking (with policy: free >48h, 50% >24h, 0% <24h).\n- View/manage bookings; receive confirmation email/SMS.\n- Hotel staff can manage inventory, prices, room types, blackouts.\n\n**Non-functional requirements.**\n- **Search latency**: p99 < 500 ms (searches span thousands of hotels).\n- **Booking latency**: < 2 s end-to-end.\n- **Concurrency**: handle two users racing for the last room — never double-book.\n- **Availability**: 99.95% (bookings are revenue).\n- **Scale**: 1M hotels, 50M room-nights sold per day, 10K searches/sec peak.\n\n**Non-goals.** No dynamic pricing ML (rule-based pricing only in v1), no loyalty program, no multi-room bookings (single room per reservation in v1)."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "capacity",
+      "payload": {
+        "text": "**Capacity estimation.**\n\n*Inventory size.* 1M hotels x avg 5 room types x 365 days forward = 1.8B inventory rows (hotel_id, room_type_id, date, available_count, price). Each row ~50 bytes = 90 GB — fits in a sharded SQL DB.\n\n*Search traffic.* 10K searches/sec peak. Each search filters hotels by city + date range + filters; returns ~100-1000 results. Read-heavy: 100x more searches than bookings.\n\n*Booking volume.* 50M room-nights/day = ~5M bookings/day = ~60 bookings/sec. Each booking touches ~3 inventory rows (one per night) for a 3-night stay.\n\n*Holds.* Every booking creates a temporary hold during payment. Holds expire after 15 min if payment doesn't complete. Peak concurrent holds ~10K.\n\n*Storage.* Booking records ~1KB each = ~5 GB/day, ~2 TB/year. Audit trail (every state transition, who/when/why) ~5x = ~10 TB/year. Manageable in SQL with archiving."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "apis",
+      "payload": {
+        "text": "**APIs.**\n\n```\n# Search\nGET /v1/hotels?city=NYC&checkin=2025-01-10&checkout=2025-01-13&guests=2\n  -> { hotels: [{id, name, stars, price_total, room_types: [...]}] }\n\n# Hold inventory for a booking (15 min TTL)\nPOST /v1/holds\n  { hotel_id, room_type_id, checkin, checkout, guest_count, idempotency_key }\n  -> { hold_id, expires_at, price_total }\n  -> 409 if no availability\n\n# Confirm booking (after payment)\nPOST /v1/bookings\n  { hold_id, payment_token, guest_info, idempotency_key }\n  -> { booking_id, status: confirmed }\n\n# Cancel\nPOST /v1/bookings/:id/cancel\n  -> { status: cancelled, refund_amount }\n\n# Get booking\nGET /v1/bookings/:id\n```\n\nThe two-step hold-then-confirm pattern is critical. Without holds, you'd either book without payment (open to abuse) or charge payment before checking availability (bad UX if it fails). The 15-min hold gives payment time to complete."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "data-model",
+      "payload": {
+        "text": "**Data model.**\n\n*Inventory* (sharded SQL, sharded by hotel_id):\n```\ninventory (\n  hotel_id, room_type_id, date,\n  total_count, available_count, price_cents, version,\n  PRIMARY KEY (hotel_id, room_type_id, date)\n)\n```\nThe `version` column is for optimistic locking. The `available_count` decrements when a hold is created and increments when released.\n\n*Holds* (Redis, ephemeral):\n```\nhold:{hold_id}  -> { hotel_id, room_type_id, dates: [...],\n                     guest_count, price_total, expires_at }\nTTL = 900 (15 min)\n```\nHolds are in Redis (ephemeral) but the inventory decrement is in SQL (durable). On hold expiry, a sweeper increments `available_count` back.\n\n*Bookings* (sharded SQL, sharded by booking_id):\n```\nbookings (\n  id PK, user_id, hotel_id, room_type_id, checkin, checkout,\n  status, price_cents, payment_id, created_at, cancelled_at,\n  version,\n  INDEX (user_id, created_at),\n  INDEX (hotel_id, checkin)\n)\n```\n\n*Booking state machine*:\n```\nsearching -> holding -> payment_pending -> confirmed -> (checked_in -> checked_out -> completed)\n                                  \\-> failed (hold released)\n                                  \\-> cancelled (per policy)\n```\n\n*Audit trail* (append-only):\n```\nbooking_events (booking_id, ts, event, actor, payload, PRIMARY KEY (booking_id, ts))\n```\nEvery state transition appends an event — never updates. This is the event-sourcing pattern, applied narrowly for auditability."
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "arch",
+      "payload": {
+        "code": "flowchart TD\n    N0[\"User\"]\n    N1[\"[User]\"]\n    N2[\"1\"]\n    N3[\"(1)\"]\n    N4[\"search:\"]\n    N5[\"city,\"]\n    N6[\"dates,\"]\n    N7[\"guests\"]\n    N8[\"Search Service\"]\n    N9[\"[Search\"]\n    N10[\"Service]\"]\n    N11[\"sharded by city\"]\n    N12[\"read\"]\n    N13[\"from\"]\n    N14[\"Hotels\"]\n    N15[\"(sharded\"]\n    N16[\"city)\"]\n    N17[\"filter:\"]\n    N18[\"available_count\"]\n    N19[\"for\"]\n    N20[\"ALL\"]\n    N21[\"dates\"]\n    N22[\"range\"]\n    N23[\"join\"]\n    N24[\"with\"]\n    N25[\"prices\"]\n    N26[\"date\"]\n    N27[\"rank\"]\n    N28[\"relevance\"]\n    N29[\"price\"]\n    N30[\"city,dates\"]\n    N31[\"cache\"]\n    N32[\"aside\"]\n    N33[\"top\"]\n    N34[\"100\"]\n    N35[\"(city,dates)\"]\n    N36[\"Redis,\"]\n    N37[\"30s\"]\n    N38[\"TTL\"]\n    N39[\"2\"]\n    N40[\"(2)\"]\n    N41[\"user\"]\n    N42[\"picks\"]\n    N43[\"room\"]\n    N44[\"POST\"]\n    N45[\"holds\"]\n    N46[\"Inventory Service\"]\n    N47[\"[Inventory\"]\n    N48[\"BEGIN\"]\n    N49[\"TRANSACTION\"]\n    N50[\"SELECT\"]\n    N51[\"total_count,\"]\n    N52[\"available_count,\"]\n    N53[\"version\"]\n    N54[\"FROM\"]\n    N55[\"inventory\"]\n    N56[\"WHERE\"]\n    N57[\"hotel_id\"]\n    N58[\"AND\"]\n    N59[\"room_type_id\"]\n    N60[\"...\"]\n    N61[\"(...)\"]\n    N62[\"FOR\"]\n    N63[\"UPDATE;\"]\n    N64[\"pessimistic\"]\n    N65[\"lock\"]\n    N66[\"OR:\"]\n    N67[\"optimistic\"]\n    N68[\"without\"]\n    N69[\"lock,\"]\n    N70[\"then\"]\n    N71[\"UPDATE\"]\n    N72[\"check\"]\n    N73[\"all\"]\n    N74[\"no availability\"]\n    N75[\"409\"]\n    N76[\"Conflict\"]\n    N77[\"(no\"]\n    N78[\"availability)\"]\n    N79[\"SET\"]\n    N80[\"Redis, TTL 15min\"]\n    N81[\"INSERT\"]\n    N82[\"into\"]\n    N83[\"(Redis,\"]\n    N84[\"15min)\"]\n    N85[\"COMMIT\"]\n    N86[\"3\"]\n    N87[\"(3)\"]\n    N88[\"hold_id\"]\n    N89[\"returned\"]\n    N90[\"Payment Service\"]\n    N91[\"[Payment\"]\n    N92[\"enters\"]\n    N93[\"card,\"]\n    N94[\"3DS,\"]\n    N95[\"payment_intent\"]\n    N96[\"hold_id, payment_id\"]\n    N97[\"success:\"]\n    N98[\"bookings\"]\n    N99[\"{hold_id,\"]\n    N100[\"payment_id}\"]\n    N101[\"Booking Service\"]\n    N102[\"[Booking\"]\n    N103[\"verify\"]\n    N104[\"hold\"]\n    N105[\"not\"]\n    N106[\"expired\"]\n    N107[\"row,\"]\n    N108[\"status\"]\n    N109[\"confirmed\"]\n    N110[\"DELETE\"]\n    N111[\"Redis\"]\n    N112[\"now committed\"]\n    N113[\"inventory.available_count\"]\n    N114[\"stays\"]\n    N115[\"decremented\"]\n    N116[\"(now\"]\n    N117[\"committed)\"]\n    N118[\"publish\"]\n    N119[\"'booking_confirmed'\"]\n    N120[\"event\"]\n    N121[\"notifications,\"]\n    N122[\"analytics\"]\n    N123[\"Hold Sweeper\"]\n    N124[\"expires\"]\n    N125[\"before\"]\n    N126[\"payment?\"]\n    N127[\"[Hold\"]\n    N128[\"Sweeper]\"]\n    N129[\"cron every minute\"]\n    N130[\"(cron\"]\n    N131[\"every\"]\n    N132[\"minute)\"]\n    N133[\"increment\"]\n    N134[\"back\"]\n    N135[\"delete\"]\n    N136[\"Cancellation Service\"]\n    N137[\"cancel\"]\n    N138[\"booking?\"]\n    N139[\"[Cancellation\"]\n    N140[\"free / 50% / 0%\"]\n    N141[\"apply\"]\n    N142[\"policy\"]\n    N143[\"(free\"]\n    N144[\"50%\"]\n    N145[\"0%)\"]\n    N146[\"'booking_cancelled'\"]\n    N147[\"notifications\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44\n    N44 --> N45\n    N45 --> N46\n    N46 --> N47\n    N47 --> N48\n    N48 --> N49\n    N49 --> N50\n    N50 --> N51\n    N51 --> N52\n    N52 --> N53\n    N53 --> N54\n    N54 --> N55\n    N55 --> N56\n    N56 --> N57\n    N57 --> N58\n    N58 --> N59\n    N59 --> N60\n    N60 --> N61\n    N61 --> N62\n    N62 --> N63\n    N63 --> N64\n    N64 --> N65\n    N65 --> N66\n    N66 --> N67\n    N67 --> N68\n    N68 --> N69\n    N69 --> N70\n    N70 --> N71\n    N71 --> N72\n    N72 --> N73\n    N73 --> N74\n    N74 --> N75\n    N75 --> N76\n    N76 --> N77\n    N77 --> N78\n    N78 --> N79\n    N79 --> N80\n    N80 --> N81\n    N81 --> N82\n    N82 --> N83\n    N83 --> N84\n    N84 --> N85\n    N85 --> N86\n    N86 --> N87\n    N87 --> N88\n    N88 --> N89\n    N89 --> N90\n    N90 --> N91\n    N91 --> N92\n    N92 --> N93\n    N93 --> N94\n    N94 --> N95\n    N95 --> N96\n    N96 --> N97\n    N97 --> N98\n    N98 --> N99\n    N99 --> N100\n    N100 --> N101\n    N101 --> N102\n    N102 --> N103\n    N103 --> N104\n    N104 --> N105\n    N105 --> N106\n    N106 --> N107\n    N107 --> N108\n    N108 --> N109\n    N109 --> N110\n    N110 --> N111\n    N111 --> N112\n    N112 --> N113\n    N113 --> N114\n    N114 --> N115\n    N115 --> N116\n    N116 --> N117\n    N117 --> N118\n    N118 --> N119\n    N119 --> N120\n    N120 --> N121\n    N121 --> N122\n    N122 --> N123\n    N123 --> N124\n    N124 --> N125\n    N125 --> N126\n    N126 --> N127\n    N127 --> N128\n    N128 --> N129\n    N129 --> N130\n    N130 --> N131\n    N131 --> N132\n    N132 --> N133\n    N133 --> N134\n    N134 --> N135\n    N135 --> N136\n    N136 --> N137\n    N137 --> N138\n    N138 --> N139\n    N139 --> N140\n    N140 --> N141\n    N141 --> N142\n    N142 --> N143\n    N143 --> N144\n    N144 --> N145\n    N145 --> N146\n    N146 --> N147",
+        "caption": "Hotel reservation: search reads inventory cube, hold transaction atomically decrements available_count across all dates, payment converts hold to booking, expiry sweeper restores inventory on abandoned holds.",
+        "alt_text": "Diagram of a hotel reservation system. The user searches for hotels by city and dates. The Search Service reads from a Hotels DB sharded by city, filters to hotels where available_count is greater than zero for every date in the requested range, joins with prices for the date range, ranks by relevance and price, and caches top 100 results in Redis with a 30 second TTL. When the user picks a room, the Inventory Service begins a transaction: it reads the total_count, available_count, and version columns for the relevant inventory rows, either with SELECT FOR UPDATE for a pessimistic lock or with optimistic locking via version check, checks that available_count is greater than or equal to one for every date, decrements available_count and increments version, inserts a hold in Redis with a 15 minute TTL, and commits. The hold ID is returned to the user. The Payment Service processes the card and 3DS authentication. On success the Booking Service verifies the hold is not expired, inserts a confirmed booking row, deletes the hold from Redis, leaves the inventory decrement committed, and publishes a booking_confirmed event for notifications and analytics. A Hold Sweeper cron job runs every minute to increment inventory available_count back and delete expired holds for abandoned checkouts. A Cancellation Service applies refund policy and restores inventory for cancellations."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "concurrency",
+      "payload": {
+        "text": "**Deep dive: concurrency control — pessimistic vs optimistic.**\n\n**The race.** Two users, Alice and Bob, both see the last remaining single-king room at the Marriott NYC for Jan 10-12. Both click 'book' simultaneously. The system must let exactly one succeed and reject the other.\n\n**Pessimistic locking: SELECT ... FOR UPDATE.** When Alice's request enters the transaction, `SELECT ... FOR UPDATE` on the inventory rows (Jan 10, 11, 12 for that hotel+room_type) acquires row-level locks. Bob's `SELECT FOR UPDATE` blocks until Alice's transaction commits. After Alice commits (available_count = 0), Bob's SELECT sees 0 and returns 409. Simple and correct.\n\nPros: simple, no retry needed. Cons: lock contention under high concurrency — if 100 users race for the last room, 99 of them block; throughput collapses. Locks held during payment = bad (15 min).\n\n**Optimistic locking: version column.** No lock acquired. Read inventory with version V. Check available_count >= 1. Then `UPDATE inventory SET available_count = available_count - 1, version = version + 1 WHERE ... AND version = V`. If the rowcount is 0, someone else changed it — retry the whole transaction (or fail).\n\nPros: no lock contention, scales much better under contention. Cons: retry overhead on contention; need explicit version column.\n\n**Our choice: optimistic locking for the hold (short transaction), no lock held during payment.** The hold transaction completes in <100ms — no lock during the 15-min payment window. This is critical: we never hold a row lock for the duration of a payment.\n\n**Inventory at the date grain.** Don't have one row per hotel+room_type with a 'dates_booked' array — you can't atomically check 'is Jan 10-12 all free' without scanning. Instead, one row per (hotel, room_type, date) and a transaction that locks/updates all rows in the range. SQL's row-level locks make this efficient."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "overbooking",
+      "payload": {
+        "text": "**Deep dive: overbooking and holds.**\n\n**Overbooking math.** Airlines and hotels deliberately sell more seats/rooms than they have, betting that some customers will no-show. If a hotel has 100 rooms and historical no-show rate is 5%, they can sell 105 rooms and expect 100 to show up. The expected cost of an oversell (rebooking a guest at another hotel + apology) is lower than the expected cost of an empty room.\n\n**Implementation.** The `total_count` column is the *physical* count (100). The `overbookable_count` is the *saleable* count (105). Holds decrement from `available_count`, which can go below `total_count - overbookable_count` (i.e. we can oversell by up to overbookable_count - total_count = 5). When `available_count < 0` we are in overbook territory; the search still shows availability but a flag is set so ops can intervene.\n\n**Walk rate management.** 'Walk' = relocating an overbooked guest to another hotel. Ops dashboards show overbook count per hotel + date; if projected walks exceed threshold, ops stop new bookings or call partner hotels. The math is statistical — actual no-show rate varies; ops intervene on exceptions.\n\n**Holds and abandonment.** ~30% of holds expire without payment — users change their mind, payment fails, etc. During those 15 min, the room appears unavailable to others. This is intentional (we want to honor the hold), but means effective availability is lower than the inventory count. Overbooking compensates for this: if 30% of holds expire, sell ~30% more than physical capacity.\n\n**Idempotent holds.** A user might double-click 'book' or retry after a network blip. The hold API requires an `idempotency_key`; the Inventory Service stores `idempotency_key -> hold_id` in Redis for 24h. Duplicate requests within 24h return the original hold_id. Same pattern as Stripe.\n\n**Cancellation policies.** Cancellations are not just 'set status to cancelled' — they have a refund policy. Free >48h before checkin, 50% >24h, 0% <24h. The Cancellation Service computes refund based on policy, calls Payment Service to issue refund, increments inventory.available_count back, publishes 'booking_cancelled' event."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "bottlenecks",
+      "payload": {
+        "text": "**Bottlenecks and failure modes.**\n\n- **Hot hotel contention.** A popular hotel during a festival has 1000 users racing for 50 rooms. *Mitigation*: optimistic locking with bounded retries (3); after 3 retries, return 'temporarily unavailable, please try again' rather than infinite retry storms.\n\n- **Hold expiration storms.** A flash sale ends; 10K holds expire simultaneously. *Mitigation*: sweep in batches over 5 min, not all at once; rate-limit inventory increments.\n\n- **Payment service timeout.** Payment intent takes 30+ seconds (3DS challenge). Hold expires before payment completes. *Mitigation*: extend hold TTL when payment is in-flight; or use a 'payment_in_progress' state distinct from 'holding'.\n\n- **Cross-shard transactions.** A booking touches inventory (sharded by hotel_id) and bookings table (sharded by booking_id) — different shards. *Mitigation*: don't use distributed transactions; use the saga pattern — first decrement inventory (commit), then create booking (with hold_id link). If booking fails, compensate by incrementing inventory back.\n\n- **Search query cost.** 'Available hotels in NYC for Jan 10-12' must check inventory for all NYC hotels x all dates. *Mitigation*: precompute availability per hotel for the next 365 days; index by (city, available_count > 0, date_range); cache search results in Redis for 30s.\n\n- **Time zone bugs.** A 'date' is ambiguous without timezone. NYC midnight vs UTC midnight differ. *Mitigation*: always store dates in the hotel's local timezone; explicitly model check-in time as hotel-local.\n\n- **Stale cache in search.** Search results cached 30s; a hotel might sell out in those 30s. *Mitigation*: when user clicks 'book', the hold call validates against the DB (not the cache) and returns 409 if unavailable — the user sees 'sorry, just booked'."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "scaling",
+      "payload": {
+        "text": "**Scaling strategy and trade-offs.**\n\n*Inventory sharding.* Shard by hotel_id. A hotel's inventory for all dates lives on one shard — enables a single-shard transaction for a booking. 1M hotels / 100 shards = 10K hotels per shard.\n\n*Search read replicas.* Search is read-heavy (100x bookings). Read replicas for search; writes go to primary.\n\n*Precomputed availability.* Daily job computes 'is hotel X available for date range Y' for the next 90 days, stores in a denormalized table for fast search. Avoids the per-hotel inventory scan on every search.\n\n*Multi-region.* Hotels are inherently regional (a Tokyo hotel is searched mostly by users in Asia). Deploy per-region with the inventory for that region's hotels. Cross-region replication for global search.\n\n*Trade-offs made explicit.*\n- We chose optimistic locking for holds — **gained** high concurrency under contention, **lost** simplicity (must retry on version conflict).\n- We chose 15-min hold TTL — **gained** payment time, **lost** effective availability during the hold window (mitigated by overbooking).\n- We chose overbooking at the saleable_count level — **gained** revenue optimization, **lost** the risk of walking a guest (managed by ops dashboards).\n- We chose saga over 2PC for cross-shard booking — **gained** availability (no global coordinator), **lost** the need for explicit compensation logic on failure.\n- We chose date-grain inventory (one row per night) — **gained** atomic multi-night checks, **lost** some storage (3 rows for a 3-night stay vs 1) — acceptable.\n- We chose 30s search cache TTL — **gained** search throughput, **lost** 30s of staleness (acceptable; hold call validates against DB)."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q1",
+      "payload": {
+        "question": "Two users race to book the last single-king room at the Marriott NYC for Jan 10-12. How do you guarantee only one wins?",
+        "shape": "mcq",
+        "options": [
+          "Optimistic locking: each transaction reads inventory with version V, then UPDATE ... WHERE version = V. The second UPDATE affects 0 rows and fails.",
+          "Pessimistic locking: SELECT FOR UPDATE holds a lock for the full 15-min payment window.",
+          "SERIALIZABLE isolation level on all queries — guarantees correctness automatically.",
+          "A distributed Redis lock on hotel_id+room_type_id for the full payment window."
+        ],
+        "answer_index": 0,
+        "rationale": "Optimistic locking via a version column is the standard pattern. Each transaction reads inventory with version V; the UPDATE statement includes 'WHERE version = V' so it atomically succeeds only if the version hasn't changed. The first transaction's UPDATE bumps version to V+1; the second's UPDATE finds 0 rows affected and either retries or fails. The transaction is short (<100ms) so we don't hold locks during payment. Option B (pessimistic FOR UPDATE) is correct but slow under contention and disastrous if held during payment. Option C (SERIALIZABLE) is correct in theory but kills throughput — the DB converts it to locks anyway and you get the worst of both. Option D (Redis distributed lock for 15 min) is an anti-pattern — long-held distributed locks cause availability issues if a client dies.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q2",
+      "payload": {
+        "question": "Why do hotels deliberately overbook (sell more rooms than they physically have)?",
+        "shape": "mcq",
+        "options": [
+          "Because historical no-show rates mean expected shows are below physical capacity, so selling extra rooms recovers otherwise-empty revenue with acceptable walk-cost risk.",
+          "To inflate the search ranking of the hotel by appearing 'always available'.",
+          "Because the inventory DB cannot enforce capacity constraints.",
+          "To test the cancellation flow under load."
+        ],
+        "answer_index": 0,
+        "rationale": "If a hotel with 100 rooms has a historical 5% no-show rate, only 95 guests are expected to show up if you sell 100 rooms — 5 rooms go empty (lost revenue). Selling 105 rooms means 100 show up on average (105 x 0.95), and the rare case of >100 showing up is handled by walking a guest to another hotel at the hotel's cost. The expected value of overbooking is positive. This is standard practice in airlines, hotels, and any fixed-capacity reservation domain. Option B is wrong — search ranking is independent of availability. Option C is wrong — the DB absolutely can enforce constraints; overbooking is a business choice, not a technical limitation. Option D is wrong — overbooking is not a test scenario.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-design-hotel-reservation-mental",
+      "payload": {
+        "text": "Engineering mental model",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-design-hotel-reservation-mental",
+      "payload": {
+        "text": "**Mental model.** Think of Design Hotel Reservation as a deliberate boundary in a system. The boundary exists because something becomes harder to manage when everything is done in one place: latency, scale, failure isolation, consistency, cost, or team ownership. The useful question is not “what does Design Hotel Reservation mean?” but “what pressure makes this boundary worth introducing, and what new failure mode does it create?”"
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-design-hotel-reservation-decision",
+      "payload": {
+        "title": "Design lens",
+        "body": "Before choosing Design Hotel Reservation, name the workload, the critical user path, the dominant bottleneck, the failure you are trying to absorb, and the trade-off you are willing to accept. If you cannot name those five things, the design is probably premature.",
+        "kind": "info"
+      }
+    },
+    {
+      "type": "image",
+      "id": "upgrade-image-design-hotel-reservation",
+      "payload": {
+        "src": "/learning-visuals/design-hotel-reservation.svg",
+        "alt": "Original NO CAP systems visual for Design Hotel Reservation.",
+        "caption": "Design Hotel Reservation: a compact system-thinking visual.",
+        "credit": "Original NO CAP visual.",
+        "source_url": "https://github.com/donnemartin/system-design-primer"
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "upgrade-mermaid-design-hotel-reservation",
+      "payload": {
+        "code": "flowchart LR\n  A[Client] --> B[Gateway] --> C[Services] --> D[Data] --> E[Delivery]",
+        "caption": "Design Hotel Reservation: a simplified system view showing the primary flow and the main state boundaries.",
+        "alt_text": "Design Hotel Reservation: a simplified system view showing the primary flow and the main state boundaries."
+      }
+    },
+    {
+      "type": "code",
+      "id": "upgrade-code-design-hotel-reservation",
+      "payload": {
+        "language": "text",
+        "code": "// Pseudocode\nrequest = receive()\nresult = design_hotel_reservation(request)\nreturn result\n\n// Production questions:\n// 1. What happens on timeout?\n// 2. Can this operation be retried safely?\n// 3. What is the bottleneck?",
+        "caption": "A minimal engineering sketch for reasoning about Design Hotel Reservation."
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-design-hotel-reservation-numbers",
+      "payload": {
+        "text": "Back-of-the-envelope reasoning",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-design-hotel-reservation-numbers",
+      "payload": {
+        "text": "Numerical lens: write down traffic, payload size, read/write ratio, peak multiplier and durability target before choosing a component. The numbers should justify the architecture."
+      }
+    },
+    {
+      "type": "simulation",
+      "id": "upgrade-sim-design-hotel-reservation",
+      "payload": {
+        "title": "Interactive thought experiment: Design Hotel Reservation",
+        "description": "Change the variables below and predict what breaks first in Design Hotel Reservation. The production lab can later reuse these same inputs.",
+        "variables": [
+          {
+            "name": "traffic",
+            "description": "Requests/events per second",
+            "default": "1000"
+          },
+          {
+            "name": "latency",
+            "description": "Dependency latency",
+            "default": "50ms"
+          },
+          {
+            "name": "failure_rate",
+            "description": "Injected failure rate",
+            "default": "0%"
+          }
+        ],
+        "placeholder_note": "Interactive controls are deterministic; use the linked Labs section when a dedicated lab exists."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-design-hotel-reservation-hint",
+      "payload": {
+        "title": "Hint",
+        "body": "If you are stuck on Design Hotel Reservation, start by drawing the request path and marking every network hop, stateful component, queue, cache and failure boundary. Then estimate where the system will saturate.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-design-hotel-reservation-1",
+      "payload": {
+        "shape": "prediction",
+        "question": "You increase traffic by 10× in a system using Design Hotel Reservation. What should you inspect first?",
+        "options": [
+          "The newest framework version",
+          "The dominant bottleneck and its saturation signal",
+          "Only the UI",
+          "Nothing; the architecture should absorb any traffic automatically"
+        ],
+        "answer_index": 1,
+        "rationale": "System design is a constraint-and-bottleneck exercise. Start with the resource or dependency that will saturate first, then choose the smallest change that removes that bottleneck.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-design-hotel-reservation-2",
+      "payload": {
+        "shape": "mcq",
+        "question": "Which statement is the safest engineering habit when using Design Hotel Reservation?",
+        "options": [
+          "Choose it because it is popular",
+          "Add it before measuring the problem",
+          "State the workload, failure mode and trade-off it is solving",
+          "Use the most distributed design possible"
+        ],
+        "answer_index": 2,
+        "rationale": "Good architecture starts from requirements, workload and failure assumptions. The component is the consequence of that reasoning, not the starting point.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "scenario",
+      "id": "upgrade-scenario-design-hotel-reservation",
+      "payload": {
+        "prompt": "Production scenario: your system uses Design Hotel Reservation, traffic suddenly spikes, and p99 latency doubles. What is your first move?",
+        "context": "You have dashboards for traffic, latency, errors and saturation. You can change the architecture, but every change has operational cost.",
+        "options": [
+          {
+            "id": "a",
+            "text": "Add more instances immediately",
+            "outcome": "This may help, but only if compute saturation is the bottleneck.",
+            "correct": false
+          },
+          {
+            "id": "b",
+            "text": "Inspect the bottleneck and its saturation signal first",
+            "outcome": "Correct: diagnose before scaling or introducing a new pattern.",
+            "correct": true
+          },
+          {
+            "id": "c",
+            "text": "Disable monitoring to reduce overhead",
+            "outcome": "This removes the evidence you need to diagnose the incident.",
+            "correct": false
+          }
+        ],
+        "rationale": "Measure the limiting resource or dependency first. A bottleneck can be compute, database I/O, network, cache misses, lock contention, downstream latency, or queue backlog.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-design-hotel-reservation-interview",
+      "payload": {
+        "text": "Interview drill",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-design-hotel-reservation-interview",
+      "payload": {
+        "text": "**Answer this without notes:** When would you choose Design Hotel Reservation, and when would you intentionally avoid it? Mention at least one bottleneck it addresses, one failure mode it introduces, and one alternative. Then quantify the workload you are designing for."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "field-guide-design-hotel-reservation",
+      "payload": {
+        "title": "Engineering lens",
+        "body": "A useful engineering lens for Design Hotel Reservation: define the problem it solves, the simpler design that fails first, the constraint that forces you to introduce this concept, and the new failure modes the concept creates.",
+        "kind": "tip"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "numerical-lens-design-hotel-reservation",
+      "payload": {
+        "text": "### Numerical sanity check\n\nBack-of-the-envelope reasoning beats fake precision. State your traffic, payload, concurrency and growth assumptions explicitly, then calculate enough to know whether the current architecture is orders of magnitude away from the target."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "field-question-design-hotel-reservation",
+      "payload": {
+        "shape": "prediction",
+        "question": "Imagine the simplest version of a system using Design Hotel Reservation. What breaks first as traffic grows by 10×, and what would you change before reaching 100×?",
+        "context": "Do not optimize for a memorized definition. Reason from the workload and failure mode.",
+        "options": [
+          "Scale the same component immediately.",
+          "Measure the current bottleneck and state the assumption that changed.",
+          "Add more technologies until throughput improves.",
+          "Choose the most popular architecture."
+        ],
+        "answer_index": 1,
+        "rationale": "Good system design starts with the bottleneck and the changed constraint. The most popular or complex choice is not automatically correct.",
+        "difficulty": "interview"
+      }
+    }
+  ],
+  "trade_offs": {
+    "pros": [
+      "Optimistic locking scales well under contention without holding locks during payment.",
+      "Date-grain inventory enables atomic multi-night availability checks.",
+      "Hold-then-confirm pattern separates payment latency from inventory commitment.",
+      "Overbooking at saleable_count level optimizes revenue while bounding walk risk."
+    ],
+    "cons": [
+      "Optimistic locking requires retry logic on contention — added complexity.",
+      "15-min holds reduce effective availability (~30% expire, mitigated by overbooking).",
+      "Saga over 2PC for cross-shard booking requires explicit compensation on failure.",
+      "Date-grain inventory means 3 rows per 3-night booking — more storage, more rows touched per transaction."
+    ]
+  },
+  "failure_modes": [
+    "Hot hotel contention during festivals — needs bounded retries + 'try again' UX.",
+    "Hold expiration storms from flash sales — needs batched sweep and rate-limited inventory increments.",
+    "Payment timeout outlasting hold TTL — needs 'payment_in_progress' state with extended TTL.",
+    "Cross-shard booking failure (inventory decremented but booking insert fails) — needs saga compensation.",
+    "Search query cost across thousands of hotels — needs precomputed availability and 30s cache.",
+    "Time zone bugs in 'date' columns — needs explicit hotel-local timezone.",
+    "Stale search cache shows unavailable rooms — needs hold call to validate against DB."
+  ],
+  "common_mistakes": [
+    "Holding a row lock during the 15-min payment window — kills concurrency and availability.",
+    "Single row per hotel+room_type with a 'booked_dates' array — cannot atomically check multi-date availability.",
+    "Using 2PC across inventory and booking shards — availability and throughput collapse.",
+    "Booking before payment — open to abuse; or charging before availability check — bad UX.",
+    "No idempotency key on hold creation — double-click 'book' creates two holds.",
+    "Storing dates without timezone — midnight ambiguity causes off-by-one bookings.",
+    "Overbooking without ops dashboards for walk rate — guest-walking incidents surprise ops."
+  ],
+  "where_you_see_it": [
+    "Booking.com (millions of bookings/day, this exact architecture)",
+    "Expedia / Hotels.com",
+    "Airbnb (listing availability with date cube + holds)",
+    "Marriott / Hilton direct-booking sites",
+    "Airline seat inventory (same pattern with seat maps)",
+    "OpenTable (restaurant reservation with hold-then-confirm)",
+    "Ticketmaster (event ticket holds)"
+  ],
+  "interview_prompts": [
+    "Design a hotel reservation system. How do you handle two users booking the last room?",
+    "Why do airlines overbook flights? How would you implement overbooking safely?",
+    "A user clicks 'book' but their payment takes 30 seconds. What happens to the room during that time?",
+    "How do you handle the case where a hold expires but the user's payment then succeeds?",
+    "Your search returns 1000 hotels. How do you make this fast?"
+  ],
+  "real_system_mappings": [
+    {
+      "system": "Booking.com",
+      "how": "Inventory cube sharded by hotel, optimistic locking for holds, precomputed availability for search, overbooking at the property level. Documented in Booking.com engineering talks on their inventory system."
+    },
+    {
+      "system": "Airbnb",
+      "how": "Listing availability modeled per-night (similar date-cube), hold-then-confirm during booking, optimistic locking. Cancellation policies encoded per listing."
+    },
+    {
+      "system": "Airline reservation systems (Amadeus, Sabre)",
+      "how": "Same fundamental pattern: inventory cube (flight, class, date), hold-then-confirm, overbooking. Decades older than the hotel version but identical in pattern."
+    }
+  ],
+  "status": "published",
+  "sources": [
+    {
+      "title": "System Design Primer",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Open source"
+    },
+    {
+      "title": "ByteByteGo — Scale from zero to millions",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "ByteByteGo"
+    },
+    {
+      "title": "System Design Tutorial",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "GeeksforGeeks"
+    },
+    {
+      "title": "System Design Roadmap",
+      "url": "https://roadmap.sh/system-design",
+      "publisher": "roadmap.sh"
+    },
+    {
+      "title": "Case Studies reference",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Case Studies reference",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Case Studies reference",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "Reference"
+    }
+  ]
+}

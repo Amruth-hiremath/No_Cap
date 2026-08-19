@@ -1,0 +1,432 @@
+{
+  "slug": "compensating-transaction",
+  "version": 4,
+  "title": "Compensating Transaction",
+  "phase": "reliability-resilience",
+  "area": "Reliability & Resilience",
+  "estimated_minutes": 7,
+  "difficulty": "advanced",
+  "summary": "A compensating transaction undoes the effects of a previously committed transaction by executing a reverse operation — not by rolling back. It's the rollback mechanism of the Saga pattern: when a step in a multi-service workflow fails, you call compensations for each prior step in reverse order. Unlike a database rollback, compensations are business-level operations that work across services and don't require distributed locks.",
+  "why_it_matters": "Distributed transactions across microservices can't use ACID: there's no global lock manager, two-phase commit is too slow, and holding locks across services creates cascading failures. The Saga pattern replaces atomicity with a sequence of local transactions and compensations: if step 3 fails, run compensations for steps 2 and 1. This is how every real e-commerce, travel, and payments system handles multi-step workflows. Without compensating transactions, partial failures leave systems in inconsistent states — charged but not shipped, reserved but not booked — that are hard to detect and harder to fix.",
+  "prerequisites": [
+    "distributed-transactions",
+    "saga-pattern",
+    "idempotent-operations"
+  ],
+  "related": [
+    "saga-pattern",
+    "two-phase-commit",
+    "idempotent-operations",
+    "event-sourcing"
+  ],
+  "used_in": [
+    "Travel booking (flight + hotel + car).",
+    "E-commerce checkout (reserve inventory, charge card, ship).",
+    "Financial workflows (transfer, reconcile, settle)."
+  ],
+  "blocks": [
+    {
+      "type": "prose",
+      "id": "intro",
+      "payload": {
+        "text": "A compensating transaction is the answer to: \"I committed step 3, but step 5 failed — how do I undo step 3?\" In a single ACID database, you'd ROLLBACK. But across services, each commit is final — the inventory service doesn't hold a lock waiting for the payment service to confirm. You can't roll back; you have to compensate.\n\nCompensation means: execute a new operation that semantically undoes the original. If you charged a card, refund it. If you reserved inventory, release it. If you sent a confirmation email, send a cancellation. The original committed transaction stays committed; the compensation is a new, separate transaction.\n\nThis is the heart of the Saga pattern: a sequence of local transactions, each with a compensation. On any failure, run compensations in reverse order. The end state is consistent — not because of ACID, but because the compensations restored invariants."
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "saga-flow",
+      "payload": {
+        "code": "flowchart TD\n    N0[\"5 steps, each with compensation\"]\n    N1[\"SAGA:\"]\n    N2[\"book\"]\n    N3[\"trip\"]\n    N4[\"steps,\"]\n    N5[\"each\"]\n    N6[\"with\"]\n    N7[\"compensation)\"]\n    N8[\"comp: cancel flight\"]\n    N9[\"Reserve\"]\n    N10[\"flight\"]\n    N11[\"[comp:\"]\n    N12[\"cancel\"]\n    N13[\"flight]\"]\n    N14[\"comp: cancel hotel\"]\n    N15[\"hotel\"]\n    N16[\"hotel]\"]\n    N17[\"comp: cancel car\"]\n    N18[\"car\"]\n    N19[\"car]\"]\n    N20[\"comp: refund card\"]\n    N21[\"Charge\"]\n    N22[\"card\"]\n    N23[\"refund\"]\n    N24[\"card]\"]\n    N25[\"comp: send cancellation\"]\n    N26[\"Send\"]\n    N27[\"confirmation\"]\n    N28[\"send\"]\n    N29[\"cancellation]\"]\n    N30[\"HAPPY\"]\n    N31[\"PATH\"]\n    N32[\"done.\"]\n    N33[\"charge fails\"]\n    N34[\"FAILURE\"]\n    N35[\"STEP\"]\n    N36[\"(charge\"]\n    N37[\"fails)\"]\n    N38[\"cancel car\"]\n    N39[\"Compensate\"]\n    N40[\"(cancel\"]\n    N41[\"car)\"]\n    N42[\"cancel hotel\"]\n    N43[\"hotel)\"]\n    N44[\"cancel flight\"]\n    N45[\"flight)\"]\n    N46[\"Final\"]\n    N47[\"state:\"]\n    N48[\"nothing\"]\n    N49[\"booked,\"]\n    N50[\"charge.\"]\n    N51[\"Consistent.\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44\n    N44 --> N45\n    N45 --> N46\n    N46 --> N47\n    N47 --> N48\n    N48 --> N49\n    N49 --> N50\n    N50 --> N51",
+        "caption": "A saga is a sequence of local transactions each with a compensation. On failure, run compensations in reverse order.",
+        "alt_text": "A diagram of a five-step saga for booking a trip. Step one reserves a flight, with compensation cancel flight. Step two reserves a hotel, with compensation cancel hotel. Step three reserves a car, with compensation cancel car. Step four charges the card, with compensation refund the card. Step five sends a confirmation, with compensation send a cancellation. In the happy path all five steps complete. In a failure at step four where the charge fails, the saga compensates by canceling the car, canceling the hotel, and canceling the flight in reverse order. The final state is consistent: nothing booked, no charge."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "not-rollback",
+      "payload": {
+        "text": "Key insight: compensation is not rollback. A rollback restores the previous state as if the transaction never happened — only possible when locks are held. A compensation accepts that the transaction happened (other systems may have observed it) and adds a new transaction that semantically reverses it.\n\nPractical consequences:\n\n- **Compensations must be idempotent** — they may be retried. A refund operation called twice must not double-refund.\n- **Compensations must be commutative with concurrent reads** — between the original commit and the compensation, other services may have read the value. They saw the original; they need to handle the change.\n- **Some operations are hard to compensate** — sending an email (you can't unsend it; you can send a follow-up), invoking an external API that's not idempotent, or triggering a physical action.\n- **Compensations can fail too** — what if the refund call fails? You need retries, dead-letter queues, and human escalation. Saga orchestration frameworks (Temporal, Cadence, AWS Step Functions) handle this."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "orchestration-vs-choreography",
+      "payload": {
+        "text": "Sagas can be coordinated two ways:\n\n- **Choreography**: each service emits events; the next service listens and proceeds. No central coordinator. Simple to start, hard to follow as the chain grows — debugging \"where did this saga go?\" requires tracing events across services.\n- **Orchestration**: a central orchestrator (Temporal, Step Functions, a custom state machine) calls each service and handles compensations explicitly. More code, but the workflow is visible in one place and the orchestrator tracks state across retries and crashes.\n\nMost production systems converge on orchestration for complex sagas because visibility and recoverability matter. Choreography works for short, simple workflows where each service can be reasonably assumed to handle its own compensations.\n\nEither way, the saga state must be persisted — not in memory — so a crash mid-saga can resume. The orchestrator (or a saga-state table) tracks which steps completed and which compensations are still owed."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "not-always-possible",
+      "payload": {
+        "title": "Not everything can be compensated",
+        "body": "Some operations have no meaningful compensation. Sending an email, mailing a physical product, triggering an SMS — these have side effects in the real world. The pattern handles this by either (a) deferring the irreversible step to the end of the saga, after all compensatable steps have succeeded, or (b) accepting that the operation will happen and compensating with a follow-up (e.g., a cancellation email). Design sagas so irreversible steps are last; if the saga fails before reaching them, no real-world effect occurred.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "isolation-problems",
+      "payload": {
+        "text": "The classic saga weakness is **isolation**. Between step 3 (reserve inventory) and step 4 (charge), other queries can see the reserved inventory — they might show 'low stock' or reject a parallel order that would have succeeded if the saga had compensated. ACID's 'I' (isolation) is what sagas give up.\n\nMitigations:\n\n- **Semantic locks**: mark records as 'pending' so other queries know not to act on them yet.\n- **Commutative operations**: design steps so concurrent reads don't cause incorrect behavior (e.g., reserve inventory with a tentative count, not a hard decrement).\n- **Short sagas**: keep the saga duration short to minimize the window of inconsistency.\n- **Compensating reads**: queries that need a consistent snapshot read from a projection updated only after saga completion.\n\nThis is the fundamental trade-off of sagas: you lose ACID isolation but gain the ability to do transactions across services without distributed locks."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q1",
+      "payload": {
+        "question": "Your checkout saga reserves inventory, then charges the card. The charge fails. What does the compensation look like?",
+        "shape": "mcq",
+        "options": [
+          "Roll back the database to before the reservation.",
+          "Execute a new operation that releases the reserved inventory, leaving the original reservation in the audit log.",
+          "Wait for the card to retry automatically.",
+          "Send an email asking the user to retry."
+        ],
+        "answer_index": 1,
+        "rationale": "Compensation is not rollback. The original reservation committed and may have been observed by other services (e.g., a 'low stock' indicator). You can't undo it as if it never happened; you execute a new operation — release the reservation — that semantically reverses it. The original reservation stays in the audit log; the release is a separate, new transaction. This is the defining characteristic of compensation: it works on already-committed state, with the assumption that other systems may have observed intermediate states.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q2",
+      "payload": {
+        "question": "Why must compensations be idempotent?",
+        "shape": "mcq",
+        "options": [
+          "Because the user might click twice.",
+          "Because the orchestrator might retry them after a crash, and a non-idempotent compensation would double-undo (e.g., refund twice).",
+          "Because compensations are slow.",
+          "Idempotency isn't actually required for compensations."
+        ],
+        "answer_index": 1,
+        "rationale": "If the orchestrator crashes after running a compensation but before recording that it ran, it will retry the compensation on recovery. If the compensation is non-idempotent (e.g., 'refund $X'), the user gets refunded twice. Idempotency (typically via an idempotency key tied to the saga and step) ensures the second call is a no-op. This is the same reason writes in the saga itself should be idempotent — both forward operations and compensations can be retried by the orchestrator.",
+        "difficulty": "core"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q3",
+      "payload": {
+        "question": "Which of these operations is hardest to compensate, and what's the standard pattern to handle it?",
+        "shape": "mcq",
+        "options": [
+          "Reserving inventory — defer it to the end of the saga.",
+          "Charging a card — use a different payment provider.",
+          "Sending a confirmation email — defer it to the end of the saga, after all compensatable steps have completed.",
+          "Booking a flight — use synchronous calls only."
+        ],
+        "answer_index": 2,
+        "rationale": "Sending an email is hard to compensate — you can't unsend it. The standard pattern is to defer irreversible steps to the end of the saga, after all compensatable steps have succeeded. If the saga fails before reaching the email step, no email was sent. If it succeeds, the email is the final step and there's nothing left to compensate. For sagas that must send an email mid-flow (e.g., notifying the user of progress), you accept the email will be sent and compensate with a follow-up cancellation email if the saga later fails.",
+        "difficulty": "advanced"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-compensating-transaction-mental",
+      "payload": {
+        "text": "Engineering mental model",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-compensating-transaction-mental",
+      "payload": {
+        "text": "**Mental model.** Think of Compensating Transaction as a deliberate boundary in a system. The boundary exists because something becomes harder to manage when everything is done in one place: latency, scale, failure isolation, consistency, cost, or team ownership. The useful question is not “what does Compensating Transaction mean?” but “what pressure makes this boundary worth introducing, and what new failure mode does it create?”"
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-compensating-transaction-decision",
+      "payload": {
+        "title": "Design lens",
+        "body": "Before choosing Compensating Transaction, name the workload, the critical user path, the dominant bottleneck, the failure you are trying to absorb, and the trade-off you are willing to accept. If you cannot name those five things, the design is probably premature.",
+        "kind": "info"
+      }
+    },
+    {
+      "type": "image",
+      "id": "upgrade-image-compensating-transaction",
+      "payload": {
+        "src": "/learning-visuals/compensating-transaction.svg",
+        "alt": "Original NO CAP systems visual for Compensating Transaction.",
+        "caption": "Compensating Transaction: a compact system-thinking visual.",
+        "credit": "Original NO CAP visual.",
+        "source_url": "https://github.com/donnemartin/system-design-primer"
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "upgrade-mermaid-compensating-transaction",
+      "payload": {
+        "code": "flowchart LR\n  A[Client] --> B[Gateway] --> C[Service] --> D[State] --> E[Outcome]",
+        "caption": "Compensating Transaction: a simplified system view showing the primary flow and the main state boundaries.",
+        "alt_text": "Compensating Transaction: a simplified system view showing the primary flow and the main state boundaries."
+      }
+    },
+    {
+      "type": "code",
+      "id": "upgrade-code-compensating-transaction",
+      "payload": {
+        "language": "sql",
+        "code": "SELECT id, created_at\nFROM records\nWHERE tenant_id = ?\nORDER BY created_at DESC\nLIMIT 50;\n\n-- Ask: which index makes this query predictable at scale?",
+        "caption": "A minimal engineering sketch for reasoning about Compensating Transaction."
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-compensating-transaction-numbers",
+      "payload": {
+        "text": "Back-of-the-envelope reasoning",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-compensating-transaction-numbers",
+      "payload": {
+        "text": "Numerical lens: write down traffic, payload size, read/write ratio, peak multiplier and durability target before choosing a component. The numbers should justify the architecture."
+      }
+    },
+    {
+      "type": "simulation",
+      "id": "upgrade-sim-compensating-transaction",
+      "payload": {
+        "title": "Interactive thought experiment: Compensating Transaction",
+        "description": "Change the variables below and predict what breaks first in Compensating Transaction. The production lab can later reuse these same inputs.",
+        "variables": [
+          {
+            "name": "traffic",
+            "description": "Requests/events per second",
+            "default": "1000"
+          },
+          {
+            "name": "latency",
+            "description": "Dependency latency",
+            "default": "50ms"
+          },
+          {
+            "name": "failure_rate",
+            "description": "Injected failure rate",
+            "default": "0%"
+          }
+        ],
+        "placeholder_note": "Interactive controls are deterministic; use the linked Labs section when a dedicated lab exists."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-compensating-transaction-hint",
+      "payload": {
+        "title": "Hint",
+        "body": "If you are stuck on Compensating Transaction, start by drawing the request path and marking every network hop, stateful component, queue, cache and failure boundary. Then estimate where the system will saturate.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-compensating-transaction-1",
+      "payload": {
+        "shape": "prediction",
+        "question": "You increase traffic by 10× in a system using Compensating Transaction. What should you inspect first?",
+        "options": [
+          "The newest framework version",
+          "The dominant bottleneck and its saturation signal",
+          "Only the UI",
+          "Nothing; the architecture should absorb any traffic automatically"
+        ],
+        "answer_index": 1,
+        "rationale": "System design is a constraint-and-bottleneck exercise. Start with the resource or dependency that will saturate first, then choose the smallest change that removes that bottleneck.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-compensating-transaction-2",
+      "payload": {
+        "shape": "mcq",
+        "question": "Which statement is the safest engineering habit when using Compensating Transaction?",
+        "options": [
+          "Choose it because it is popular",
+          "Add it before measuring the problem",
+          "State the workload, failure mode and trade-off it is solving",
+          "Use the most distributed design possible"
+        ],
+        "answer_index": 2,
+        "rationale": "Good architecture starts from requirements, workload and failure assumptions. The component is the consequence of that reasoning, not the starting point.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "scenario",
+      "id": "upgrade-scenario-compensating-transaction",
+      "payload": {
+        "prompt": "Production scenario: your system uses Compensating Transaction, traffic suddenly spikes, and p99 latency doubles. What is your first move?",
+        "context": "You have dashboards for traffic, latency, errors and saturation. You can change the architecture, but every change has operational cost.",
+        "options": [
+          {
+            "id": "a",
+            "text": "Add more instances immediately",
+            "outcome": "This may help, but only if compute saturation is the bottleneck.",
+            "correct": false
+          },
+          {
+            "id": "b",
+            "text": "Inspect the bottleneck and its saturation signal first",
+            "outcome": "Correct: diagnose before scaling or introducing a new pattern.",
+            "correct": true
+          },
+          {
+            "id": "c",
+            "text": "Disable monitoring to reduce overhead",
+            "outcome": "This removes the evidence you need to diagnose the incident.",
+            "correct": false
+          }
+        ],
+        "rationale": "Measure the limiting resource or dependency first. A bottleneck can be compute, database I/O, network, cache misses, lock contention, downstream latency, or queue backlog.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-compensating-transaction-interview",
+      "payload": {
+        "text": "Interview drill",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-compensating-transaction-interview",
+      "payload": {
+        "text": "**Answer this without notes:** When would you choose Compensating Transaction, and when would you intentionally avoid it? Mention at least one bottleneck it addresses, one failure mode it introduces, and one alternative. Then quantify the workload you are designing for."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "field-guide-compensating-transaction",
+      "payload": {
+        "title": "Engineering lens",
+        "body": "For Compensating Transaction, start with access patterns rather than brand names. Identify the dominant reads/writes, data relationships, consistency requirements, partition key, hot keys and failure behavior before choosing a storage strategy.",
+        "kind": "tip"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "numerical-lens-compensating-transaction",
+      "payload": {
+        "text": "### Numerical sanity check\n\nA rough capacity check: required write throughput ≈ peak writes/s × average record size. At 5,000 writes/s and 2 KB average payloads, the raw incoming data stream is about 10 MB/s before indexes, replication and overhead."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "field-question-compensating-transaction",
+      "payload": {
+        "shape": "prediction",
+        "question": "A team proposes Compensating Transaction because it 'scales'. What workload characteristic would make that choice a poor fit?",
+        "context": "Do not optimize for a memorized definition. Reason from the workload and failure mode.",
+        "options": [
+          "Scale the same component immediately.",
+          "Measure the current bottleneck and state the assumption that changed.",
+          "Add more technologies until throughput improves.",
+          "Choose the most popular architecture."
+        ],
+        "answer_index": 1,
+        "rationale": "Good system design starts with the bottleneck and the changed constraint. The most popular or complex choice is not automatically correct.",
+        "difficulty": "interview"
+      }
+    }
+  ],
+  "trade_offs": {
+    "pros": [
+      "Enables multi-service transactions without distributed locks.",
+      "Compensations work on already-committed state — no held locks, no cascading failures.",
+      "Survives orchestrator crashes via persistent saga state.",
+      "Maps naturally to real business operations (refund, cancel, release)."
+    ],
+    "cons": [
+      "Loss of ACID isolation — intermediate states are visible to other queries.",
+      "Some operations (emails, physical actions) can't truly be compensated.",
+      "Compensations can fail too — needs retries, dead-letter queues, human escalation.",
+      "Operational complexity: orchestrator, saga state, monitoring of stuck sagas."
+    ]
+  },
+  "failure_modes": [
+    "Non-idempotent compensation retried after a crash double-applies (e.g., double refund).",
+    "Compensation itself fails — saga stuck in a partially-compensated state, needs human intervention.",
+    "Intermediate state observed by another service that acted on it (e.g., showed 'low stock' and rejected a parallel order).",
+    "Irreversible step run mid-saga that can't be compensated when a later step fails."
+  ],
+  "common_mistakes": [
+    "Treating compensation as rollback — assuming no other system observed the intermediate state.",
+    "Running irreversible steps mid-saga instead of at the end.",
+    "Not persisting saga state — orchestrator crash loses the workflow.",
+    "Not making compensations idempotent — retry causes double-undo."
+  ],
+  "where_you_see_it": [
+    "Travel booking: flight + hotel + car as a saga with compensations.",
+    "E-commerce checkout: reserve inventory → charge → ship, with refunds and releases.",
+    "Money transfer: debit → credit → notify, with reverse transfer if credit fails."
+  ],
+  "interview_prompts": [
+    "What's the difference between compensation and rollback?",
+    "Why must compensations be idempotent? What goes wrong if they aren't?",
+    "How do you handle operations that can't be compensated (e.g., sending an email)?",
+    "Compare choreography and orchestration for sagas. When would you choose each?"
+  ],
+  "real_system_mappings": [
+    {
+      "system": "Temporal",
+      "how": "Workflow orchestration engine that persists saga state across crashes, retries failed activities and compensations, and supports idempotency keys. Built for exactly this pattern."
+    },
+    {
+      "system": "AWS Step Functions",
+      "how": "State-machine-based orchestration with built-in compensation via Catch/Retry blocks. Each state can have a compensating state triggered on failure."
+    }
+  ],
+  "status": "published",
+  "sources": [
+    {
+      "title": "System Design Primer",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Open source"
+    },
+    {
+      "title": "ByteByteGo — Scale from zero to millions",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "ByteByteGo"
+    },
+    {
+      "title": "System Design Tutorial",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "GeeksforGeeks"
+    },
+    {
+      "title": "System Design Roadmap",
+      "url": "https://roadmap.sh/system-design",
+      "publisher": "roadmap.sh"
+    },
+    {
+      "title": "Reliability & Resilience reference",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Reliability & Resilience reference",
+      "url": "https://sre.google/sre-book/table-of-contents/",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Reliability & Resilience reference",
+      "url": "https://aws.amazon.com/builders-library/",
+      "publisher": "Reference"
+    },
+    {
+      "title": "AWS Well-Architected",
+      "url": "https://aws.amazon.com/architecture/well-architected/",
+      "publisher": "AWS"
+    }
+  ]
+}

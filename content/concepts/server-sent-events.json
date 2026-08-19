@@ -1,0 +1,442 @@
+{
+  "slug": "server-sent-events",
+  "version": 3,
+  "title": "Server-Sent Events (SSE)",
+  "phase": "networking-communication",
+  "area": "Networking & Communication",
+  "estimated_minutes": 7,
+  "difficulty": "advanced",
+  "summary": "Server-Sent Events is a standard for one-way streaming from server to client over plain HTTP. The server holds the response open and writes `text/event-stream` chunks; the browser's `EventSource` API parses them and fires JavaScript events. It is dramatically simpler than WebSockets when the server only needs to push — no upgrade, no binary framing, automatic reconnection with replay built into the protocol.",
+  "why_it_matters": "Many real-time features (live notifications, dashboards, status feeds, AI token streaming) are inherently one-way: the server pushes, the client reads. Using WebSockets for these is over-engineering — you pay for a bidirectional channel you never use the upstream half of. SSE is the right tool, simpler to operate, and works through every proxy and CDN that supports HTTP. Its recent surge in popularity (every LLM token-streaming UI uses it) makes it a modern essential.",
+  "prerequisites": [
+    "http"
+  ],
+  "related": [
+    "websockets",
+    "http",
+    "real-time-overview"
+  ],
+  "used_in": [
+    "AI chat UIs (OpenAI, Anthropic, Claude, ChatGPT all stream tokens over SSE).",
+    "Live dashboards and notification systems.",
+    "Stock tickers, sports scores, status pages (GitHub, Stripe).",
+    "Twitter/X live feed updates."
+  ],
+  "blocks": [
+    {
+      "type": "prose",
+      "id": "intro",
+      "payload": {
+        "text": "SSE is a thin layer over HTTP. The client opens a normal GET request; the server responds with `Content-Type: text/event-stream` and then holds the connection open, writing chunks. Each chunk is a UTF-8 text message in a tiny format:\n\n```\nevent: token\ndata: {\"text\":\"Hello\"}\n\nid: 42\nevent: token\ndata: {\"text\":\" world\"}\n\n```\n\nThe browser's `EventSource` JavaScript API parses this and fires `onmessage` or named-event callbacks. The server writes; the client reads. No upgrade, no binary framing, no handshake beyond the HTTP request itself.\n\nThree features make SSE production-friendly:\n\n- **Auto-reconnect**: if the connection drops, the browser reconnects automatically, including the `Last-Event-ID` header so the server can replay missed events.\n- **Named events**: an `event:` field lets the server multiplex different event types over one stream (e.g., `event: message`, `event: typing`, `event: presence`).\n- **HTTP-native**: works through any proxy, CDN, or load balancer that speaks HTTP. SSE is just a long-lived HTTP response.\n\nThe trade-off is that SSE is **strictly server-to-client**. The client cannot send data back over the same connection — it uses separate HTTP requests for that (POST to send a chat message, GET SSE to receive updates). For many apps this is fine; for true bidirectional real-time, use WebSocket."
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "sse-vs-ws",
+      "payload": {
+        "code": "flowchart TD\n    N0[\"SERVER\"]\n    N1[\"SENT\"]\n    N2[\"EVENTS\"]\n    N3[\"WEBSOCKETS\"]\n    N4[\"Client\"]\n    N5[\"Accept: text/event-stream\"]\n    N6[\"GET\"]\n    N7[\"stream\"]\n    N8[\"(Accept:\"]\n    N9[\"text\"]\n    N10[\"event\"]\n    N11[\"stream)\"]\n    N12[\"Upgrade: websocket\"]\n    N13[\"chat\"]\n    N14[\"(Upgrade:\"]\n    N15[\"websocket)\"]\n    N16[\"chunked\"]\n    N17[\"200\"]\n    N18[\"(chunked)\"]\n    N19[\"101\"]\n    N20[\"Switching\"]\n    N21[\"Protocols\"]\n    N22[\"msg: 1\"]\n    N23[\"data:\"]\n    N24[\"{msg:\"]\n    N25[\"frame:\"]\n    N26[\"msg: 2\"]\n    N27[\"howdy\"]\n    N28[\"msg: 3\"]\n    N29[\"msg\"]\n    N30[\"server keeps stream open\"]\n    N31[\"either side sends any time\"]\n    N32[\"(server\"]\n    N33[\"keeps\"]\n    N34[\"open)\"]\n    N35[\"(either\"]\n    N36[\"side\"]\n    N37[\"sends\"]\n    N38[\"any\"]\n    N39[\"time)\"]\n    N40[\"one channel, bidirectional\"]\n    N41[\"data\"]\n    N42[\"via\"]\n    N43[\"POST\"]\n    N44[\"api\"]\n    N45[\"(one\"]\n    N46[\"channel,\"]\n    N47[\"bidirectional)\"]\n    N48[\"{msg}\"]\n    N49[\"Direction:\"]\n    N50[\"server\"]\n    N51[\"client\"]\n    N52[\"only\"]\n    N53[\"bidirectional\"]\n    N54[\"Protocol:\"]\n    N55[\"HTTP\"]\n    N56[\"1.1\"]\n    N57[\"frames\"]\n    N58[\"over\"]\n    N59[\"TCP\"]\n    N60[\"Reconnect:\"]\n    N61[\"auto\"]\n    N62[\"with\"]\n    N63[\"Last\"]\n    N64[\"Event\"]\n    N65[\"app\"]\n    N66[\"must\"]\n    N67[\"implement\"]\n    N68[\"upgrade\"]\n    N69[\"Through\"]\n    N70[\"proxies:\"]\n    N71[\"always\"]\n    N72[\"usually\"]\n    N73[\"(upgrade)\"]\n    N74[\"Best\"]\n    N75[\"for:\"]\n    N76[\"notifications,\"]\n    N77[\"dashboards,\"]\n    N78[\"chat,\"]\n    N79[\"gaming,\"]\n    N80[\"collab\"]\n    N81[\"editing,\"]\n    N82[\"LLM\"]\n    N83[\"token\"]\n    N84[\"streaming\"]\n    N85[\"real\"]\n    N86[\"time\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44\n    N44 --> N45\n    N45 --> N46\n    N46 --> N47\n    N47 --> N48\n    N48 --> N49\n    N49 --> N50\n    N50 --> N51\n    N51 --> N52\n    N52 --> N53\n    N53 --> N54\n    N54 --> N55\n    N55 --> N56\n    N56 --> N57\n    N57 --> N58\n    N58 --> N59\n    N59 --> N60\n    N60 --> N61\n    N61 --> N62\n    N62 --> N63\n    N63 --> N64\n    N64 --> N65\n    N65 --> N66\n    N66 --> N67\n    N67 --> N68\n    N68 --> N69\n    N69 --> N70\n    N70 --> N71\n    N71 --> N72\n    N72 --> N73\n    N73 --> N74\n    N74 --> N75\n    N75 --> N76\n    N76 --> N77\n    N77 --> N78\n    N78 --> N79\n    N79 --> N80\n    N80 --> N81\n    N81 --> N82\n    N82 --> N83\n    N83 --> N84\n    N84 --> N85\n    N85 --> N86",
+        "caption": "SSE vs WebSockets. SSE is HTTP-native and one-way; WebSockets are bidirectional and require an upgrade.",
+        "alt_text": "A side-by-side comparison. On the left, SSE: the client sends a GET request with Accept text event stream, the server responds 200 OK chunked and writes data events, keeping the stream open. The client sends data back via separate POST requests to the API. Direction is server to client only, protocol is HTTP/1.1 chunked, reconnect is automatic with Last-Event-ID, always works through proxies, best for notifications, dashboards, LLM token streaming. On the right, WebSockets: the client sends a GET with Upgrade websocket, the server responds 101 Switching Protocols, then both sides send frames freely over one bidirectional channel. Protocol is WS frames over TCP, reconnect must be implemented by the app, usually works through proxies with upgrade, best for chat, gaming, collaborative editing, real-time bidirectional."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "event-format",
+      "payload": {
+        "text": "The SSE wire format is intentionally minimal. Each event is separated by a blank line; fields are `field: value` lines:\n\n- `data: <text>` — the payload. Multiple `data:` lines concatenate (with newlines) into one event.\n- `event: <name>` — fires a named event listener (`eventSource.addEventListener('typing', ...)`). Without this, `onmessage` fires.\n- `id: <event-id>` — sets the last event ID. On reconnect, the browser sends this as the `Last-Event-ID` request header so the server can replay.\n- `retry: <ms>` — the server can suggest a reconnection delay.\n- Lines starting with `:` are comments (used as keepalives).\n\nThe format is text, not binary. If you need to send binary data, base64-encode it (costs 33% overhead) or use WebSockets. For most server-to-client use cases — JSON payloads, status updates, token streams — text is fine.\n\nProduction details that bite:\n\n- **Buffering**: reverse proxies (nginx, default) may buffer responses, defeating SSE. Set `proxy_buffering off` and `X-Accel-Buffering: no` on responses.\n- **Connection limits**: browsers historically limited 6 SSE connections per domain over HTTP/1.1. HTTP/2 multiplexing lifts this to ~100 streams per connection — use HTTP/2 if you need many SSE streams per page.\n- **Idle timeouts**: same problem as WebSockets — NATs and proxies kill idle connections. Send a `:keepalive` comment every 15-30 seconds to keep the stream visibly active.\n- **Load balancing**: like WebSockets, SSE is stateful. The LB must not buffer (must support streaming responses), and the server must hold the connection open. Use sticky sessions or a pub/sub backbone to route events to the right server."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "the-llm-case",
+      "payload": {
+        "text": "The recent killer use case for SSE is **streaming LLM token output**. When you ask ChatGPT or Claude a question, the response is generated token-by-token; users expect to see each token as soon as it is produced, not wait 10 seconds for the full answer. The transport for this is SSE.\n\nThe pattern: the client POSTs the prompt; the server responds with `Content-Type: text/event-stream` and emits one SSE event per generated token (or per chunk of tokens). The browser renders tokens as they arrive, giving the typing effect. When the model finishes, the server sends a final `event: done` event and closes the stream.\n\nWhy SSE and not WebSocket for this?\n- The data flow is one-way (server to client) once the prompt is submitted.\n- It runs over plain HTTPS — works through every corporate proxy and firewall.\n- Auto-reconnect lets a dropped connection resume without losing context (the server can replay missed tokens via Last-Event-ID).\n- It is just HTTP — existing auth, rate limiting, and observability all work without modification.\n\nThis pattern (POST a request, stream the response back as SSE) is now the standard for any AI tool, and it has driven a renaissance of SSE adoption — many developers' first encounter with SSE is wiring up an LLM streaming response."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "when-to-pick",
+      "payload": {
+        "title": "Decision rule: SSE vs WebSocket",
+        "body": "If the server pushes and the client only listens, choose SSE. If both sides push frequently (chat, gaming, collab editing), choose WebSocket. If you need binary efficiency at high frequency, choose WebSocket binary frames. If you only need the server to push occasional updates and bandwidth is not a concern, SSE is simpler, more robust, and more proxy-friendly.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "auth-and-scale",
+      "payload": {
+        "text": "Two operational concerns that decide whether SSE is viable in production: authentication and horizontal scaling.\n\n**Authentication** is straightforward because SSE runs over plain HTTP. The browser's `EventSource` API accepts `withCredentials` for cookies; alternatively, pass a token in the URL query string (`/stream?token=...`) since `EventSource` cannot set custom headers. The query-string approach leaks tokens into server logs and proxy logs — prefer cookies for browser clients. For non-browser clients (server-to-server streaming), use `fetch()` with streaming readers and set any headers you like.\n\nToken expiry during a long-lived SSE stream is a real issue. The stream is established with a token; if the token expires an hour later, the connection stays open but its auth is now stale. Solutions: use long-lived tokens for streams specifically; refresh the token before it expires and re-establish the stream (with Last-Event-ID for replay); or use a refresh-token mechanism that updates the active stream's auth.\n\n**Horizontal scaling** mirrors the WebSocket problem: each SSE connection is stateful and pinned to one server. To scale to many clients, you need many SSE servers plus a routing layer. The standard pattern: a pub/sub backbone (Redis Pub/Sub, NATS, Kafka) connects all SSE servers. When the backend produces an event for user 42, it publishes to a topic; whichever SSE server holds user 42's connection consumes and writes the event to the stream. The connection registry (which user is on which server) is typically Redis.\n\nA subtle production detail: SSE servers must support graceful shutdown. When a server is being drained (deploy, autoscaler scale-in), it should send a `retry: 5000` and a CLOSE event so clients reconnect to a healthy server after a short delay — not silently kill the connection and force a thundering-herd reconnect. Like WebSockets, SSE fleets need staggered deploys and connection draining to be production-grade."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q1",
+      "payload": {
+        "question": "You are building an LLM chat UI where the model's response streams token-by-token to the browser. Which transport is most appropriate, and why?",
+        "shape": "mcq",
+        "options": [
+          "WebSocket — it is the standard for real-time.",
+          "Server-Sent Events — server-to-client streaming over HTTPS, simple, works through every proxy, and the client only needs to receive tokens, not send data over the same channel.",
+          "HTTP polling every 100ms — simpler to implement.",
+          "gRPC streaming — typed and efficient."
+        ],
+        "answer_index": 1,
+        "rationale": "LLM token streaming is the canonical SSE use case. The data flow is one-way (server pushes tokens, client renders), runs over plain HTTPS (works through corporate proxies that block WebSocket upgrades), uses HTTP semantics (existing auth, rate limiting, observability all apply), and the auto-reconnect with Last-Event-ID lets the server resume a dropped stream. WebSocket is overkill — you never use the upstream channel. Polling adds latency. gRPC streaming is awkward from the browser. Every major LLM tool (OpenAI, Anthropic, Claude, ChatGPT) streams over SSE for exactly these reasons.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q2",
+      "payload": {
+        "question": "Your SSE stream works in development but in production behind nginx, the client receives all events at once at the end of the stream, not as they are produced. What is the most likely cause and fix?",
+        "shape": "mcq",
+        "options": [
+          "The server is too slow; optimize the producer.",
+          "nginx is buffering the response. Set `proxy_buffering off` in nginx and add the `X-Accel-Buffering: no` header to the response.",
+          "The browser is buffering; switch to a different browser.",
+          "The events are too large; chunk them smaller."
+        ],
+        "answer_index": 1,
+        "rationale": "This is the most common SSE production bug. nginx (and many other reverse proxies) buffer responses by default to send them more efficiently — but this defeats SSE, which depends on chunks reaching the client as they are produced. The fix is twofold: disable proxy buffering for the SSE endpoint (`proxy_buffering off;` in nginx config), and add the `X-Accel-Buffering: no` header to the response so the proxy honors the per-response override without config changes. Cloudflare, AWS ALB, and other proxies have similar behaviors — always test SSE through your real proxy chain before assuming the server is wrong.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q3",
+      "payload": {
+        "question": "Which is a real limitation of SSE compared to WebSockets?",
+        "shape": "mcq",
+        "options": [
+          "SSE does not support authentication — you cannot send auth tokens.",
+          "SSE is strictly server-to-client; the client cannot send data back over the same connection and must use separate HTTP requests.",
+          "SSE works only over HTTPS, never HTTP.",
+          "SSE does not support named events — all messages go to one handler."
+        ],
+        "answer_index": 1,
+        "rationale": "SSE is one-way by design. The client opens a GET request and reads events; it cannot send data back over the same response stream. If the client needs to send messages (a chat input box, presence pings, typing indicators), it uses separate HTTP requests — POST to send a message, GET SSE to receive updates. For apps with frequent bidirectional traffic (chat, gaming), WebSockets are better. For one-way streaming, SSE is simpler. The other options are false: SSE supports auth (cookies, Authorization header, query tokens), works over both HTTP and HTTPS (HTTPS strongly recommended), and supports named events via the `event:` field."
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-server-sent-events-mental",
+      "payload": {
+        "text": "Engineering mental model",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-server-sent-events-mental",
+      "payload": {
+        "text": "**Mental model.** Think of Server-Sent Events (SSE) as a deliberate boundary in a system. The boundary exists because something becomes harder to manage when everything is done in one place: latency, scale, failure isolation, consistency, cost, or team ownership. The useful question is not “what does Server-Sent Events (SSE) mean?” but “what pressure makes this boundary worth introducing, and what new failure mode does it create?”"
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-server-sent-events-decision",
+      "payload": {
+        "title": "Design lens",
+        "body": "Before choosing Server-Sent Events (SSE), name the workload, the critical user path, the dominant bottleneck, the failure you are trying to absorb, and the trade-off you are willing to accept. If you cannot name those five things, the design is probably premature.",
+        "kind": "info"
+      }
+    },
+    {
+      "type": "image",
+      "id": "upgrade-image-server-sent-events",
+      "payload": {
+        "src": "/learning-visuals/server-sent-events.svg",
+        "alt": "Original NO CAP systems visual for Server-Sent Events (SSE).",
+        "caption": "Server-Sent Events (SSE): a compact system-thinking visual.",
+        "credit": "Original NO CAP visual.",
+        "source_url": "https://github.com/donnemartin/system-design-primer"
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "upgrade-mermaid-server-sent-events",
+      "payload": {
+        "code": "flowchart LR\n  A[Producer] --> Q[(Broker)] --> B[Consumer] --> X[Retry] --> O[Outcome]",
+        "caption": "Server-Sent Events (SSE): a simplified system view showing the primary flow and the main state boundaries.",
+        "alt_text": "Server-Sent Events (SSE): a simplified system view showing the primary flow and the main state boundaries."
+      }
+    },
+    {
+      "type": "code",
+      "id": "upgrade-code-server-sent-events",
+      "payload": {
+        "language": "python",
+        "code": "message_id = queue.publish({\n    \"type\": \"server-sent-events\",\n    \"key\": resource_id\n})\n# Consumer must be safe to retry.",
+        "caption": "A minimal engineering sketch for reasoning about Server-Sent Events (SSE)."
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-server-sent-events-numbers",
+      "payload": {
+        "text": "Back-of-the-envelope reasoning",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-server-sent-events-numbers",
+      "payload": {
+        "text": "Numerical lens: write down traffic, payload size, read/write ratio, peak multiplier and durability target before choosing a component. The numbers should justify the architecture."
+      }
+    },
+    {
+      "type": "simulation",
+      "id": "upgrade-sim-server-sent-events",
+      "payload": {
+        "title": "Interactive thought experiment: Server-Sent Events (SSE)",
+        "description": "Change the variables below and predict what breaks first in Server-Sent Events (SSE). The production lab can later reuse these same inputs.",
+        "variables": [
+          {
+            "name": "producer_rate",
+            "description": "Messages produced per second",
+            "default": "1000"
+          },
+          {
+            "name": "consumer_count",
+            "description": "Concurrent consumers",
+            "default": "4"
+          },
+          {
+            "name": "processing_rate",
+            "description": "Messages processed per consumer per second",
+            "default": "300"
+          }
+        ],
+        "placeholder_note": "Interactive controls are deterministic; use the linked Labs section when a dedicated lab exists."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-server-sent-events-hint",
+      "payload": {
+        "title": "Hint",
+        "body": "If you are stuck on Server-Sent Events (SSE), start by drawing the request path and marking every network hop, stateful component, queue, cache and failure boundary. Then estimate where the system will saturate.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-server-sent-events-1",
+      "payload": {
+        "shape": "prediction",
+        "question": "You increase traffic by 10× in a system using Server-Sent Events (SSE). What should you inspect first?",
+        "options": [
+          "The newest framework version",
+          "The dominant bottleneck and its saturation signal",
+          "Only the UI",
+          "Nothing; the architecture should absorb any traffic automatically"
+        ],
+        "answer_index": 1,
+        "rationale": "System design is a constraint-and-bottleneck exercise. Start with the resource or dependency that will saturate first, then choose the smallest change that removes that bottleneck.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-server-sent-events-2",
+      "payload": {
+        "shape": "mcq",
+        "question": "Which statement is the safest engineering habit when using Server-Sent Events (SSE)?",
+        "options": [
+          "Choose it because it is popular",
+          "Add it before measuring the problem",
+          "State the workload, failure mode and trade-off it is solving",
+          "Use the most distributed design possible"
+        ],
+        "answer_index": 2,
+        "rationale": "Good architecture starts from requirements, workload and failure assumptions. The component is the consequence of that reasoning, not the starting point.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "scenario",
+      "id": "upgrade-scenario-server-sent-events",
+      "payload": {
+        "prompt": "Production scenario: your system uses Server-Sent Events (SSE), traffic suddenly spikes, and p99 latency doubles. What is your first move?",
+        "context": "You have dashboards for traffic, latency, errors and saturation. You can change the architecture, but every change has operational cost.",
+        "options": [
+          {
+            "id": "a",
+            "text": "Add more instances immediately",
+            "outcome": "This may help, but only if compute saturation is the bottleneck.",
+            "correct": false
+          },
+          {
+            "id": "b",
+            "text": "Inspect the bottleneck and its saturation signal first",
+            "outcome": "Correct: diagnose before scaling or introducing a new pattern.",
+            "correct": true
+          },
+          {
+            "id": "c",
+            "text": "Disable monitoring to reduce overhead",
+            "outcome": "This removes the evidence you need to diagnose the incident.",
+            "correct": false
+          }
+        ],
+        "rationale": "Measure the limiting resource or dependency first. A bottleneck can be compute, database I/O, network, cache misses, lock contention, downstream latency, or queue backlog.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-server-sent-events-interview",
+      "payload": {
+        "text": "Interview drill",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-server-sent-events-interview",
+      "payload": {
+        "text": "**Answer this without notes:** When would you choose Server-Sent Events (SSE), and when would you intentionally avoid it? Mention at least one bottleneck it addresses, one failure mode it introduces, and one alternative. Then quantify the workload you are designing for."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "field-guide-server-sent-events",
+      "payload": {
+        "title": "Engineering lens",
+        "body": "For Server-Sent Events (SSE), separate producer speed from consumer speed. The key design question is what happens when production temporarily exceeds processing capacity: queue it, shed it, slow producers down, or degrade the feature.",
+        "kind": "tip"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "numerical-lens-server-sent-events",
+      "payload": {
+        "text": "### Numerical sanity check\n\nA simple queue sanity check: if producers create 8,000 messages/s and consumers process 6,000 messages/s, backlog grows at roughly 2,000 messages/s until the imbalance is corrected."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "field-question-server-sent-events",
+      "payload": {
+        "shape": "prediction",
+        "question": "A downstream service slows down while Server-Sent Events (SSE) keeps accepting traffic. Would you rather apply backpressure, queue more work, shed load, or degrade? Explain the trade-off.",
+        "context": "Do not optimize for a memorized definition. Reason from the workload and failure mode.",
+        "options": [
+          "Scale the same component immediately.",
+          "Measure the current bottleneck and state the assumption that changed.",
+          "Add more technologies until throughput improves.",
+          "Choose the most popular architecture."
+        ],
+        "answer_index": 1,
+        "rationale": "Good system design starts with the bottleneck and the changed constraint. The most popular or complex choice is not automatically correct.",
+        "difficulty": "interview"
+      }
+    }
+  ],
+  "trade_offs": {
+    "pros": [
+      "Runs over plain HTTP — works through every proxy, CDN, and firewall that speaks HTTP.",
+      "Auto-reconnect with Last-Event-ID replay built into the protocol and browser.",
+      "Named events and small text wire format — simple to debug (curl sees everything).",
+      "Trivial browser API (EventSource) — no special library needed.",
+      "Cheaper to operate than WebSocket for one-way streams — no upgrade, no custom framing."
+    ],
+    "cons": [
+      "Strictly server-to-client — the client uses separate HTTP requests to send data back.",
+      "Text format only — binary data needs base64 (33% overhead).",
+      "HTTP/1.1 limits 6 connections per domain — use HTTP/2 if you need many concurrent streams.",
+      "Reverse proxies often buffer by default — a frequent source of 'it works in dev' bugs.",
+      "Like WebSocket, stateful — scaling requires pub/sub backbone and connection sharding."
+    ]
+  },
+  "failure_modes": [
+    "Reverse proxy buffering the response — events arrive in a burst at the end instead of streaming.",
+    "Idle NAT/proxy timeouts killing the stream — mitigated by sending comment keepalives every 15-30s.",
+    "Browser connection limit (6 per domain on HTTP/1.1) — mitigate with HTTP/2 or domain sharding.",
+    "Server memory exhaustion from many concurrent SSE connections — same scaling problem as WebSocket.",
+    "LB not supporting streaming responses — falls back to buffering, breaking the stream.",
+    "Lost Last-Event-ID on reconnect — server replays events the client already saw."
+  ],
+  "common_mistakes": [
+    "Reaching for WebSocket when SSE would suffice — simpler, more proxy-friendly, auto-reconnect built in.",
+    "Forgetting to disable proxy buffering in nginx/Cloudflare — 'works in dev, breaks in prod'.",
+    "Not sending keepalives — stream silently dies on mobile after 30-60s of no events.",
+    "Assuming the client can send data over the SSE stream — it cannot; use separate HTTP requests.",
+    "Sending large JSON payloads when the wire format is text — consider binary via WebSocket if bandwidth matters.",
+    "Not handling replay on reconnect — users see duplicate or missed events after a network blip."
+  ],
+  "where_you_see_it": [
+    "Every LLM streaming UI (OpenAI, Anthropic, Claude, ChatGPT) streams tokens over SSE.",
+    "GitHub's real-time status page and live updates.",
+    "Stock trading dashboards (Robinhood, E*TRADE) for live prices.",
+    "Sports live scores and play-by-play updates.",
+    "Notification systems — Slack, Linear, Vercel deploy logs."
+  ],
+  "interview_prompts": [
+    "SSE vs WebSockets vs long polling — when would you choose each? Give a real example of each.",
+    "How would you implement LLM token streaming from a server to a browser? Walk through the protocol choice and the failure modes.",
+    "Your SSE stream works in dev but arrives all at once in production behind nginx. What is wrong?",
+    "How do you scale SSE horizontally across many servers?",
+    "What does the Last-Event-ID header do, and how does the server use it on reconnect?"
+  ],
+  "real_system_mappings": [
+    {
+      "system": "OpenAI ChatGPT",
+      "how": "Streams model responses token-by-token over SSE. The browser's EventSource (or fetch with a streaming reader) renders tokens as they arrive."
+    },
+    {
+      "system": "Vercel deploy logs",
+      "how": "Live build and deploy logs stream over SSE to the dashboard, so users watch their build progress in real time without WebSocket overhead."
+    },
+    {
+      "system": "GitHub Actions live logs",
+      "how": "Streams CI/CD log lines over an HTTP streaming response (SSE-style) so users see log output as it is produced."
+    }
+  ],
+  "status": "published",
+  "sources": [
+    {
+      "title": "System Design Primer",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Open source"
+    },
+    {
+      "title": "ByteByteGo — Scale from zero to millions",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "ByteByteGo"
+    },
+    {
+      "title": "System Design Tutorial",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "GeeksforGeeks"
+    },
+    {
+      "title": "System Design Roadmap",
+      "url": "https://roadmap.sh/system-design",
+      "publisher": "roadmap.sh"
+    },
+    {
+      "title": "Networking & Communication reference",
+      "url": "https://www.rfc-editor.org/",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Networking & Communication reference",
+      "url": "https://developer.mozilla.org/en-US/docs/Web/HTTP",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Networking & Communication reference",
+      "url": "https://www.cloudflare.com/learning/network-layer/what-is-a-protocol/",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Cloudflare Learning Center",
+      "url": "https://www.cloudflare.com/learning/",
+      "publisher": "Cloudflare"
+    }
+  ]
+}

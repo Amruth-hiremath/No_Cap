@@ -1,0 +1,501 @@
+{
+  "slug": "how-to-approach-system-design",
+  "version": 5,
+  "title": "How to Approach System Design",
+  "phase": "foundations",
+  "area": "Foundations",
+  "estimated_minutes": 10,
+  "difficulty": "core",
+  "summary": "A structured approach to system design: clarify requirements → estimate capacity → define APIs → model data → design high-level architecture → deep-dive components → identify bottlenecks → discuss trade-offs. Following this skeleton prevents you from jumping straight into a solution and missing critical constraints.",
+  "why_it_matters": "Most system design interview failures and most production incidents come from skipping requirements clarification. People jump into 'use Kafka and Cassandra' before they know the read/write ratio, the latency target, or the failure requirements. A structured approach prevents this — and gives you a repeatable framework you can use for any system.",
+  "prerequisites": [
+    "what-is-system-design"
+  ],
+  "related": [
+    "performance-vs-scalability",
+    "latency-vs-throughput",
+    "capacity-estimation"
+  ],
+  "used_in": [
+    "Every system-design interview.",
+    "Every real architecture review."
+  ],
+  "blocks": [
+    {
+      "type": "prose",
+      "id": "intro",
+      "payload": {
+        "text": "System design problems are open-ended by design. 'Design Twitter' could mean anything — a toy project for 100 users or a global platform for 300 million. The first job is to **narrow the problem**. The second is to **structure your thinking** so you don't miss critical constraints.\n\nThe 8-step skeleton below works for interviews and real architecture reviews alike. Use it as a checklist, not a rigid script. Some steps will be quick (30 seconds); others will take 10 minutes. The order matters — each step constrains the next."
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "approach-flow",
+      "payload": {
+        "code": "flowchart TD\n    N0[\"Clarify\"]\n    N1[\"requirements\"]\n    N2[\"functional + non-functional\"]\n    N3[\"(functional\"]\n    N4[\"non\"]\n    N5[\"functional)\"]\n    N6[\"Capacity\"]\n    N7[\"estimation\"]\n    N8[\"QPS, storage, bandwidth\"]\n    N9[\"(QPS,\"]\n    N10[\"storage,\"]\n    N11[\"bandwidth)\"]\n    N12[\"APIs\"]\n    N13[\"interfaces\"]\n    N14[\"what does the system DO?\"]\n    N15[\"(what\"]\n    N16[\"does\"]\n    N17[\"the\"]\n    N18[\"system\"]\n    N19[\"DO?)\"]\n    N20[\"Data\"]\n    N21[\"model\"]\n    N22[\"what entities, what store?\"]\n    N23[\"entities,\"]\n    N24[\"what\"]\n    N25[\"store?)\"]\n    N26[\"High\"]\n    N27[\"level\"]\n    N28[\"design\"]\n    N29[\"boxes and arrows\"]\n    N30[\"(boxes\"]\n    N31[\"and\"]\n    N32[\"arrows)\"]\n    N33[\"Deep\"]\n    N34[\"dive\"]\n    N35[\"the hard components\"]\n    N36[\"(the\"]\n    N37[\"hard\"]\n    N38[\"components)\"]\n    N39[\"Bottlenecks\"]\n    N40[\"failures\"]\n    N41[\"what breaks first?\"]\n    N42[\"breaks\"]\n    N43[\"first?)\"]\n    N44[\"Trade\"]\n    N45[\"offs\"]\n    N46[\"alternatives\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44\n    N44 --> N45\n    N45 --> N46",
+        "caption": "The 8-step system design skeleton. Each step constrains the next.",
+        "alt_text": "A vertical flowchart showing the 8-step system design approach: clarify requirements, estimate capacity, define APIs, model data, high-level design, deep dive, bottlenecks and failures, and trade-offs. Each step flows into the next, and each constrains the decisions you make later."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "step1",
+      "payload": {
+        "text": "**Step 1: Clarify requirements.** Before designing anything, ask:\n\n**Functional requirements** (what does the system do?):\n- What are the core features? (e.g., 'users can post tweets, follow others, see a feed')\n- What are the non-goals? (e.g., 'no recommendation algorithm in v1')\n- Who are the users? (consumers, admins, API clients)\n\n**Non-functional requirements** (how well must it do it?):\n- **Scale**: How many users? How many requests per second?\n- **Latency**: What's the acceptable response time? (50ms? 500ms?)\n- **Availability**: What's the uptime target? (99%? 99.99%?)\n- **Consistency**: Strong or eventual? (Can the feed be 5 seconds stale?)\n- **Cost**: What's the budget? (startup vs enterprise)\n- **Security**: Any special requirements? (PII, PCI, HIPAA)\n\nThis step takes 2-3 minutes in an interview and prevents 30 minutes of wasted design work. Interviewers want to see you ask these questions — it signals seniority."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "clarify-example",
+      "payload": {
+        "title": "Example: 'Design Twitter'",
+        "body": "Before drawing anything, ask: 'Do we need to support real-time feed updates, or is eventual consistency acceptable? What's the expected DAU — 100K or 300M? Is the feed personalized (algorithmic) or just chronological? Do we need search? What about media — images, video? What's the timeline — do tweets need to appear in feeds within 1 second of posting, or is 10 seconds OK?' The answers completely change the architecture.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "step2",
+      "payload": {
+        "text": "**Step 2: Capacity estimation.** Translate requirements into numbers. This is where you figure out if you need one server or a thousand.\n\n**Back-of-the-envelope math for 'Design Twitter' (300M DAU):**\n\n*QPS (queries per second):*\n- 300M DAU × ~20 requests/day = 6B requests/day\n- 6B / 86400 seconds ≈ 70,000 QPS average\n- Peak = 3-5x average ≈ 200,000-350,000 QPS peak\n\n*Write QPS:*\n- 300M users × 0.1 tweets/day average = 30M tweets/day\n- 30M / 86400 ≈ 350 tweets/sec average\n- Peak (events, viral content): 3,500/sec\n\n*Storage:*\n- 30M tweets/day × 200 bytes (text) = 6GB/day text\n- With media (10% have images, avg 500KB): 30M × 0.1 × 500KB = 1.5TB/day\n- Yearly: ~550TB/year (media dominates)\n\n*Bandwidth:*\n- 70,000 reads/sec × 50KB per response = 3.5 GB/s = ~28 Gbps\n- Peak: 100 Gbps (requires CDN)\n\n*Cache sizing:*\n- If 80% of traffic hits 20% of content (Pareto), cache the top 20% of active tweets\n- Active tweets (last 7 days): ~210M × 200 bytes = ~42GB\n- Cache 20% = ~8GB — easily fits in Redis\n\nThese numbers don't need to be exact — they need to be **order-of-magnitude correct** so you can choose the right technology. 300M DAU rules out a single PostgreSQL instance. 28 Gbps of egress means you need a CDN. 1.5TB/day of media means you need object storage (S3), not a database."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "step3-4",
+      "payload": {
+        "text": "**Step 3: APIs.** Define the contract — what the system does. This forces you to think about the user-facing behavior, not just the internal architecture.\n\nFor Twitter:\n```\nPOST /tweets          — create a tweet (auth required)\nGET  /feed             — get user's timeline (paginated)\nPOST /follow/:user     — follow a user\nDELETE /follow/:user   — unfollow\nGET  /tweets/:id       — get a single tweet\n```\n\nAPIs reveal design decisions: do you need pagination? What's the auth model? Is it REST or something else?\n\n**Step 4: Data model.** What entities exist? How are they stored?\n\n- **User**: id, username, email, bio, created_at. → SQL (need transactions for auth, unique constraints).\n- **Tweet**: id, user_id, text, media_urls, created_at. → Wide-column (Cassandra — massive writes, time-ordered).\n- **Follow**: follower_id, followee_id, created_at. → Graph or SQL with composite index.\n- **Media**: stored in S3, URL referenced in tweet.\n- **Timeline**: pre-computed per user, stored in Redis (sorted set by timestamp).\n\nThis is where you decide between SQL, NoSQL, and hybrid. The data model constrains the architecture."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "step5-6",
+      "payload": {
+        "text": "**Step 5: High-level design.** Draw the boxes. Keep it at the 30,000-foot view:\n```\nClient → CDN → Load Balancer → App Servers → (Cache + DB + Queue)\n```\nDon't go deep yet. This is the skeleton.\n\n**Step 6: Deep dive.** Pick the 1-2 hardest components and design them in detail. For Twitter, the hard parts are:\n\n**Feed generation** — how do you build a user's timeline when they follow 1,000 people?\n- **Fan-out on write** (push model): when a user tweets, push the tweet ID into every follower's timeline cache. Pro: reads are O(1). Con: write amplification — a user with 30M followers writes 30M cache entries per tweet.\n- **Fan-out on read** (pull model): when a user opens their feed, fetch tweets from all 1,000 people they follow, merge, sort. Pro: no write amplification. Con: reads are slow (1,000 queries).\n- **Hybrid**: fan-out on write for normal users; fan-out on read for celebrities (30M followers).\n\n**Timeline cache** — how do you store the feed in Redis? Sorted set by timestamp. Each user's feed is a sorted set of tweet IDs. Capped at the last 1,000 tweets.\n\nThis is where you show depth. Don't deep-dive every component — pick the ones that are genuinely hard."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "step7-8",
+      "payload": {
+        "text": "**Step 7: Bottlenecks and failures.** Walk through what breaks:\n\n- What if the primary database dies? → Promote a replica. How long does failover take? (30s-2min)\n- What if a cache cluster dies? → System falls back to the database. Will it survive? (Probably not — cache absorbs 90% of reads. Need to degrade gracefully: throttle reads, serve stale data).\n- What if traffic spikes 10x? → Auto-scale app servers. But database can't auto-scale. Need read replicas + connection pooling.\n- What if a single user goes viral? → Their tweets get fanned out to millions. Use the hybrid approach: celebrities use fan-out on read.\n- What if an entire region goes down? → Multi-region deployment. But cross-region replication has lag.\n\n**Step 8: Trade-offs and alternatives.** Explicitly name what you gave up:\n\n- 'I chose fan-out on write for low read latency, but it costs write amplification and makes deletion hard (must delete from every follower's cache).'\n- 'I chose Cassandra for tweets because it handles massive write throughput, but I gave up JOINs and strong consistency — if a tweet and its media are stored separately, they can be inconsistent during a partition.'\n- 'I chose Redis for timeline cache because it's fast, but it's in-memory — if Redis crashes, all timelines need to be rebuilt from the database.'\n\nThis step separates senior from junior — the ability to articulate trade-offs clearly."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "anti-pattern",
+      "payload": {
+        "title": "Anti-pattern: jumping to technology",
+        "body": "The most common mistake is hearing 'design Twitter' and immediately saying 'use Kafka, Cassandra, and Redis'. Technology choices come AFTER you understand requirements, capacity, and data model. Naming technologies too early signals you're memorizing rather than reasoning. Start with 'I need a system that handles X writes/sec and Y reads/sec with Z latency' — then choose the technology that fits.",
+        "kind": "warning"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "time-allocation",
+      "payload": {
+        "text": "In a 45-minute interview, allocate time roughly:\n- Requirements clarification: 3-5 min\n- Capacity estimation: 3-5 min\n- API + data model: 5-7 min\n- High-level design: 5-7 min\n- Deep dive: 10-15 min\n- Bottlenecks + trade-offs: 5-10 min\n- Q&A: remaining time\n\nDon't spend 20 minutes on capacity estimation. Don't skip requirements. The interviewer will redirect you if you're going too deep on the wrong thing — listen to their cues."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q1",
+      "payload": {
+        "question": "You're asked to 'Design a URL shortener like bit.ly.' What should you do FIRST?",
+        "shape": "mcq",
+        "options": [
+          "Choose between PostgreSQL and Cassandra for the database.",
+          "Draw the high-level architecture with a load balancer and app server.",
+          "Clarify requirements: how many URLs per day? What's the read/write ratio? Custom aliases?",
+          "Estimate the storage needed for 5 years of URLs."
+        ],
+        "answer_index": 2,
+        "rationale": "Always clarify requirements before estimating capacity or choosing technology. Without knowing the read/write ratio (shorteners are typically 100:1 read-heavy) and the scale (1M URLs/day vs 100M), you cannot choose the right database, cache strategy, or hashing approach. Capacity estimation (step 2) comes after clarification (step 1). Drawing the architecture (step 5) comes even later.",
+        "difficulty": "core"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q2",
+      "payload": {
+        "question": "During a system design interview, you've drawn the high-level architecture. What should you do next?",
+        "shape": "mcq",
+        "options": [
+          "Start over if the interviewer didn't seem impressed.",
+          "Pick the 1-2 hardest components and deep-dive them, then identify bottlenecks and trade-offs.",
+          "List every technology you'd use and why.",
+          "Ask the interviewer if you're done."
+        ],
+        "answer_index": 1,
+        "rationale": "After high-level design (step 5), you should deep-dive the hardest components (step 6) — the ones where the design is non-obvious and where trade-offs matter most. Then identify bottlenecks and failures (step 7) and articulate trade-offs (step 8). This shows structured thinking and depth, not breadth. Don't list every technology — that's step 3-4, and you should have done it before drawing boxes.",
+        "difficulty": "core"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q3",
+      "payload": {
+        "question": "Your system needs to serve 70,000 reads/sec for a Twitter-like feed. Which combination of technologies makes sense?",
+        "shape": "mcq",
+        "options": [
+          "A single PostgreSQL instance with fast SSDs.",
+          "Load balancer + multiple app servers + Redis cache (for hot feeds) + Cassandra (for tweets).",
+          "A single Redis instance serving everything.",
+          "Direct database access from clients, no caching."
+        ],
+        "answer_index": 1,
+        "rationale": "70,000 reads/sec is beyond what a single PostgreSQL or Redis instance can handle. The right architecture: load balancer distributes across multiple stateless app servers; Redis caches the top 20% of active feeds (Pareto distribution — 80% of traffic hits 20% of content); Cassandra stores the actual tweets (massive write throughput, time-ordered). The cache absorbs 90%+ of reads, and the database handles the rest. This is the standard pattern for read-heavy social systems.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "process-flowchart-b2",
+      "payload": {
+        "code": "flowchart TD\n    Start([Interview starts]) --> S1\n    S1[1. Clarify<br/>functional + non-functional] --> S2\n    S2[2. Capacity<br/>QPS, storage, bandwidth] --> S3\n    S3[3. APIs<br/>REST / RPC contract] --> S4\n    S4[4. Data model<br/>entities + store choice] --> S5\n    S5[5. High-level design<br/>boxes and arrows] --> S6\n    S6[6. Deep dive<br/>1-2 hardest components] --> S7\n    S7[7. Bottlenecks<br/>what breaks first?] --> S8\n    S8[8. Trade-offs<br/>alternatives + what you give up] --> End([Done])\n\n    S1 -.interviewer may push back.-> S1\n    S6 -.may revise S4.-> S4\n    S7 -.may revise S5.-> S5\n\n    classDef step fill:#1e3a5f,stroke:#3b82f6,color:#e0e7ff\n    classDef io fill:#3a2e1e,stroke:#f59e0b,color:#fef3c7\n    class S1,S2,S3,S4,S5,S6,S7,S8 step\n    class Start,End io",
+        "caption": "The 8-step system-design skeleton, with feedback loops where interviewers (or new constraints) may force a revision.",
+        "alt_text": "A vertical flowchart of the 8-step approach: clarify requirements, capacity estimation, APIs, data model, high-level design, deep dive, bottlenecks, trade-offs. Dotted feedback arrows show that step 1 can loop on interviewer pushback, step 6 may force a revision of step 4 (data model), and step 7 may force a revision of step 5 (high-level design)."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "capacity-worked-example-b2",
+      "payload": {
+        "text": "**Capacity estimation, fully worked: 'Design a URL shortener'.**\n\nAssume the requirement: 100M new URLs per month, with a 100:1 read:write ratio.\n\n*Write QPS:*\n- 100M URLs / 30 days ≈ 38 URLs/sec average write rate\n- Peak = 5x average = ~190 URLs/sec. Trivial — any database can do this.\n\n*Read QPS:*\n- 100M writes × 100 reads/write = 10B reads/month\n- 10B / 2.59M seconds ≈ 3,860 reads/sec average\n- Peak = 3-5x = ~12,000-19,000 reads/sec. Now we need engineering.\n\n*Storage:*\n- Each URL record: ~200 bytes (short code, long URL, user_id, timestamps)\n- 100M URLs × 200 bytes = 20 GB/month = 240 GB/year\n- 5-year horizon: ~1.2 TB. Fits on one machine, but you don't want to.\n\n*Bandwidth:*\n- Average read: ~50 bytes response (the long URL or a 301)\n- 3,860 reads/sec × 50 bytes = ~193 KB/sec = trivial\n- BUT if we include analytics (referrer, geo, user-agent): ~500 bytes per click event\n- 10B click events/month × 500 bytes = 5 TB/month of analytics. Object storage territory.\n\n*Cache sizing (Pareto):*\n- 80% of traffic hits 20% of URLs (the viral ones)\n- Hot set in any given day: ~20% of recent URLs × 100M/year ÷ 365 days ≈ 55K URLs/day hot\n- 55K × 200 bytes = ~11 MB — fits in any Redis instance\n- Cache hit rate target: 95%. The cache absorbs ~95% of reads.\n\n*Conclusion from these numbers:*\n- 19K reads/sec at peak: 3-5 app servers behind a load balancer (each handles 5K reads/sec)\n- Database: 1 primary + 2 read replicas (since 95% of reads hit cache, only 5% × 19K = ~950 reads/sec hit DB)\n- Analytics: write to a Kafka queue → consumer → S3/Cassandra (no need to write synchronously)\n- Storage: 240 GB/year fits on a single Postgres instance for years, but plan for sharding by year-3.\n\nNotice how the numbers DRIVE the architecture. 19K reads/sec demands multiple app servers + cache. 5 TB/month of analytics demands async + object storage. 38 URLs/sec write rate is trivial — no need for sharding, Kafka-for-writes, or exotic databases. The arithmetic pre-empts the technology choice."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "interview-mistakes-b2",
+      "payload": {
+        "title": "Top 5 interview-killer mistakes",
+        "body": "(1) **Jumping to technology** — saying 'Kafka + Cassandra' before clarifying the read/write ratio. (2) **Ignoring the interviewer's hints** — they say 'what about failures?' and you keep drawing happy-path boxes. (3) **Deep-diving the easy part** — spending 10 minutes on the load balancer when the hard part is the timeline cache. (4) **No trade-offs** — naming technologies without saying what they cost. (5) **Silence** — designing in your head for 30 seconds while the interviewer stares at a blank whiteboard. Talk out loud, even your dead-ends.",
+        "kind": "warning"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q-tradeoff-b2",
+      "payload": {
+        "question": "You're designing a notification system that must send 10,000 push notifications per second at peak. The interviewer asks: 'Should we use Kafka or RabbitMQ?' What is the strongest first response?",
+        "shape": "mcq",
+        "options": [
+          "Kafka — it's designed for high throughput, so it's the obvious choice.",
+          "RabbitMQ — it has lower latency and per-message routing, which is better for notifications.",
+          "Before choosing, I need to know: are notifications ordered per-user? Do we need exactly-once delivery? What's the consumer fan-out pattern — one consumer per device, or batched? What's the message size, and how long must we retain undelivered messages?",
+          "Either will work — let's pick Kafka since it's more popular."
+        ],
+        "answer_index": 2,
+        "rationale": "Kafka and RabbitMQ are NOT interchangeable. Kafka is an append-only log optimized for high-throughput, ordered, partitioned streams with consumer groups — it shines for event pipelines and replay. RabbitMQ is a classic message broker with rich routing (topic exchanges, fanout), per-message ACK, and lower per-message latency — it shines for work-distribution and request-reply. The right answer depends on the workload's shape: ordered per-user delivery favors Kafka (partition by user_id); rich routing and per-message ACK favor RabbitMQ; both can hit 10K msgs/sec. Option 1 (Kafka) and Option 2 (RabbitMQ) both commit to a technology before clarifying requirements — the single most common interview failure. Option 4 ('either will work') signals you don't know the difference. The correct response names the specific questions whose answers would distinguish Kafka from RabbitMQ for this workload. That is the entire skill of system design: knowing what to ask before deciding.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "scaling-implications-b2",
+      "payload": {
+        "text": "**Scaling a system design interview answer — depth beats breadth.**\n\nThe single biggest mistake mid-level engineers make in a design interview is presenting a wide, shallow architecture: ten boxes, one paragraph each, no depth. Senior interviewers redirect: 'Pick the hardest component and design it in detail.' This is where you actually demonstrate system-design skill.\n\nA useful rule: spend 30% of your time on the high-level diagram and 50% on one deep dive. For 'Design Twitter', don't try to design the API, the user service, the notification service, AND the timeline cache at depth — pick the timeline cache. Discuss fan-out-on-write vs fan-out-on-read; explain the celebrity problem (a user with 30M followers would amplify every tweet to 30M cache entries); propose the hybrid (normal users fan-out on write, celebrities fan-out on read); show the Redis sorted-set data structure and explain why it's O(log N) for insertion; discuss cache invalidation when a tweet is deleted.\n\nThe reason depth matters: shallow designs are interchangeable — anyone can list 'CDN, load balancer, app servers, database'. Depth reveals the trade-offs and the understanding. An interviewer learns nothing from a wide diagram they couldn't have drawn themselves. They learn whether you can reason about a specific hard problem by watching you deep-dive it."
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-how-to-approach-system-design-mental",
+      "payload": {
+        "text": "Engineering mental model",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-how-to-approach-system-design-mental",
+      "payload": {
+        "text": "**Mental model.** Think of How to Approach System Design as a deliberate boundary in a system. The boundary exists because something becomes harder to manage when everything is done in one place: latency, scale, failure isolation, consistency, cost, or team ownership. The useful question is not “what does How to Approach System Design mean?” but “what pressure makes this boundary worth introducing, and what new failure mode does it create?”"
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-how-to-approach-system-design-decision",
+      "payload": {
+        "title": "Design lens",
+        "body": "Before choosing How to Approach System Design, name the workload, the critical user path, the dominant bottleneck, the failure you are trying to absorb, and the trade-off you are willing to accept. If you cannot name those five things, the design is probably premature.",
+        "kind": "info"
+      }
+    },
+    {
+      "type": "image",
+      "id": "upgrade-image-how-to-approach-system-design",
+      "payload": {
+        "src": "/learning-visuals/how-to-approach-system-design.svg",
+        "alt": "Original NO CAP systems visual for How to Approach System Design.",
+        "caption": "How to Approach System Design: a compact system-thinking visual.",
+        "credit": "Original NO CAP visual.",
+        "source_url": "https://github.com/donnemartin/system-design-primer"
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "upgrade-mermaid-how-to-approach-system-design",
+      "payload": {
+        "code": "flowchart LR\n  A[Client] --> B[Gateway] --> C[Service] --> D[State] --> E[Outcome]",
+        "caption": "How to Approach System Design: a simplified system view showing the primary flow and the main state boundaries.",
+        "alt_text": "How to Approach System Design: a simplified system view showing the primary flow and the main state boundaries."
+      }
+    },
+    {
+      "type": "code",
+      "id": "upgrade-code-how-to-approach-system-design",
+      "payload": {
+        "language": "text",
+        "code": "// Pseudocode\nrequest = receive()\nresult = how_to_approach_system_design(request)\nreturn result\n\n// Production questions:\n// 1. What happens on timeout?\n// 2. Can this operation be retried safely?\n// 3. What is the bottleneck?",
+        "caption": "A minimal engineering sketch for reasoning about How to Approach System Design."
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-how-to-approach-system-design-numbers",
+      "payload": {
+        "text": "Back-of-the-envelope reasoning",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-how-to-approach-system-design-numbers",
+      "payload": {
+        "text": "Numerical lens: write down traffic, payload size, read/write ratio, peak multiplier and durability target before choosing a component. The numbers should justify the architecture."
+      }
+    },
+    {
+      "type": "simulation",
+      "id": "upgrade-sim-how-to-approach-system-design",
+      "payload": {
+        "title": "Interactive thought experiment: How to Approach System Design",
+        "description": "Change the variables below and predict what breaks first in How to Approach System Design. The production lab can later reuse these same inputs.",
+        "variables": [
+          {
+            "name": "traffic",
+            "description": "Requests/events per second",
+            "default": "1000"
+          },
+          {
+            "name": "latency",
+            "description": "Dependency latency",
+            "default": "50ms"
+          },
+          {
+            "name": "failure_rate",
+            "description": "Injected failure rate",
+            "default": "0%"
+          }
+        ],
+        "placeholder_note": "Interactive controls are deterministic; use the linked Labs section when a dedicated lab exists."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-how-to-approach-system-design-hint",
+      "payload": {
+        "title": "Hint",
+        "body": "If you are stuck on How to Approach System Design, start by drawing the request path and marking every network hop, stateful component, queue, cache and failure boundary. Then estimate where the system will saturate.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-how-to-approach-system-design-1",
+      "payload": {
+        "shape": "prediction",
+        "question": "You increase traffic by 10× in a system using How to Approach System Design. What should you inspect first?",
+        "options": [
+          "The newest framework version",
+          "The dominant bottleneck and its saturation signal",
+          "Only the UI",
+          "Nothing; the architecture should absorb any traffic automatically"
+        ],
+        "answer_index": 1,
+        "rationale": "System design is a constraint-and-bottleneck exercise. Start with the resource or dependency that will saturate first, then choose the smallest change that removes that bottleneck.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-how-to-approach-system-design-2",
+      "payload": {
+        "shape": "mcq",
+        "question": "Which statement is the safest engineering habit when using How to Approach System Design?",
+        "options": [
+          "Choose it because it is popular",
+          "Add it before measuring the problem",
+          "State the workload, failure mode and trade-off it is solving",
+          "Use the most distributed design possible"
+        ],
+        "answer_index": 2,
+        "rationale": "Good architecture starts from requirements, workload and failure assumptions. The component is the consequence of that reasoning, not the starting point.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "scenario",
+      "id": "upgrade-scenario-how-to-approach-system-design",
+      "payload": {
+        "prompt": "Production scenario: your system uses How to Approach System Design, traffic suddenly spikes, and p99 latency doubles. What is your first move?",
+        "context": "You have dashboards for traffic, latency, errors and saturation. You can change the architecture, but every change has operational cost.",
+        "options": [
+          {
+            "id": "a",
+            "text": "Add more instances immediately",
+            "outcome": "This may help, but only if compute saturation is the bottleneck.",
+            "correct": false
+          },
+          {
+            "id": "b",
+            "text": "Inspect the bottleneck and its saturation signal first",
+            "outcome": "Correct: diagnose before scaling or introducing a new pattern.",
+            "correct": true
+          },
+          {
+            "id": "c",
+            "text": "Disable monitoring to reduce overhead",
+            "outcome": "This removes the evidence you need to diagnose the incident.",
+            "correct": false
+          }
+        ],
+        "rationale": "Measure the limiting resource or dependency first. A bottleneck can be compute, database I/O, network, cache misses, lock contention, downstream latency, or queue backlog.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-how-to-approach-system-design-interview",
+      "payload": {
+        "text": "Interview drill",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-how-to-approach-system-design-interview",
+      "payload": {
+        "text": "**Answer this without notes:** When would you choose How to Approach System Design, and when would you intentionally avoid it? Mention at least one bottleneck it addresses, one failure mode it introduces, and one alternative. Then quantify the workload you are designing for."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "field-guide-how-to-approach-system-design",
+      "payload": {
+        "title": "Engineering lens",
+        "body": "A useful engineering lens for How to Approach System Design: define the problem it solves, the simpler design that fails first, the constraint that forces you to introduce this concept, and the new failure modes the concept creates.",
+        "kind": "tip"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "numerical-lens-how-to-approach-system-design",
+      "payload": {
+        "text": "### Numerical sanity check\n\nBack-of-the-envelope reasoning beats fake precision. State your traffic, payload, concurrency and growth assumptions explicitly, then calculate enough to know whether the current architecture is orders of magnitude away from the target."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "field-question-how-to-approach-system-design",
+      "payload": {
+        "shape": "prediction",
+        "question": "Imagine the simplest version of a system using How to Approach System Design. What breaks first as traffic grows by 10×, and what would you change before reaching 100×?",
+        "context": "Do not optimize for a memorized definition. Reason from the workload and failure mode.",
+        "options": [
+          "Scale the same component immediately.",
+          "Measure the current bottleneck and state the assumption that changed.",
+          "Add more technologies until throughput improves.",
+          "Choose the most popular architecture."
+        ],
+        "answer_index": 1,
+        "rationale": "Good system design starts with the bottleneck and the changed constraint. The most popular or complex choice is not automatically correct.",
+        "difficulty": "interview"
+      }
+    }
+  ],
+  "trade_offs": {
+    "pros": [
+      "Prevents premature commitment to a technology.",
+      "Surfaces constraints before they become incidents.",
+      "Creates a shared structure that teams and interviewers can follow.",
+      "Makes trade-offs explicit, so decisions are defensible."
+    ],
+    "cons": [
+      "Can feel rigid — real systems sometimes need creative leaps.",
+      "Takes 30-45 minutes; not every problem deserves full treatment.",
+      "Can produce over-engineered designs if you follow every step dogmatically."
+    ]
+  },
+  "failure_modes": [
+    "Skipping requirements clarification → designing the wrong system.",
+    "Jumping to technology before understanding data and scale.",
+    "Deep-diving every component instead of the 1-2 hard ones.",
+    "Not articulating trade-offs — making the design feel arbitrary."
+  ],
+  "common_mistakes": [
+    "Treating the 8 steps as a script instead of a checklist.",
+    "Estimating capacity with made-up numbers instead of deriving them from requirements.",
+    "Forgetting to discuss failure modes — interviewers always ask 'what breaks?'",
+    "Choosing 'cool' technologies (Kafka, Cassandra) when simpler ones (PostgreSQL, Redis) would work."
+  ],
+  "where_you_see_it": [
+    "Every system-design interview at every tech company.",
+    "Every real architecture review.",
+    "Every good engineering design document."
+  ],
+  "interview_prompts": [
+    "Walk me through how you would approach designing a system you've never seen before.",
+    "What questions do you ask before starting a system design?",
+    "Why is capacity estimation important before choosing a database?",
+    "How do you decide which components to deep-dive vs. which to leave at the high level?"
+  ],
+  "real_system_mappings": [
+    {
+      "system": "Google design docs",
+      "how": "Google's engineering culture requires design docs that follow this structure: requirements, alternatives, proposed design, trade-offs. Documented in their engineering practices guide."
+    },
+    {
+      "system": "AWS Well-Architected Framework",
+      "how": "AWS follows the same skeleton: requirements, capacity, design, bottlenecks, trade-offs. Their 5 pillars (operational excellence, security, reliability, performance efficiency, cost optimization) map to the non-functional requirements you clarify in step 1."
+    }
+  ],
+  "status": "published",
+  "sources": [
+    {
+      "title": "System Design Primer",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Open source"
+    },
+    {
+      "title": "ByteByteGo — Scale from zero to millions",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "ByteByteGo"
+    },
+    {
+      "title": "System Design Tutorial",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "GeeksforGeeks"
+    },
+    {
+      "title": "System Design Roadmap",
+      "url": "https://roadmap.sh/system-design",
+      "publisher": "roadmap.sh"
+    },
+    {
+      "title": "Foundations reference",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Foundations reference",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Foundations reference",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "Reference"
+    }
+  ]
+}

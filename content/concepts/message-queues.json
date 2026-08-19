@@ -1,0 +1,527 @@
+{
+  "slug": "message-queues",
+  "version": 4,
+  "title": "Message Queues",
+  "phase": "scaling-performance",
+  "area": "Scaling & Performance",
+  "estimated_minutes": 7,
+  "difficulty": "core",
+  "summary": "A message queue decouples producers from consumers. Producers write messages to a queue; consumers read them at their own pace. This smooths traffic spikes, enables async processing, and lets producers and consumers scale independently.",
+  "why_it_matters": "Without a queue, a traffic spike to your service causes it to synchronously call downstream services, which also spike, which cascade into failure. A queue absorbs the spike — producers write quickly and move on, consumers process at a steady rate. This is the single most important pattern for building resilient, scalable backends.",
+  "prerequisites": [
+    "task-queues"
+  ],
+  "related": [
+    "pub-sub",
+    "event-driven-architecture",
+    "competing-consumers",
+    "back-pressure"
+  ],
+  "used_in": [
+    "Every async backend.",
+    "Every event-driven system.",
+    "Every system that handles traffic spikes."
+  ],
+  "blocks": [
+    {
+      "type": "prose",
+      "id": "intro",
+      "payload": {
+        "text": "A message queue is a buffer between producers and consumers. Producers write messages to the queue; consumers read them asynchronously. The key insight: **the producer doesn't wait for the consumer to process the message** — it writes and moves on.\n\nThis decoupling has three benefits:\n1. **Smoothing**: if producers burst, the queue absorbs the spike and consumers process at a steady rate.\n2. **Decoupling**: producers and consumers can scale independently.\n3. **Reliability**: if a consumer crashes, messages stay in the queue (or are redelivered) — no data loss."
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "queue-flow",
+      "payload": {
+        "code": "flowchart TD\n    N0[\"Producer\"]\n    N1[\" MESSAGE QUEUE \"]\n    N2[\"MESSAGE\"]\n    N3[\"QUEUE\"]\n    N4[\"Consumer\"]\n    N5[\"(FIFO:\"]\n    N6[\"first\"]\n    N7[\"in,\"]\n    N8[\"out)\"]\n    N9[\"Producers\"]\n    N10[\"write\"]\n    N11[\"fast.\"]\n    N12[\"Consumers\"]\n    N13[\"read\"]\n    N14[\"their\"]\n    N15[\"own\"]\n    N16[\"pace.\"]\n    N17[\"Queue\"]\n    N18[\"absorbs\"]\n    N19[\"the\"]\n    N20[\"spike.\"]\n    N21[\"Add\"]\n    N22[\"more\"]\n    N23[\"consumers\"]\n    N24[\"scale.\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24",
+        "caption": "A message queue decouples producers from consumers, smoothing traffic spikes.",
+        "alt_text": "A diagram of a message queue. Multiple producers write messages into a queue, which acts as a FIFO buffer. Multiple consumers read from the queue at their own pace. Producers can write fast while consumers process at a steady rate. The queue absorbs traffic spikes. Add more consumers to scale throughput."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "delivery",
+      "payload": {
+        "text": "Message delivery semantics:\n\n- **At-most-once**: messages may be lost but never duplicated. Simple, fast, unreliable.\n- **At-least-once**: messages are never lost but may be duplicated. Requires idempotent consumers. Most common.\n- **Exactly-once**: messages are delivered once and only once. Expensive to achieve (requires distributed consensus). Often simulated with at-least-once + idempotency.\n\nMost systems use at-least-once + idempotency. This is why **idempotent operations** (the previous lesson) are so important — they make at-least-once delivery safe."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "exactly-once-myth",
+      "payload": {
+        "title": "The exactly-once myth",
+        "body": "True exactly-once delivery across a distributed system is impossible without giving up availability (FLP impossibility). What systems like Kafka call 'exactly-once' is actually at-least-once + transactional idempotency — the consumer deduplicates using a message ID. This is good enough for almost all use cases.",
+        "kind": "warning"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "patterns",
+      "payload": {
+        "text": "Common queue patterns:\n\n- **Work queue**: one queue, multiple consumers (competing consumers). Each message is processed by exactly one consumer. Used for background jobs (send email, process image).\n- **Pub/sub**: one message, multiple subscribers. Each subscriber gets a copy. Used for event notifications.\n- **Request-response**: the producer sends a message and waits for a reply (via a reply queue). Used for async RPC.\n- **Dead-letter queue**: messages that fail processing N times are moved to a DLQ for inspection. Prevents poison messages from blocking the queue."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q1",
+      "payload": {
+        "question": "Your e-commerce site has a flash sale. Traffic spikes 100x for 2 minutes. Without a message queue, what happens?",
+        "shape": "mcq",
+        "options": [
+          "The site handles it fine — servers are elastic.",
+          "The order processing service is overwhelmed, timeouts cascade, and the site goes down.",
+          "The database handles the spike automatically.",
+          "Users see faster responses because of caching."
+        ],
+        "answer_index": 1,
+        "rationale": "Without a queue, every order request synchronously calls the order processing service. A 100x spike means 100x concurrent calls, which overwhelms the service — timeouts pile up, connections exhaust, and the site goes down. With a queue, the web servers write order messages quickly (1ms) and move on. The order processing service reads from the queue at a steady rate it can handle. The spike is absorbed, and orders process within seconds instead of failing.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q2",
+      "payload": {
+        "question": "A message queue delivers messages at-least-once. Your consumer processes a 'charge credit card' message. What must you do?",
+        "shape": "mcq",
+        "options": [
+          "Nothing — at-least-once means it's safe.",
+          "Make the consumer idempotent: use an idempotency key so duplicate messages don't cause double charges.",
+          "Switch to exactly-once delivery.",
+          "Process each message only once."
+        ],
+        "answer_index": 1,
+        "rationale": "At-least-once means the same message may be delivered multiple times (due to consumer crashes, network retries, etc.). If your consumer charges a credit card, a duplicate delivery would double-charge. The solution is idempotency: include a unique message ID, and before charging, check if you've already processed that ID. If yes, skip. This makes at-least-once delivery safe. True exactly-once is impractical in distributed systems — idempotency is the standard solution.",
+        "difficulty": "core"
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "producer-consumer-b2",
+      "payload": {
+        "code": "flowchart LR\n    P1[Producer 1<br/>web front-end] --> Q\n    P2[Producer 2<br/>mobile API] --> Q\n    P3[Producer 3<br/>batch job] --> Q\n\n    Q[(Message Queue<br/>partitioned by key<br/>FIFO per partition)]\n\n    Q --> C1[Consumer 1<br/>group=orders]\n    Q --> C2[Consumer 2<br/>group=orders]\n    Q --> C3[Consumer 3<br/>group=orders]\n\n    Q --> S1[Subscriber A<br/>analytics pipeline]\n    Q --> S2[Subscriber B<br/>notification service]\n\n    C1 --> H[(idempotency<br/>key store)]\n    C2 --> H\n    C3 --> H\n    C1 --> DB1[(orders DB)]\n    C2 --> DB1\n    C3 --> DB1\n\n    S1 --> DW[(data warehouse)]\n    S2 --> Push[Push notification service]\n\n    DLQ[(Dead-letter queue<br/>poison messages)] -.after N retries.-> Q\n\n    classDef prod fill:#1e3a5f,stroke:#3b82f6,color:#e0e7ff\n    classDef cons fill:#3a2e1e,stroke:#f59e0b,color:#fef3c7\n    classDef store fill:#1e3a1e,stroke:#22c55e,color:#dcfce7\n    classDef warn fill:#3a1e1e,stroke:#ef4444,color:#fee2e2\n    class P1,P2,P3 prod\n    class C1,C2,C3,S1,S2 cons\n    class Q,DB1,DW,Push,H store\n    class DLQ warn",
+        "caption": "Full producer-consumer topology: multiple producers, competing consumers in a group, pub/sub subscribers, idempotency store, dead-letter queue.",
+        "alt_text": "Three producers (web front-end, mobile API, batch job) write to a partitioned message queue. Three consumers in the orders group compete for messages (each message goes to exactly one consumer in the group). Two subscribers (analytics pipeline and notification service) each get a copy of every message. Each consumer checks an idempotency key store before writing to the orders database, so duplicate deliveries don't cause double processing. A dead-letter queue receives messages that fail processing N times, isolating poison messages from the main queue."
+      }
+    },
+    {
+      "type": "table",
+      "id": "delivery-semantics-b2",
+      "payload": {
+        "headers": [
+          "Semantic",
+          "At-most-once",
+          "At-least-once",
+          "Exactly-once (claimed)"
+        ],
+        "rows": [
+          [
+            "Message loss",
+            "Possible — no retransmission",
+            "Impossible — retransmit on no-ACK",
+            "Impossible"
+          ],
+          [
+            "Message duplication",
+            "Impossible",
+            "Possible — retransmission creates duplicates",
+            "Impossible (in theory)"
+          ],
+          [
+            "Cost",
+            "Lowest — fire and forget",
+            "Medium — track ACKs, retransmit on timeout",
+            "Highest — distributed consensus + transactional dedup"
+          ],
+          [
+            "Consumer requirement",
+            "None",
+            "Idempotent — handle duplicates safely",
+            "None — broker dedupes"
+          ],
+          [
+            "Real systems",
+            "StatsD, fire-and-forget logging, UDP telemetry",
+            "Kafka default, SQS standard, RabbitMQ default",
+            "Kafka transactions (idempotent producer + transactional consumer), SQS FIFO with dedup ID (per-message exactly-once within 5-min window)"
+          ],
+          [
+            "What 'exactly-once' really means",
+            "—",
+            "—",
+            "At-least-once delivery + idempotent consumer + dedup by message id — the broker makes duplication impossible to OBSERVE, even though it can still happen internally"
+          ],
+          [
+            "Use case",
+            "Telemetry, metrics, sampling where loss is OK",
+            "Most production workloads — payments, emails, jobs",
+            "Stateful stream processing where duplicates would corrupt aggregates"
+          ]
+        ],
+        "caption": "Delivery semantics comparison. 'Exactly-once' is almost always at-least-once + idempotency + deduplication under the hood."
+      }
+    },
+    {
+      "type": "video",
+      "id": "upgrade-video-message-queues",
+      "payload": {
+        "provider": "youtube",
+        "video_id": "Z6QEDisuGoU",
+        "title": "System design fundamentals",
+        "description": "Supplementary explanation. The NO CAP lesson remains self-contained.",
+        "source_url": "https://www.youtube.com/watch?v=Z6QEDisuGoU"
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "dlq-flow-b2",
+      "payload": {
+        "code": "flowchart TD\n    Q[Main queue] --> C[Consumer]\n    C --> Proc{Process message}\n    Proc -->|Success| Ack[ACK → remove from queue]\n    Proc -->|Failure<br/>exception, timeout| Retry[Increment retry count]\n    Retry --> Check{retry count<br/>>= max?}\n    Check -->|No| Reprocess[Re-queue with backoff<br/>e.g., exp(2, n) seconds]\n    Reprocess --> Q\n    Check -->|Yes, e.g., 5 tries| DLQ[(Dead-letter queue)]\n    DLQ --> Alert[PagerDuty alert<br/>ops investigates]\n    DLQ --> Inspect[Replay tool<br/>inspect + reprocess]\n    Inspect -->|fix + replay| Q\n    Inspect -->|poison, discard| Archive[Archive to S3<br/>for audit]\n\n    classDef ok fill:#1e3a1e,stroke:#22c55e,color:#dcfce7\n    classDef warn fill:#3a2e1e,stroke:#f59e0b,color:#fef3c7\n    classDef bad fill:#3a1e1e,stroke:#ef4444,color:#fee2e2\n    class Ack ok\n    class Retry,Reprocess,Inspect warn\n    class DLQ,Alert,Archive bad",
+        "caption": "Dead-letter queue flow: failed messages retry with backoff, then move to DLQ for inspection. Ops can replay or archive.",
+        "alt_text": "A consumer reads a message from the main queue. On success, it ACKs and the message is removed. On failure (exception, timeout), it increments a retry count. If retry count is below max, the message is re-queued with exponential backoff. If retry count reaches max (e.g., 5 tries), the message is moved to a dead-letter queue (DLQ). The DLQ triggers a PagerDuty alert for ops investigation. An inspect tool allows replay (after fixing the consumer bug) or archive to S3 (for poison messages that will never succeed)."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "kafka-linkedin-b2",
+      "payload": {
+        "text": "**Real example: Kafka at LinkedIn.**\n\nKafka was built at LinkedIn in 2010-2011 to solve a specific problem: their existing messaging infrastructure (ActiveMQ) couldn't handle the throughput required to stream every user-action event (page views, clicks, profile updates, job applications) from the website to their Hadoop data warehouse for analytics. ActiveMQ was doing ~100K messages/sec cluster-wide; LinkedIn needed ~2M/sec and growing.\n\nKafka's design choices (documented in the original 2011 NetDB paper and LinkedIn's engineering blog):\n\n- **Append-only log partitioned by key** — each partition is an ordered, immutable sequence of messages on disk. Writes are sequential (fast even on spinning disks), and consumers read at their own pace by tracking an offset. This is fundamentally different from traditional message queues (RabbitMQ, ActiveMQ) which delete messages after ACK.\n- **Consumer groups** — multiple consumers can read the same partition by splitting the partitions among them (one partition per consumer in a group, max). Different consumer groups read independently. This decouples producers from consumers: a single Kafka topic can feed a real-time fraud-detection system, a batch analytics pipeline, and a search indexer — all reading the same stream at their own pace.\n- **Replication across brokers** — each partition has N replicas; one is leader, the rest follow. If a broker dies, a replica takes over as leader. This is the durability story that lets you run Kafka on commodity hardware.\n- **Retention by time or size, not by ACK** — messages stay in Kafka for hours, days, or weeks regardless of whether consumers have read them. This enables replay: a new consumer can re-process the entire history of a topic. (Trade-off: storage cost.)\n\nBy 2014, LinkedIn was processing trillions of messages per day through Kafka across thousands of topics. By 2024, Kafka is the standard for event streaming at almost every large company — Uber, Netflix, Twitter, Airbnb, LinkedIn all run it. The lesson: a single durable, replayable log is a more flexible primitive than a delete-after-ACK queue. Most modern event-driven architectures are built on this insight."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "poison-message-b2",
+      "payload": {
+        "title": "Poison messages — the silent queue killer",
+        "body": "A poison message is one that always fails processing (malformed payload, missing reference, division by zero). Without a max-retry limit and DLQ, the consumer retries forever, the queue grows, every other message is blocked behind the poison, and the entire pipeline stalls. Production rule: always set max retries (typically 3-5) with exponential backoff, then route the message to a dead-letter queue and alert on DLQ depth. The DLQ is your queue's immune system — it isolates the broken message so the healthy ones can flow. Without it, one bad message can take down the whole system.",
+        "kind": "warning"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q-dlq-b2",
+      "payload": {
+        "question": "Your email-sending consumer reads from an SQS queue. A message with malformed JSON arrives, your parser throws, the message is retried 100 times over 4 hours, blocking the queue for legitimate emails. Users complain emails are delayed by hours. What is the correct production architecture to prevent this?",
+        "shape": "mcq",
+        "options": [
+          "Increase the visibility timeout so the consumer has more time to process.",
+          "Set max receive count (e.g., 5) and configure a dead-letter queue. After 5 failed deliveries, the message moves to the DLQ, the main queue flows normally, ops gets alerted to investigate the poison message.",
+          "Make the parser more lenient so it doesn't throw on bad JSON.",
+          "Switch from SQS to Kafka."
+        ],
+        "answer_index": 1,
+        "rationale": "This is the textbook poison-message scenario, and the textbook fix is max-receive-count + DLQ. SQS supports this natively via the queue's RedrivePolicy: after N receive counts (without deletion), the message is automatically moved to a configured DLQ. The main queue keeps flowing, legitimate emails go out, and ops gets a DLQ-depth alert to investigate the poison message (which is now isolated and inspectable). Option 1 (increase visibility timeout) makes the stall WORSE — the consumer now waits even longer per retry before failing again. Option 3 (lenient parser) is wrong — it would silently corrupt the email-sending system by treating malformed JSON as if it were valid. Bad data should fail loudly, not silently succeed. Option 4 (switch to Kafka) is cargo-culting — Kafka also requires you to handle poison messages (typically by catching exceptions, logging the offset, and seeking past the bad record); the architectural pattern is the same regardless of broker. The deeper lesson: every consumer must explicitly handle the failure path. Retries forever = queue stall = system down. Bounded retries + DLQ + alerting is the standard pattern; treat it as a non-optional part of any queue consumer.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "kafka-vs-rabbitmq-b2",
+      "payload": {
+        "text": "**Kafka vs RabbitMQ — the choice that defines your architecture.**\n\nBoth are 'message queues', but they have fundamentally different models and trade-offs. Choosing wrong is expensive to undo.\n\n**RabbitMQ** is a classic message broker. Messages live in queues; consumers ACK each message; ACKed messages are deleted. Routing is rich (topic exchanges, fanout, header-based) and per-message. Latency is low (sub-millisecond on LAN). The model is **work distribution**: 'I have N tasks, distribute them across M workers, each task done once.' Use RabbitMQ when you want a classic job queue (send email, process upload, run background job) with rich routing.\n\n**Kafka** is a distributed append-only log. Producers write to topic partitions; consumers read at their own offset. Messages are NOT deleted on ACK — they're retained by time or size (hours to weeks). Multiple consumer groups can read the same message independently. The model is **event streaming**: 'I have a stream of events; multiple downstream systems want to react to each event, and replay is valuable.' Use Kafka when you want event-driven architecture (every user action becomes an event), analytics pipelines (consume the same stream into a data warehouse), or replay capability (re-process last week's events after fixing a bug).\n\nThe choice:\n- **Job queue pattern** (send email, run cron task, process upload) → RabbitMQ. Messages should be consumed once and deleted. Routing by message attribute matters.\n- **Event streaming pattern** (user activity → analytics + notifications + search index) → Kafka. Multiple consumers, each wants the full event history, replay matters.\n- **Mixed** → use both. Many real systems have RabbitMQ for job queues and Kafka for event streaming.\n\nA common mistake: choosing Kafka because 'it's more scalable' when the workload is actually a job queue. Kafka CAN do job queues (consumer group with one partition per consumer), but it's overkill — you'll pay the operational cost of running a Kafka cluster (3+ brokers, ZooKeeper/KRaft, monitoring) for functionality RabbitMQ gives you in one process. Conversely, using RabbitMQ for high-throughput event streaming will hit the wall when you need multiple independent consumers or replay — Kafka's log retention model is what makes those possible.\n\nLinkedIn's choice of Kafka (and Uber's, Netflix's, Twitter's) wasn't because Kafka is 'better' — it's because their workload was event streaming at scale, where the append-only log with retention is the right primitive. A 100-message-per-second job queue in a small startup should not run Kafka; it should run RabbitMQ or even a database-backed queue."
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-message-queues-mental",
+      "payload": {
+        "text": "Engineering mental model",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-message-queues-mental",
+      "payload": {
+        "text": "**Mental model.** Think of Message Queues as a deliberate boundary in a system. The boundary exists because something becomes harder to manage when everything is done in one place: latency, scale, failure isolation, consistency, cost, or team ownership. The useful question is not “what does Message Queues mean?” but “what pressure makes this boundary worth introducing, and what new failure mode does it create?”"
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-message-queues-decision",
+      "payload": {
+        "title": "Design lens",
+        "body": "Before choosing Message Queues, name the workload, the critical user path, the dominant bottleneck, the failure you are trying to absorb, and the trade-off you are willing to accept. If you cannot name those five things, the design is probably premature.",
+        "kind": "info"
+      }
+    },
+    {
+      "type": "image",
+      "id": "upgrade-image-message-queues",
+      "payload": {
+        "src": "/learning-visuals/message-queues.svg",
+        "alt": "Original NO CAP systems visual for Message Queues.",
+        "caption": "Message Queues: a compact system-thinking visual.",
+        "credit": "Original NO CAP visual.",
+        "source_url": "https://github.com/donnemartin/system-design-primer"
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "upgrade-mermaid-message-queues",
+      "payload": {
+        "code": "flowchart LR\n P1[Producer] --> Q[(Queue)] --> C1[Consumer]\n P2[Producer] --> Q\n Q --> C2[Consumer]",
+        "caption": "A message queue decouples producers from consumers and buffers work.",
+        "alt_text": "A message queue decouples producers from consumers and buffers work."
+      }
+    },
+    {
+      "type": "code",
+      "id": "upgrade-code-message-queues",
+      "payload": {
+        "language": "python",
+        "code": "message_id = queue.publish({\n    \"type\": \"message-queues\",\n    \"key\": resource_id\n})\n# Consumer must be safe to retry.",
+        "caption": "A minimal engineering sketch for reasoning about Message Queues."
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-message-queues-numbers",
+      "payload": {
+        "text": "Back-of-the-envelope reasoning",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-message-queues-numbers",
+      "payload": {
+        "text": "Numerical lens: write down traffic, payload size, read/write ratio, peak multiplier and durability target before choosing a component. The numbers should justify the architecture."
+      }
+    },
+    {
+      "type": "simulation",
+      "id": "upgrade-sim-message-queues",
+      "payload": {
+        "title": "Interactive thought experiment: Message Queues",
+        "description": "Change the variables below and predict what breaks first in Message Queues. The production lab can later reuse these same inputs.",
+        "variables": [
+          {
+            "name": "producer_rate",
+            "description": "Messages produced per second",
+            "default": "1000"
+          },
+          {
+            "name": "consumer_count",
+            "description": "Concurrent consumers",
+            "default": "4"
+          },
+          {
+            "name": "processing_rate",
+            "description": "Messages processed per consumer per second",
+            "default": "300"
+          }
+        ],
+        "placeholder_note": "Interactive controls are deterministic; use the linked Labs section when a dedicated lab exists."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-message-queues-hint",
+      "payload": {
+        "title": "Hint",
+        "body": "If you are stuck on Message Queues, start by drawing the request path and marking every network hop, stateful component, queue, cache and failure boundary. Then estimate where the system will saturate.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-message-queues-1",
+      "payload": {
+        "shape": "prediction",
+        "question": "You increase traffic by 10× in a system using Message Queues. What should you inspect first?",
+        "options": [
+          "The newest framework version",
+          "The dominant bottleneck and its saturation signal",
+          "Only the UI",
+          "Nothing; the architecture should absorb any traffic automatically"
+        ],
+        "answer_index": 1,
+        "rationale": "System design is a constraint-and-bottleneck exercise. Start with the resource or dependency that will saturate first, then choose the smallest change that removes that bottleneck.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-message-queues-2",
+      "payload": {
+        "shape": "mcq",
+        "question": "Which statement is the safest engineering habit when using Message Queues?",
+        "options": [
+          "Choose it because it is popular",
+          "Add it before measuring the problem",
+          "State the workload, failure mode and trade-off it is solving",
+          "Use the most distributed design possible"
+        ],
+        "answer_index": 2,
+        "rationale": "Good architecture starts from requirements, workload and failure assumptions. The component is the consequence of that reasoning, not the starting point.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "scenario",
+      "id": "upgrade-scenario-message-queues",
+      "payload": {
+        "prompt": "Production scenario: your system uses Message Queues, traffic suddenly spikes, and p99 latency doubles. What is your first move?",
+        "context": "You have dashboards for traffic, latency, errors and saturation. You can change the architecture, but every change has operational cost.",
+        "options": [
+          {
+            "id": "a",
+            "text": "Add more instances immediately",
+            "outcome": "This may help, but only if compute saturation is the bottleneck.",
+            "correct": false
+          },
+          {
+            "id": "b",
+            "text": "Inspect the bottleneck and its saturation signal first",
+            "outcome": "Correct: diagnose before scaling or introducing a new pattern.",
+            "correct": true
+          },
+          {
+            "id": "c",
+            "text": "Disable monitoring to reduce overhead",
+            "outcome": "This removes the evidence you need to diagnose the incident.",
+            "correct": false
+          }
+        ],
+        "rationale": "Measure the limiting resource or dependency first. A bottleneck can be compute, database I/O, network, cache misses, lock contention, downstream latency, or queue backlog.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-message-queues-interview",
+      "payload": {
+        "text": "Interview drill",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-message-queues-interview",
+      "payload": {
+        "text": "**Answer this without notes:** When would you choose Message Queues, and when would you intentionally avoid it? Mention at least one bottleneck it addresses, one failure mode it introduces, and one alternative. Then quantify the workload you are designing for."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "field-guide-message-queues",
+      "payload": {
+        "title": "Engineering lens",
+        "body": "For Message Queues, separate producer speed from consumer speed. The key design question is what happens when production temporarily exceeds processing capacity: queue it, shed it, slow producers down, or degrade the feature.",
+        "kind": "tip"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "numerical-lens-message-queues",
+      "payload": {
+        "text": "### Numerical sanity check\n\nA simple queue sanity check: if producers create 8,000 messages/s and consumers process 6,000 messages/s, backlog grows at roughly 2,000 messages/s until the imbalance is corrected."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "field-question-message-queues",
+      "payload": {
+        "shape": "prediction",
+        "question": "A downstream service slows down while Message Queues keeps accepting traffic. Would you rather apply backpressure, queue more work, shed load, or degrade? Explain the trade-off.",
+        "context": "Do not optimize for a memorized definition. Reason from the workload and failure mode.",
+        "options": [
+          "Scale the same component immediately.",
+          "Measure the current bottleneck and state the assumption that changed.",
+          "Add more technologies until throughput improves.",
+          "Choose the most popular architecture."
+        ],
+        "answer_index": 1,
+        "rationale": "Good system design starts with the bottleneck and the changed constraint. The most popular or complex choice is not automatically correct.",
+        "difficulty": "interview"
+      }
+    }
+  ],
+  "trade_offs": {
+    "pros": [
+      "Smooths traffic spikes — producers write fast, consumers process steadily.",
+      "Decouples producers from consumers — they scale independently.",
+      "Reliable — messages persist in the queue even if consumers crash.",
+      "Enables async processing — producers don't block on slow operations."
+    ],
+    "cons": [
+      "Adds latency — messages are processed asynchronously, not immediately.",
+      "Adds infrastructure — another system to deploy, monitor, and debug.",
+      "Requires idempotent consumers — duplicate delivery is normal.",
+      "Operational complexity — dead-letter queues, retries, ordering guarantees."
+    ]
+  },
+  "failure_modes": [
+    "Poison messages — a message that always fails processing blocks the queue (mitigated by DLQ + max retries).",
+    "Queue buildup — consumers can't keep up; queue grows unbounded (mitigated by back-pressure + auto-scaling).",
+    "Message ordering — in distributed queues, FIFO is expensive and often not guaranteed across partitions.",
+    "Consumer crash mid-processing — message may be redelivered (mitigated by idempotency)."
+  ],
+  "common_mistakes": [
+    "Assuming exactly-once delivery — it's almost always at-least-once.",
+    "Not handling duplicate messages — every consumer must be idempotent.",
+    "Using a queue when a synchronous call would do — adds unnecessary complexity.",
+    "Forgetting to monitor queue depth — a growing queue is the first sign of trouble."
+  ],
+  "where_you_see_it": [
+    "Every async backend (email, notifications, image processing).",
+    "Every event-driven microservice architecture.",
+    "Every system that handles traffic spikes (flash sales, viral content)."
+  ],
+  "interview_prompts": [
+    "What is a message queue? How does it differ from a pub/sub system?",
+    "What are the delivery semantics? Why is exactly-once hard?",
+    "How do you handle duplicate messages in a consumer?",
+    "When would you use a queue vs a synchronous call?"
+  ],
+  "real_system_mappings": [
+    {
+      "system": "RabbitMQ",
+      "how": "Classic message broker with rich routing, acknowledgments, and dead-letter exchanges. At-least-once delivery with optional transactions."
+    },
+    {
+      "system": "AWS SQS",
+      "how": "Managed message queue with at-least-once delivery, dead-letter queues, and visibility timeouts. Standard (unordered, at-least-once) and FIFO (ordered, exactly-once via dedup ID) modes."
+    }
+  ],
+  "status": "published",
+  "sources": [
+    {
+      "title": "System Design Primer",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Open source"
+    },
+    {
+      "title": "ByteByteGo — Scale from zero to millions",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "ByteByteGo"
+    },
+    {
+      "title": "System Design Tutorial",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "GeeksforGeeks"
+    },
+    {
+      "title": "System Design Roadmap",
+      "url": "https://roadmap.sh/system-design",
+      "publisher": "roadmap.sh"
+    },
+    {
+      "title": "Scaling & Performance reference",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Scaling & Performance reference",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Scaling & Performance reference",
+      "url": "https://highscalability.com/",
+      "publisher": "Reference"
+    }
+  ]
+}

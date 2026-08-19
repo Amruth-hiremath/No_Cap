@@ -1,0 +1,433 @@
+{
+  "slug": "failure-analysis",
+  "version": 4,
+  "title": "Failure Analysis",
+  "phase": "interview-preparation",
+  "area": "Interview Preparation",
+  "estimated_minutes": 7,
+  "difficulty": "advanced",
+  "summary": "Failure analysis is the discipline of asking \"what will break?\" before something does. It identifies single points of failure (SPOFs), cascading failure paths, and bottlenecks under load. Techniques: component-by-component review (\"what if this dies?\"), dependency mapping, capacity analysis (\"what if traffic doubles?\"), and game days (deliberate failures in production). The output isn't just a list of risks — it's a prioritized plan for what to harden first.",
+  "why_it_matters": "In production, anything that can fail will fail — usually at 3am. Failure analysis forces you to find those failure modes beforehand, when you have time to fix them calmly, rather than during an incident when you don't. It's also a top system design interview topic: candidates who can list SPOFs, cascades, and bottlenecks in a proposed design stand out from those who only describe the happy path. The discipline converts \"we hope it works\" into \"we know it works under these conditions, and we know how it breaks beyond them.\"",
+  "prerequisites": [
+    "single-points-of-failure",
+    "bottleneck-identification",
+    "circuit-breaker"
+  ],
+  "related": [
+    "single-points-of-failure",
+    "bottleneck-identification",
+    "circuit-breaker",
+    "failover",
+    "disaster-recovery"
+  ],
+  "used_in": [
+    "Every system design review.",
+    "Every pre-launch readiness review.",
+    "Every system design interview."
+  ],
+  "blocks": [
+    {
+      "type": "prose",
+      "id": "intro",
+      "payload": {
+        "text": "Failure analysis answers three questions about a system:\n\n1. **What can fail?** — enumerate every component and ask what happens when it dies.\n2. **How does the failure propagate?** — does it take down other components? Does it cascade?\n3. **How do we mitigate?** — redundancy, circuit breakers, fallbacks, failover.\n\nThe systematic technique is the **component failure review**: list every component (load balancer, web server, database, cache, queue, downstream API), then for each, ask: \"If this dies, what happens to the user? What happens to the rest of the system? How long does it take to recover?\"\n\nA system that survives the component failure review is robust. A system that hasn't been through one will fail at 3am in surprising ways."
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "failure-modes",
+      "payload": {
+        "code": "flowchart TD\n    N0[\"COMPONENT\"]\n    N1[\"FAILURE\"]\n    N2[\"REVIEW\"]\n    N3[\"Component\"]\n    N4[\"Failure\"]\n    N5[\"Mode\"]\n    N6[\"Blast\"]\n    N7[\"Radius\"]\n    N8[\"Load\"]\n    N9[\"balancer\"]\n    N10[\"one\"]\n    N11[\"dies\"]\n    N12[\"reroute\"]\n    N13[\"other\"]\n    N14[\"AZs\"]\n    N15[\"1/10\"]\n    N16[\"Web\"]\n    N17[\"server\"]\n    N18[\"10)\"]\n    N19[\"instance\"]\n    N20[\"reroutes\"]\n    N21[\"Redis\"]\n    N22[\"slow\"]\n    N23[\"Cache\"]\n    N24[\"(Redis)\"]\n    N25[\"primary\"]\n    N26[\"read\"]\n    N27[\"fallback\"]\n    N28[\"(slow)\"]\n    N29[\"1-5 min\"]\n    N30[\"Database\"]\n    N31[\"promote\"]\n    N32[\"replica\"]\n    N33[\"min)\"]\n    N34[\"broker\"]\n    N35[\"producers\"]\n    N36[\"can't\"]\n    N37[\"enqueue\"]\n    N38[\"DNS\"]\n    N39[\"misconfigured\"]\n    N40[\"users\"]\n    N41[\"reach\"]\n    N42[\"service\"]\n    N43[\"TLS\"]\n    N44[\"cert\"]\n    N45[\"expires\"]\n    N46[\"see\"]\n    N47[\"security\"]\n    N48[\"error\"]\n    N49[\"Third\"]\n    N50[\"party\"]\n    N51[\"API\"]\n    N52[\"rate\"]\n    N53[\"limits\"]\n    N54[\"down\"]\n    N55[\"graceful\"]\n    N56[\"degradation?\"]\n    N57[\"CASCADING\"]\n    N58[\"PATH\"]\n    N59[\"holds\"]\n    N60[\"threads\"]\n    N61[\"thread\"]\n    N62[\"pool\"]\n    N63[\"exhausts\"]\n    N64[\"unresponsive\"]\n    N65[\"upstream\"]\n    N66[\"services\"]\n    N67[\"hold\"]\n    N68[\"they\"]\n    N69[\"exhaust\"]\n    N70[\"cascade\"]\n    N71[\"spreads.\"]\n    N72[\"Without\"]\n    N73[\"circuit\"]\n    N74[\"breakers\"]\n    N75[\"timeouts,\"]\n    N76[\"takes\"]\n    N77[\"everything.\"]\n    N78[\"BOTTLENECK\"]\n    N79[\"IDENTIFICATION\"]\n    N80[\"test\"]\n    N81[\"find\"]\n    N82[\"first\"]\n    N83[\"component\"]\n    N84[\"saturate.\"]\n    N85[\"Typical:\"]\n    N86[\"connection\"]\n    N87[\"pool,\"]\n    N88[\"cache\"]\n    N89[\"hit\"]\n    N90[\"rate,\"]\n    N91[\"single\"]\n    N92[\"hot\"]\n    N93[\"shard,\"]\n    N94[\"downstream\"]\n    N95[\"API,\"]\n    N96[\"network\"]\n    N97[\"egress.\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44\n    N44 --> N45\n    N45 --> N46\n    N46 --> N47\n    N47 --> N48\n    N48 --> N49\n    N49 --> N50\n    N50 --> N51\n    N51 --> N52\n    N52 --> N53\n    N53 --> N54\n    N54 --> N55\n    N55 --> N56\n    N56 --> N57\n    N57 --> N58\n    N58 --> N59\n    N59 --> N60\n    N60 --> N61\n    N61 --> N62\n    N62 --> N63\n    N63 --> N64\n    N64 --> N65\n    N65 --> N66\n    N66 --> N67\n    N67 --> N68\n    N68 --> N69\n    N69 --> N70\n    N70 --> N71\n    N71 --> N72\n    N72 --> N73\n    N73 --> N74\n    N74 --> N75\n    N75 --> N76\n    N76 --> N77\n    N77 --> N78\n    N78 --> N79\n    N79 --> N80\n    N80 --> N81\n    N81 --> N82\n    N82 --> N83\n    N83 --> N84\n    N84 --> N85\n    N85 --> N86\n    N86 --> N87\n    N87 --> N88\n    N88 --> N89\n    N89 --> N90\n    N90 --> N91\n    N91 --> N92\n    N92 --> N93\n    N93 --> N94\n    N94 --> N95\n    N95 --> N96\n    N96 --> N97",
+        "caption": "Failure analysis enumerates components, blast radius, cascades, and bottlenecks. The output is a prioritized hardening plan.",
+        "alt_text": "Three sections. Component failure review: a table with columns component, failure mode, and blast radius. Examples: load balancer fails in one AZ, reroute to other AZs, fine. One web server of ten dies, the load balancer reroutes, fine. Redis cache primary dies, read fallback to the database, slow. Database primary dies, promote replica, one to five minutes. Message queue broker dies, producers can't enqueue. DNS misconfigured, users can't reach the service. TLS cert expires, users see a security error. Third-party API rate-limits or is down, graceful degradation needed. Cascading failure path: the database gets slow, the API holds threads, the thread pool exhausts, the API becomes unresponsive, upstream services hold threads and they exhaust, the cascade spreads. Without circuit breakers and timeouts, one slow database takes down everything. Bottleneck identification: load test to find the first component to saturate. Typical bottlenecks: database connection pool, cache hit rate, single hot shard, a slow downstream API, network egress."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "single-points-of-failure",
+      "payload": {
+        "text": "A **single point of failure (SPOF)** is a component whose failure takes down the whole system. The classic example: a single database with no replica. When it dies, the service is down until you restore from backup.\n\nIdentify SPOFs by tracing the request path and asking \"is there redundancy here?\" For each component:\n- Multiple instances? (load balancer, web servers)\n- Replicas? (database, cache)\n- Failover plan? (DNS, region)\n- Health-checked and rerouted? (every component)\n\nEliminate SPOFs by adding redundancy. But beware: redundancy that's not tested is theoretical. A replica that's never been promoted will fail when you need it (configuration drift, broken replication, missing credentials). Test failover regularly — chaos engineering (Game Days) exists for this reason.\n\nCommon SPOFs that get missed:\n- **DNS**: a single DNS provider is a SPOF. Use multiple providers or an authoritative anycast service.\n- **TLS cert management**: an expired cert takes down the service. Automate renewal and alert on expiry.\n- **Single cloud region**: even multi-AZ doesn't survive a region outage. Multi-region for true resilience.\n- **Shared dependencies**: if every service depends on the same Redis cluster, that cluster is a SPOF."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "cascading-failures",
+      "payload": {
+        "text": "A **cascading failure** is when a failure in one component triggers failures in others, spreading outward. The classic pattern:\n\n1. A downstream service (DB, third-party API) gets slow.\n2. Callers hold threads/connections waiting for it.\n3. Caller thread pools exhaust; callers become unresponsive.\n4. Services that depend on the callers hold their threads.\n5. The cascade spreads outward through the dependency graph.\n\nDefenses:\n\n- **Timeouts**: every call has a deadline. Slow dependencies fail fast, freeing resources.\n- **Circuit breakers**: sustained failures trip the breaker; subsequent calls fail immediately instead of waiting.\n- **Bulkheads**: separate thread pools per downstream service so a slow one doesn't consume all threads.\n- **Back-pressure**: when a queue grows, signal upstream to slow down rather than pile up work.\n- **Graceful degradation**: when a dependency fails, serve a fallback instead of crashing.\n\nThe combination matters. Timeouts alone cause retry storms. Circuit breakers alone fail too aggressively. The pattern is: timeout on every call, circuit breaker on sustained failure, fallback when the breaker is open. This is the resilience stack."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "blast-radius",
+      "payload": {
+        "title": "Failure isolation: minimize blast radius",
+        "body": "A well-designed system limits the impact of any single failure. The technique is **bulkheading** — partitioning resources so a failure in one partition doesn't consume resources in another. Examples: separate thread pools per downstream service; separate database instances per tenant (or per shard); separate clusters per region. The goal is that the failure of any single component takes down only that component's users, not everyone. Netflix's chaos engineering tests this: they deliberately kill instances and verify the system degrades gracefully rather than cascading. Smaller blast radius = smaller incident = faster recovery.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "capacity-analysis",
+      "payload": {
+        "text": "Failure analysis also asks: \"what happens when traffic doubles?\" — **capacity analysis**.\n\nFor each component:\n- **Current utilization**: CPU, memory, disk, network, queue depth.\n- **Headroom**: how much can it grow before saturating?\n- **Saturation behavior**: when it saturates, does it degrade gracefully or crash?\n- **Scaling plan**: can it scale horizontally? How fast? Automatically?\n\nCommon findings:\n- The database is the bottleneck (single primary, can't scale writes horizontally without sharding).\n- A cache is undersized (hit rate drops, DB load spikes).\n- A connection pool is too small (requests queue when traffic spikes).\n- A single hot shard takes disproportionate load (key distribution problem).\n- Network egress is the limit (a CDN would help).\n\nThe output: a capacity plan — what to scale, when, and how. \"At 2x current traffic, we'd need to add 5 web servers and shard the database. At 5x, multi-region.\""
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q1",
+      "payload": {
+        "question": "Your service has a single Redis cache (no replica) holding session data. Failure analysis reveals this is a SPOF. What's the risk and the mitigation?",
+        "shape": "mcq",
+        "options": [
+          "Risk: minimal — Redis is reliable. Mitigation: none needed.",
+          "Risk: if Redis dies, all sessions are lost and users are logged out; if it can't recover, the service is down. Mitigation: Redis Cluster / Sentinel with replicas, or accept the failure mode and have users re-authenticate (graceful degradation).",
+          "Risk: data corruption. Mitigation: backup nightly.",
+          "Risk: nothing — Redis persists to disk."
+        ],
+        "answer_index": 1,
+        "rationale": "A single Redis instance is a SPOF for any service that depends on it. If it dies, all session data is lost (assuming in-memory or recently-written data not yet persisted). Mitigations: Redis Cluster (sharded with replicas) or Redis Sentinel (automatic failover to a replica). Both add complexity but eliminate the SPOF. An alternative is graceful degradation: accept that sessions will be lost and have users re-authenticate — fine for low-stakes services, unacceptable for high-stakes ones. The point of failure analysis is to make this an explicit decision, not a surprise at 3am. \"Backup nightly\" doesn't help — backups don't prevent downtime.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q2",
+      "payload": {
+        "question": "A downstream API gets slow. Your service has no timeouts and no circuit breaker. What's the cascade?",
+        "shape": "mcq",
+        "options": [
+          "The downstream recovers on its own; no impact on your service.",
+          "Your service's threads pile up waiting for the slow downstream, the thread pool exhausts, your service becomes unresponsive, services that depend on you hold their threads, and the cascade spreads outward — potentially taking down the whole system.",
+          "Your service fails fast; only the affected requests fail.",
+          "The slow downstream gives up and disconnects."
+        ],
+        "answer_index": 1,
+        "rationale": "This is the textbook cascading failure. Without timeouts, every call to the slow downstream holds a thread for the OS default (often 60s). Thread pools exhaust in seconds under load. Once your service is unresponsive, services that depend on you also hold threads waiting — and their pools exhaust too. The cascade spreads outward through the dependency graph. The defenses: timeouts (free threads fast), circuit breakers (stop calling the slow downstream), bulkheads (one slow downstream doesn't consume all threads), graceful degradation (serve a fallback when the breaker is open). The combination is the resilience stack — without it, one slow dependency takes down the whole system.",
+        "difficulty": "core"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q3",
+      "payload": {
+        "question": "What's the difference between a single point of failure (SPOF) and a bottleneck?",
+        "shape": "mcq",
+        "options": [
+          "A SPOF is a component whose failure takes down the system; a bottleneck is a component that limits throughput but doesn't fail.",
+          "They're the same thing.",
+          "A SPOF limits throughput; a bottleneck fails the system.",
+          "SPOFs are about latency; bottlenecks are about availability."
+        ],
+        "answer_index": 0,
+        "rationale": "A SPOF is about availability: its failure (death) takes down the system. Example: a single database with no replica. A bottleneck is about capacity: it limits how much the system can handle without saturating, even when healthy. Example: a database that can only handle 1000 writes/sec while the rest of the system could handle 5000. SPOFs are addressed with redundancy (replicas, failover). Bottlenecks are addressed with scaling (sharding, caching, more capacity). A component can be both: a single database is both a SPOF (dies → service down) and a bottleneck (limits write throughput).",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-failure-analysis-mental",
+      "payload": {
+        "text": "Engineering mental model",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-failure-analysis-mental",
+      "payload": {
+        "text": "**Mental model.** Think of Failure Analysis as a deliberate boundary in a system. The boundary exists because something becomes harder to manage when everything is done in one place: latency, scale, failure isolation, consistency, cost, or team ownership. The useful question is not “what does Failure Analysis mean?” but “what pressure makes this boundary worth introducing, and what new failure mode does it create?”"
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-failure-analysis-decision",
+      "payload": {
+        "title": "Design lens",
+        "body": "Before choosing Failure Analysis, name the workload, the critical user path, the dominant bottleneck, the failure you are trying to absorb, and the trade-off you are willing to accept. If you cannot name those five things, the design is probably premature.",
+        "kind": "info"
+      }
+    },
+    {
+      "type": "image",
+      "id": "upgrade-image-failure-analysis",
+      "payload": {
+        "src": "/learning-visuals/failure-analysis.svg",
+        "alt": "Original NO CAP systems visual for Failure Analysis.",
+        "caption": "Failure Analysis: a compact system-thinking visual.",
+        "credit": "Original NO CAP visual.",
+        "source_url": "https://github.com/donnemartin/system-design-primer"
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "upgrade-mermaid-failure-analysis",
+      "payload": {
+        "code": "flowchart LR\n  A[Client] --> B[Gateway] --> C[Service] --> D[State] --> E[Outcome]",
+        "caption": "Failure Analysis: a simplified system view showing the primary flow and the main state boundaries.",
+        "alt_text": "Failure Analysis: a simplified system view showing the primary flow and the main state boundaries."
+      }
+    },
+    {
+      "type": "code",
+      "id": "upgrade-code-failure-analysis",
+      "payload": {
+        "language": "text",
+        "code": "// Pseudocode\nrequest = receive()\nresult = failure_analysis(request)\nreturn result\n\n// Production questions:\n// 1. What happens on timeout?\n// 2. Can this operation be retried safely?\n// 3. What is the bottleneck?",
+        "caption": "A minimal engineering sketch for reasoning about Failure Analysis."
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-failure-analysis-numbers",
+      "payload": {
+        "text": "Back-of-the-envelope reasoning",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-failure-analysis-numbers",
+      "payload": {
+        "text": "Numerical lens: write down traffic, payload size, read/write ratio, peak multiplier and durability target before choosing a component. The numbers should justify the architecture."
+      }
+    },
+    {
+      "type": "simulation",
+      "id": "upgrade-sim-failure-analysis",
+      "payload": {
+        "title": "Interactive thought experiment: Failure Analysis",
+        "description": "Change the variables below and predict what breaks first in Failure Analysis. The production lab can later reuse these same inputs.",
+        "variables": [
+          {
+            "name": "traffic",
+            "description": "Requests/events per second",
+            "default": "1000"
+          },
+          {
+            "name": "latency",
+            "description": "Dependency latency",
+            "default": "50ms"
+          },
+          {
+            "name": "failure_rate",
+            "description": "Injected failure rate",
+            "default": "0%"
+          }
+        ],
+        "placeholder_note": "Interactive controls are deterministic; use the linked Labs section when a dedicated lab exists."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-failure-analysis-hint",
+      "payload": {
+        "title": "Hint",
+        "body": "If you are stuck on Failure Analysis, start by drawing the request path and marking every network hop, stateful component, queue, cache and failure boundary. Then estimate where the system will saturate.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-failure-analysis-1",
+      "payload": {
+        "shape": "prediction",
+        "question": "You increase traffic by 10× in a system using Failure Analysis. What should you inspect first?",
+        "options": [
+          "The newest framework version",
+          "The dominant bottleneck and its saturation signal",
+          "Only the UI",
+          "Nothing; the architecture should absorb any traffic automatically"
+        ],
+        "answer_index": 1,
+        "rationale": "System design is a constraint-and-bottleneck exercise. Start with the resource or dependency that will saturate first, then choose the smallest change that removes that bottleneck.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-failure-analysis-2",
+      "payload": {
+        "shape": "mcq",
+        "question": "Which statement is the safest engineering habit when using Failure Analysis?",
+        "options": [
+          "Choose it because it is popular",
+          "Add it before measuring the problem",
+          "State the workload, failure mode and trade-off it is solving",
+          "Use the most distributed design possible"
+        ],
+        "answer_index": 2,
+        "rationale": "Good architecture starts from requirements, workload and failure assumptions. The component is the consequence of that reasoning, not the starting point.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "scenario",
+      "id": "upgrade-scenario-failure-analysis",
+      "payload": {
+        "prompt": "Production scenario: your system uses Failure Analysis, traffic suddenly spikes, and p99 latency doubles. What is your first move?",
+        "context": "You have dashboards for traffic, latency, errors and saturation. You can change the architecture, but every change has operational cost.",
+        "options": [
+          {
+            "id": "a",
+            "text": "Add more instances immediately",
+            "outcome": "This may help, but only if compute saturation is the bottleneck.",
+            "correct": false
+          },
+          {
+            "id": "b",
+            "text": "Inspect the bottleneck and its saturation signal first",
+            "outcome": "Correct: diagnose before scaling or introducing a new pattern.",
+            "correct": true
+          },
+          {
+            "id": "c",
+            "text": "Disable monitoring to reduce overhead",
+            "outcome": "This removes the evidence you need to diagnose the incident.",
+            "correct": false
+          }
+        ],
+        "rationale": "Measure the limiting resource or dependency first. A bottleneck can be compute, database I/O, network, cache misses, lock contention, downstream latency, or queue backlog.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-failure-analysis-interview",
+      "payload": {
+        "text": "Interview drill",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-failure-analysis-interview",
+      "payload": {
+        "text": "**Answer this without notes:** When would you choose Failure Analysis, and when would you intentionally avoid it? Mention at least one bottleneck it addresses, one failure mode it introduces, and one alternative. Then quantify the workload you are designing for."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "field-guide-failure-analysis",
+      "payload": {
+        "title": "Engineering lens",
+        "body": "A useful engineering lens for Failure Analysis: define the problem it solves, the simpler design that fails first, the constraint that forces you to introduce this concept, and the new failure modes the concept creates.",
+        "kind": "tip"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "numerical-lens-failure-analysis",
+      "payload": {
+        "text": "### Numerical sanity check\n\nBack-of-the-envelope reasoning beats fake precision. State your traffic, payload, concurrency and growth assumptions explicitly, then calculate enough to know whether the current architecture is orders of magnitude away from the target."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "field-question-failure-analysis",
+      "payload": {
+        "shape": "prediction",
+        "question": "Imagine the simplest version of a system using Failure Analysis. What breaks first as traffic grows by 10×, and what would you change before reaching 100×?",
+        "context": "Do not optimize for a memorized definition. Reason from the workload and failure mode.",
+        "options": [
+          "Scale the same component immediately.",
+          "Measure the current bottleneck and state the assumption that changed.",
+          "Add more technologies until throughput improves.",
+          "Choose the most popular architecture."
+        ],
+        "answer_index": 1,
+        "rationale": "Good system design starts with the bottleneck and the changed constraint. The most popular or complex choice is not automatically correct.",
+        "difficulty": "interview"
+      }
+    }
+  ],
+  "trade_offs": {
+    "pros": [
+      "Finds failure modes before they happen in production.",
+      "Forces explicit decisions about redundancy, failover, and graceful degradation.",
+      "Produces a prioritized hardening plan.",
+      "Essential interview skill — every system design interview touches it."
+    ],
+    "cons": [
+      "Time-consuming — full analysis takes days for a complex system.",
+      "Findings need follow-through — analysis without fixes is documentation.",
+      "Untested mitigations are theoretical — failover drills are essential.",
+      "Doesn't catch novel failure modes (the ones no one predicted)."
+    ]
+  },
+  "failure_modes": [
+    "Analysis without action — risks documented but never fixed.",
+    "Mitigations never tested — failover fails when needed.",
+    "Missing dependencies — a shared component (single Redis) treated as not-a-SPOF.",
+    "Novel failure modes not anticipated by the analysis."
+  ],
+  "common_mistakes": [
+    "Reviewing only the happy path, not failure scenarios.",
+    "Forgetting shared dependencies (single DNS provider, single Redis).",
+    "Not testing failover — assuming replicas work without promoting them.",
+    "Treating cascading failures as independent outages."
+  ],
+  "where_you_see_it": [
+    "Pre-launch readiness reviews at every major company.",
+    "Chaos engineering (Netflix Chaos Monkey, Gremlin).",
+    "System design interviews (\"what could fail in your design?\")."
+  ],
+  "interview_prompts": [
+    "What's a single point of failure? Walk through identifying them in a system.",
+    "Describe a cascading failure. How do you prevent it?",
+    "What's the difference between a SPOF and a bottleneck?",
+    "How would you do a failure analysis for an e-commerce checkout system?"
+  ],
+  "real_system_mappings": [
+    {
+      "system": "Netflix Chaos Monkey",
+      "how": "Deliberately kills production instances to test that the system survives. Failure analysis is continuous and tested, not theoretical. Surfaces SPOFs and missing failover paths before users notice."
+    },
+    {
+      "system": "AWS Well-Architected Framework Reliability Pillar",
+      "how": "Structured failure analysis checklist used in design reviews. Covers SPOFs, cascades, capacity, disaster recovery. AWS's playbook for ensuring services meet reliability expectations."
+    }
+  ],
+  "status": "published",
+  "sources": [
+    {
+      "title": "System Design Primer",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Open source"
+    },
+    {
+      "title": "ByteByteGo — Scale from zero to millions",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "ByteByteGo"
+    },
+    {
+      "title": "System Design Tutorial",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "GeeksforGeeks"
+    },
+    {
+      "title": "System Design Roadmap",
+      "url": "https://roadmap.sh/system-design",
+      "publisher": "roadmap.sh"
+    },
+    {
+      "title": "Interview Preparation reference",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Interview Preparation reference",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Interview Preparation reference",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "Reference"
+    },
+    {
+      "title": "ByteByteGo — Scaling Websites",
+      "url": "https://bytebytego.com/guides/how-to-scale-a-website-to-support-millions-of-users/",
+      "publisher": "ByteByteGo"
+    }
+  ]
+}

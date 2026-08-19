@@ -1,0 +1,432 @@
+{
+  "slug": "data-modeling",
+  "version": 4,
+  "title": "Data Modeling",
+  "phase": "interview-preparation",
+  "area": "Interview Preparation",
+  "estimated_minutes": 7,
+  "difficulty": "advanced",
+  "summary": "Data modeling is the art of representing real-world entities and relationships in a database. The key decisions: entities (what tables), relationships (one-to-one, one-to-many, many-to-many), normalization vs denormalization (consistency vs read speed), primary keys (natural vs surrogate), and indexes (what to index, what not to). Good data modeling makes queries fast and invariants enforceable; bad modeling makes everything slow and inconsistent.",
+  "why_it_matters": "The data model outlives the application. Code is rewritten; the schema is migrated carefully because data has to survive. A good schema makes queries fast (proper indexes), invariants enforced (foreign keys, unique constraints), and evolution safe (additive changes). A bad schema makes everything slow (missing indexes, N+1 queries), inconsistent (denormalized data that drifts), and dangerous to change (no constraints, data corruption on writes). Every system design interview includes data modeling — getting it right is a top differentiator.",
+  "prerequisites": [
+    "sql-vs-nosql",
+    "denormalization"
+  ],
+  "related": [
+    "sql-vs-nosql",
+    "denormalization",
+    "sharding",
+    "index-table",
+    "sql-tuning"
+  ],
+  "used_in": [
+    "Every relational database design.",
+    "Every system design interview.",
+    "Every data warehouse or OLAP system."
+  ],
+  "blocks": [
+    {
+      "type": "prose",
+      "id": "intro",
+      "payload": {
+        "text": "Data modeling answers four questions:\n\n1. **Entities**: what are the nouns? (users, orders, products)\n2. **Attributes**: what properties does each entity have? (user.email, order.total)\n3. **Relationships**: how do entities relate? (a user has many orders; an order has many products through line items)\n4. **Constraints**: what invariants must hold? (email is unique; order.total > 0; line_item.quantity > 0)\n\nThe standard modeling technique is **entity-relationship (ER) modeling**: draw entities as boxes, attributes as fields, relationships as lines with cardinality (1:1, 1:N, N:M). Then translate to tables.\n\nThree relationship types:\n- **One-to-one**: rare; usually modeled as fields on the parent. Use a separate table only if the entity is optional or very large.\n- **One-to-many**: foreign key on the \"many\" side. (`orders.user_id` references `users.id`.)\n- **Many-to-many**: requires a junction table. (`user_groups` with `user_id` and `group_id`.)"
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "schema",
+      "payload": {
+        "code": "flowchart TD\n    N0[\"COMMERCE\"]\n    N1[\"SCHEMA\"]\n    N2[\"users\"]\n    N3[\"orders\"]\n    N4[\"PK, uuid\"]\n    N5[\"(PK,\"]\n    N6[\"uuid)\"]\n    N7[\"UNIQUE\"]\n    N8[\"FK → users.id\"]\n    N9[\"email\"]\n    N10[\"(UNIQUE)\"]\n    N11[\"user_id\"]\n    N12[\"(FK\"]\n    N13[\"users.id)\"]\n    N14[\"enum\"]\n    N15[\"name\"]\n    N16[\"status\"]\n    N17[\"(enum)\"]\n    N18[\"created_at\"]\n    N19[\"total_cents\"]\n    N20[\"1:N\"]\n    N21[\"order_items\"]\n    N22[\"FK → orders.id\"]\n    N23[\"order_id\"]\n    N24[\"orders.id)\"]\n    N25[\"FK → products.id\"]\n    N26[\"product_id\"]\n    N27[\"products.id)\"]\n    N28[\"quantity\"]\n    N29[\"unit_price_cents\"]\n    N30[\"products\"]\n    N31[\"price_cents\"]\n    N32[\"stock_count\"]\n    N33[\"RELATIONSHIPS\"]\n    N34[\"one user, many orders\"]\n    N35[\"User\"]\n    N36[\"Orders\"]\n    N37[\"(one\"]\n    N38[\"user,\"]\n    N39[\"many\"]\n    N40[\"orders)\"]\n    N41[\"one order, many line items\"]\n    N42[\"Order\"]\n    N43[\"Items\"]\n    N44[\"order,\"]\n    N45[\"line\"]\n    N46[\"items)\"]\n    N47[\"one product, in many orders\"]\n    N48[\"Product\"]\n    N49[\"product,\"]\n    N50[\"junction table\"]\n    N51[\"N:M\"]\n    N52[\"via\"]\n    N53[\"(junction\"]\n    N54[\"table)\"]\n    N55[\"INDEXES\"]\n    N56[\"PRIMARY:\"]\n    N57[\"users.id,\"]\n    N58[\"orders.id,\"]\n    N59[\"etc.\"]\n    N60[\"UNIQUE:\"]\n    N61[\"users.email\"]\n    N62[\"FOREIGN:\"]\n    N63[\"orders.user_id,\"]\n    N64[\"order_items.order_id,\"]\n    N65[\"order_items.product_id\"]\n    N66[\"QUERY:\"]\n    N67[\"orders(created_at)\"]\n    N68[\"for\"]\n    N69[\"date\"]\n    N70[\"range\"]\n    N71[\"queries\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44\n    N44 --> N45\n    N45 --> N46\n    N46 --> N47\n    N47 --> N48\n    N48 --> N49\n    N49 --> N50\n    N50 --> N51\n    N51 --> N52\n    N52 --> N53\n    N53 --> N54\n    N54 --> N55\n    N55 --> N56\n    N56 --> N57\n    N57 --> N58\n    N58 --> N59\n    N59 --> N60\n    N60 --> N61\n    N61 --> N62\n    N62 --> N63\n    N63 --> N64\n    N64 --> N65\n    N65 --> N66\n    N66 --> N67\n    N67 --> N68\n    N68 --> N69\n    N69 --> N70\n    N70 --> N71",
+        "caption": "A typical e-commerce schema. Foreign keys on the 'many' side; junction table for many-to-many; indexes on PKs, unique constraints, and common query columns.",
+        "alt_text": "A schema diagram for an e-commerce system. Users table: id primary key, email unique, name, created_at. Orders table: id primary key, user_id foreign key to users, status enum, total in cents, created_at. Order_items table: id primary key, order_id foreign key to orders, product_id foreign key to products, quantity, unit price in cents. Products table: id primary key, name, price in cents, stock count. Relationships: user to orders is one to many. Order to items is one to many. Product to items is one to many. Order and product are many to many through the order_items junction table. Indexes: primary keys on id, unique on users.email, foreign keys on user_id, order_id, and product_id, and a query index on orders.created_at for date-range queries."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "normalization",
+      "payload": {
+        "text": "**Normalization** is the process of removing redundancy. 3rd normal form (3NF): every non-key field depends only on the key, the whole key, and nothing but the key. In practice: don't store the same fact in two places.\n\nWhy normalize?\n- **Consistency**: if the product price is stored once, it can't disagree with itself.\n- **Smaller storage**: no duplicated data.\n- **Easier updates**: change the price in one place; all orders see it.\n\nWhy denormalize?\n- **Read performance**: joining 5 tables to render a product page is slow. Denormalize by storing a snapshot of the price in `order_items.unit_price_cents` so historical orders show the price at the time, not the current price.\n- **Write performance**: avoid cascading updates.\n- **Operational simplicity**: a single read is easier than a 5-way join.\n\nThe trade-off: normalization optimizes for writes and consistency; denormalization optimizes for reads. Most OLTP systems are normalized; most OLAP / reporting systems are denormalized (star schemas). The e-commerce schema above is normalized for the most part, with strategic denormalization (unit_price_cents in order_items — a snapshot of the historical price)."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "primary-keys",
+      "payload": {
+        "text": "Choosing primary keys:\n\n- **Natural keys** (email, SSN, ISBN): meaningful, but they change (users change emails) and may have privacy implications (SSN as PK exposes it in every foreign key).\n- **Surrogate keys** (auto-increment integer, UUID): meaningless, but immutable and stable. The standard choice.\n\nInteger vs UUID:\n- **Auto-increment integer**: 8 bytes, fast to index, sequential (good for B-tree locality). Cons: reveals total count (the 1000th user knows your growth); central allocator (a bottleneck in sharded systems).\n- **UUID**: 16 bytes (or 8 for UUIDv7), globally unique (no central allocator), no count leakage. Cons: random UUIDs fragment B-trees; larger indexes. UUIDv7 (time-ordered) fixes the fragmentation.\n\nModern default: UUID (or UUIDv7 for time-ordering) as PK, with a separate auto-increment column if you need count-based IDs externally. Use ULID or Snowflake for time-ordered unique IDs that work across shards.\n\n**Never use email or username as the primary key.** Users change emails; renaming cascades through every foreign key — slow and error-prone. Use a stable surrogate key; store email as a unique constraint."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "indexes",
+      "payload": {
+        "title": "Indexes make queries fast and writes slow",
+        "body": "An index is a sorted data structure (B-tree, hash) that lets the database find rows without scanning the whole table. Every foreign key should have an index — joins and lookups become O(log N) instead of O(N). Every column used in WHERE or ORDER BY frequently should be indexed. But every index adds write cost: each INSERT/UPDATE/DELETE must update all affected indexes. Don't index everything — index the queries that matter. Use composite indexes for multi-column queries (e.g., (user_id, created_at) for \"list this user's orders by date\"). The order of columns in a composite index matters — it supports prefix lookups. Profile with EXPLAIN to find slow queries and missing indexes.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "money-types",
+      "payload": {
+        "text": "Common data-type mistakes:\n\n- **Money**: never use FLOAT — floating-point can't represent decimals exactly (0.1 + 0.2 ≠ 0.3). Use INTEGER cents (or DECIMAL). `$10.50` is stored as `1050` cents. Libraries handle the conversion.\n- **Timestamps**: always store UTC. Always include timezone awareness. Never store local time — daylight savings corrupts comparisons.\n- **Booleans**: fine for true/false, but if you might add a third state later (\"unknown\"), use an enum.\n- **Enums vs strings**: enums are type-safe and indexed efficiently. Strings are flexible but error-prone (typos). Use enums for fixed sets.\n- **JSON columns**: useful for sparse or evolving data, but you lose query performance and constraint enforcement. Use sparingly — extract to columns when the data is queried.\n- **Text length**: don't use VARCHAR(255) everywhere. Use TEXT for unbounded text, VARCHAR(N) only when there's a real limit.\n- **NOT NULL**: default to NOT NULL. Nullable columns cause bugs. Allow NULL only when there's a meaningful difference between \"unknown\" and \"empty.\""
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q1",
+      "payload": {
+        "question": "You're storing the price of products in an e-commerce schema. Users place orders that reference products. Why store `unit_price_cents` in `order_items` instead of joining to `products` to get the current price?",
+        "shape": "mcq",
+        "options": [
+          "It's faster to query.",
+          "Historical accuracy: when prices change, past orders should still show the price at the time of purchase, not the current price. This is a denormalization for correctness, not just performance.",
+          "It reduces storage.",
+          "Joins are not allowed in SQL."
+        ],
+        "answer_index": 1,
+        "rationale": "This is one of the most important denormalization patterns: snapshotting historical data. If you join to `products` to get the price, an order placed when the product cost $10 will show $12 after a price increase — a customer who paid $10 sees $12 on their receipt, breaking their trust. Storing `unit_price_cents` in `order_items` captures the price at the time of the order. The product's current price is in `products`; the historical price is in each order's line items. This is denormalization for correctness, not just performance — and it's why normalized schemas still need strategic snapshots.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q2",
+      "payload": {
+        "question": "Why should you avoid using `email` as the primary key for a users table?",
+        "shape": "mcq",
+        "options": [
+          "Emails are too long to index.",
+          "Emails change (users update them), and changing the primary key cascades through every foreign key reference — slow, error-prone, and breaks references. Use a stable surrogate key (UUID or auto-increment ID).",
+          "Emails aren't unique.",
+          "Databases don't support string primary keys."
+        ],
+        "answer_index": 1,
+        "rationale": "Primary keys should be immutable. Emails are not — users change them. If email is the PK, every foreign key that references it (orders.user_email, etc.) must be updated when the email changes. This cascades through every related table — slow, locks rows, and risks orphaned records if anything fails. The fix: use a surrogate key (UUID or auto-increment integer) as the PK — it never changes. Store email as a UNIQUE constraint on a regular column; when it changes, only the users row is updated. The foreign keys reference the stable ID, not the mutable email. This is one of the most common data modeling mistakes.",
+        "difficulty": "core"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q3",
+      "payload": {
+        "question": "Why is FLOAT a bad choice for storing monetary amounts?",
+        "shape": "mcq",
+        "options": [
+          "FLOATs are slow.",
+          "Floating-point can't represent decimal values exactly — 0.1 + 0.2 ≠ 0.3 in IEEE 754. Over millions of operations, rounding errors accumulate and balances drift. Use INTEGER cents or DECIMAL.",
+          "FLOATs take too much storage.",
+          "FLOATs can't be indexed."
+        ],
+        "answer_index": 1,
+        "rationale": "IEEE 754 floating-point can't represent most decimal values exactly (0.1 is a repeating binary fraction). Each arithmetic operation introduces a tiny rounding error. Over millions of operations, these errors accumulate — bank balances drift, totals don't sum, audits fail. The 1991 Patriot missile failure and many financial bugs trace to floating-point. The fix: store money as INTEGER cents (or smaller units) or as DECIMAL(N, M). $10.50 becomes 1050 cents. All arithmetic is exact integer math. Display libraries convert back to decimal for the user. This is a hard rule in any financial system.",
+        "difficulty": "core"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-data-modeling-mental",
+      "payload": {
+        "text": "Engineering mental model",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-data-modeling-mental",
+      "payload": {
+        "text": "**Mental model.** Think of Data Modeling as a deliberate boundary in a system. The boundary exists because something becomes harder to manage when everything is done in one place: latency, scale, failure isolation, consistency, cost, or team ownership. The useful question is not “what does Data Modeling mean?” but “what pressure makes this boundary worth introducing, and what new failure mode does it create?”"
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-data-modeling-decision",
+      "payload": {
+        "title": "Design lens",
+        "body": "Before choosing Data Modeling, name the workload, the critical user path, the dominant bottleneck, the failure you are trying to absorb, and the trade-off you are willing to accept. If you cannot name those five things, the design is probably premature.",
+        "kind": "info"
+      }
+    },
+    {
+      "type": "image",
+      "id": "upgrade-image-data-modeling",
+      "payload": {
+        "src": "/learning-visuals/data-modeling.svg",
+        "alt": "Original NO CAP systems visual for Data Modeling.",
+        "caption": "Data Modeling: a compact system-thinking visual.",
+        "credit": "Original NO CAP visual.",
+        "source_url": "https://github.com/donnemartin/system-design-primer"
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "upgrade-mermaid-data-modeling",
+      "payload": {
+        "code": "flowchart LR\n  A[Client] --> B[Gateway] --> C[Service] --> D[State] --> E[Outcome]",
+        "caption": "Data Modeling: a simplified system view showing the primary flow and the main state boundaries.",
+        "alt_text": "Data Modeling: a simplified system view showing the primary flow and the main state boundaries."
+      }
+    },
+    {
+      "type": "code",
+      "id": "upgrade-code-data-modeling",
+      "payload": {
+        "language": "text",
+        "code": "// Pseudocode\nrequest = receive()\nresult = data_modeling(request)\nreturn result\n\n// Production questions:\n// 1. What happens on timeout?\n// 2. Can this operation be retried safely?\n// 3. What is the bottleneck?",
+        "caption": "A minimal engineering sketch for reasoning about Data Modeling."
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-data-modeling-numbers",
+      "payload": {
+        "text": "Back-of-the-envelope reasoning",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-data-modeling-numbers",
+      "payload": {
+        "text": "Numerical lens: write down traffic, payload size, read/write ratio, peak multiplier and durability target before choosing a component. The numbers should justify the architecture."
+      }
+    },
+    {
+      "type": "simulation",
+      "id": "upgrade-sim-data-modeling",
+      "payload": {
+        "title": "Interactive thought experiment: Data Modeling",
+        "description": "Change the variables below and predict what breaks first in Data Modeling. The production lab can later reuse these same inputs.",
+        "variables": [
+          {
+            "name": "traffic",
+            "description": "Requests/events per second",
+            "default": "1000"
+          },
+          {
+            "name": "latency",
+            "description": "Dependency latency",
+            "default": "50ms"
+          },
+          {
+            "name": "failure_rate",
+            "description": "Injected failure rate",
+            "default": "0%"
+          }
+        ],
+        "placeholder_note": "Interactive controls are deterministic; use the linked Labs section when a dedicated lab exists."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-data-modeling-hint",
+      "payload": {
+        "title": "Hint",
+        "body": "If you are stuck on Data Modeling, start by drawing the request path and marking every network hop, stateful component, queue, cache and failure boundary. Then estimate where the system will saturate.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-data-modeling-1",
+      "payload": {
+        "shape": "prediction",
+        "question": "You increase traffic by 10× in a system using Data Modeling. What should you inspect first?",
+        "options": [
+          "The newest framework version",
+          "The dominant bottleneck and its saturation signal",
+          "Only the UI",
+          "Nothing; the architecture should absorb any traffic automatically"
+        ],
+        "answer_index": 1,
+        "rationale": "System design is a constraint-and-bottleneck exercise. Start with the resource or dependency that will saturate first, then choose the smallest change that removes that bottleneck.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-data-modeling-2",
+      "payload": {
+        "shape": "mcq",
+        "question": "Which statement is the safest engineering habit when using Data Modeling?",
+        "options": [
+          "Choose it because it is popular",
+          "Add it before measuring the problem",
+          "State the workload, failure mode and trade-off it is solving",
+          "Use the most distributed design possible"
+        ],
+        "answer_index": 2,
+        "rationale": "Good architecture starts from requirements, workload and failure assumptions. The component is the consequence of that reasoning, not the starting point.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "scenario",
+      "id": "upgrade-scenario-data-modeling",
+      "payload": {
+        "prompt": "Production scenario: your system uses Data Modeling, traffic suddenly spikes, and p99 latency doubles. What is your first move?",
+        "context": "You have dashboards for traffic, latency, errors and saturation. You can change the architecture, but every change has operational cost.",
+        "options": [
+          {
+            "id": "a",
+            "text": "Add more instances immediately",
+            "outcome": "This may help, but only if compute saturation is the bottleneck.",
+            "correct": false
+          },
+          {
+            "id": "b",
+            "text": "Inspect the bottleneck and its saturation signal first",
+            "outcome": "Correct: diagnose before scaling or introducing a new pattern.",
+            "correct": true
+          },
+          {
+            "id": "c",
+            "text": "Disable monitoring to reduce overhead",
+            "outcome": "This removes the evidence you need to diagnose the incident.",
+            "correct": false
+          }
+        ],
+        "rationale": "Measure the limiting resource or dependency first. A bottleneck can be compute, database I/O, network, cache misses, lock contention, downstream latency, or queue backlog.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-data-modeling-interview",
+      "payload": {
+        "text": "Interview drill",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-data-modeling-interview",
+      "payload": {
+        "text": "**Answer this without notes:** When would you choose Data Modeling, and when would you intentionally avoid it? Mention at least one bottleneck it addresses, one failure mode it introduces, and one alternative. Then quantify the workload you are designing for."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "field-guide-data-modeling",
+      "payload": {
+        "title": "Engineering lens",
+        "body": "A useful engineering lens for Data Modeling: define the problem it solves, the simpler design that fails first, the constraint that forces you to introduce this concept, and the new failure modes the concept creates.",
+        "kind": "tip"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "numerical-lens-data-modeling",
+      "payload": {
+        "text": "### Numerical sanity check\n\nBack-of-the-envelope reasoning beats fake precision. State your traffic, payload, concurrency and growth assumptions explicitly, then calculate enough to know whether the current architecture is orders of magnitude away from the target."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "field-question-data-modeling",
+      "payload": {
+        "shape": "prediction",
+        "question": "Imagine the simplest version of a system using Data Modeling. What breaks first as traffic grows by 10×, and what would you change before reaching 100×?",
+        "context": "Do not optimize for a memorized definition. Reason from the workload and failure mode.",
+        "options": [
+          "Scale the same component immediately.",
+          "Measure the current bottleneck and state the assumption that changed.",
+          "Add more technologies until throughput improves.",
+          "Choose the most popular architecture."
+        ],
+        "answer_index": 1,
+        "rationale": "Good system design starts with the bottleneck and the changed constraint. The most popular or complex choice is not automatically correct.",
+        "difficulty": "interview"
+      }
+    }
+  ],
+  "trade_offs": {
+    "pros": [
+      "Normalized schemas enforce consistency (no duplicated facts to drift).",
+      "Foreign keys and unique constraints enforce invariants at the DB level.",
+      "Proper indexes make queries fast.",
+      "Stable surrogate keys make schema evolution safe."
+    ],
+    "cons": [
+      "Joins on normalized schemas can be slow for read-heavy workloads.",
+      "Denormalization for performance requires careful update logic.",
+      "Too many indexes slow writes.",
+      "Schema migrations on large tables can be slow and risky."
+    ]
+  },
+  "failure_modes": [
+    "Using FLOAT for money — rounding errors accumulate.",
+    "Email/username as PK — cascading updates when it changes.",
+    "Missing indexes on foreign keys — slow joins and full table scans.",
+    "Storing money as current price instead of snapshotting at order time."
+  ],
+  "common_mistakes": [
+    "Using natural keys (email) instead of surrogate keys (UUID) as PK.",
+    "Forgetting to index foreign keys — most databases don't auto-index them.",
+    "Using FLOAT instead of INTEGER cents or DECIMAL for money.",
+    "Storing local time instead of UTC — daylight savings corrupts comparisons."
+  ],
+  "where_you_see_it": [
+    "Every relational database schema (PostgreSQL, MySQL, Oracle).",
+    "Every system design interview (entities, relationships, primary keys).",
+    "Data warehouse design (star schemas, denormalized for read performance)."
+  ],
+  "interview_prompts": [
+    "Design the data model for an e-commerce system. What tables, relationships, and indexes?",
+    "When would you normalize vs denormalize?",
+    "Why store money as INTEGER cents instead of FLOAT?",
+    "Why use a surrogate key (UUID) instead of email as the primary key?"
+  ],
+  "real_system_mappings": [
+    {
+      "system": "Stripe",
+      "how": "Stores all monetary amounts as integer cents. Every record has a UUID primary key. Their schema is normalized for consistency with strategic denormalization (e.g., snapshotting the fee structure at charge time)."
+    },
+    {
+      "system": "GitHub",
+      "how": "Uses integer auto-increment IDs for most entities (revealing total counts — sometimes controversial). Many-to-many relationships (repo ↔ user) use junction tables. Heavily indexed for read performance."
+    }
+  ],
+  "status": "published",
+  "sources": [
+    {
+      "title": "System Design Primer",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Open source"
+    },
+    {
+      "title": "ByteByteGo — Scale from zero to millions",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "ByteByteGo"
+    },
+    {
+      "title": "System Design Tutorial",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "GeeksforGeeks"
+    },
+    {
+      "title": "System Design Roadmap",
+      "url": "https://roadmap.sh/system-design",
+      "publisher": "roadmap.sh"
+    },
+    {
+      "title": "Interview Preparation reference",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Interview Preparation reference",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Interview Preparation reference",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "Reference"
+    },
+    {
+      "title": "ByteByteGo — Scaling Websites",
+      "url": "https://bytebytego.com/guides/how-to-scale-a-website-to-support-millions-of-users/",
+      "publisher": "ByteByteGo"
+    }
+  ]
+}

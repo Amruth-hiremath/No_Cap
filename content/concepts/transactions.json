@@ -1,0 +1,452 @@
+{
+  "slug": "transactions",
+  "version": 4,
+  "title": "Transactions & ACID",
+  "phase": "databases-data-systems",
+  "area": "Databases & Data Systems",
+  "estimated_minutes": 7,
+  "difficulty": "advanced",
+  "summary": "A transaction is a sequence of database operations treated as a single, indivisible unit of work. ACID — Atomicity, Consistency, Isolation, Durability — is the set of guarantees that make transactions safe. Single-database transactions are well understood; the moment a transaction spans multiple databases or services, ACID breaks down and you must adopt alternatives like sagas or two-phase commit.",
+  "why_it_matters": "Almost every correctness bug in data systems comes down to a missing or broken transaction. Double-charged payments, oversold inventory, corrupted account balances, half-completed profile updates — these are all transaction failures. Understanding ACID is understanding what guarantees your database actually provides, what trade-offs each guarantee imposes, and why distributed transactions are the hardest problem in data systems.",
+  "prerequisites": [
+    "sql-vs-nosql"
+  ],
+  "related": [
+    "isolation-levels",
+    "mvcc",
+    "wal",
+    "two-phase-commit",
+    "saga-pattern"
+  ],
+  "used_in": [
+    "Banking and payments — atomic debit/credit pairs.",
+    "E-commerce checkout — atomic inventory deduction + order creation + payment.",
+    "Booking systems — atomic seat/room reservation.",
+    "Any multi-step update that must be all-or-nothing.",
+    "Databases with strict invariants (accounting ledgers, inventory counts)."
+  ],
+  "blocks": [
+    {
+      "type": "prose",
+      "id": "intro",
+      "payload": {
+        "text": "A **transaction** is a unit of work — a sequence of operations that the database commits or aborts as a whole. Either all of them happen, or none of them do. The classic example is a bank transfer: debit account A by $100, credit account B by $100, log the transfer. If the system crashes after the debit but before the credit, you've destroyed $100.\n\nThe four guarantees a transactional database provides are called **ACID**:\n\n- **Atomicity** — all-or-nothing. Either every operation in the transaction commits, or none do. If anything fails, the entire transaction rolls back. ('A' is for Atomic, not 'all-or-nothing' — but the meaning is the same.)\n- **Consistency** — the database moves from one valid state to another. Constraints (foreign keys, uniqueness, checks) are never violated. Note: this 'C' is application-defined — the database enforces the constraints you've declared.\n- **Isolation** — concurrent transactions behave as if they ran sequentially. Their effects don't interleave. (In practice, perfect isolation is expensive; databases offer a spectrum of isolation levels — see the Isolation Levels concept.)\n- **Durability** — once committed, the transaction's effects survive crashes, power loss, and restarts. Typically implemented via the write-ahead log (WAL).\n\nThe transfer example is impossible without ACID. Without atomicity, a mid-transfer crash leaves the books unbalanced. Without durability, a crash after commit loses the customer's money. Without isolation, two simultaneous transfers between the same accounts produce wrong balances."
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "acid-anatomy",
+      "payload": {
+        "code": "flowchart TD\n    N0[\"ACID\"]\n    N1[\"guarantees\"]\n    N2[\"for\"]\n    N3[\"bank\"]\n    N4[\"transfer\"]\n    N5[\"BEGIN;\"]\n    N6[\"UPDATE\"]\n    N7[\"accounts\"]\n    N8[\"SET\"]\n    N9[\"balance\"]\n    N10[\"100\"]\n    N11[\"WHERE\"]\n    N12[\"debit\"]\n    N13[\"credit\"]\n    N14[\"from_id, to_id, amount\"]\n    N15[\"1, 2, 100\"]\n    N16[\"INSERT\"]\n    N17[\"transfers\"]\n    N18[\"(from_id,\"]\n    N19[\"to_id,\"]\n    N20[\"amount)\"]\n    N21[\"VALUES\"]\n    N22[\"(1,\"]\n    N23[\"100);\"]\n    N24[\"COMMIT;\"]\n    N25[\"Atomicity\"]\n    N26[\"Crash\"]\n    N27[\"after\"]\n    N28[\"debit,\"]\n    N29[\"before\"]\n    N30[\"credit?\"]\n    N31[\"entire\"]\n    N32[\"transaction\"]\n    N33[\"rolls\"]\n    N34[\"back.\"]\n    N35[\"money\"]\n    N36[\"disappears.\"]\n    N37[\"CHECK constraint\"]\n    N38[\"Consistency\"]\n    N39[\"Balance\"]\n    N40[\"can't\"]\n    N41[\"negative\"]\n    N42[\"(CHECK\"]\n    N43[\"constraint)?\"]\n    N44[\"ABORTS,\"]\n    N45[\"constraint\"]\n    N46[\"enforced.\"]\n    N47[\"Isolation\"]\n    N48[\"Two\"]\n    N49[\"running\"]\n    N50[\"concurrently?\"]\n    N51[\"see\"]\n    N52[\"Levels;\"]\n    N53[\"default\"]\n    N54[\"SERIALIZABLE\"]\n    N55[\"makes\"]\n    N56[\"them\"]\n    N57[\"appear\"]\n    N58[\"sequential.\"]\n    N59[\"Durability\"]\n    N60[\"Power\"]\n    N61[\"loss\"]\n    N62[\"right\"]\n    N63[\"COMMIT?\"]\n    N64[\"WAL\"]\n    N65[\"already\"]\n    N66[\"fsync'd;\"]\n    N67[\"restart,\"]\n    N68[\"the\"]\n    N69[\"replayed\"]\n    N70[\"and\"]\n    N71[\"visible.\"]\n    N72[\"Lose\"]\n    N73[\"any\"]\n    N74[\"one\"]\n    N75[\"guarantee\"]\n    N76[\"corrupted\"]\n    N77[\"books.\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44\n    N44 --> N45\n    N45 --> N46\n    N46 --> N47\n    N47 --> N48\n    N48 --> N49\n    N49 --> N50\n    N50 --> N51\n    N51 --> N52\n    N52 --> N53\n    N53 --> N54\n    N54 --> N55\n    N55 --> N56\n    N56 --> N57\n    N57 --> N58\n    N58 --> N59\n    N59 --> N60\n    N60 --> N61\n    N61 --> N62\n    N62 --> N63\n    N63 --> N64\n    N64 --> N65\n    N65 --> N66\n    N66 --> N67\n    N67 --> N68\n    N68 --> N69\n    N69 --> N70\n    N70 --> N71\n    N71 --> N72\n    N72 --> N73\n    N73 --> N74\n    N74 --> N75\n    N75 --> N76\n    N76 --> N77",
+        "caption": "ACID guarantees protect a bank transfer from every category of failure.",
+        "alt_text": "A diagram of the four ACID guarantees applied to a bank transfer: debit account A by 100, credit account B by 100, insert a transfer log row. Atomicity rolls back the entire transaction if a crash occurs after the debit but before the credit, so no money disappears. Consistency aborts the transaction if a CHECK constraint like balance can't go negative would be violated. Isolation makes two concurrent transfers between the same accounts appear to run sequentially. Durability means a power loss right after COMMIT still preserves the transfer because the write-ahead log was fsynced and replays on restart. Lose any one guarantee and the books corrupt."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "atomicity-and-durability",
+      "payload": {
+        "text": "**Atomicity** is implemented with an undo log: the database records enough information to reverse each operation if the transaction aborts. A crash mid-transaction triggers rollback on restart — every uncommitted transaction is undone before the database accepts new connections.\n\n**Durability** is implemented with a redo log — the **write-ahead log (WAL)**. Before any change is applied to the data files, the database writes the change to the WAL (an append-only file) and fsyncs it. On crash, the data files may be inconsistent, but the WAL has every committed change; the database replays the WAL on startup to bring the data files up to date.\n\nThis is why the WAL is the linchpin of durability — losing the WAL means losing committed transactions even if the data files are intact. Most databases replicate the WAL to a standby for high availability (see the WAL and Replication concepts).\n\nThe key insight: atomicity and durability are about surviving **crashes**. The database promises that even if you pull the power cord mid-transaction or mid-commit, the result is consistent: committed transactions survive, uncommitted ones don't."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "isolation-vs-consistency",
+      "payload": {
+        "title": "Why 'Consistency' in ACID is confusing",
+        "body": "The 'C' in ACID is different from the 'C' in CAP. ACID consistency is about application-defined invariants (foreign keys, uniqueness, CHECK constraints) — the database enforces what you've declared. CAP consistency is about replicas agreeing — every read sees the latest write. The two are related but distinct: a database can have ACID consistency (constraints enforced within a transaction) while being eventually consistent across replicas (CAP).",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "isolation-brief",
+      "payload": {
+        "text": "**Isolation** is the hardest guarantee to provide efficiently. True isolation (serializability) means concurrent transactions produce the same result as if they had run one at a time. Achieving this naively requires locking every row a transaction touches for its full duration — which kills concurrency.\n\nReal databases offer a spectrum of **isolation levels**: Read Uncommitted (almost no isolation), Read Committed (PostgreSQL default), Repeatable Read, and Serializable. Lower levels allow more concurrency but expose more anomalies (dirty reads, non-repeatable reads, phantom reads). The choice is a per-transaction trade-off between correctness and performance.\n\nSee the **Isolation Levels** concept for the full hierarchy. For this lesson, the key takeaway is that 'ACID' doesn't specify which isolation level — a database is still ACID with Read Committed isolation, but that's weaker than what most people assume 'ACID' guarantees. Always ask 'which isolation level?' when someone says 'ACID'."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "distributed-transactions",
+      "payload": {
+        "text": "ACID transactions are straightforward within a single database — the database engine coordinates them internally. The hard problem is **transactions across multiple databases or services**: deduct from the Billing DB, write to the Inventory DB, send to the Notification service. Each has its own transaction log and crash model.\n\n**Two-phase commit (2PC)** is the classical solution: a coordinator asks every participant to 'prepare' the transaction (Phase 1), and if all agree, tells them to 'commit' (Phase 2). The guarantees are strong — atomic across databases — but the costs are severe: blocking (if the coordinator dies, participants hold locks indefinitely), slow (multiple network round trips), and fragile (any participant failure aborts the whole transaction). 2PC is used in sharded SQL databases (PostgreSQL-XL, MySQL NDB) but rarely across services in modern architectures.\n\n**Sagas** are the modern alternative for distributed transactions. A saga is a sequence of local transactions, each with a **compensating action** that undoes its effect on failure. If step 3 fails, the saga runs compensations for steps 1 and 2. Sagas don't provide isolation across services (intermediate states are visible), but they're resilient, non-blocking, and align with how microservices actually work.\n\nThe rule of thumb: stay within one database whenever possible. Cross-database transactions are 10× harder. If you must, prefer sagas over 2PC unless you have a strict need for the latter (and even then, measure the latency cost).\n\nSee the Saga Pattern and Two-Phase Commit concepts for deep dives."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "when-transactions-matter",
+      "payload": {
+        "text": "**Use transactions when:**\n\n1. **Money or count invariants** — payments, balances, inventory. A half-completed transfer is a P0 incident.\n2. **Multi-row updates that must be atomic** — order with line items, user with preferences. Partial writes corrupt application state.\n3. **Read-modify-write sequences** — read balance, check sufficient funds, deduct. Without isolation, two concurrent withdrawals can both see sufficient funds and overdraft the account.\n4. **Cross-table invariants** — deleting a user should atomically delete their sessions, posts, etc. (or use ON DELETE CASCADE within the same transaction).\n\n**Don't use transactions for:**\n\n1. **Single-row inserts/updates** — already atomic.\n2. **Long-running operations** — transactions hold locks; long ones block other work. Move long work out of the transaction (background job) and use a small transaction to record the result.\n3. **Operations that can be eventually consistent** — updating a search index, sending a notification, recomputing a counter. These are fine as eventual — and using a transaction unnecessarily slows the primary path.\n4. **Cross-service coordination** — use sagas instead.\n\nThe common anti-pattern is the 'big transaction' — wrapping an entire request handler in one transaction so that an external API call to a payment processor happens inside the DB transaction, holding locks for the duration. Move the external call out: open the transaction, write the intent, commit, call the external service, then update the result. Smaller transactions are faster, hold fewer locks, and fail more gracefully."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q1",
+      "payload": {
+        "question": "A banking app does the following to transfer money: read account A's balance, check it's ≥ $100, write the debit, write the credit. Two concurrent transfers from account A both succeed despite insufficient funds. Which ACID guarantee was violated, and what's the fix?",
+        "shape": "mcq",
+        "options": [
+          "Atomicity — wrap the read and writes in a transaction.",
+          "Isolation — the reads interleave. Use SERIALIZABLE isolation (or SELECT … FOR UPDATE) so the second transfer blocks until the first commits.",
+          "Durability — fsync the WAL more often.",
+          "Consistency — add a CHECK constraint."
+        ],
+        "answer_index": 1,
+        "rationale": "This is the textbook read-modify-write race condition. Without isolation, two concurrent transfers both read the balance before either write commits, both see sufficient funds, and both proceed — overdrafting the account. The fix is to either (a) use SERIALIZABLE isolation, which detects the conflict and aborts one transaction, or (b) use SELECT … FOR UPDATE on the account row, which takes a row lock that blocks the second transaction until the first commits. Atomicity (wrapping in BEGIN/COMMIT) is necessary but not sufficient — a transaction at Read Committed isolation still allows this anomaly. CHECK constraints prevent bad writes within one transaction but don't prevent the interleaving.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q2",
+      "payload": {
+        "question": "A microservices checkout flow charges payment, decrements inventory, creates an order, and sends a confirmation email — each in a different service's database. Why is 2PC rarely the right choice, and what's the modern alternative?",
+        "shape": "mcq",
+        "options": [
+          "2PC is too complex to implement — use sagas with compensating actions per step.",
+          "2PC is slow (multiple round trips), blocking (coordinator failure stalls participants), and fragile across services. Sagas trade isolation for resilience: each step is a local transaction with a compensating action.",
+          "2PC requires a dedicated coordinator service — not worth the operational cost.",
+          "2PC doesn't exist in modern databases."
+        ],
+        "answer_index": 1,
+        "rationale": "Two-phase commit across services is technically possible but practically avoided: every step is a blocking network round trip, the coordinator is a single point of failure that can leave participants holding locks indefinitely, and any service failure aborts the entire transaction even if other steps succeeded. Sagas (choreographed or orchestrated) are the modern answer: each step is a local ACID transaction in its own database; on failure of any step, compensating actions (refund payment, restore inventory) are run for already-completed steps. The trade-off: sagas don't provide isolation across services — intermediate states are visible — so you must design for idempotency and eventual consistency. In modern microservices architectures, sagas + the outbox pattern for event reliability is the standard pattern.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q3",
+      "payload": {
+        "question": "What does 'Durability' in ACID actually guarantee, and how is it implemented?",
+        "shape": "mcq",
+        "options": [
+          "Data is replicated to multiple machines — guaranteed by synchronous replication.",
+          "Once a transaction is committed, its effects survive crashes. Implemented via the write-ahead log (WAL): changes are appended and fsynced before COMMIT returns.",
+          "Data is encrypted at rest — implemented by disk encryption.",
+          "Data is backed up daily — implemented by snapshot jobs."
+        ],
+        "answer_index": 1,
+        "rationale": "Durability is the guarantee that committed transactions survive crashes, power loss, and restarts. The implementation is the write-ahead log: before any change is applied to the data files, the database writes a record of the change to the WAL (an append-only file) and fsyncs it. If the system crashes, the WAL has every committed change; on restart, the database replays the WAL to bring the data files up to date. Replication is a separate concern (high availability, not durability) — a single-node database is still durable if it fsyncs the WAL. Encryption and backups are orthogonal. Note: the durability guarantee only holds if fsync actually flushes to disk — a database that 'commits' without fsync is fast but not durable in the face of power loss.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-transactions-mental",
+      "payload": {
+        "text": "Engineering mental model",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-transactions-mental",
+      "payload": {
+        "text": "**Mental model.** Think of Transactions & ACID as a deliberate boundary in a system. The boundary exists because something becomes harder to manage when everything is done in one place: latency, scale, failure isolation, consistency, cost, or team ownership. The useful question is not “what does Transactions & ACID mean?” but “what pressure makes this boundary worth introducing, and what new failure mode does it create?”"
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-transactions-decision",
+      "payload": {
+        "title": "Design lens",
+        "body": "Before choosing Transactions & ACID, name the workload, the critical user path, the dominant bottleneck, the failure you are trying to absorb, and the trade-off you are willing to accept. If you cannot name those five things, the design is probably premature.",
+        "kind": "info"
+      }
+    },
+    {
+      "type": "image",
+      "id": "upgrade-image-transactions",
+      "payload": {
+        "src": "/learning-visuals/transactions.svg",
+        "alt": "Original NO CAP systems visual for Transactions & ACID.",
+        "caption": "Transactions & ACID: a compact system-thinking visual.",
+        "credit": "Original NO CAP visual.",
+        "source_url": "https://github.com/donnemartin/system-design-primer"
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "upgrade-mermaid-transactions",
+      "payload": {
+        "code": "flowchart LR\n  A[Client] --> B[Gateway] --> C[Service] --> D[State] --> E[Outcome]",
+        "caption": "Transactions & ACID: a simplified system view showing the primary flow and the main state boundaries.",
+        "alt_text": "Transactions & ACID: a simplified system view showing the primary flow and the main state boundaries."
+      }
+    },
+    {
+      "type": "code",
+      "id": "upgrade-code-transactions",
+      "payload": {
+        "language": "sql",
+        "code": "SELECT id, created_at\nFROM records\nWHERE tenant_id = ?\nORDER BY created_at DESC\nLIMIT 50;\n\n-- Ask: which index makes this query predictable at scale?",
+        "caption": "A minimal engineering sketch for reasoning about Transactions & ACID."
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-transactions-numbers",
+      "payload": {
+        "text": "Back-of-the-envelope reasoning",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-transactions-numbers",
+      "payload": {
+        "text": "Numerical lens: write down traffic, payload size, read/write ratio, peak multiplier and durability target before choosing a component. The numbers should justify the architecture."
+      }
+    },
+    {
+      "type": "simulation",
+      "id": "upgrade-sim-transactions",
+      "payload": {
+        "title": "Interactive thought experiment: Transactions & ACID",
+        "description": "Change the variables below and predict what breaks first in Transactions & ACID. The production lab can later reuse these same inputs.",
+        "variables": [
+          {
+            "name": "traffic",
+            "description": "Requests/events per second",
+            "default": "1000"
+          },
+          {
+            "name": "latency",
+            "description": "Dependency latency",
+            "default": "50ms"
+          },
+          {
+            "name": "failure_rate",
+            "description": "Injected failure rate",
+            "default": "0%"
+          }
+        ],
+        "placeholder_note": "Interactive controls are deterministic; use the linked Labs section when a dedicated lab exists."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-transactions-hint",
+      "payload": {
+        "title": "Hint",
+        "body": "If you are stuck on Transactions & ACID, start by drawing the request path and marking every network hop, stateful component, queue, cache and failure boundary. Then estimate where the system will saturate.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-transactions-1",
+      "payload": {
+        "shape": "prediction",
+        "question": "You increase traffic by 10× in a system using Transactions & ACID. What should you inspect first?",
+        "options": [
+          "The newest framework version",
+          "The dominant bottleneck and its saturation signal",
+          "Only the UI",
+          "Nothing; the architecture should absorb any traffic automatically"
+        ],
+        "answer_index": 1,
+        "rationale": "System design is a constraint-and-bottleneck exercise. Start with the resource or dependency that will saturate first, then choose the smallest change that removes that bottleneck.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-transactions-2",
+      "payload": {
+        "shape": "mcq",
+        "question": "Which statement is the safest engineering habit when using Transactions & ACID?",
+        "options": [
+          "Choose it because it is popular",
+          "Add it before measuring the problem",
+          "State the workload, failure mode and trade-off it is solving",
+          "Use the most distributed design possible"
+        ],
+        "answer_index": 2,
+        "rationale": "Good architecture starts from requirements, workload and failure assumptions. The component is the consequence of that reasoning, not the starting point.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "scenario",
+      "id": "upgrade-scenario-transactions",
+      "payload": {
+        "prompt": "Production scenario: your system uses Transactions & ACID, traffic suddenly spikes, and p99 latency doubles. What is your first move?",
+        "context": "You have dashboards for traffic, latency, errors and saturation. You can change the architecture, but every change has operational cost.",
+        "options": [
+          {
+            "id": "a",
+            "text": "Add more instances immediately",
+            "outcome": "This may help, but only if compute saturation is the bottleneck.",
+            "correct": false
+          },
+          {
+            "id": "b",
+            "text": "Inspect the bottleneck and its saturation signal first",
+            "outcome": "Correct: diagnose before scaling or introducing a new pattern.",
+            "correct": true
+          },
+          {
+            "id": "c",
+            "text": "Disable monitoring to reduce overhead",
+            "outcome": "This removes the evidence you need to diagnose the incident.",
+            "correct": false
+          }
+        ],
+        "rationale": "Measure the limiting resource or dependency first. A bottleneck can be compute, database I/O, network, cache misses, lock contention, downstream latency, or queue backlog.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-transactions-interview",
+      "payload": {
+        "text": "Interview drill",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-transactions-interview",
+      "payload": {
+        "text": "**Answer this without notes:** When would you choose Transactions & ACID, and when would you intentionally avoid it? Mention at least one bottleneck it addresses, one failure mode it introduces, and one alternative. Then quantify the workload you are designing for."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "field-guide-transactions",
+      "payload": {
+        "title": "Engineering lens",
+        "body": "For Transactions & ACID, start with access patterns rather than brand names. Identify the dominant reads/writes, data relationships, consistency requirements, partition key, hot keys and failure behavior before choosing a storage strategy.",
+        "kind": "tip"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "numerical-lens-transactions",
+      "payload": {
+        "text": "### Numerical sanity check\n\nA rough capacity check: required write throughput ≈ peak writes/s × average record size. At 5,000 writes/s and 2 KB average payloads, the raw incoming data stream is about 10 MB/s before indexes, replication and overhead."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "field-question-transactions",
+      "payload": {
+        "shape": "prediction",
+        "question": "A team proposes Transactions & ACID because it 'scales'. What workload characteristic would make that choice a poor fit?",
+        "context": "Do not optimize for a memorized definition. Reason from the workload and failure mode.",
+        "options": [
+          "Scale the same component immediately.",
+          "Measure the current bottleneck and state the assumption that changed.",
+          "Add more technologies until throughput improves.",
+          "Choose the most popular architecture."
+        ],
+        "answer_index": 1,
+        "rationale": "Good system design starts with the bottleneck and the changed constraint. The most popular or complex choice is not automatically correct.",
+        "difficulty": "interview"
+      }
+    }
+  ],
+  "trade_offs": {
+    "pros": [
+      "Atomic multi-row updates — partial failures roll back cleanly.",
+      "Application-level invariants enforced (foreign keys, constraints).",
+      "Concurrent transactions appear sequential (at proper isolation levels).",
+      "Committed data survives crashes via the WAL.",
+      "Mature, well-understood semantics across SQL databases."
+    ],
+    "cons": [
+      "Higher isolation levels reduce concurrency (more locking).",
+      "Long transactions hold locks and block other work.",
+      "Cross-database ACID requires 2PC — slow, blocking, fragile.",
+      "Transactions aren't free — even short ones add latency from BEGIN/COMMIT and WAL fsync.",
+      "Naive use of transactions can mask architectural problems (e.g., wrapping slow external calls)."
+    ]
+  },
+  "failure_modes": [
+    "Read-modify-write races without proper isolation — overdrafts, double-spending, oversold inventory.",
+    "Long-running transactions holding locks — causing throughput collapse and timeouts.",
+    "Cross-database transactions via 2PC blocking on coordinator failure.",
+    "Committing too early — splitting a logical unit of work into multiple transactions.",
+    "Committing too late — wrapping external calls in a transaction, holding locks for seconds.",
+    "Foreign key constraints not enforced — orphaned rows, referential integrity lost."
+  ],
+  "common_mistakes": [
+    "Assuming 'ACID' means 'serializable isolation' — Read Committed is the default in PostgreSQL and is weaker than people assume.",
+    "Wrapping entire request handlers in one transaction — including external API calls and slow work.",
+    "Using cross-database transactions instead of sagas — getting 2PC's blocking cost without realizing it.",
+    "Forgetting to use SELECT … FOR UPDATE on read-modify-write sequences — causing race conditions.",
+    "Treating 'eventually consistent' as 'always consistent' for data that actually requires ACID.",
+    "Not testing rollback paths — applications assume commit always succeeds and crash on partial failure."
+  ],
+  "where_you_see_it": [
+    "Every SQL database — transactions are the default and the foundation.",
+    "Banking, payments, accounting — money invariants require ACID.",
+    "E-commerce checkout — atomic inventory deduction + order creation + payment.",
+    "Booking systems — atomic seat reservation.",
+    "Distributed systems use sagas or outbox pattern as the modern equivalent."
+  ],
+  "interview_prompts": [
+    "What are the ACID guarantees, and which is hardest to provide at scale?",
+    "Explain how a database survives a crash mid-transaction. What's the role of the WAL?",
+    "Two concurrent withdrawals from the same account both succeed despite insufficient funds. What went wrong and how do you fix it?",
+    "Why is two-phase commit rarely used in microservices? What's the alternative?",
+    "When should you NOT use a transaction?"
+  ],
+  "real_system_mappings": [
+    {
+      "system": "Stripe",
+      "how": "Payments require strict ACID transactions across charges, transfers, and ledger entries — every double-charge or lost-charge is a P0. Stripe runs PostgreSQL for transactional integrity with carefully designed transaction boundaries that keep external API calls outside the transaction."
+    },
+    {
+      "system": "Uber",
+      "how": "Originally used PostgreSQL with distributed transactions across sharded instances; moved to Saga-style coordination when sharding complexity and 2PC overhead became untenable. The Schemaless storage system provides per-shard ACID but no cross-shard transactions, with sagas for cross-shard operations."
+    },
+    {
+      "system": "Amazon DynamoDB",
+      "how": "Originally offered only single-item atomicity; later added DynamoDB Transactions (up to 100 items) for cases like multi-row financial updates — a recognition that some workloads need ACID even in NoSQL."
+    },
+    {
+      "system": "Google Spanner",
+      "how": "Provides externally consistent distributed transactions via TrueTime (atomic clocks) and Paxos groups. One of the few production systems offering true serializable ACID across datacenters — at significant latency cost."
+    }
+  ],
+  "status": "published",
+  "sources": [
+    {
+      "title": "System Design Primer",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Open source"
+    },
+    {
+      "title": "ByteByteGo — Scale from zero to millions",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "ByteByteGo"
+    },
+    {
+      "title": "System Design Tutorial",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "GeeksforGeeks"
+    },
+    {
+      "title": "System Design Roadmap",
+      "url": "https://roadmap.sh/system-design",
+      "publisher": "roadmap.sh"
+    },
+    {
+      "title": "Databases & Data Systems reference",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Databases & Data Systems reference",
+      "url": "https://www.postgresql.org/docs/",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Databases & Data Systems reference",
+      "url": "https://aws.amazon.com/what-is/database/",
+      "publisher": "Reference"
+    }
+  ]
+}

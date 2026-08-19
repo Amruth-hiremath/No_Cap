@@ -1,0 +1,414 @@
+{
+  "slug": "pipes-and-filters",
+  "version": 3,
+  "title": "Pipes & Filters",
+  "phase": "design-patterns",
+  "area": "Design Patterns",
+  "estimated_minutes": 7,
+  "difficulty": "advanced",
+  "summary": "Pipes & Filters decomposes a complex processing task into a sequence of small, single-purpose stages (filters) connected by channels (pipes). Each filter reads input, transforms it, and writes output — without knowing what's upstream or downstream. Unix pipes (`cat file | grep | sort | uniq`) are the canonical example; modern equivalents include ETL pipelines, stream processing (Kafka Streams, Flink), and CI/CD workflows. The pattern trades monolithic complexity for composability: filters can be reused, reordered, parallelized, and tested independently.",
+  "why_it_matters": "A monolithic processing function quickly becomes unmaintainable — every new requirement tangles into the existing code. Pipes & Filters forces decomposition: each concern is its own filter, each filter is independently testable, and the pipeline topology is configurable. New requirements become 'insert a new filter here,' not 'rewrite the function.' This is the architecture behind every stream processor, every ETL system, every shell, and every CI/CD pipeline. Understanding it gives you a vocabulary for designing any data-transformation system.",
+  "prerequisites": [
+    "message-queues"
+  ],
+  "related": [
+    "queue-based-load-leveling",
+    "claim-check"
+  ],
+  "used_in": [
+    "Unix shells — `grep foo file | sort | uniq -c | head`.",
+    "ETL pipelines — extract, transform, load stages connected by queues.",
+    "Stream processing — Kafka Streams, Apache Flink, Spark Structured Streaming.",
+    "CI/CD pipelines — build, test, package, deploy stages.",
+    "Image/video processing — decode, resize, watermark, encode."
+  ],
+  "blocks": [
+    {
+      "type": "prose",
+      "id": "intro",
+      "payload": {
+        "text": "Pipes & Filters is one of the oldest architectural patterns — described in the 1996 Pattern-Oriented Software Architecture book and prefigured by Unix shells in the 1970s. The idea is to split a complex transformation into a chain of simple filters connected by pipes.\n\n- **Filter**: a component that consumes input, performs one transformation, and produces output. Crucially, a filter is *self-contained* — it doesn't know what produced its input or what consumes its output. Filters should be reusable and composable.\n- **Pipe**: a connector that moves data between filters. Pipes can be in-process queues, OS pipes, message brokers (Kafka, RabbitMQ), or files. The pipe provides buffering, decoupling producers and consumers.\n\nCanonical example (Unix):\n```\ncat access.log | grep '500' | awk '{print $1}' | sort | uniq -c | sort -rn | head -10\n```\nEach command is a filter; the `|` is the pipe. Each filter does one thing well; combined, they form a complex transformation.\n\nModern equivalents:\n- **ETL**: extract from source → transform (clean, enrich, validate) → load into warehouse. Each stage is a filter; queues (Kafka, S3) are pipes.\n- **Stream processing**: Kafka topic → parse → filter → enrich → aggregate → sink. Flink/Spark topologies are pipes-and-filters graphs.\n- **CI/CD**: checkout → build → test → package → deploy. Each job is a filter; artifact storage is the pipe.\n- **Media processing**: decode → resize → watermark → encode. Each filter is a separate process/container.\n\nThe pattern's power comes from composability: a filter written for one pipeline can be reused in another, because it has a clean input/output contract and no knowledge of context."
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "pipeline",
+      "payload": {
+        "code": "flowchart TD\n    N0[\"input\"]\n    N1[\"Filter\"]\n    N2[\"output\"]\n    N3[\"parse\"]\n    N4[\"filter\"]\n    N5[\"enrich\"]\n    N6[\"agg\"]\n    N7[\"sink\"]\n    N8[\"pipes\"]\n    N9[\"in-memory queue, OS pipe, Kafka topic, file, S3...\"]\n    N10[\"(in\"]\n    N11[\"memory\"]\n    N12[\"queue,\"]\n    N13[\"pipe,\"]\n    N14[\"Kafka\"]\n    N15[\"topic,\"]\n    N16[\"file,\"]\n    N17[\"S3...)\"]\n    N18[\"Properties:\"]\n    N19[\"Each\"]\n    N20[\"does\"]\n    N21[\"ONE\"]\n    N22[\"transformation\"]\n    N23[\"and\"]\n    N24[\"independently\"]\n    N25[\"testable.\"]\n    N26[\"Filters\"]\n    N27[\"don't\"]\n    N28[\"know\"]\n    N29[\"what's\"]\n    N30[\"upstream\"]\n    N31[\"downstream.\"]\n    N32[\"Pipes\"]\n    N33[\"buffer\"]\n    N34[\"decouples\"]\n    N35[\"producer\"]\n    N36[\"consumer\"]\n    N37[\"rates.\"]\n    N38[\"Stages\"]\n    N39[\"can\"]\n    N40[\"run\"]\n    N41[\"different\"]\n    N42[\"speeds;\"]\n    N43[\"slowest\"]\n    N44[\"stage\"]\n    N45[\"caps\"]\n    N46[\"throughput.\"]\n    N47[\"multiple consumers per pipe\"]\n    N48[\"parallelized\"]\n    N49[\"(multiple\"]\n    N50[\"consumers\"]\n    N51[\"per\"]\n    N52[\"pipe).\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44\n    N44 --> N45\n    N45 --> N46\n    N46 --> N47\n    N47 --> N48\n    N48 --> N49\n    N49 --> N50\n    N50 --> N51\n    N51 --> N52",
+        "caption": "A pipeline of filters connected by pipes. Each filter performs one transformation; the pipe decouples producer and consumer rates. The slowest filter caps throughput.",
+        "alt_text": "A horizontal pipeline diagram. Input enters from the left and flows through five filters connected by pipes: parse, filter, enrich, aggregate, and sink. The pipes between filters can be in-memory queues, OS pipes, Kafka topics, files, or S3. Properties listed below: each filter performs one transformation and is independently testable; filters don't know what is upstream or downstream; pipes buffer, decoupling producer and consumer rates; stages can run at different speeds, with the slowest stage capping throughput; stages can be parallelized by running multiple consumers per pipe."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "variants",
+      "payload": {
+        "text": "Variants of the pattern:\n\n- **Linear pipeline** — filters in a straight line, like the Unix example. Simplest form.\n- **Branching pipeline** — one filter's output goes to multiple downstream filters (fan-out). Used for parallel processing or for routing to different sinks.\n- **Merging pipeline** — multiple filters' outputs combine into one downstream filter (fan-in). Used for joining data from multiple sources.\n- **Cyclic pipeline** — output of one filter feeds back to an earlier filter. Used for iterative algorithms (training loops, fixpoint computations).\n- **Batch vs streaming** — pipes can carry batches (one file per stage) or streams (one event at a time). Streaming pipelines (Kafka Streams, Flink) are pipes-and-filters applied to infinite streams.\n\nKey design questions when building a pipeline:\n- **Where does state live?** Stateless filters are easy to parallelize and recover. Stateful filters (aggregations, joins) need checkpointing.\n- **What's the failure model?** Should a failed filter retry, dead-letter, or abort the pipeline? Idempotency matters — reprocessing must be safe.\n- **What's the back-pressure strategy?** If a downstream filter is slow, the upstream filter must slow down (blocking) or buffer (memory/disk risk).\n- **How is the pipeline observed?** Per-stage throughput, error rate, queue depth — without these, you can't find the bottleneck.\n- **What's the granularity of the filter?** Too coarse → monolith. Too fine → overhead per stage exceeds the work."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "unix-philosophy",
+      "payload": {
+        "title": "Unix Philosophy as Pipes & Filters",
+        "body": "Doug McIlroy's 1978 Unix philosophy — 'write programs that do one thing and do it well; write programs to work together; write programs to handle text streams, because that is a universal interface' — is Pipes & Filters elevated to an operating system design principle. The success of Unix shells is the success of the pattern: a small set of composable filters (grep, sort, awk, sed, cut) generates combinatorial power. Every modern stream-processing framework is, in effect, a reimplementation of Unix pipes for distributed, fault-tolerant, infinite streams.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "tradeoffs",
+      "payload": {
+        "text": "Strengths:\n- **Composability** — filters are reusable across pipelines. A `parse-json` filter is useful in dozens of pipelines.\n- **Testability** — each filter has a clear input/output contract; unit test it in isolation.\n- **Parallelism** — independent filters can run in parallel; multiple consumers of a pipe can scale a slow stage.\n- **Decoupling** — filters don't know each other; replacing one doesn't affect others (as long as the contract holds).\n- **Observability** — per-stage metrics reveal the bottleneck.\n- **Heterogeneous tech** — filters can be written in different languages; pipes are language-agnostic (JSON, Protobuf, Avro).\n\nWeaknesses:\n- **Throughput cap = slowest stage** — like any pipeline, the slowest filter sets the rate. Speeding up other stages does nothing.\n- **Latency overhead** — each stage adds serialization, queueing, and processing latency. A 10-stage pipeline has 10× the per-event latency of a monolithic function.\n- **Error handling complexity** — what happens when filter #4 fails? Retry just that stage? Replay from filter #1? Dead-letter? Each model has trade-offs.\n- **Operational complexity** — many moving parts to deploy, monitor, and version.\n- **Schema evolution** — a change to a filter's output schema affects every downstream filter.\n- **Over-decomposition** — pipelines with 50 stages where 5 would do; per-stage overhead exceeds the work."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q1",
+      "payload": {
+        "question": "In a pipes-and-filters pipeline, one filter processes 10 events/sec while all others process 100 events/sec. What is the pipeline's maximum throughput, and what are the options to fix it?",
+        "shape": "mcq",
+        "options": [
+          "100 events/sec — slow filters are buffered by the pipe.",
+          "10 events/sec — the slowest filter caps throughput; fix by parallelizing that filter (multiple consumers) or optimizing its logic.",
+          "It depends on the pipe size — larger buffers raise throughput.",
+          "The pipeline will deadlock and stop entirely."
+        ],
+        "answer_index": 1,
+        "rationale": "In any pipeline, throughput is bounded by the slowest stage — this is the universal law of pipelines (and Little's Law applied to queues). No amount of buffering raises throughput; buffers only smooth bursts and increase latency. The slow stage processing 10 events/sec caps the pipeline at 10 events/sec. To fix it: parallelize that stage (run multiple instances consuming from the same pipe, if the filter is stateless), optimize the filter's logic, or split the work it does across smaller filters. Adding more consumers to the fast stages (option a is wrong) doesn't help; bigger buffers (option c) only delay the inevitable; and the pipeline won't deadlock (option d) — it will just run at 10/sec with growing queues upstream of the bottleneck.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q2",
+      "payload": {
+        "question": "Why is the Unix shell considered the canonical realization of Pipes & Filters?",
+        "shape": "mcq",
+        "options": [
+          "Because it has a `|` operator.",
+          "Because each command (grep, sort, awk) is a single-purpose filter, the `|` is a pipe, and the standard text-stream interface makes any filter composable with any other.",
+          "Because Unix is old, and the pattern was named after it.",
+          "Because Unix shells are written in C, which is fast."
+        ],
+        "answer_index": 1,
+        "rationale": "Unix shells embody the pattern's three core properties: filters do one thing well (grep matches lines, sort orders them, awk transforms them), pipes (`|`) connect them, and the universal text-stream interface means any filter's output is any other filter's input. This composability is what made Unix shells powerful — a small set of filters generates combinatorial utility. The `|` operator alone isn't the point (option a); age isn't relevant (option c); and language (option d) is unrelated to the pattern. The pattern's success in Unix is precisely about the standardized interface enabling arbitrary composition, which is the goal of every modern stream-processing framework.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-pipes-and-filters-mental",
+      "payload": {
+        "text": "Engineering mental model",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-pipes-and-filters-mental",
+      "payload": {
+        "text": "**Mental model.** Think of Pipes & Filters as a deliberate boundary in a system. The boundary exists because something becomes harder to manage when everything is done in one place: latency, scale, failure isolation, consistency, cost, or team ownership. The useful question is not “what does Pipes & Filters mean?” but “what pressure makes this boundary worth introducing, and what new failure mode does it create?”"
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-pipes-and-filters-decision",
+      "payload": {
+        "title": "Design lens",
+        "body": "Before choosing Pipes & Filters, name the workload, the critical user path, the dominant bottleneck, the failure you are trying to absorb, and the trade-off you are willing to accept. If you cannot name those five things, the design is probably premature.",
+        "kind": "info"
+      }
+    },
+    {
+      "type": "image",
+      "id": "upgrade-image-pipes-and-filters",
+      "payload": {
+        "src": "/learning-visuals/pipes-and-filters.svg",
+        "alt": "Original NO CAP systems visual for Pipes & Filters.",
+        "caption": "Pipes & Filters: a compact system-thinking visual.",
+        "credit": "Original NO CAP visual.",
+        "source_url": "https://github.com/donnemartin/system-design-primer"
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "upgrade-mermaid-pipes-and-filters",
+      "payload": {
+        "code": "flowchart LR\n  A[Client] --> B[Gateway] --> C[Service] --> D[State] --> E[Outcome]",
+        "caption": "Pipes & Filters: a simplified system view showing the primary flow and the main state boundaries.",
+        "alt_text": "Pipes & Filters: a simplified system view showing the primary flow and the main state boundaries."
+      }
+    },
+    {
+      "type": "code",
+      "id": "upgrade-code-pipes-and-filters",
+      "payload": {
+        "language": "text",
+        "code": "// Pseudocode\nrequest = receive()\nresult = pipes_and_filters(request)\nreturn result\n\n// Production questions:\n// 1. What happens on timeout?\n// 2. Can this operation be retried safely?\n// 3. What is the bottleneck?",
+        "caption": "A minimal engineering sketch for reasoning about Pipes & Filters."
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-pipes-and-filters-numbers",
+      "payload": {
+        "text": "Back-of-the-envelope reasoning",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-pipes-and-filters-numbers",
+      "payload": {
+        "text": "Numerical lens: write down traffic, payload size, read/write ratio, peak multiplier and durability target before choosing a component. The numbers should justify the architecture."
+      }
+    },
+    {
+      "type": "simulation",
+      "id": "upgrade-sim-pipes-and-filters",
+      "payload": {
+        "title": "Interactive thought experiment: Pipes & Filters",
+        "description": "Change the variables below and predict what breaks first in Pipes & Filters. The production lab can later reuse these same inputs.",
+        "variables": [
+          {
+            "name": "traffic",
+            "description": "Requests/events per second",
+            "default": "1000"
+          },
+          {
+            "name": "latency",
+            "description": "Dependency latency",
+            "default": "50ms"
+          },
+          {
+            "name": "failure_rate",
+            "description": "Injected failure rate",
+            "default": "0%"
+          }
+        ],
+        "placeholder_note": "Interactive controls are deterministic; use the linked Labs section when a dedicated lab exists."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-pipes-and-filters-hint",
+      "payload": {
+        "title": "Hint",
+        "body": "If you are stuck on Pipes & Filters, start by drawing the request path and marking every network hop, stateful component, queue, cache and failure boundary. Then estimate where the system will saturate.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-pipes-and-filters-1",
+      "payload": {
+        "shape": "prediction",
+        "question": "You increase traffic by 10× in a system using Pipes & Filters. What should you inspect first?",
+        "options": [
+          "The newest framework version",
+          "The dominant bottleneck and its saturation signal",
+          "Only the UI",
+          "Nothing; the architecture should absorb any traffic automatically"
+        ],
+        "answer_index": 1,
+        "rationale": "System design is a constraint-and-bottleneck exercise. Start with the resource or dependency that will saturate first, then choose the smallest change that removes that bottleneck.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-pipes-and-filters-2",
+      "payload": {
+        "shape": "mcq",
+        "question": "Which statement is the safest engineering habit when using Pipes & Filters?",
+        "options": [
+          "Choose it because it is popular",
+          "Add it before measuring the problem",
+          "State the workload, failure mode and trade-off it is solving",
+          "Use the most distributed design possible"
+        ],
+        "answer_index": 2,
+        "rationale": "Good architecture starts from requirements, workload and failure assumptions. The component is the consequence of that reasoning, not the starting point.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "scenario",
+      "id": "upgrade-scenario-pipes-and-filters",
+      "payload": {
+        "prompt": "Production scenario: your system uses Pipes & Filters, traffic suddenly spikes, and p99 latency doubles. What is your first move?",
+        "context": "You have dashboards for traffic, latency, errors and saturation. You can change the architecture, but every change has operational cost.",
+        "options": [
+          {
+            "id": "a",
+            "text": "Add more instances immediately",
+            "outcome": "This may help, but only if compute saturation is the bottleneck.",
+            "correct": false
+          },
+          {
+            "id": "b",
+            "text": "Inspect the bottleneck and its saturation signal first",
+            "outcome": "Correct: diagnose before scaling or introducing a new pattern.",
+            "correct": true
+          },
+          {
+            "id": "c",
+            "text": "Disable monitoring to reduce overhead",
+            "outcome": "This removes the evidence you need to diagnose the incident.",
+            "correct": false
+          }
+        ],
+        "rationale": "Measure the limiting resource or dependency first. A bottleneck can be compute, database I/O, network, cache misses, lock contention, downstream latency, or queue backlog.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-pipes-and-filters-interview",
+      "payload": {
+        "text": "Interview drill",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-pipes-and-filters-interview",
+      "payload": {
+        "text": "**Answer this without notes:** When would you choose Pipes & Filters, and when would you intentionally avoid it? Mention at least one bottleneck it addresses, one failure mode it introduces, and one alternative. Then quantify the workload you are designing for."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "field-guide-pipes-and-filters",
+      "payload": {
+        "title": "Engineering lens",
+        "body": "A useful engineering lens for Pipes & Filters: define the problem it solves, the simpler design that fails first, the constraint that forces you to introduce this concept, and the new failure modes the concept creates.",
+        "kind": "tip"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "numerical-lens-pipes-and-filters",
+      "payload": {
+        "text": "### Numerical sanity check\n\nBack-of-the-envelope reasoning beats fake precision. State your traffic, payload, concurrency and growth assumptions explicitly, then calculate enough to know whether the current architecture is orders of magnitude away from the target."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "field-question-pipes-and-filters",
+      "payload": {
+        "shape": "prediction",
+        "question": "Imagine the simplest version of a system using Pipes & Filters. What breaks first as traffic grows by 10×, and what would you change before reaching 100×?",
+        "context": "Do not optimize for a memorized definition. Reason from the workload and failure mode.",
+        "options": [
+          "Scale the same component immediately.",
+          "Measure the current bottleneck and state the assumption that changed.",
+          "Add more technologies until throughput improves.",
+          "Choose the most popular architecture."
+        ],
+        "answer_index": 1,
+        "rationale": "Good system design starts with the bottleneck and the changed constraint. The most popular or complex choice is not automatically correct.",
+        "difficulty": "interview"
+      }
+    }
+  ],
+  "trade_offs": {
+    "pros": [
+      "Composability — filters are reusable across pipelines.",
+      "Testability — each filter has a clear input/output contract.",
+      "Parallelism — independent filters and multiple-consumer pipes scale horizontally.",
+      "Decoupling — filters don't know each other; replacing one doesn't break others.",
+      "Heterogeneous tech — filters can be different languages, pipes are language-agnostic."
+    ],
+    "cons": [
+      "Throughput capped by the slowest filter; speeding up others is wasted effort.",
+      "Per-stage latency overhead — many small filters add up to high end-to-end latency.",
+      "Error handling is hard — per-stage retry, replay, or dead-letter, each with trade-offs.",
+      "Operational complexity — many moving parts to deploy, monitor, and version.",
+      "Schema evolution affects every downstream filter."
+    ]
+  },
+  "failure_modes": [
+    "Slow filter caps throughput while fast filters idle — the pipeline looks busy but produces little.",
+    "Filter crash loses in-flight events — needs idempotent replay and durable pipes.",
+    "Out-of-order delivery — downstream filter sees events in wrong order, breaks aggregations.",
+    "Back-pressure not propagated — upstream keeps producing while downstream drowns; queue grows unbounded.",
+    "Schema drift — upstream filter changes output format, downstream filter silently misbehaves.",
+    "Over-decomposition — 50 filters where 5 would do, per-stage overhead exceeds work."
+  ],
+  "common_mistakes": [
+    "Optimizing non-bottleneck filters — measure first, optimize the slowest stage.",
+    "Not making filters idempotent — reprocessing must be safe, or replay causes duplicates.",
+    "Using in-memory pipes for cross-process pipelines — crashes lose data; use durable queues.",
+    "Forgetting back-pressure — without it, queues grow until OOM.",
+    "Tight coupling between filters — sharing types, schema, or context defeats the pattern's composability.",
+    "Designing pipelines without per-stage metrics — you can't find the bottleneck without throughput and queue-depth per stage."
+  ],
+  "where_you_see_it": [
+    "Unix shells — `grep | sort | uniq | head` is the original.",
+    "ETL pipelines — Airflow, dbt, Spark, Flink jobs.",
+    "Stream processing — Kafka Streams, Apache Flink, Spark Structured Streaming.",
+    "CI/CD — GitHub Actions, GitLab CI, Jenkins: checkout → build → test → package → deploy.",
+    "Image/video processing — FFmpeg pipelines, GStreamer."
+  ],
+  "interview_prompts": [
+    "What is the Pipes & Filters pattern? Give an example from Unix and one from a modern stream-processing framework.",
+    "In a 5-stage pipeline, stage 3 is the slowest. What is the pipeline's throughput, and how do you improve it?",
+    "How do you handle failures in a pipes-and-filters pipeline? Compare retry, replay, and dead-letter strategies.",
+    "When does Pipes & Filters add more overhead than value? When is a monolithic function preferable?",
+    "How does back-pressure work in a pipes-and-filters pipeline, and why does it matter?"
+  ],
+  "real_system_mappings": [
+    {
+      "system": "Unix shell pipelines",
+      "how": "The original and still canonical example: each command is a filter, `|` is the pipe, and the text-stream interface makes filters composable. McIlroy's 1978 design is the template every modern framework imitates."
+    },
+    {
+      "system": "Apache Kafka + Kafka Streams / Flink",
+      "how": "Kafka topics are pipes (durable, partitioned, replayable); Kafka Streams and Flink topologies are filters connected by topic. The model scales to trillions of events/day and supports exactly-once semantics, stateful processing, and rebalancing."
+    },
+    {
+      "system": "Airflow / dbt pipelines",
+      "how": "ETL pipelines in Airflow are pipes-and-filters applied to batch data: extract from source (filter), transform (filter), load (filter). Pipes are typically S3/GCS object storage or warehouse tables. dbt applies the same model inside the warehouse."
+    }
+  ],
+  "status": "published",
+  "sources": [
+    {
+      "title": "System Design Primer",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Open source"
+    },
+    {
+      "title": "ByteByteGo — Scale from zero to millions",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "ByteByteGo"
+    },
+    {
+      "title": "System Design Tutorial",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "GeeksforGeeks"
+    },
+    {
+      "title": "System Design Roadmap",
+      "url": "https://roadmap.sh/system-design",
+      "publisher": "roadmap.sh"
+    },
+    {
+      "title": "Design Patterns reference",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Design Patterns reference",
+      "url": "https://learn.microsoft.com/en-us/azure/architecture/patterns/",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Design Patterns reference",
+      "url": "https://martinfowler.com/",
+      "publisher": "Reference"
+    }
+  ]
+}

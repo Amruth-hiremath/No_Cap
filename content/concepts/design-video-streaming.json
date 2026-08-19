@@ -1,0 +1,455 @@
+{
+  "slug": "design-video-streaming",
+  "version": 3,
+  "title": "Design Video Streaming",
+  "phase": "case-studies",
+  "area": "Case Studies",
+  "estimated_minutes": 12,
+  "difficulty": "interview",
+  "summary": "Design a video streaming system (Netflix / YouTube). Covers the HLS / DASH adaptive bitrate protocols, the transcoding pipeline (source upload -> encode multiple resolutions -> manifest), CDN delivery with edge caching, and the client-side ABR controller that switches bitrates based on bandwidth. The deep dive walks through why we transcode to multiple resolutions (adaptive bitrate over flaky mobile), why segments are 10-second chunks (vs 1-second or 1-minute), and how the manifest file (HLS .m3u8 / DASH .mpd) ties everything together.",
+  "why_it_matters": "Video is the dominant traffic on the internet — ~80% of all bandwidth. Every video product from Netflix to TikTok to Zoom uses fundamentally the same architecture: chunked adaptive bitrate over HTTP, served from a CDN, with a transcoding pipeline that produces multiple resolutions from one source. If you understand HLS/DASH, you understand the video delivery layer of every major product. The trade-offs (segment size, number of bitrates, CDN vs origin) are the same decisions Netflix engineers make daily.",
+  "prerequisites": [
+    "cdn",
+    "object-storage",
+    "task-queues"
+  ],
+  "related": [
+    "design-youtube",
+    "design-netflix",
+    "cdn",
+    "object-storage"
+  ],
+  "used_in": [
+    "Netflix",
+    "YouTube",
+    "Disney+ / Hulu",
+    "Twitch (live streaming variant)",
+    "TikTok / Instagram Reels (short-form)",
+    "Zoom / Google Meet (real-time variant)"
+  ],
+  "blocks": [
+    {
+      "type": "prose",
+      "id": "problem",
+      "payload": {
+        "text": "**What are we designing?** A video streaming service. A creator uploads a 4K source video; the system transcodes it to multiple resolutions (240p, 480p, 720p, 1080p, 4K) and bitrates, stores them in object storage behind a CDN, and serves them to viewers with adaptive bitrate — the player automatically switches to a lower resolution when the user's bandwidth drops, without rebuffering.\n\nThe defining challenges are (1) **adaptive bitrate (ABR)** — the same video must be available at multiple quality levels so the player can switch dynamically, (2) **segmentation** — the video is split into ~10-second chunks so the player can switch bitrates between chunks, and (3) **CDN delivery at scale** — millions of concurrent viewers watching different videos at different points; origin cannot serve this load directly."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "requirements",
+      "payload": {
+        "text": "**Functional requirements.**\n- A creator uploads a source video (any format, up to 4K, up to 4 hours).\n- The system transcodes it to multiple resolutions/bitrates (the 'ladder').\n- A viewer requests a video; the player gets a manifest listing all bitrates and segments.\n- The player fetches segments sequentially, switching bitrates based on measured bandwidth.\n- The viewer can seek to any point in the video; playback resumes within ~1-2 s.\n- The viewer can change quality manually (auto / 240p / 480p / 1080p / 4K).\n\n**Non-functional requirements.**\n- **Time-to-first-frame (TTFF)**: < 2 s after the user clicks play.\n- **Rebuffer ratio**: < 1% of playback time spent buffering (Netflix targets 0.5%).\n- **Origin egress**: < 5% of total egress (CDN absorbs the rest).\n- **Upload-to-publish latency**: < 30 min for a 10-min source video.\n- **Scale**: 1B viewers, 500 hours of video uploaded per minute (YouTube scale), 1M concurrent streams per popular video.\n\n**Non-goals.** No live streaming (different latency budget, different protocols like LL-HLS / WebRTC), no DRM (out of scope for v1), no transcoding-on-the-fly for viewers (pre-transcoded only)."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "capacity",
+      "payload": {
+        "text": "**Capacity estimation.**\n\n*Storage.* 500 hours uploaded per minute = 720K hours/day. Avg source 1 GB/hour (compressed 1080p) = 720 TB/day source = ~260 PB/year source alone. Transcode ladder produces 5 resolutions per source — total ~3x source = ~2 PB/day new content = ~780 PB/year. S3-class object storage with lifecycle to glacier after 30 days of no views.\n\n*Bandwidth (egress).* 1B viewers x avg 30 min/day = 500M hours/day watched. Avg 3 Mbps per stream = 1.5 GB/hour = 750 PB/day egress = ~8.7 Tbps. With CDN absorbing 95%, origin egress = ~440 Gbps.\n\n*Transcoding CPU.* 1 hour of 1080p video takes ~0.5 hour of single-CPU FFmpeg time at presets; ~0.1 hour with hardware acceleration. 720K hours/day source x 5 resolutions x 0.2 CPU-hours = ~720K CPU-hours/day. At 16 cores per instance = 45K instance-hours/day = ~1900 instances just for transcoding.\n\n*CDN cache.* Catalog of 100M videos; hot 1% gets 80% of views. CDN caches the hot 1% (~1M videos x ~5GB = 5 PB at edge across 200 PoPs = 25 TB per PoP — fits)."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "apis",
+      "payload": {
+        "text": "**APIs.**\n\n```\n# Creator uploads (presigned multipart URL — same as Instagram / Dropbox)\nPOST /v1/videos/upload_session\n  -> { session_id, multipart_urls: [...] }\nPUT  <presigned S3 URL>   part_bytes (per part)\nPOST /v1/videos/upload_session/:id/commit\n  { title, description, creator_id }\n  -> { video_id, status: \"processing\" }\n\n# Player fetches manifest (HLS .m3u8 or DASH .mpd)\nGET /v1/videos/:id/manifest.m3u8\n  -> #EXTM3U\n     #EXT-X-STREAM-INF:BANDWIDTH=4000000,RESOLUTION=1920x1080\n     /videos/abc/1080p.m3u8\n     #EXT-X-STREAM-INF:BANDWIDTH=2500000,RESOLUTION=1280x720\n     /videos/abc/720p.m3u8\n     ...\n\n# Player fetches a segment\nGET /cdn/videos/abc/1080p/segment_0042.ts\n  -> binary segment bytes (10 seconds of video)\n\n# View event (analytics)\nPOST /v1/videos/:id/events\n  { event: \"play\" | \"pause\" | \"seek\" | \"bitrate_change\" | \"buffering\", ts }\n```\n\nThe manifest is small (~1KB) and lists every available bitrate + the segment playlist for each. The segments are served from the CDN — the manifest URL itself may be cacheable for hours."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "data-model",
+      "payload": {
+        "text": "**Data model.**\n\n*Videos metadata* (sharded SQL, by video_id):\n```\nvideos (\n  id PK, creator_id, title, description, status,\n  duration_sec, source_url, manifest_url,\n  created_at, published_at, view_count\n  INDEX (creator_id, created_at),\n  INDEX (status, published_at)\n)\n```\n\n*Transcode jobs* (job queue):\n```\ntranscode_jobs (\n  id PK, video_id, source_url, status: \"queued\" | \"running\" | \"done\" | \"failed\",\n  presets_json, priority, created_at, started_at, completed_at\n)\n```\n\n*Segment inventory* (denormalized table for fast manifest generation):\n```\nsegments (\n  video_id, bitrate_preset, segment_number, s3_url, duration_ms,\n  PRIMARY KEY (video_id, bitrate_preset, segment_number)\n)\n```\n\n*Object storage layout* (S3):\n```\nbucket: nocap-video-source\nkey:    {video_id}/source.{ext}\n\nbucket: nocap-video-segments\nkey:    {video_id}/{preset}/segment_{N:06d}.ts\nkey:    {video_id}/{preset}.m3u8           -- playlist per preset\nkey:    {video_id}/master.m3u8            -- master manifest\n```\n\n*CDN edge cache* (CloudFront / Cloudflare):\n```\nGET /videos/{video_id}/{preset}/segment_{N}.ts\n  -> cache key: video_id + preset + N\n  -> TTL: 1 year (segments are immutable once published)\n```\n\n**Critical invariant**: segments are immutable. A given (video_id, preset, N) tuple always returns the same bytes. This is what enables aggressive CDN caching — no revalidation needed."
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "arch",
+      "payload": {
+        "code": "flowchart TD\n    N0[\"Creator\"]\n    N1[\"[Creator]\"]\n    N2[\"1\"]\n    N3[\"multipart presigned S3\"]\n    N4[\"(1)\"]\n    N5[\"upload\"]\n    N6[\"source\"]\n    N7[\"video\"]\n    N8[\"(multipart\"]\n    N9[\"presigned\"]\n    N10[\"S3)\"]\n    N11[\"Object Storage: source bucket\"]\n    N12[\"[Object\"]\n    N13[\"Storage:\"]\n    N14[\"bucket]\"]\n    N15[\"2\"]\n    N16[\"(2)\"]\n    N17[\"emit\"]\n    N18[\"'video_uploaded'\"]\n    N19[\"event\"]\n    N20[\"Kafka\"]\n    N21[\"Transcode Orchestrator\"]\n    N22[\"[Transcode\"]\n    N23[\"Orchestrator]\"]\n    N24[\"priority by creator tier + viral signals\"]\n    N25[\"pull\"]\n    N26[\"job\"]\n    N27[\"from\"]\n    N28[\"queue\"]\n    N29[\"(priority\"]\n    N30[\"creator\"]\n    N31[\"tier\"]\n    N32[\"viral\"]\n    N33[\"signals)\"]\n    N34[\"autoscaled by queue depth\"]\n    N35[\"dispatch\"]\n    N36[\"worker\"]\n    N37[\"pool\"]\n    N38[\"(autoscaled\"]\n    N39[\"depth)\"]\n    N40[\"Transcode Worker Pool\"]\n    N41[\"Worker\"]\n    N42[\"Pool]\"]\n    N43[\"FFmpeg\"]\n    N44[\"per\"]\n    N45[\"segment:\"]\n    N46[\"240p, 480p, 720p, 1080p, 4K\"]\n    N47[\"for\"]\n    N48[\"preset\"]\n    N49[\"[240p,\"]\n    N50[\"480p,\"]\n    N51[\"720p,\"]\n    N52[\"1080p,\"]\n    N53[\"4K]:\"]\n    N54[\"ffmpeg\"]\n    N55[\"source.mp4\"]\n    N56[\"c:v\"]\n    N57[\"h264\"]\n    N58[\"fast\"]\n    N59[\"resolution\"]\n    N60[\"bitrate\"]\n    N61[\"{resolution}\"]\n    N62[\"b:v\"]\n    N63[\"{bitrate}\"]\n    N64[\"hls\"]\n    N65[\"hls_time\"]\n    N66[\"hls_playlist_type\"]\n    N67[\"vod\"]\n    N68[\"hls_segment_filename\"]\n    N69[\"segments\"]\n    N70[\"{preset}\"]\n    N71[\"seg_%06d.ts\"]\n    N72[\"{preset}.m3u8\"]\n    N73[\"playlist\"]\n    N74[\"Manifest Builder\"]\n    N75[\"[Manifest\"]\n    N76[\"Builder]\"]\n    N77[\"build\"]\n    N78[\"master.m3u8\"]\n    N79[\"referencing\"]\n    N80[\"all\"]\n    N81[\"playlists\"]\n    N82[\"mark\"]\n    N83[\"status\"]\n    N84[\"published\"]\n    N85[\"publish\"]\n    N86[\"'video_published'\"]\n    N87[\"search\"]\n    N88[\"index,\"]\n    N89[\"notifications\"]\n    N90[\"Object Storage: segments bucket\"]\n    N91[\"origin\"]\n    N92[\"3\"]\n    N93[\"(3)\"]\n    N94[\"viewer\"]\n    N95[\"hits\"]\n    N96[\"CDN\"]\n    N97[\"CDN Edge PoP\"]\n    N98[\"CloudFront / Cloudflare, 200+ PoPs\"]\n    N99[\"[CDN\"]\n    N100[\"Edge\"]\n    N101[\"PoP]\"]\n    N102[\"(CloudFront\"]\n    N103[\"Cloudflare,\"]\n    N104[\"200\"]\n    N105[\"PoPs)\"]\n    N106[\"cache\"]\n    N107[\"key:\"]\n    N108[\"video_id\"]\n    N109[\"segment_N\"]\n    N110[\"~5-20 ms RTT to user\"]\n    N111[\"hit:\"]\n    N112[\"serve\"]\n    N113[\"edge\"]\n    N114[\"(~5\"]\n    N115[\"RTT\"]\n    N116[\"user)\"]\n    N117[\"miss:\"]\n    N118[\"fetch\"]\n    N119[\"origin,\"]\n    N120[\"cache,\"]\n    N121[\"Player (ABR Controller)\"]\n    N122[\"ABR Controller\"]\n    N123[\"[Player\"]\n    N124[\"(ABR\"]\n    N125[\"Controller)]\"]\n    N126[\"GET\"]\n    N127[\"manifest.m3u8\"]\n    N128[\"list\"]\n    N129[\"bitrates\"]\n    N130[\"bandwidth estimate or saved pref\"]\n    N131[\"pick\"]\n    N132[\"initial\"]\n    N133[\"(bandwidth\"]\n    N134[\"estimate\"]\n    N135[\"saved\"]\n    N136[\"pref)\"]\n    N137[\"TTFF < 2s\"]\n    N138[\"first\"]\n    N139[\"segment\"]\n    N140[\"start\"]\n    N141[\"playback\"]\n    N142[\"(TTFF\"]\n    N143[\"2s)\"]\n    N144[\"measure\"]\n    N145[\"throughput\"]\n    N146[\"while\"]\n    N147[\"fetching\"]\n    N148[\"next\"]\n    N149[\"ABR\"]\n    N150[\"algorithm:\"]\n    N151[\"measured_bw\"]\n    N152[\"next_bitrate,\"]\n    N153[\"switch\"]\n    N154[\"current_bitrate,\"]\n    N155[\"DOWN\"]\n    N156[\"loop\"]\n    N157[\"until\"]\n    N158[\"end\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44\n    N44 --> N45\n    N45 --> N46\n    N46 --> N47\n    N47 --> N48\n    N48 --> N49\n    N49 --> N50\n    N50 --> N51\n    N51 --> N52\n    N52 --> N53\n    N53 --> N54\n    N54 --> N55\n    N55 --> N56\n    N56 --> N57\n    N57 --> N58\n    N58 --> N59\n    N59 --> N60\n    N60 --> N61\n    N61 --> N62\n    N62 --> N63\n    N63 --> N64\n    N64 --> N65\n    N65 --> N66\n    N66 --> N67\n    N67 --> N68\n    N68 --> N69\n    N69 --> N70\n    N70 --> N71\n    N71 --> N72\n    N72 --> N73\n    N73 --> N74\n    N74 --> N75\n    N75 --> N76\n    N76 --> N77\n    N77 --> N78\n    N78 --> N79\n    N79 --> N80\n    N80 --> N81\n    N81 --> N82\n    N82 --> N83\n    N83 --> N84\n    N84 --> N85\n    N85 --> N86\n    N86 --> N87\n    N87 --> N88\n    N88 --> N89\n    N89 --> N90\n    N90 --> N91\n    N91 --> N92\n    N92 --> N93\n    N93 --> N94\n    N94 --> N95\n    N95 --> N96\n    N96 --> N97\n    N97 --> N98\n    N98 --> N99\n    N99 --> N100\n    N100 --> N101\n    N101 --> N102\n    N102 --> N103\n    N103 --> N104\n    N104 --> N105\n    N105 --> N106\n    N106 --> N107\n    N107 --> N108\n    N108 --> N109\n    N109 --> N110\n    N110 --> N111\n    N111 --> N112\n    N112 --> N113\n    N113 --> N114\n    N114 --> N115\n    N115 --> N116\n    N116 --> N117\n    N117 --> N118\n    N118 --> N119\n    N119 --> N120\n    N120 --> N121\n    N121 --> N122\n    N122 --> N123\n    N123 --> N124\n    N124 --> N125\n    N125 --> N126\n    N126 --> N127\n    N127 --> N128\n    N128 --> N129\n    N129 --> N130\n    N130 --> N131\n    N131 --> N132\n    N132 --> N133\n    N133 --> N134\n    N134 --> N135\n    N135 --> N136\n    N136 --> N137\n    N137 --> N138\n    N138 --> N139\n    N139 --> N140\n    N140 --> N141\n    N141 --> N142\n    N142 --> N143\n    N143 --> N144\n    N144 --> N145\n    N145 --> N146\n    N146 --> N147\n    N147 --> N148\n    N148 --> N149\n    N149 --> N150\n    N150 --> N151\n    N151 --> N152\n    N152 --> N153\n    N153 --> N154\n    N154 --> N155\n    N155 --> N156\n    N156 --> N157\n    N157 --> N158",
+        "caption": "Video streaming: creator uploads source, async transcode pipeline encodes multiple bitrates via FFmpeg, manifest builder produces master playlist, viewers fetch segments from CDN edge with adaptive bitrate switching.",
+        "alt_text": "Diagram of a video streaming system. The creator uploads a source video via multipart presigned S3 URL to the source bucket. An event is emitted to Kafka. The Transcode Orchestrator pulls the job from a priority queue and dispatched to an autoscaled worker pool. Each worker runs FFmpeg per preset, generating HLS segments at 240p, 480p, 720p, 1080p, and 4K resolutions with 10-second segment durations, uploading the per-preset playlists and segments to the segments bucket in S3. The Manifest Builder constructs a master dot m 3 u 8 playlist referencing all per-preset playlists, uploads it to S3, marks the video as published, and publishes a video_published event for search indexing and notifications. When a viewer hits play, they go to the nearest CDN edge PoP. The CDN checks the cache key video id plus preset plus segment number. On a hit it serves from edge with 5 to 20 millisecond RTT. On a miss it fetches from origin, caches, and serves. The player's ABR controller fetches the master manifest, picks an initial bitrate, fetches the first segment to start playback within 2 seconds, measures throughput while fetching subsequent segments, and uses an adaptive bitrate algorithm to switch up if measured bandwidth exceeds the next higher bitrate or switch down if it drops below the current bitrate, looping until end of video."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "hls-dash",
+      "payload": {
+        "text": "**Deep dive: HLS, DASH, and adaptive bitrate.**\n\n**HLS (HTTP Live Streaming).** Apple's protocol. A master `.m3u8` manifest lists variant streams (one per bitrate). Each variant has its own `.m3u8` playlist listing segments (`.ts` files, ~10 seconds each). The player fetches the master, picks a variant based on bandwidth, fetches segments sequentially, and switches variants between segments.\n\n**DASH (Dynamic Adaptive Streaming over HTTP).** MPEG standard, similar to HLS but uses `.mpd` (XML) manifests and `.m4s` segments. Used by YouTube, Netflix on some platforms. Functionally equivalent to HLS — both deliver ABR video over HTTP.\n\n**Why both?** Safari only supports HLS natively; some smart TVs only support DASH. Most services transcode to both formats from the same source segments (costly) or use a single format with a polyfill player (e.g. hls.js for HLS in non-Safari browsers).\n\n**Why segment into 10-second chunks?**\n- Too short (1s): too many HTTP requests, per-request overhead dominates, manifest gets huge.\n- Too long (60s): ABR switching is sluggish (bandwidth changes have to wait 60s to take effect); rebuffer after a network blip is costly (must re-fetch the 60s segment).\n- 10s is the sweet spot: ABR reacts within 10s, manifests stay small, segment count is manageable (1-hour video = 360 segments per bitrate).\n\n**Why multiple bitrates?** A viewer on a 50 Mbps fiber connection can stream 4K; a viewer on a 1 Mbps mobile connection can only stream 240p. Without multiple bitrates, either the 4K viewer gets a degraded 240p experience (wasted bandwidth), or the mobile viewer can't play 4K at all (rebuffer storm). Adaptive bitrate lets each viewer get the best quality their network supports.\n\n**The ABR algorithm.** The player estimates bandwidth by measuring segment fetch time. The classic algorithm (used by Netflix's player early on): if measured_bw > next_bitrate_threshold for 3 consecutive segments, switch up; if measured_bw < current_bitrate_threshold for 1 segment, switch down. The asymmetry (3 to switch up, 1 to switch down) is intentional — switching up too eagerly causes rebuffers; switching down quickly prevents them. Modern players use buffer-based algorithms (BOLA) that consider both bandwidth and current buffer health."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "transcode",
+      "payload": {
+        "text": "**Deep dive: the transcoding pipeline.**\n\n**FFmpeg as the workhorse.** Every video platform uses FFmpeg (or a wrapper around libavcodec). A typical command for one preset:\n```\nffmpeg -i source.mp4 \\\n       -c:v libx264 -preset fast -crf 23 \\\n       -vf scale=1280:720 \\\n       -b:v 2500k -maxrate 2680k -bufsize 3750k \\\n       -c:a aac -b:a 128k \\\n       -f hls -hls_time 10 \\\n       -hls_playlist_type vod \\\n       -hls_segment_filename 720p/seg_%06d.ts \\\n       720p.m3u8\n```\n\n**Per-segment vs whole-file transcoding.** FFmpeg can transcode the whole file in one process (simple, but a single failure restarts from scratch) OR split the source into ranges and transcode in parallel (faster, more complex). For a 2-hour 4K video, single-process can take 6+ hours; parallel-by-range with 16 workers can do it in ~30 min.\n\n**Hardware acceleration.** Modern transcoding uses GPU (NVENC on NVIDIA) or dedicated ASICs (AWS MediaConvert, Intel QSV). 5-10x faster than CPU x264. Cost: GPU instances are 5-10x more expensive per hour, but the speedup more than compensates.\n\n**Ladder design.** The 'ladder' = the set of bitrates offered. Naive: 240p/480p/720p/1080p at fixed bitrates. Modern (Netflix-perceptual): use VMAF (Video Multimethod Assessment Fusion) to tune bitrates per content — cartoons compress better than action movies, so the ladder adapts per video. This saves 20-50% on bandwidth.\n\n**The job queue.** Transcoding is CPU/GPU intensive and bursty (creators upload at all hours). A priority queue: paid creators and viral-candidate videos first; low-traffic back-catalog last. Workers autoscale based on queue depth — depth > threshold triggers scale-up; idle workers scale-down after 10 min.\n\n**Failure handling.** A transcode worker can crash mid-segment. *Mitigation*: per-segment idempotency (re-running FFmpeg on the same source range produces identical output); resume from the last completed segment; dead-letter jobs that fail >3 retries."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "cdn-bottlenecks",
+      "payload": {
+        "text": "**CDN delivery and bottlenecks.**\n\n**CDN cache key.** `video_id + preset + segment_N`. Segments are immutable, so TTL is effectively infinite (1 year). The CDN serves ~95% of requests; origin egress stays manageable.\n\n**Cache miss handling.** On a miss, the CDN fetches from origin (S3), serves the user, and caches. First viewer of a new segment pays origin latency; subsequent viewers hit edge.\n\n**Thundering herd (cache stampede).** A viral video drops; 10K viewers hit the same segment simultaneously. All miss, all fetch from origin, origin gets crushed. *Mitigation*: request coalescing at the CDN (one origin fetch, all waiters share the response); origin shield (a CDN tier that sits in front of origin and coalesces).\n\n**Pre-fetching.** Player predicts which segments will be needed next and pre-fetches them. Reduces TTFF for seeks and smooths ABR transitions.\n\n**Failure modes.**\n- **CDN PoP failure.** A PoP goes down; viewers in that region fall back to a farther PoP (higher latency, but functional). *Mitigation*: anycast DNS reroutes to next-nearest PoP.\n- **Origin (S3) failure.** Rare (S3 has 11 nines), but if it happens the CDN can serve cached content until S3 recovers. *Mitigation*: multi-region S3 with cross-region replication; CDN shield in front of origin.\n- **Transcode pipeline backlog.** A viral video drops and creators upload 10x normal; queue depth explodes. *Mitigation*: autoscale workers on queue depth (5 min to spin up); priority queue for paid creators.\n- **Player bug causes ABR thrashing.** Player switches bitrates every segment, causing quality flicker. *Mitigation*: hysteresis (3 segments to switch up, 1 to switch down); cap switch frequency.\n- **Hot segment cache eviction.** CDN has finite cache; old segments evicted under pressure. *Mitigation*: pin hot catalog at edge; use cache-tier separation (SSD for hot, HDD for warm).\n- **Bufferbloat in mobile.** Mobile latency is high; ABR estimates lag actual bandwidth. *Mitigation*: shorter segments on mobile or low-latency HLS (LL-HLS, 2-3s segments)."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "scaling",
+      "payload": {
+        "text": "**Scaling strategy and trade-offs.**\n\n*CDN-first architecture.* Origin (S3 + API) only handles manifest fetches (~5% of traffic) and cache misses. CDN absorbs 95%. Most products use CloudFront, Akamai, or Cloudflare; Netflix runs their own CDN (Open Connect) — only viable at Netflix scale.\n\n*Multi-CDN.* For global reach, use multiple CDNs — pick the best per region per video (CDN routing based on performance telemetry). Costs more but improves availability and latency.\n\n*Transcoding autoscaling.* Workers are stateless; autoscale on queue depth. Spot instances for non-priority backlog; on-demand for priority. Transcoding is the largest compute cost — saving 30% via better ladders = millions of dollars.\n\n*Multi-region origin.* S3 buckets in 3+ regions with cross-region replication. CDN fetches from nearest region.\n\n*Edge compute for manifests.* Manifest generation can be done at the edge (per-user personalized manifests for ad insertion). Push logic to the CDN edge function (Cloudflare Workers / Lambda@Edge).\n\n*Trade-offs made explicit.*\n- We chose HLS+DASH over a single protocol — **gained** device coverage, **lost** storage cost (transcode to both formats). Most services pick one and polyfill.\n- We chose 10-second segments — **gained** balanced ABR reactivity vs request overhead, **lost** ultra-low latency (LL-HLS gets to 2-3s for live).\n- We chose 5 bitrates (240p to 4K) — **gained** broad device/network coverage, **lost** transcode cost (5x source bytes). Could be 3 bitrates to save 40% storage at the cost of mobile UX.\n- We chose pre-transcoded (VOD) over on-demand transcode — **gained** CDN-cacheable immutable segments, **lost** storage cost and upload-to-publish latency (must finish all bitrates before publish).\n- We chose CDN over origin serving — **gained** 95% origin offload and edge latency, **lost** direct control of bytes (must respect CDN cache behavior).\n- We chose hardware-accelerated transcoding (NVENC) — **gained** 5-10x throughput per instance, **lost** some quality (NVENC slightly worse than x264 slow preset at same bitrate) and per-instance cost."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q1",
+      "payload": {
+        "question": "Why are HLS / DASH videos split into ~10-second segments rather than streamed as one file?",
+        "shape": "mcq",
+        "options": [
+          "So the player can switch bitrates between segments based on measured bandwidth, and so the manifest can be cache-friendly.",
+          "To save storage — segments are smaller than the whole file.",
+          "To make seeking easier — the player can jump to any segment.",
+          "Because HTTP can't stream large files efficiently."
+        ],
+        "answer_index": 0,
+        "rationale": "Adaptive bitrate requires the ability to switch quality mid-playback. Segments are the unit of switching — between segments, the player can choose a different bitrate variant. Within a segment, the bitrate is fixed (the player can't switch mid-segment). 10 seconds is the sweet spot: long enough that per-request overhead is small, short enough that bandwidth changes are reflected within ~10s. Option B is wrong — total storage is identical (same bytes, different packaging). Option C is partially right (seeking is easier with segments) but it's a side benefit, not the primary reason. Option D is wrong — HTTP can stream large files (range requests); the segmentation is for ABR switching, not for HTTP limitations.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q2",
+      "payload": {
+        "question": "A viral video drops and 10,000 viewers start watching the same segment within 1 second. What's the risk and the mitigation?",
+        "shape": "mcq",
+        "options": [
+          "Thundering herd: all 10K CDN requests miss cache and crush origin. Mitigate with request coalescing at the CDN (one origin fetch, others wait).",
+          "Origin S3 will handle it fine — S3 has 11 nines of durability.",
+          "The transcode pipeline will fail to keep up with new uploads.",
+          "The player's ABR controller will pick the wrong bitrate under load."
+        ],
+        "answer_index": 0,
+        "rationale": "When a viral video drops, 10K simultaneous requests for the same segment hit the CDN. If none are cached yet (or the cache entry was just evicted), all 10K miss the cache and 10K requests go to origin — that's the thundering herd (cache stampede) anti-pattern. S3 can handle thousands of requests per second but 10K in a single second on one key exceeds per-object request limits. Mitigations: (a) request coalescing at the CDN — the first miss triggers one origin fetch, the other 9,999 wait for the same response; (b) origin shield — a CDN tier in front of origin that coalesces; (c) pre-warming — proactively push hot catalog to edge caches. Option B is wrong because durability ≠ throughput; S3's per-prefix throughput limit (3,500 PUT/s, 5,500 GET/s) would be exceeded. Option C is unrelated — transcode backlog is about upload volume, not viewer volume. Option D is wrong — ABR per-viewer bandwidth measurement is independent of viewer count.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-design-video-streaming-mental",
+      "payload": {
+        "text": "Engineering mental model",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-design-video-streaming-mental",
+      "payload": {
+        "text": "**Mental model.** Think of Design Video Streaming as a deliberate boundary in a system. The boundary exists because something becomes harder to manage when everything is done in one place: latency, scale, failure isolation, consistency, cost, or team ownership. The useful question is not “what does Design Video Streaming mean?” but “what pressure makes this boundary worth introducing, and what new failure mode does it create?”"
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-design-video-streaming-decision",
+      "payload": {
+        "title": "Design lens",
+        "body": "Before choosing Design Video Streaming, name the workload, the critical user path, the dominant bottleneck, the failure you are trying to absorb, and the trade-off you are willing to accept. If you cannot name those five things, the design is probably premature.",
+        "kind": "info"
+      }
+    },
+    {
+      "type": "image",
+      "id": "upgrade-image-design-video-streaming",
+      "payload": {
+        "src": "/learning-visuals/design-video-streaming.svg",
+        "alt": "Original NO CAP systems visual for Design Video Streaming.",
+        "caption": "Design Video Streaming: a compact system-thinking visual.",
+        "credit": "Original NO CAP visual.",
+        "source_url": "https://github.com/donnemartin/system-design-primer"
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "upgrade-mermaid-design-video-streaming",
+      "payload": {
+        "code": "flowchart LR\n  A[Client] --> B[Gateway] --> C[Services] --> D[Data] --> E[Delivery]",
+        "caption": "Design Video Streaming: a simplified system view showing the primary flow and the main state boundaries.",
+        "alt_text": "Design Video Streaming: a simplified system view showing the primary flow and the main state boundaries."
+      }
+    },
+    {
+      "type": "code",
+      "id": "upgrade-code-design-video-streaming",
+      "payload": {
+        "language": "text",
+        "code": "// Pseudocode\nrequest = receive()\nresult = design_video_streaming(request)\nreturn result\n\n// Production questions:\n// 1. What happens on timeout?\n// 2. Can this operation be retried safely?\n// 3. What is the bottleneck?",
+        "caption": "A minimal engineering sketch for reasoning about Design Video Streaming."
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-design-video-streaming-numbers",
+      "payload": {
+        "text": "Back-of-the-envelope reasoning",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-design-video-streaming-numbers",
+      "payload": {
+        "text": "Numerical lens: write down traffic, payload size, read/write ratio, peak multiplier and durability target before choosing a component. The numbers should justify the architecture."
+      }
+    },
+    {
+      "type": "simulation",
+      "id": "upgrade-sim-design-video-streaming",
+      "payload": {
+        "title": "Interactive thought experiment: Design Video Streaming",
+        "description": "Change the variables below and predict what breaks first in Design Video Streaming. The production lab can later reuse these same inputs.",
+        "variables": [
+          {
+            "name": "traffic",
+            "description": "Requests/events per second",
+            "default": "1000"
+          },
+          {
+            "name": "latency",
+            "description": "Dependency latency",
+            "default": "50ms"
+          },
+          {
+            "name": "failure_rate",
+            "description": "Injected failure rate",
+            "default": "0%"
+          }
+        ],
+        "placeholder_note": "Interactive controls are deterministic; use the linked Labs section when a dedicated lab exists."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-design-video-streaming-hint",
+      "payload": {
+        "title": "Hint",
+        "body": "If you are stuck on Design Video Streaming, start by drawing the request path and marking every network hop, stateful component, queue, cache and failure boundary. Then estimate where the system will saturate.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-design-video-streaming-1",
+      "payload": {
+        "shape": "prediction",
+        "question": "You increase traffic by 10× in a system using Design Video Streaming. What should you inspect first?",
+        "options": [
+          "The newest framework version",
+          "The dominant bottleneck and its saturation signal",
+          "Only the UI",
+          "Nothing; the architecture should absorb any traffic automatically"
+        ],
+        "answer_index": 1,
+        "rationale": "System design is a constraint-and-bottleneck exercise. Start with the resource or dependency that will saturate first, then choose the smallest change that removes that bottleneck.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-design-video-streaming-2",
+      "payload": {
+        "shape": "mcq",
+        "question": "Which statement is the safest engineering habit when using Design Video Streaming?",
+        "options": [
+          "Choose it because it is popular",
+          "Add it before measuring the problem",
+          "State the workload, failure mode and trade-off it is solving",
+          "Use the most distributed design possible"
+        ],
+        "answer_index": 2,
+        "rationale": "Good architecture starts from requirements, workload and failure assumptions. The component is the consequence of that reasoning, not the starting point.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "scenario",
+      "id": "upgrade-scenario-design-video-streaming",
+      "payload": {
+        "prompt": "Production scenario: your system uses Design Video Streaming, traffic suddenly spikes, and p99 latency doubles. What is your first move?",
+        "context": "You have dashboards for traffic, latency, errors and saturation. You can change the architecture, but every change has operational cost.",
+        "options": [
+          {
+            "id": "a",
+            "text": "Add more instances immediately",
+            "outcome": "This may help, but only if compute saturation is the bottleneck.",
+            "correct": false
+          },
+          {
+            "id": "b",
+            "text": "Inspect the bottleneck and its saturation signal first",
+            "outcome": "Correct: diagnose before scaling or introducing a new pattern.",
+            "correct": true
+          },
+          {
+            "id": "c",
+            "text": "Disable monitoring to reduce overhead",
+            "outcome": "This removes the evidence you need to diagnose the incident.",
+            "correct": false
+          }
+        ],
+        "rationale": "Measure the limiting resource or dependency first. A bottleneck can be compute, database I/O, network, cache misses, lock contention, downstream latency, or queue backlog.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-design-video-streaming-interview",
+      "payload": {
+        "text": "Interview drill",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-design-video-streaming-interview",
+      "payload": {
+        "text": "**Answer this without notes:** When would you choose Design Video Streaming, and when would you intentionally avoid it? Mention at least one bottleneck it addresses, one failure mode it introduces, and one alternative. Then quantify the workload you are designing for."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "field-guide-design-video-streaming",
+      "payload": {
+        "title": "Engineering lens",
+        "body": "For Design Video Streaming, separate producer speed from consumer speed. The key design question is what happens when production temporarily exceeds processing capacity: queue it, shed it, slow producers down, or degrade the feature.",
+        "kind": "tip"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "numerical-lens-design-video-streaming",
+      "payload": {
+        "text": "### Numerical sanity check\n\nA simple queue sanity check: if producers create 8,000 messages/s and consumers process 6,000 messages/s, backlog grows at roughly 2,000 messages/s until the imbalance is corrected."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "field-question-design-video-streaming",
+      "payload": {
+        "shape": "prediction",
+        "question": "A downstream service slows down while Design Video Streaming keeps accepting traffic. Would you rather apply backpressure, queue more work, shed load, or degrade? Explain the trade-off.",
+        "context": "Do not optimize for a memorized definition. Reason from the workload and failure mode.",
+        "options": [
+          "Scale the same component immediately.",
+          "Measure the current bottleneck and state the assumption that changed.",
+          "Add more technologies until throughput improves.",
+          "Choose the most popular architecture."
+        ],
+        "answer_index": 1,
+        "rationale": "Good system design starts with the bottleneck and the changed constraint. The most popular or complex choice is not automatically correct.",
+        "difficulty": "interview"
+      }
+    }
+  ],
+  "trade_offs": {
+    "pros": [
+      "Adaptive bitrate gives every viewer the best quality their network supports.",
+      "CDN absorbs 95% of egress; origin stays small.",
+      "Immutable segments enable aggressive edge caching with no revalidation.",
+      "Hardware-accelerated transcoding (NVENC) cuts cost 5-10x vs CPU."
+    ],
+    "cons": [
+      "5-bitrate ladder means 5x source bytes in storage and transcode cost.",
+      "10-second segments add ~10s of latency vs real-time streaming (LL-HLS reduces to 2-3s).",
+      "Upload-to-publish latency requires all bitrates transcoded first (long-tail creators wait).",
+      "HLS+DASH dual format doubles storage cost — most pick one and polyfill."
+    ]
+  },
+  "failure_modes": [
+    "Thundering herd on viral video segment drops — needs request coalescing + origin shield.",
+    "Transcode pipeline backlog from viral uploads — needs autoscaling on queue depth + priority queue.",
+    "CDN PoP failure — needs anycast DNS rerouting to next-nearest PoP.",
+    "ABR thrashing from per-segment bitrate switches — needs hysteresis (3 up, 1 down).",
+    "Hot segment eviction from CDN cache pressure — needs hot-catalog pinning at edge.",
+    "Mobile bufferbloat causes ABR bandwidth mis-estimation — needs shorter segments or LL-HLS on mobile.",
+    "Transcode worker crash mid-segment — needs per-segment idempotency and resume from last completed segment."
+  ],
+  "common_mistakes": [
+    "Streaming the source file as one big file — no adaptive bitrate, no CDN caching efficiency.",
+    "1-second segments — per-request overhead dominates, manifests balloon.",
+    "60-second segments — ABR reacts slowly, rebuffer after blips is costly.",
+    "Only one bitrate — viewers on bad networks can't play, viewers on good networks get degraded quality.",
+    "Origin serving without CDN — origin gets crushed at 1M concurrent streams.",
+    "Sync transcoding (transcode-on-demand at viewer time) — origin latency kills TTFF.",
+    "Forgetting that segments must be immutable — mutable segments break CDN caching.",
+    "Using x264 software encode in production — 5-10x cost vs hardware NVENC."
+  ],
+  "where_you_see_it": [
+    "Netflix (Open Connect CDN, HLS + DASH, perceptual ladders via VMAF)",
+    "YouTube (DASH primary, HLS fallback, VP9/AV1 codecs for some content)",
+    "Disney+ / Hulu",
+    "Twitch (live streaming, LL-HLS for sub-second latency)",
+    "TikTok / Instagram Reels (short-form, MP4 over HTTP for short clips)",
+    "Vimeo",
+    "Cloudflare Stream (managed video pipeline)"
+  ],
+  "interview_prompts": [
+    "Design Netflix. How do you serve video to 1B viewers without crushing your origin?",
+    "Why does HLS split video into 10-second segments? What if you used 1-second or 60-second segments?",
+    "A viral video drops and 10K viewers hit the same segment simultaneously. What happens?",
+    "How does adaptive bitrate work? Walk me through a viewer whose bandwidth drops mid-video.",
+    "How would you reduce transcoding cost by 30% without harming viewer experience?"
+  ],
+  "real_system_mappings": [
+    {
+      "system": "Netflix",
+      "how": "Open Connect (their own CDN with appliances in ISP data centers), HLS+DASH, per-title perceptual ladders using VMAF, hardware transcoding at scale. Documented in Netflix Tech Blog posts on Open Connect and per-title encoding."
+    },
+    {
+      "system": "YouTube",
+      "how": "DASH as the primary protocol (HTML5 player), VP9/AV1 codecs for newer content, multi-CDN delivery, transcoding pipeline with FFmpeg + custom optimizations."
+    },
+    {
+      "system": "Twitch",
+      "how": "Live variant: LL-HLS for sub-second latency, transcode pipeline runs in real-time (not pre-encoded), edge POPs at ISP peering points for low-latency ingest."
+    }
+  ],
+  "status": "published",
+  "sources": [
+    {
+      "title": "System Design Primer",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Open source"
+    },
+    {
+      "title": "ByteByteGo — Scale from zero to millions",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "ByteByteGo"
+    },
+    {
+      "title": "System Design Tutorial",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "GeeksforGeeks"
+    },
+    {
+      "title": "System Design Roadmap",
+      "url": "https://roadmap.sh/system-design",
+      "publisher": "roadmap.sh"
+    },
+    {
+      "title": "Case Studies reference",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Case Studies reference",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Case Studies reference",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "Reference"
+    }
+  ]
+}

@@ -1,0 +1,455 @@
+{
+  "slug": "distributed-systems-intro",
+  "version": 4,
+  "title": "Distributed Systems Fundamentals",
+  "phase": "distributed-systems",
+  "area": "Distributed Systems",
+  "estimated_minutes": 7,
+  "difficulty": "advanced",
+  "summary": "A distributed system is one in which multiple independent computers cooperate over a network to appear as a single coherent service to the outside world. The defining property is not geographical spread but partial failure: components you depend on can fail independently and unpredictably, and the network that connects them can drop, delay, or reorder messages at any time. Mastering distributed systems is largely about learning to design as if every assumption you would make on a single machine — shared memory, synchronous calls, reliable clocks — does not hold.",
+  "why_it_matters": "Every backend of meaningful scale is a distributed system. Once you have more than one server, you have a network, partial failure, and consensus problems — whether you acknowledge them or not. Treating a distributed system like a single machine produces the classic fallacies (the network is reliable, latency is zero, bandwidth is infinite, the topology doesn't change). The cost of that mistake is intermittent production outages, silent data loss, and split-brain incidents that take weeks to diagnose. The CAP theorem, consensus protocols, replication, sharding, and every other concept in this phase are responses to the same three facts: messages can be lost, nodes can crash, and clocks can lie.",
+  "prerequisites": [
+    "cap-theorem"
+  ],
+  "related": [
+    "replication",
+    "sharding",
+    "consensus",
+    "leader-election",
+    "logical-clocks"
+  ],
+  "used_in": [
+    "Every multi-node database (Cassandra, Spanner, CockroachDB, Aurora).",
+    "Every microservice architecture.",
+    "Every cloud object storage system (S3, GCS, Azure Blob).",
+    "Every CDN and globally-distributed application."
+  ],
+  "blocks": [
+    {
+      "type": "prose",
+      "id": "what-is-distributed",
+      "payload": {
+        "text": "A distributed system has three properties that single-machine systems do not:\n\n1. **No shared memory.** Nodes communicate by passing messages over a network. They cannot read each other's memory directly; they can only exchange messages that may or may not arrive in order, or at all.\n2. **Partial failure.** A single node can crash while others keep running. The network can partition, leaving groups of nodes unable to communicate. The system as a whole is only 'up' if the survivors can keep serving, which is the entire point of distribution — and the entire source of its difficulty.\n3. **No global clock.** Even with NTP synchronization, clocks on different machines drift by milliseconds to seconds. You cannot use wall-clock time to determine which of two events happened first if they occurred on different nodes — you need logical clocks (Lamport timestamps, vector clocks) for that.\n\nA multi-core CPU is not a distributed system in this sense — it shares memory and a single clock. A single Postgres instance behind a load balancer with one read replica *is* a distributed system the moment you write to the primary and read from the replica, because now you have network, partial failure, and clock skew in play."
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "partial-failure",
+      "payload": {
+        "code": "flowchart TD\n    N0[\"Single\"]\n    N1[\"machine:\"]\n    N2[\"Distributed\"]\n    N3[\"system:\"]\n    N4[\" CPU \"]\n    N5[\" RAM \"]\n    N6[\" DISK \"]\n    N7[\"CPU\"]\n    N8[\"RAM\"]\n    N9[\"DISK\"]\n    N10[\"Node\"]\n    N11[\" NETWORK \"]\n    N12[\"NETWORK\"]\n    N13[\"can\"]\n    N14[\"crash\"]\n    N15[\"keep\"]\n    N16[\"running\"]\n    N17[\"network\"]\n    N18[\"partitions\"]\n    N19[\"A,B\"]\n    N20[\"C\"]\n    N21[\"(A,B)\"]\n    N22[\"(C)\"]\n    N23[\"Failure\"]\n    N24[\"mode:\"]\n    N25[\"all\"]\n    N26[\"nothing.\"]\n    N27[\"partial.\"]\n    N28[\"Either\"]\n    N29[\"works\"]\n    N30[\"doesn't.\"]\n    N31[\"Some\"]\n    N32[\"requests\"]\n    N33[\"succeed,\"]\n    N34[\"some\"]\n    N35[\"fail,\"]\n    N36[\"hang\"]\n    N37[\"forever.\"]\n    N38[\"The\"]\n    N39[\"worst\"]\n    N40[\"case\"]\n    N41[\"'maybe'\"]\n    N42[\"did\"]\n    N43[\"the\"]\n    N44[\"write\"]\n    N45[\"happen?\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44\n    N44 --> N45",
+        "caption": "Partial failure: a node or the network can fail while the rest keep running. 'Maybe' is the new failure mode.",
+        "alt_text": "Two side-by-side diagrams. On the left, a single machine with CPU, RAM, and disk fails all-or-nothing: either it works or it doesn't. On the right, a distributed system with three nodes connected through a network. Any single node can crash while the others keep running. The network can partition, leaving a subset of nodes unable to communicate. The new failure mode is partial: some requests succeed, some fail, some hang forever. The worst case is 'maybe' — the system can no longer tell whether a write happened."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "eight-fallacies",
+      "payload": {
+        "text": "Peter Deutsch and James Gosling cataloged the **Eight Fallacies of Distributed Computing** — assumptions that are always wrong and always bite:\n\n1. The network is reliable. (Cables get cut, switches fail, packets get dropped under load.)\n2. Latency is zero. (Even a local network round trip is sub-millisecond; a cross-continent call is 50-150ms.)\n3. Bandwidth is infinite. (Video and ML payloads saturate links.)\n4. The network is secure. (DDoS, MITM, hijacked BGP routes.)\n5. Topology doesn't change. (Auto-scaling, deploys, and DNS rebinding change it constantly.)\n6. There is one administrator. (Multi-cloud, multi-region, third-party SaaS.)\n7. Transport cost is zero. (Marshalling, TLS handshakes, proxy hops add CPU and latency.)\n8. The network is homogeneous. (Mixing gRPC, HTTP, custom binary protocols is the norm.)\n\nEvery distributed-systems bug is, at root, a violation of one of these. The defensive response is timeouts on every call, retries with exponential backoff and jitter, idempotency on every mutating operation, and circuit breakers to fail fast when a downstream is broken."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "two-generals",
+      "payload": {
+        "title": "The Two Generals Problem",
+        "body": "Two armies on opposite hills must coordinate an attack. They can only communicate via messengers through enemy territory — messengers may be captured. There is no protocol that lets both generals know with certainty that they have agreed to attack at the same time. The last messenger might be captured, leaving one general unsure whether the other received the confirmation. This is the foundational impossibility of distributed systems: you cannot achieve certain knowledge of agreement over an unreliable channel. Every consensus protocol (Paxos, Raft, 2PC) is a workaround — they reduce the probability of disagreement to arbitrarily small levels, never zero.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "abstractions",
+      "payload": {
+        "text": "Distributed-systems engineers work in three layers of abstraction, each with stronger (and more expensive) guarantees:\n\n- **Best-effort delivery**: messages may be lost, duplicated, or reordered. Used for telemetry and metrics — losing a data point is fine.\n- **At-least-once delivery**: messages are not lost but may be duplicated. Used for queues, event streams, and almost every practical system. Requires idempotent consumers.\n- **Exactly-once semantics (EOS)**: messages are delivered exactly once, in order. Achieved only via consensus on every delivery — very expensive. Kafka transactions approximate EOS by combining at-least-once with transactional dedup on the consumer.\n\nThe stronger the guarantee, the higher the latency and the lower the throughput. Choosing the right level for each workload is the core design decision. A payment needs at-least-once plus idempotency, not exactly-once consensus on every byte. A sensor stream needs best-effort, not at-least-once.\n\nRelated abstractions: **synchronous vs. asynchronous replication** (do you wait for replicas before acknowledging the write?), **strong vs. eventual consistency** (do reads see the latest write?), and **linearizability** (does the system behave as if there were a single copy of the data?). The CAP theorem says you cannot have all of {linearizability, availability, partition tolerance} during a partition — partition tolerance is not optional on a real network, so the real choice is C vs A during partitions."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "observability",
+      "payload": {
+        "text": "Distributed systems are harder to debug because there is no single call stack. A single user request might fan out across five services, hit three databases, and produce ten log lines on each — and the only way to assemble them is a shared **correlation ID** propagated through every hop. The triad of metrics, logs, and distributed traces (the 'three pillars of observability') exists precisely because local debugging is insufficient. Without distributed tracing, the classic 'the site is slow' bug becomes a multi-day hunt through log files. With it, the trace shows the slowest hop in seconds.\n\nThis is also why every distributed system design starts with operations in mind: how will I know if it is broken, how will I know if it is slow, and how will I trace a single user's request across the topology? These questions shape everything from request ID propagation to metric labeling to alert thresholds."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q1",
+      "payload": {
+        "question": "Which of the following is the defining property of a distributed system?",
+        "shape": "mcq",
+        "options": [
+          "Multiple servers behind a load balancer.",
+          "Geographic spread across regions.",
+          "Independent nodes that can fail partially while others keep running.",
+          "Use of microservices instead of a monolith."
+        ],
+        "answer_index": 2,
+        "rationale": "The defining property is partial failure: components you depend on can fail independently, and the system must keep running. A multi-core CPU is not distributed because it shares memory and a clock — when one core fails, the whole machine typically halts. A single Postgres instance with one read replica IS distributed the moment you rely on the replica, because now network failure or replica crash can affect correctness. Geographic spread, multiple servers, and microservices are all *causes* or *forms* of distribution, but partial failure is the *consequence* that drives every design decision.",
+        "difficulty": "core"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q2",
+      "payload": {
+        "question": "Why can't you use wall-clock timestamps to determine which of two events happened first if they occurred on different nodes?",
+        "shape": "mcq",
+        "options": [
+          "Because the network is slow.",
+          "Because clocks on different machines drift and are not perfectly synchronized.",
+          "Because timestamps are not unique.",
+          "Because events on different nodes happen simultaneously."
+        ],
+        "answer_index": 1,
+        "rationale": "Even with NTP, clocks on different machines drift by milliseconds to seconds. NTP corrects drift gradually and can even step the clock backwards, so a 'later' event can have an earlier timestamp. This is why distributed systems use logical clocks (Lamport timestamps, vector clocks) for ordering: they capture causality based on message-passing, not wall-clock time, and are immune to clock skew. Google Spanner uses TrueTime (atomic clocks + GPS in every datacenter) to bound clock uncertainty to ~7ms, which is enough for linearizability — but this is a rare and expensive luxury. On commodity infrastructure, wall-clock time is a hint, not a source of truth.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "video",
+      "id": "upgrade-video-distributed-systems-intro",
+      "payload": {
+        "provider": "youtube",
+        "video_id": "k-Yaq8AHlFA",
+        "title": "CAP and distributed-systems foundations",
+        "description": "Supplementary explanation. The NO CAP lesson remains self-contained.",
+        "source_url": "https://www.youtube.com/watch?v=k-Yaq8AHlFA"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q3",
+      "payload": {
+        "question": "What is the 'two generals problem,' and what is its practical implication?",
+        "shape": "mcq",
+        "options": [
+          "Two services competing for a database lock — solved by Redlock.",
+          "Two parties cannot reach certain agreement over an unreliable channel — every consensus protocol is a probabilistic workaround.",
+          "Two datacenters cannot sync — solved by synchronous replication.",
+          "Two leaders elected simultaneously — solved by Raft term numbers."
+        ],
+        "answer_index": 1,
+        "rationale": "The two generals problem formalizes the impossibility of certain agreement over an unreliable channel: two armies on opposite hills cannot guarantee both have agreed to attack, because the last messenger might be captured. Practical implication: every consensus protocol (Paxos, Raft, 2PC) reduces disagreement probability but cannot eliminate it. Two-phase commit blocks if the coordinator crashes mid-protocol; Paxos and Raft achieve safety (no two leaders commit conflicting values) but cannot guarantee liveness under all network conditions (FLP impossibility). This is why distributed systems are designed around quorums and idempotency rather than absolute certainty — 'very probably agreed' is the achievable goal.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-distributed-systems-intro-mental",
+      "payload": {
+        "text": "Engineering mental model",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-distributed-systems-intro-mental",
+      "payload": {
+        "text": "**Mental model.** Think of Distributed Systems Fundamentals as a deliberate boundary in a system. The boundary exists because something becomes harder to manage when everything is done in one place: latency, scale, failure isolation, consistency, cost, or team ownership. The useful question is not “what does Distributed Systems Fundamentals mean?” but “what pressure makes this boundary worth introducing, and what new failure mode does it create?”"
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-distributed-systems-intro-decision",
+      "payload": {
+        "title": "Design lens",
+        "body": "Before choosing Distributed Systems Fundamentals, name the workload, the critical user path, the dominant bottleneck, the failure you are trying to absorb, and the trade-off you are willing to accept. If you cannot name those five things, the design is probably premature.",
+        "kind": "info"
+      }
+    },
+    {
+      "type": "image",
+      "id": "upgrade-image-distributed-systems-intro",
+      "payload": {
+        "src": "/learning-visuals/distributed-systems-intro.svg",
+        "alt": "Original NO CAP systems visual for Distributed Systems Fundamentals.",
+        "caption": "Distributed Systems Fundamentals: a compact system-thinking visual.",
+        "credit": "Original NO CAP visual.",
+        "source_url": "https://github.com/donnemartin/system-design-primer"
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "upgrade-mermaid-distributed-systems-intro",
+      "payload": {
+        "code": "flowchart LR\n  A[Client] --> B[Gateway] --> C[Service] --> D[State] --> E[Outcome]",
+        "caption": "Distributed Systems Fundamentals: a simplified system view showing the primary flow and the main state boundaries.",
+        "alt_text": "Distributed Systems Fundamentals: a simplified system view showing the primary flow and the main state boundaries."
+      }
+    },
+    {
+      "type": "code",
+      "id": "upgrade-code-distributed-systems-intro",
+      "payload": {
+        "language": "text",
+        "code": "// Pseudocode\nrequest = receive()\nresult = distributed_systems_intro(request)\nreturn result\n\n// Production questions:\n// 1. What happens on timeout?\n// 2. Can this operation be retried safely?\n// 3. What is the bottleneck?",
+        "caption": "A minimal engineering sketch for reasoning about Distributed Systems Fundamentals."
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-distributed-systems-intro-numbers",
+      "payload": {
+        "text": "Back-of-the-envelope reasoning",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-distributed-systems-intro-numbers",
+      "payload": {
+        "text": "Numerical lens: write down traffic, payload size, read/write ratio, peak multiplier and durability target before choosing a component. The numbers should justify the architecture."
+      }
+    },
+    {
+      "type": "simulation",
+      "id": "upgrade-sim-distributed-systems-intro",
+      "payload": {
+        "title": "Interactive thought experiment: Distributed Systems Fundamentals",
+        "description": "Change the variables below and predict what breaks first in Distributed Systems Fundamentals. The production lab can later reuse these same inputs.",
+        "variables": [
+          {
+            "name": "traffic",
+            "description": "Requests/events per second",
+            "default": "1000"
+          },
+          {
+            "name": "latency",
+            "description": "Dependency latency",
+            "default": "50ms"
+          },
+          {
+            "name": "failure_rate",
+            "description": "Injected failure rate",
+            "default": "0%"
+          }
+        ],
+        "placeholder_note": "Interactive controls are deterministic; use the linked Labs section when a dedicated lab exists."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-distributed-systems-intro-hint",
+      "payload": {
+        "title": "Hint",
+        "body": "If you are stuck on Distributed Systems Fundamentals, start by drawing the request path and marking every network hop, stateful component, queue, cache and failure boundary. Then estimate where the system will saturate.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-distributed-systems-intro-1",
+      "payload": {
+        "shape": "prediction",
+        "question": "You increase traffic by 10× in a system using Distributed Systems Fundamentals. What should you inspect first?",
+        "options": [
+          "The newest framework version",
+          "The dominant bottleneck and its saturation signal",
+          "Only the UI",
+          "Nothing; the architecture should absorb any traffic automatically"
+        ],
+        "answer_index": 1,
+        "rationale": "System design is a constraint-and-bottleneck exercise. Start with the resource or dependency that will saturate first, then choose the smallest change that removes that bottleneck.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-distributed-systems-intro-2",
+      "payload": {
+        "shape": "mcq",
+        "question": "Which statement is the safest engineering habit when using Distributed Systems Fundamentals?",
+        "options": [
+          "Choose it because it is popular",
+          "Add it before measuring the problem",
+          "State the workload, failure mode and trade-off it is solving",
+          "Use the most distributed design possible"
+        ],
+        "answer_index": 2,
+        "rationale": "Good architecture starts from requirements, workload and failure assumptions. The component is the consequence of that reasoning, not the starting point.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "scenario",
+      "id": "upgrade-scenario-distributed-systems-intro",
+      "payload": {
+        "prompt": "Production scenario: your system uses Distributed Systems Fundamentals, traffic suddenly spikes, and p99 latency doubles. What is your first move?",
+        "context": "You have dashboards for traffic, latency, errors and saturation. You can change the architecture, but every change has operational cost.",
+        "options": [
+          {
+            "id": "a",
+            "text": "Add more instances immediately",
+            "outcome": "This may help, but only if compute saturation is the bottleneck.",
+            "correct": false
+          },
+          {
+            "id": "b",
+            "text": "Inspect the bottleneck and its saturation signal first",
+            "outcome": "Correct: diagnose before scaling or introducing a new pattern.",
+            "correct": true
+          },
+          {
+            "id": "c",
+            "text": "Disable monitoring to reduce overhead",
+            "outcome": "This removes the evidence you need to diagnose the incident.",
+            "correct": false
+          }
+        ],
+        "rationale": "Measure the limiting resource or dependency first. A bottleneck can be compute, database I/O, network, cache misses, lock contention, downstream latency, or queue backlog.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-distributed-systems-intro-interview",
+      "payload": {
+        "text": "Interview drill",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-distributed-systems-intro-interview",
+      "payload": {
+        "text": "**Answer this without notes:** When would you choose Distributed Systems Fundamentals, and when would you intentionally avoid it? Mention at least one bottleneck it addresses, one failure mode it introduces, and one alternative. Then quantify the workload you are designing for."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "field-guide-distributed-systems-intro",
+      "payload": {
+        "title": "Engineering lens",
+        "body": "A useful engineering lens for Distributed Systems Fundamentals: define the problem it solves, the simpler design that fails first, the constraint that forces you to introduce this concept, and the new failure modes the concept creates.",
+        "kind": "tip"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "numerical-lens-distributed-systems-intro",
+      "payload": {
+        "text": "### Numerical sanity check\n\nBack-of-the-envelope reasoning beats fake precision. State your traffic, payload, concurrency and growth assumptions explicitly, then calculate enough to know whether the current architecture is orders of magnitude away from the target."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "field-question-distributed-systems-intro",
+      "payload": {
+        "shape": "prediction",
+        "question": "Imagine the simplest version of a system using Distributed Systems Fundamentals. What breaks first as traffic grows by 10×, and what would you change before reaching 100×?",
+        "context": "Do not optimize for a memorized definition. Reason from the workload and failure mode.",
+        "options": [
+          "Scale the same component immediately.",
+          "Measure the current bottleneck and state the assumption that changed.",
+          "Add more technologies until throughput improves.",
+          "Choose the most popular architecture."
+        ],
+        "answer_index": 1,
+        "rationale": "Good system design starts with the bottleneck and the changed constraint. The most popular or complex choice is not automatically correct.",
+        "difficulty": "interview"
+      }
+    }
+  ],
+  "trade_offs": {
+    "pros": [
+      "Horizontal scalability — add more nodes to handle more load.",
+      "Fault tolerance — the system survives single-node failures.",
+      "Geographic distribution — serve users from the nearest region.",
+      "Independent deployment and scaling of components.",
+      "No single machine limits (CPU, memory, disk) on total system capacity."
+    ],
+    "cons": [
+      "Partial failure is the default — every design must handle it.",
+      "No global clock — ordering and consistency are hard problems.",
+      "Network is a new failure surface — partitions, latency, packet loss.",
+      "Operational complexity — observability, deployment, and debugging are harder.",
+      "Strong consistency is expensive or impossible (CAP theorem) — usually settle for eventual consistency.",
+      "No distributed transactions by default — 2PC is blocking; sagas are eventual."
+    ]
+  },
+  "failure_modes": [
+    "Network partition — split-brain if both halves accept writes; mitigated by quorum requirements (only the majority half can accept writes).",
+    "Clock skew — events ordered incorrectly; mitigated by logical clocks or TrueTime.",
+    "Cascade failure — one slow downstream causes thread pool exhaustion upstream; mitigated by circuit breakers and bulkheads.",
+    "Gray failures — a node is partially alive (serving but slow); hard to detect, causes cascading timeouts; mitigated by adaptive health checks.",
+    "Byzantine faults — nodes behave maliciously or arbitrarily; mitigated by Byzantine fault tolerance (only relevant in adversarial settings like blockchains)."
+  ],
+  "common_mistakes": [
+    "Treating a distributed system like a single machine — assuming shared memory, synchronous calls, reliable clocks.",
+    "Ignoring the eight fallacies — especially 'the network is reliable' and 'latency is zero.'",
+    "Using wall-clock time for ordering across nodes — use logical clocks or version vectors.",
+    "Not propagating correlation IDs — debugging becomes a multi-day log-hunt.",
+    "Designing for the happy path only — every cross-node call must have a timeout, retry, and failure mode.",
+    "Forgetting that partial failure means 'maybe' — design every operation to be safe under ambiguous outcome (idempotency)."
+  ],
+  "where_you_see_it": [
+    "Every multi-node database (Cassandra, Spanner, CockroachDB, Aurora, MongoDB replica sets).",
+    "Every microservice architecture (request fan-out across services).",
+    "Cloud object storage (S3 stores every object on multiple nodes across AZs).",
+    "CDNs (globally distributed caches coordinating via origin and edge POPs).",
+    "Real-time collaborative apps (Figma, Google Docs — CRDTs or operational transform over the network)."
+  ],
+  "interview_prompts": [
+    "What makes a system 'distributed'? What are the defining properties?",
+    "List the eight fallacies of distributed computing. Which one bites engineers most often?",
+    "What is the two generals problem? What is its practical implication for consensus?",
+    "Why is wall-clock time unreliable for ordering events across nodes? What do you use instead?",
+    "Your service calls a downstream that is sometimes slow. How do you prevent this from cascading into a full outage?"
+  ],
+  "real_system_mappings": [
+    {
+      "system": "Google Spanner",
+      "how": "Globally distributed SQL database that achieves external consistency via TrueTime (atomic clocks + GPS in every datacenter), Paxos-based replication, and 2PC across participant groups. The rare 'strongly consistent at global scale' system — and the engineering effort required to build it shows why most systems settle for eventual consistency."
+    },
+    {
+      "system": "Amazon DynamoDB",
+      "how": "AP-style distributed key-value store: writes accepted on any node, replicated via gossip, eventual consistency by default with optional strong reads from the primary. Illustrates the trade-off: high availability and write throughput, but reads may be stale."
+    },
+    {
+      "system": "Apache Cassandra",
+      "how": "Decentralized masterless AP database. Any node can accept any write; tunable consistency per query (ONE, QUORUM, ALL). No single leader — every node is equal, which removes the leader-election failure mode at the cost of stronger consistency being opt-in."
+    },
+    {
+      "system": "Kubernetes",
+      "how": "A distributed system for running distributed systems. The control plane (etcd for consensus via Raft, API server, scheduler, controllers) is itself distributed and partial-failure-aware. Node failures are expected; pods are rescheduled automatically."
+    }
+  ],
+  "status": "published",
+  "sources": [
+    {
+      "title": "System Design Primer",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Open source"
+    },
+    {
+      "title": "ByteByteGo — Scale from zero to millions",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "ByteByteGo"
+    },
+    {
+      "title": "System Design Tutorial",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "GeeksforGeeks"
+    },
+    {
+      "title": "System Design Roadmap",
+      "url": "https://roadmap.sh/system-design",
+      "publisher": "roadmap.sh"
+    },
+    {
+      "title": "Distributed Systems reference",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Distributed Systems reference",
+      "url": "https://raft.github.io/",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Distributed Systems reference",
+      "url": "https://www.usenix.org/",
+      "publisher": "Reference"
+    }
+  ]
+}

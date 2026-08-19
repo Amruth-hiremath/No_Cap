@@ -1,0 +1,435 @@
+{
+  "slug": "design-uber",
+  "version": 3,
+  "title": "Design Uber",
+  "phase": "case-studies",
+  "area": "Case Studies",
+  "estimated_minutes": 12,
+  "difficulty": "interview",
+  "summary": "Design Uber at 15M trips/day, 5M drivers, 1M+ concurrent trips. Covers Redis GEO sorted sets for nearest-driver queries, H3 hex cells for surge zones, 1-3s driver location updates, parallel dispatch to top-3 drivers with atomic Lua-script concurrency control, surge pricing recomputed every 5 min from demand/supply streams, GPS map-matching with Kalman filtering, and per-city geospatial sharding.",
+  "why_it_matters": "Uber is the canonical geospatial system design. The patterns — Redis GEO for nearest-neighbor, H3/quadtree for spatial aggregation, atomic driver assignment, surge pricing from event streams — are reusable for any spatial problem: food delivery (DoorDash, Uber Eats), fleet tracking, real estate search, dating apps with proximity, and even multiplayer game state. Spatial indexing is a distinct skill from key-value or graph indexing.",
+  "prerequisites": [
+    "websockets",
+    "pub-sub"
+  ],
+  "related": [
+    "design-ride-matching"
+  ],
+  "used_in": [
+    "Uber",
+    "Lyft",
+    "DiDi",
+    "DoorDash / Uber Eats (delivery variant)",
+    "Grab"
+  ],
+  "blocks": [
+    {
+      "type": "prose",
+      "id": "problem",
+      "payload": {
+        "text": "**What are we designing?** Uber — a ride-hailing platform that connects riders with drivers in real time. A rider requests a ride; the system finds nearby drivers, dispatches one, tracks the ride in progress, processes payment, and adjusts price dynamically based on supply and demand (surge pricing).\n\nThe defining challenges are **geospatial**: how do you find the nearest available drivers to a rider in <1 second, track 1M+ driver locations in real time, and balance supply and demand at city-block granularity? Most other systems we design are key-value or graph-shaped; Uber is fundamentally a spatial system."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "requirements",
+      "payload": {
+        "text": "**Functional requirements.**\n- Rider requests a ride; system matches them with a nearby driver.\n- Driver app reports location every 1-3 seconds.\n- Rider app shows driver location on the map in real time during ride.\n- System computes ETA, price, and route.\n- Surge pricing: price multipliers by zone based on demand/supply.\n- Trip history and receipts.\n- Rating system after each ride.\n\n**Non-functional requirements.**\n- **Dispatch latency**: < 1 s from ride request to driver notification.\n- **Driver location update**: every 1-3 s; p99 delivery to rider < 2 s.\n- **Availability**: 99.99% (an outage leaves riders stranded).\n- **Consistency**: a driver can only be assigned to one ride at a time.\n- **Scale**: 15M trips/day, 5M drivers, 100M+ riders, 1M+ concurrent trips.\n\n**Non-goals.** No delivery (Uber Eats), no freight, no autonomous vehicles."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "capacity",
+      "payload": {
+        "text": "**Capacity estimation.**\n\n*Trips.* 15M trips/day. Average trip ~30 min, so concurrent trips at peak ~15M x 30/(24x60) = ~312K concurrent trips.\n\n*Driver location updates.* 5M drivers online at peak, each sending a location update every 3s = 1.67M updates/sec. Each update is ~100 bytes (driver_id, lat, lng, ts). 1.67M x 100 B = 167 MB/s = 1.3 Gbps of location ingress.\n\n*Rider location updates.* ~312K active riders sending every 5s = 62K updates/sec, smaller volume but similar pattern.\n\n*Dispatches.* 15M trips/day / 86400s = ~175 dispatches/sec average, peak ~500/sec. Each dispatch queries nearby drivers (radius ~3km) and notifies up to 3 drivers in parallel.\n\n*Storage.* Trip records: 15M/day x ~1KB = 15 GB/day = ~5.5 TB/year. Driver location history: 1.67M updates/sec x 100 B x 86400s = 14 TB/day — too much to keep hot; sample to every 30s for archival, keep only last 30 days for live queries.\n\n*Surge updates.* Surge multipliers per zone, recomputed every 5 min. ~10K zones globally. Surge is small data but read-heavy."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "apis",
+      "payload": {
+        "text": "**APIs.**\n\n```\nPOST /v1/rides                    (rider_id, pickup, dropoff, ride_type)\n  -> { ride_id, drivers_notified, eta, surge_multiplier, price }\n\nPATCH /v1/rides/:id               (driver accepts, completes, cancels)\nGET  /v1/rides/:id                (status, driver, eta)\n\nPOST /v1/drivers/:id/location    (lat, lng, heading, speed)   -- every 1-3s\nGET  /v1/rides/:id/location      (current driver location for rider map)\n\nGET  /v1/surge?lat=..&lng=..     (current surge multiplier at a point)\n```\n\nDriver location is the hot path: drivers push every few seconds via WebSocket or HTTP POST. Rider location during a ride is the read counterpart."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "data-model",
+      "payload": {
+        "text": "**Data model.**\n\n*Driver location* (Redis GEORADIUS, hot): each driver's current location is stored in a Redis GEO set per city:\n```\nkey: drivers:{city_id}\ntype: GEO sorted set\nmembers: driver_id, score = geohash of (lat, lng)\n```\nGEORADIUS drivers:nyc 40.74 -73.99 3 km → returns drivers within 3km.\n\n*Rides* (sharded SQL, source of truth):\n```\nrides (id BIGINT PK, rider_id, driver_id NULL, pickup GEO,\n       dropoff GEO, status ENUM('requested','accepted','en_route','completed','canceled'),\n       surge_mult FLOAT, price_cents INT, created_at, completed_at NULL)\n```\n\n*Drivers* (sharded SQL):\n```\ndrivers (id, name, car_model, license_plate, rating_avg, status ENUM('online','offline','busy'),\n         current_lat, current_lng, current_zone_id)\nINDEX (status, current_zone_id)\n```\n\n*Surge zones* (Redis, computed every 5 min):\n```\nkey: surge:{zone_id}\nvalue: { multiplier: 1.5, updated_at: ts }\nTTL:   10 min\n```\n\n*Trip history* (Cassandra, partitioned by rider_id):\n```\ntrip_history (rider_id, ride_id, ts, driver_id, price_cents, ...)\nPRIMARY KEY ((rider_id), ts)\n```\nTime-ordered per rider, RF=3."
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "arch",
+      "payload": {
+        "code": "flowchart TD\n    N0[\"Rider App\"]\n    N1[\"Driver App\"]\n    N2[\"[Rider\"]\n    N3[\"App]\"]\n    N4[\"[Driver\"]\n    N5[\"1\"]\n    N6[\"every 1-3s\"]\n    N7[\"(1)\"]\n    N8[\"request\"]\n    N9[\"ride\"]\n    N10[\"(every\"]\n    N11[\"3s)\"]\n    N12[\"POST\"]\n    N13[\"location\"]\n    N14[\"API Gateway\"]\n    N15[\"[API\"]\n    N16[\"Gateway]\"]\n    N17[\"Ride Service\"]\n    N18[\"Location Service\"]\n    N19[\"[Ride\"]\n    N20[\"Service]\"]\n    N21[\"[Location\"]\n    N22[\"status=requested\"]\n    N23[\"drivers:{city}\"]\n    N24[\"city\"]\n    N25[\"create\"]\n    N26[\"(status\"]\n    N27[\"requested)\"]\n    N28[\"update\"]\n    N29[\"Redis\"]\n    N30[\"GEO\"]\n    N31[\"(drivers:{city})\"]\n    N32[\"publish\"]\n    N33[\"'ride.requested'\"]\n    N34[\"Kafka\"]\n    N35[\"'driver.moved'\"]\n    N36[\"Dispatch Service\"]\n    N37[\"Map Match Service\"]\n    N38[\"[Dispatch\"]\n    N39[\"[Map\"]\n    N40[\"Match\"]\n    N41[\"snaps GPS to road network\"]\n    N42[\"GEORADIUS\"]\n    N43[\"3km\"]\n    N44[\"(snaps\"]\n    N45[\"GPS\"]\n    N46[\"road\"]\n    N47[\"network)\"]\n    N48[\"filter:\"]\n    N49[\"status\"]\n    N50[\"online,\"]\n    N51[\"not\"]\n    N52[\"busy\"]\n    N53[\"notify\"]\n    N54[\"top\"]\n    N55[\"drivers\"]\n    N56[\"via\"]\n    N57[\"WebSocket\"]\n    N58[\"push\"]\n    N59[\"Driver accepts\"]\n    N60[\"accepts]\"]\n    N61[\"Ride\"]\n    N62[\"Service\"]\n    N63[\"updates\"]\n    N64[\"driver_id,\"]\n    N65[\"accepted\"]\n    N66[\"Trip Tracker\"]\n    N67[\"subscribes to driver.moved for this driver\"]\n    N68[\"[Trip\"]\n    N69[\"Tracker]\"]\n    N70[\"(subscribes\"]\n    N71[\"driver.moved\"]\n    N72[\"for\"]\n    N73[\"this\"]\n    N74[\"driver)\"]\n    N75[\"pushes\"]\n    N76[\"driver\"]\n    N77[\"rider\"]\n    N78[\"recomputes\"]\n    N79[\"ETA\"]\n    N80[\"Surge\"]\n    N81[\"pricing\"]\n    N82[\"background\"]\n    N83[\"Surge Worker\"]\n    N84[\"Kafka:\"]\n    N85[\"ride.requested\"]\n    N86[\"[Surge\"]\n    N87[\"Worker]\"]\n    N88[\"ride requests\"]\n    N89[\"online drivers\"]\n    N90[\"aggregate\"]\n    N91[\"demand\"]\n    N92[\"(ride\"]\n    N93[\"requests)\"]\n    N94[\"and\"]\n    N95[\"supply\"]\n    N96[\"(online\"]\n    N97[\"drivers)\"]\n    N98[\"per\"]\n    N99[\"zone\"]\n    N100[\"recompute\"]\n    N101[\"multiplier\"]\n    N102[\"every\"]\n    N103[\"min\"]\n    N104[\"zone_id\"]\n    N105[\"surge:{zone_id}\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44\n    N44 --> N45\n    N45 --> N46\n    N46 --> N47\n    N47 --> N48\n    N48 --> N49\n    N49 --> N50\n    N50 --> N51\n    N51 --> N52\n    N52 --> N53\n    N53 --> N54\n    N54 --> N55\n    N55 --> N56\n    N56 --> N57\n    N57 --> N58\n    N58 --> N59\n    N59 --> N60\n    N60 --> N61\n    N61 --> N62\n    N62 --> N63\n    N63 --> N64\n    N64 --> N65\n    N65 --> N66\n    N66 --> N67\n    N67 --> N68\n    N68 --> N69\n    N69 --> N70\n    N70 --> N71\n    N71 --> N72\n    N72 --> N73\n    N73 --> N74\n    N74 --> N75\n    N75 --> N76\n    N76 --> N77\n    N77 --> N78\n    N78 --> N79\n    N79 --> N80\n    N80 --> N81\n    N81 --> N82\n    N82 --> N83\n    N83 --> N84\n    N84 --> N85\n    N85 --> N86\n    N86 --> N87\n    N87 --> N88\n    N88 --> N89\n    N89 --> N90\n    N90 --> N91\n    N91 --> N92\n    N92 --> N93\n    N93 --> N94\n    N94 --> N95\n    N95 --> N96\n    N96 --> N97\n    N97 --> N98\n    N98 --> N99\n    N99 --> N100\n    N100 --> N101\n    N101 --> N102\n    N102 --> N103\n    N103 --> N104\n    N104 --> N105",
+        "caption": "Uber: rider requests ride, dispatch service queries Redis GEO for nearby drivers, driver accepts via WebSocket, trip tracker streams driver location to rider, surge worker recomputes multipliers from demand/supply streams.",
+        "alt_text": "A diagram of Uber's architecture. The rider app requests a ride through the API gateway to a Ride Service, which creates a ride record and publishes a ride-requested event to Kafka. The driver app posts its location every 1-3 seconds through the API gateway to a Location Service, which updates a Redis GEO sorted set of drivers per city and publishes a driver-moved event to Kafka. A Dispatch Service consumes ride-requested events, runs GEORADIUS on Redis to find drivers within 3 kilometers, filters by online and not-busy status, and notifies the top 3 drivers via WebSocket or push. The first driver to accept is assigned; the Ride Service updates the ride's driver_id and status. A Trip Tracker subscribes to driver-moved events for the assigned driver and pushes their location to the rider via WebSocket while recomputing ETA. A separate Surge Worker consumes both ride-requested and driver-moved events, aggregates demand and supply per zone every 5 minutes, recomputes the surge multiplier, and publishes it to Redis."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "deep-dive",
+      "payload": {
+        "text": "**Deep dive: geospatial indexing (geohash vs quadtree) and dispatch.**\n\nThe hardest problem is: 'given a rider at (lat, lng), find the nearest available drivers within 3 km, in <1 second, across 1M+ drivers.' Three approaches:\n\n**1. Redis GEO (geohash).** Redis stores driver locations in a sorted set scored by geohash (a 52-bit encoding of lat/lng into a single integer that preserves proximity). GEORADIUS is O(log N + M) where M is the number of matches. This is what most ride-hailing systems use as the first cut. Pros: simple, fast, built-in. Cons: limited filtering (you can't filter by 'driver has 4+ rating' in Redis; must fetch and filter in app code).\n\n**2. Quadtree.** Recursively subdivide the map into 4 quadrants until each leaf has <K drivers. To find nearby drivers, walk the tree down to the rider's leaf, then expand to neighbors until enough drivers are found. Pros: more flexible (can store metadata per node, e.g. only drivers with rating >= 4.5). Cons: harder to update (drivers move constantly, so the tree is rebuilt frequently).\n\n**3. Google S2 / H3 cells.** Hierarchical hexagonal (H3, from Uber itself) or spherical (S2, from Google) cell systems. Each cell has a 64-bit ID; nearby cells have nearby IDs. Hexagonal cells avoid the 'diagonal neighbor' problem of quadtrees (every hex has 6 equidistant neighbors). H3 is what Uber actually uses internally for surge zones and driver search.\n\n**Our choice: Redis GEO + H3 zones.** Redis GEO handles the fast 'nearest drivers' query; H3 cells drive surge pricing and zone-based dispatch (e.g. only dispatch to drivers in the rider's H3 cell or its 6 neighbors).\n\n**Dispatch flow.** When a ride is requested:\n1. The Dispatch Service runs GEORADIUS drivers:nyc lat lng 3 km, getting ~10-50 candidate driver_ids.\n2. Fetch driver metadata from Redis (status, rating, vehicle type) — a batched MGET against driver_meta:{id} keys.\n3. Filter: status=online, rating >= 4.5, vehicle matches ride_type.\n4. Rank by distance + rating (closer and higher-rated first).\n5. Send a 'ride offer' WebSocket/push to the top 3 drivers in parallel.\n6. First driver to accept gets the ride; others get a 'ride taken' message.\n7. If no driver accepts in 10s, expand the radius to 5km and retry.\n\n**Driver concurrency control.** A driver can only be on one ride at a time. When a driver accepts, we SET their status to 'busy' atomically via a Lua script (so two concurrent ride offers can't both be accepted). The losing offers are rolled back to 'online' status.\n\n**Surge pricing.** A background worker aggregates ride requests and online drivers per H3 zone every 5 min, computes a demand/supply ratio, and emits a multiplier (e.g. 1.0x normal, 1.5x high demand, 2.5x very high). The multiplier is published to Redis and read by the Ride Service when pricing a new ride. Surge updates push notifications to drivers in high-surge zones (incentivizing them to drive there)."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "bottlenecks",
+      "payload": {
+        "text": "**Bottlenecks and failure modes.**\n\n- **Redis GEO hot shard.** All drivers in NYC live in one Redis GEO key; a single shard handles all NYC queries. *Mitigation*: shard by zone (one key per borough); replicate read-heavy keys.\n\n- **Driver location write hotspot.** 1.67M driver location updates/sec, each updating a Redis GEO key. A single Redis primary handles ~100K writes/sec. *Mitigation*: shard Redis by city; use Redis Cluster with 16+ shards per metro.\n\n- **Dispatch thundering herd.** A popular event (concert ending) triggers 10K ride requests in 1 minute, all from the same area. *Mitigation*: queue requests; rate-limit dispatch; pre-position drivers (predict where demand will be).\n\n- **Driver accept race.** Two rides try to dispatch the same driver simultaneously. *Mitigation*: Lua script atomic SET status='busy' IF status='online'; only one wins.\n\n- **GPS jitter.** Driver GPS bounces around when in a tunnel; the rider map shows the car teleporting. *Mitigation*: snap GPS to the road network (map matching); smooth the location stream with a Kalman filter.\n\n- **WebSocket failure during ride.** If the rider's WebSocket drops, they can't see driver location. *Mitigation*: client retries with backoff; falls back to HTTP polling every 5s; driver-side ETA still works.\n\n- **Surge lag.** Surge is recomputed every 5 min; a sudden demand spike takes 5 min to reflect in pricing. *Mitigation*: trigger an immediate surge recompute when demand in a zone exceeds 2x normal.\n\n- **Payment failure mid-trip.** The rider's card is declined at trip end. *Mitigation*: charge a pre-authorization hold at ride request; if the hold fails, reject the ride request before dispatch."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "scaling",
+      "payload": {
+        "text": "**Scaling strategy and trade-offs.**\n\n*Geospatial sharding.* Shard by city — each metro has its own Redis GEO cluster, Dispatch Service instances, and trip storage. Cross-city traffic is zero (you can't drive from NYC to LA mid-ride).\n\n*Driver location write path.* Drivers POST location every 1-3s; the Location Service batches writes per driver (one Redis update per second, not per request) to reduce Redis load. Driver apps throttle themselves on slow networks.\n\n*Multi-region.* Each city runs in its nearest region. Cross-region replication is not needed for live data (drivers and rides are local); only trip history is replicated to a central warehouse for analytics.\n\n*Surge scaling.* Per-zone multipliers are small data; the surge worker can run in a single region per metro, writing to a local Redis that the Ride Service reads from.\n\n*Trade-offs made explicit.*\n- We chose Redis GEO over a custom quadtree — **gained** operational simplicity and built-in commands, **lost** rich filtering (must fetch and filter).\n- We chose H3 hex cells for zones — **gained** equidistant neighbors (vs quadtrees' diagonal problem), **lost** the S2 ecosystem's maturity.\n- We chose 1-3s driver location update — **gained** fine-grained rider map, **lost** battery on the driver's phone (mitigated by adaptive update rate).\n- We chose per-city sharding — **gained** isolation, **lost** cross-city optimization (e.g. a driver near a city boundary could pick up rides in either).\n- We chose 5-min surge recompute — **gained** low surge compute cost, **lost** real-time surge accuracy (mitigated by event-triggered recomputes on spikes)."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q1",
+      "payload": {
+        "question": "A rider in NYC requests a ride. The system needs to find nearby drivers. Which data structure should the Dispatch Service query?",
+        "shape": "mcq",
+        "options": [
+          "A full table scan of the drivers table filtered by city.",
+          "Redis GEO sorted set (GEORADIUS) sharded by city — O(log N + M) for nearby driver lookup.",
+          "A graph database of all drivers and riders.",
+          "Elasticsearch geo_point query."
+        ],
+        "answer_index": 1,
+        "rationale": "Redis GEO uses geohash encoding to store lat/lng as a single sortable score, so GEORADIUS is O(log N + M) where M is the number of matches. For 1M+ drivers in NYC, this returns ~50 candidates in <10ms. A full table scan (option A) is O(N) — orders of magnitude too slow. Elasticsearch geo_point (option D) works but adds a separate system to operate and has higher latency than Redis for in-memory queries. Graph DBs (option C) are for relationships, not spatial queries.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q2",
+      "payload": {
+        "question": "Two rides simultaneously dispatch the same driver. Without protection, both could 'accept' the driver. How do you prevent this?",
+        "shape": "mcq",
+        "options": [
+          "The driver's app shows only one ride offer at a time, so this can't happen.",
+          "A Lua script atomically checks status='online' and sets status='busy' in Redis — only one of the two SETs succeeds.",
+          "The Ride Service locks the driver row in Postgres with SELECT FOR UPDATE.",
+          "The driver accepts both; the system picks the higher-paying ride."
+        ],
+        "answer_index": 1,
+        "rationale": "Even if the driver's app shows one offer at a time, the system must protect against races. The atomic check-and-set is the standard solution: a Lua script in Redis executes `if status='online' then status='busy' return ok else return fail` as a single atomic operation. Only one of the two concurrent accept calls succeeds; the other gets a 'fail' response and the ride is re-dispatched. SELECT FOR UPDATE (option C) works but adds a database round trip and lock contention; the Redis Lua approach is faster and decoupled from the SQL store.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-design-uber-mental",
+      "payload": {
+        "text": "Engineering mental model",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-design-uber-mental",
+      "payload": {
+        "text": "**Mental model.** Think of Design Uber as a deliberate boundary in a system. The boundary exists because something becomes harder to manage when everything is done in one place: latency, scale, failure isolation, consistency, cost, or team ownership. The useful question is not “what does Design Uber mean?” but “what pressure makes this boundary worth introducing, and what new failure mode does it create?”"
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-design-uber-decision",
+      "payload": {
+        "title": "Design lens",
+        "body": "Before choosing Design Uber, name the workload, the critical user path, the dominant bottleneck, the failure you are trying to absorb, and the trade-off you are willing to accept. If you cannot name those five things, the design is probably premature.",
+        "kind": "info"
+      }
+    },
+    {
+      "type": "image",
+      "id": "upgrade-image-design-uber",
+      "payload": {
+        "src": "/learning-visuals/design-uber.svg",
+        "alt": "Original NO CAP systems visual for Design Uber.",
+        "caption": "Design Uber: a compact system-thinking visual.",
+        "credit": "Original NO CAP visual.",
+        "source_url": "https://github.com/donnemartin/system-design-primer"
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "upgrade-mermaid-design-uber",
+      "payload": {
+        "code": "flowchart LR\n  A[Client] --> B[Gateway] --> C[Services] --> D[Data] --> E[Delivery]",
+        "caption": "Design Uber: a simplified system view showing the primary flow and the main state boundaries.",
+        "alt_text": "Design Uber: a simplified system view showing the primary flow and the main state boundaries."
+      }
+    },
+    {
+      "type": "code",
+      "id": "upgrade-code-design-uber",
+      "payload": {
+        "language": "text",
+        "code": "// Pseudocode\nrequest = receive()\nresult = design_uber(request)\nreturn result\n\n// Production questions:\n// 1. What happens on timeout?\n// 2. Can this operation be retried safely?\n// 3. What is the bottleneck?",
+        "caption": "A minimal engineering sketch for reasoning about Design Uber."
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-design-uber-numbers",
+      "payload": {
+        "text": "Back-of-the-envelope reasoning",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-design-uber-numbers",
+      "payload": {
+        "text": "Numerical lens: write down traffic, payload size, read/write ratio, peak multiplier and durability target before choosing a component. The numbers should justify the architecture."
+      }
+    },
+    {
+      "type": "simulation",
+      "id": "upgrade-sim-design-uber",
+      "payload": {
+        "title": "Interactive thought experiment: Design Uber",
+        "description": "Change the variables below and predict what breaks first in Design Uber. The production lab can later reuse these same inputs.",
+        "variables": [
+          {
+            "name": "traffic",
+            "description": "Requests/events per second",
+            "default": "1000"
+          },
+          {
+            "name": "latency",
+            "description": "Dependency latency",
+            "default": "50ms"
+          },
+          {
+            "name": "failure_rate",
+            "description": "Injected failure rate",
+            "default": "0%"
+          }
+        ],
+        "placeholder_note": "Interactive controls are deterministic; use the linked Labs section when a dedicated lab exists."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-design-uber-hint",
+      "payload": {
+        "title": "Hint",
+        "body": "If you are stuck on Design Uber, start by drawing the request path and marking every network hop, stateful component, queue, cache and failure boundary. Then estimate where the system will saturate.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-design-uber-1",
+      "payload": {
+        "shape": "prediction",
+        "question": "You increase traffic by 10× in a system using Design Uber. What should you inspect first?",
+        "options": [
+          "The newest framework version",
+          "The dominant bottleneck and its saturation signal",
+          "Only the UI",
+          "Nothing; the architecture should absorb any traffic automatically"
+        ],
+        "answer_index": 1,
+        "rationale": "System design is a constraint-and-bottleneck exercise. Start with the resource or dependency that will saturate first, then choose the smallest change that removes that bottleneck.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-design-uber-2",
+      "payload": {
+        "shape": "mcq",
+        "question": "Which statement is the safest engineering habit when using Design Uber?",
+        "options": [
+          "Choose it because it is popular",
+          "Add it before measuring the problem",
+          "State the workload, failure mode and trade-off it is solving",
+          "Use the most distributed design possible"
+        ],
+        "answer_index": 2,
+        "rationale": "Good architecture starts from requirements, workload and failure assumptions. The component is the consequence of that reasoning, not the starting point.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "scenario",
+      "id": "upgrade-scenario-design-uber",
+      "payload": {
+        "prompt": "Production scenario: your system uses Design Uber, traffic suddenly spikes, and p99 latency doubles. What is your first move?",
+        "context": "You have dashboards for traffic, latency, errors and saturation. You can change the architecture, but every change has operational cost.",
+        "options": [
+          {
+            "id": "a",
+            "text": "Add more instances immediately",
+            "outcome": "This may help, but only if compute saturation is the bottleneck.",
+            "correct": false
+          },
+          {
+            "id": "b",
+            "text": "Inspect the bottleneck and its saturation signal first",
+            "outcome": "Correct: diagnose before scaling or introducing a new pattern.",
+            "correct": true
+          },
+          {
+            "id": "c",
+            "text": "Disable monitoring to reduce overhead",
+            "outcome": "This removes the evidence you need to diagnose the incident.",
+            "correct": false
+          }
+        ],
+        "rationale": "Measure the limiting resource or dependency first. A bottleneck can be compute, database I/O, network, cache misses, lock contention, downstream latency, or queue backlog.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-design-uber-interview",
+      "payload": {
+        "text": "Interview drill",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-design-uber-interview",
+      "payload": {
+        "text": "**Answer this without notes:** When would you choose Design Uber, and when would you intentionally avoid it? Mention at least one bottleneck it addresses, one failure mode it introduces, and one alternative. Then quantify the workload you are designing for."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "field-guide-design-uber",
+      "payload": {
+        "title": "Engineering lens",
+        "body": "A useful engineering lens for Design Uber: define the problem it solves, the simpler design that fails first, the constraint that forces you to introduce this concept, and the new failure modes the concept creates.",
+        "kind": "tip"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "numerical-lens-design-uber",
+      "payload": {
+        "text": "### Numerical sanity check\n\nBack-of-the-envelope reasoning beats fake precision. State your traffic, payload, concurrency and growth assumptions explicitly, then calculate enough to know whether the current architecture is orders of magnitude away from the target."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "field-question-design-uber",
+      "payload": {
+        "shape": "prediction",
+        "question": "Imagine the simplest version of a system using Design Uber. What breaks first as traffic grows by 10×, and what would you change before reaching 100×?",
+        "context": "Do not optimize for a memorized definition. Reason from the workload and failure mode.",
+        "options": [
+          "Scale the same component immediately.",
+          "Measure the current bottleneck and state the assumption that changed.",
+          "Add more technologies until throughput improves.",
+          "Choose the most popular architecture."
+        ],
+        "answer_index": 1,
+        "rationale": "Good system design starts with the bottleneck and the changed constraint. The most popular or complex choice is not automatically correct.",
+        "difficulty": "interview"
+      }
+    }
+  ],
+  "trade_offs": {
+    "pros": [
+      "Redis GEORADIUS gives O(log N + M) nearest-driver queries in <10 ms.",
+      "Atomic Lua-script driver assignment prevents double-booking races.",
+      "H3 hex cells make surge zones equidistant (no quadtree diagonal problem).",
+      "Per-city sharding isolates traffic and bounds Redis GEO key size."
+    ],
+    "cons": [
+      "Redis GEO hotspot for large metros (NYC has 500K+ drivers in one key) — needs zone sharding.",
+      "Driver location write load (1.67M updates/sec) is heavy — needs batching + sharding.",
+      "Surge recompute every 5 min lags sudden demand spikes — needs event-triggered recomputes.",
+      "GPS jitter shows drivers teleporting on the rider map — needs map matching + Kalman filter."
+    ]
+  },
+  "failure_modes": [
+    "Redis GEO hot shard in big metros — needs zone-level sharding.",
+    "Driver accept race — needs atomic Lua check-and-set.",
+    "Dispatch thundering herd at event endings — needs queueing + pre-positioning.",
+    "GPS jitter on the rider map — needs map matching + Kalman filter.",
+    "Payment failure mid-trip — needs pre-auth at ride request."
+  ],
+  "common_mistakes": [
+    "Full table scan for nearby drivers — O(N) is far too slow at 1M drivers.",
+    "Driver location updates going straight to SQL — too slow and write-heavy.",
+    "Single global Redis for all drivers — hotspot and single point of failure.",
+    "Non-atomic driver accept (SET status='busy' without checking) — double-booking.",
+    "Surge recompute on every ride request — too expensive and inconsistent."
+  ],
+  "where_you_see_it": [
+    "Uber",
+    "Lyft",
+    "DiDi",
+    "DoorDash / Uber Eats (delivery variant)",
+    "Grab"
+  ],
+  "interview_prompts": [
+    "Design Uber. How do you find the nearest driver to a rider?",
+    "Two rides try to dispatch the same driver. How do you prevent double-booking?",
+    "How do you implement surge pricing?",
+    "A driver's GPS bounces around in a tunnel. How do you fix the rider map?"
+  ],
+  "real_system_mappings": [
+    {
+      "system": "Uber",
+      "how": "H3 hex cells for zones, Redis-style geo index for nearest drivers, Kafka for event streaming, geobased sharding per city. Documented in Uber engineering blog 'H3: Hexagonal Hierarchical Spatial Index'."
+    },
+    {
+      "system": "Lyft",
+      "how": "Similar architecture; uses a custom quadtree and S2 cells. Per-city sharding. Documented in their engineering blog."
+    },
+    {
+      "system": "DoorDash",
+      "how": "Adapts the Uber pattern for food delivery: rider becomes 'customer', driver becomes 'dasher', ETA computation is more complex (restaurant prep time + drive time)."
+    }
+  ],
+  "status": "published",
+  "sources": [
+    {
+      "title": "System Design Primer",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Open source"
+    },
+    {
+      "title": "ByteByteGo — Scale from zero to millions",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "ByteByteGo"
+    },
+    {
+      "title": "System Design Tutorial",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "GeeksforGeeks"
+    },
+    {
+      "title": "System Design Roadmap",
+      "url": "https://roadmap.sh/system-design",
+      "publisher": "roadmap.sh"
+    },
+    {
+      "title": "Case Studies reference",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Case Studies reference",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Case Studies reference",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "Reference"
+    }
+  ]
+}

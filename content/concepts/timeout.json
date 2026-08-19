@@ -1,0 +1,430 @@
+{
+  "slug": "timeout",
+  "version": 4,
+  "title": "Timeouts",
+  "phase": "reliability-resilience",
+  "area": "Reliability & Resilience",
+  "estimated_minutes": 7,
+  "difficulty": "core",
+  "summary": "A timeout is the maximum time you're willing to wait for an operation. Every external call — HTTP request, database query, RPC — must have one, or a slow dependency becomes a system-wide outage. The key distinctions are connection timeout vs read timeout, client-side vs server-side timeout, and ensuring deadlines propagate across the call chain.",
+  "why_it_matters": "Without timeouts, every dependency is a potential denial-of-service attack against your own service. A slow database query holds a thread, a connection, and memory. Ten slow queries hold ten threads. A thousand slow queries exhaust the thread pool and your service dies — even though it was the database that was slow. Timeouts are the single most important reliability primitive: cheap to add, catastrophic to omit.",
+  "prerequisites": [
+    "retry",
+    "circuit-breaker"
+  ],
+  "related": [
+    "circuit-breaker",
+    "back-pressure",
+    "bulkhead"
+  ],
+  "used_in": [
+    "Every HTTP client.",
+    "Every database driver.",
+    "Every RPC framework (gRPC, Thrift)."
+  ],
+  "blocks": [
+    {
+      "type": "prose",
+      "id": "intro",
+      "payload": {
+        "text": "A timeout is a deadline. You tell the system: \"if this operation hasn't completed in T milliseconds, give up.\" That's it. But the consequences of getting it wrong are enormous.\n\nThere are two kinds of timeout you must set on every network call:\n\n- **Connection timeout**: how long to wait for the TCP handshake to complete. If the host is unreachable, this fails fast instead of hanging for the OS default (often 60+ seconds).\n- **Read timeout**: how long to wait for data after the connection is established. This catches slow responses — the server accepted the connection but is taking forever to respond.\n\nSkipping either is a bug. Most HTTP clients (axios, requests, fetch) default to either no timeout or a very long one. You must override."
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "no-timeout",
+      "payload": {
+        "code": "flowchart TD\n    N0[\"WITHOUT\"]\n    N1[\"TIMEOUTS\"]\n    N2[\"Request\"]\n    N3[\"query\"]\n    N4[\"hangs\"]\n    N5[\"OS default\"]\n    N6[\"Thread\"]\n    N7[\"blocks\"]\n    N8[\"60s\"]\n    N9[\"(OS\"]\n    N10[\"default)\"]\n    N11[\"1000\"]\n    N12[\"concurrent\"]\n    N13[\"requests\"]\n    N14[\"pool\"]\n    N15[\"exhausted\"]\n    N16[\"Service\"]\n    N17[\"dies\"]\n    N18[\"for\"]\n    N19[\"60s.\"]\n    N20[\"WITH\"]\n    N21[\"has\"]\n    N22[\"500ms\"]\n    N23[\"deadline.\"]\n    N24[\"Hangs\"]\n    N25[\"later,\"]\n    N26[\"abort\"]\n    N27[\"retry\"]\n    N28[\"fallback.\"]\n    N29[\"freed\"]\n    N30[\"500ms.\"]\n    N31[\"stays\"]\n    N32[\"up;\"]\n    N33[\"only\"]\n    N34[\"slow\"]\n    N35[\"queries\"]\n    N36[\"fail.\"]\n    N37[\"DEADLINE\"]\n    N38[\"PROPAGATION\"]\n    N39[\"Client\"]\n    N40[\"deadline:\"]\n    N41[\"1000ms\"]\n    N42[\"900ms\"]\n    N43[\"left\"]\n    N44[\"deadline minus elapsed\"]\n    N45[\"700ms\"]\n    N46[\"(deadline\"]\n    N47[\"minus\"]\n    N48[\"elapsed)\"]\n    N49[\"DB:\"]\n    N50[\"600ms\"]\n    N51[\"Each\"]\n    N52[\"hop\"]\n    N53[\"uses\"]\n    N54[\"its\"]\n    N55[\"share;\"]\n    N56[\"overruns\"]\n    N57[\"the\"]\n    N58[\"original\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44\n    N44 --> N45\n    N45 --> N46\n    N46 --> N47\n    N47 --> N48\n    N48 --> N49\n    N49 --> N50\n    N50 --> N51\n    N51 --> N52\n    N52 --> N53\n    N53 --> N54\n    N54 --> N55\n    N55 --> N56\n    N56 --> N57\n    N57 --> N58",
+        "caption": "Without timeouts, one slow dependency exhausts the thread pool. With timeouts, only the slow request fails. Deadlines propagate so the total latency stays bounded.",
+        "alt_text": "Three diagrams. Without timeouts: a database query hangs, the calling thread blocks for the OS default of sixty seconds, one thousand concurrent requests exhaust the thread pool in one second, and the service dies for a full minute. With timeouts: the query has a five hundred millisecond deadline, the thread is freed after that time, and only the slow request fails. Deadline propagation: the client deadline of one thousand milliseconds is split across service A, B, and the database, each using only its share so the total latency stays bounded."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "deadline-propagation",
+      "payload": {
+        "text": "Setting a timeout on every call is necessary but not sufficient. Consider: a client gives your API a 1-second budget. Your API spends 200ms on logic, then calls a downstream service with a 1-second timeout. The downstream takes 900ms and you return to the client at 1100ms — but the client already gave up at 1000ms. You wasted 900ms of work.\n\nThe fix is **deadline propagation** (gRPC) or **context cancellation** (Go, Java). The client sends its deadline; each hop subtracts the time it has already used and passes the reduced deadline downstream. When the deadline expires, in-flight work is cancelled, freeing resources immediately. gRPC does this via the `grpc-timeout` header; Go propagates contexts; HTTP/2 has its own deadline signaling.\n\nWithout propagation, timeouts at each layer don't add up to a bounded end-to-end latency — they add up to N times the per-layer timeout."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "setting-values",
+      "payload": {
+        "text": "How long should a timeout be? There's no universal answer, but there are rules:\n\n- **Match the SLO.** If your p99 latency is 200ms, a 5-second timeout hides failures. A 500ms timeout surfaces them.\n- **Connection timeout should be short** (1–5s). If you can't connect in 1s, the host is probably down.\n- **Read timeout should reflect normal behavior, plus headroom** (p99 * 2 or 3, often 1–10s for APIs).\n- **Database query timeouts are often shorter** (100ms–1s for OLTP). Long queries lock rows and should fail.\n- **Be careful with retries**: a 1s timeout with 3 retries means 3s of latency if the service is down. Set the total budget, not just the per-attempt timeout.\n\nMeasure first, then set. Most production incidents involving timeouts come from defaults that are too long."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "client-vs-server",
+      "payload": {
+        "title": "Client-side and server-side timeouts are different",
+        "body": "A client-side timeout aborts the client's wait. The server may not know the client gave up — it keeps doing work and sends a response to a closed socket. A server-side timeout aborts the server's work and returns an error to the client. You need both. The client-side timeout protects the client from waiting forever; the server-side timeout protects the server's resources. Without server-side timeouts, a single slow query can hold a database connection for the OS default (often 8 hours).",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "cascades",
+      "payload": {
+        "text": "The reason timeouts matter so much is **cascading failures**. A typical cascade:\n\n1. A downstream service gets slow (DB at 80% CPU, queries take 2s instead of 100ms).\n2. Without timeouts, your service holds a thread per slow request.\n3. Your thread pool fills in seconds. New requests queue.\n4. Your service is now slow. Your callers hold threads waiting for you.\n5. Their thread pools fill. The cascade spreads outward.\n\nWith proper timeouts (say 500ms), step 2 frees the thread in 500ms instead of waiting 2s. The downstream query fails (good — it should), your service stays responsive, and the cascade is contained. Timeouts are the circuit breaker's partner: timeouts detect per-call failures; the breaker detects sustained failures."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q1",
+      "payload": {
+        "question": "Your service makes an HTTP call to a downstream API. The default timeout in your HTTP client is 60s. The downstream API sometimes hangs. What happens without setting a timeout?",
+        "shape": "mcq",
+        "options": [
+          "Each call fails immediately, no impact on throughput.",
+          "Each hung call ties up a thread for 60 seconds; under load, the thread pool exhausts and your service becomes unresponsive.",
+          "The OS automatically retries hung calls.",
+          "The downstream API detects the hang and closes the connection."
+        ],
+        "answer_index": 1,
+        "rationale": "Without a timeout, every hung call blocks a thread for the OS or client default — often 60 seconds. Under load, threads pile up faster than they're released, the pool exhausts, and your service stops responding to all requests, not just the ones hitting the slow downstream. This is the most common cause of cascading failures. The fix is to set an explicit, short timeout (e.g., 500ms–2s) so a hung downstream call fails fast and frees the thread.",
+        "difficulty": "core"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q2",
+      "payload": {
+        "question": "A client calls your API with a 1-second deadline. Your API takes 300ms and then calls a downstream service. What timeout should you set on the downstream call?",
+        "shape": "mcq",
+        "options": [
+          "1 second — match the client's deadline.",
+          "300ms — leave 400ms for your own logic and response.",
+          "5 seconds — give the downstream plenty of room.",
+          "No timeout — let the downstream respond when it's ready."
+        ],
+        "answer_index": 1,
+        "rationale": "If you set a 1s timeout on the downstream call, but the client's deadline is 1s and you've already used 300ms, the downstream could take 700ms and you'd return at 1000ms — right at the client's deadline, with no margin. Worse, if the downstream takes longer, you return at 1300ms but the client gave up at 1000ms. The right approach is deadline propagation: subtract your elapsed time from the client deadline, leave margin for response serialization, and pass the reduced deadline downstream. 300ms gives you 400ms of margin.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q3",
+      "payload": {
+        "question": "What's the difference between a connection timeout and a read timeout?",
+        "shape": "mcq",
+        "options": [
+          "Connection timeout is for TCP handshake; read timeout is for the response body after the connection is established.",
+          "They're the same thing with different names.",
+          "Connection timeout applies to HTTP/2 only; read timeout applies to HTTP/1.1.",
+          "Connection timeout is server-side; read timeout is client-side."
+        ],
+        "answer_index": 0,
+        "rationale": "Connection timeout governs the TCP three-way handshake — if the host is unreachable or refusing connections, this fails fast. Read timeout governs the wait for data after the connection is established — this catches slow responses (server accepted the connection but takes long to respond). You need both. A host can be reachable (connection succeeds in 10ms) but slow to respond (read times out at 30s). Without a read timeout, your call hangs forever on slow responses; without a connection timeout, it hangs forever on dead hosts.",
+        "difficulty": "core"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-timeout-mental",
+      "payload": {
+        "text": "Engineering mental model",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-timeout-mental",
+      "payload": {
+        "text": "**Mental model.** Think of Timeouts as a deliberate boundary in a system. The boundary exists because something becomes harder to manage when everything is done in one place: latency, scale, failure isolation, consistency, cost, or team ownership. The useful question is not “what does Timeouts mean?” but “what pressure makes this boundary worth introducing, and what new failure mode does it create?”"
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-timeout-decision",
+      "payload": {
+        "title": "Design lens",
+        "body": "Before choosing Timeouts, name the workload, the critical user path, the dominant bottleneck, the failure you are trying to absorb, and the trade-off you are willing to accept. If you cannot name those five things, the design is probably premature.",
+        "kind": "info"
+      }
+    },
+    {
+      "type": "image",
+      "id": "upgrade-image-timeout",
+      "payload": {
+        "src": "/learning-visuals/timeout.svg",
+        "alt": "Original NO CAP systems visual for Timeouts.",
+        "caption": "Timeouts: a compact system-thinking visual.",
+        "credit": "Original NO CAP visual.",
+        "source_url": "https://github.com/donnemartin/system-design-primer"
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "upgrade-mermaid-timeout",
+      "payload": {
+        "code": "flowchart LR\n  A[Request] --> B[Failure] --> C[Guard] --> D[Fallback] --> E[Recovery]",
+        "caption": "Timeouts: a simplified system view showing the primary flow and the main state boundaries.",
+        "alt_text": "Timeouts: a simplified system view showing the primary flow and the main state boundaries."
+      }
+    },
+    {
+      "type": "code",
+      "id": "upgrade-code-timeout",
+      "payload": {
+        "language": "text",
+        "code": "// Pseudocode\nrequest = receive()\nresult = timeout(request)\nreturn result\n\n// Production questions:\n// 1. What happens on timeout?\n// 2. Can this operation be retried safely?\n// 3. What is the bottleneck?",
+        "caption": "A minimal engineering sketch for reasoning about Timeouts."
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-timeout-numbers",
+      "payload": {
+        "text": "Back-of-the-envelope reasoning",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-timeout-numbers",
+      "payload": {
+        "text": "Numerical lens: write down traffic, payload size, read/write ratio, peak multiplier and durability target before choosing a component. The numbers should justify the architecture."
+      }
+    },
+    {
+      "type": "simulation",
+      "id": "upgrade-sim-timeout",
+      "payload": {
+        "title": "Interactive thought experiment: Timeouts",
+        "description": "Change the variables below and predict what breaks first in Timeouts. The production lab can later reuse these same inputs.",
+        "variables": [
+          {
+            "name": "traffic",
+            "description": "Requests/events per second",
+            "default": "1000"
+          },
+          {
+            "name": "latency",
+            "description": "Dependency latency",
+            "default": "50ms"
+          },
+          {
+            "name": "failure_rate",
+            "description": "Injected failure rate",
+            "default": "0%"
+          }
+        ],
+        "placeholder_note": "Interactive controls are deterministic; use the linked Labs section when a dedicated lab exists."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-timeout-hint",
+      "payload": {
+        "title": "Hint",
+        "body": "If you are stuck on Timeouts, start by drawing the request path and marking every network hop, stateful component, queue, cache and failure boundary. Then estimate where the system will saturate.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-timeout-1",
+      "payload": {
+        "shape": "prediction",
+        "question": "You increase traffic by 10× in a system using Timeouts. What should you inspect first?",
+        "options": [
+          "The newest framework version",
+          "The dominant bottleneck and its saturation signal",
+          "Only the UI",
+          "Nothing; the architecture should absorb any traffic automatically"
+        ],
+        "answer_index": 1,
+        "rationale": "System design is a constraint-and-bottleneck exercise. Start with the resource or dependency that will saturate first, then choose the smallest change that removes that bottleneck.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-timeout-2",
+      "payload": {
+        "shape": "mcq",
+        "question": "Which statement is the safest engineering habit when using Timeouts?",
+        "options": [
+          "Choose it because it is popular",
+          "Add it before measuring the problem",
+          "State the workload, failure mode and trade-off it is solving",
+          "Use the most distributed design possible"
+        ],
+        "answer_index": 2,
+        "rationale": "Good architecture starts from requirements, workload and failure assumptions. The component is the consequence of that reasoning, not the starting point.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "scenario",
+      "id": "upgrade-scenario-timeout",
+      "payload": {
+        "prompt": "Production scenario: your system uses Timeouts, traffic suddenly spikes, and p99 latency doubles. What is your first move?",
+        "context": "You have dashboards for traffic, latency, errors and saturation. You can change the architecture, but every change has operational cost.",
+        "options": [
+          {
+            "id": "a",
+            "text": "Add more instances immediately",
+            "outcome": "This may help, but only if compute saturation is the bottleneck.",
+            "correct": false
+          },
+          {
+            "id": "b",
+            "text": "Inspect the bottleneck and its saturation signal first",
+            "outcome": "Correct: diagnose before scaling or introducing a new pattern.",
+            "correct": true
+          },
+          {
+            "id": "c",
+            "text": "Disable monitoring to reduce overhead",
+            "outcome": "This removes the evidence you need to diagnose the incident.",
+            "correct": false
+          }
+        ],
+        "rationale": "Measure the limiting resource or dependency first. A bottleneck can be compute, database I/O, network, cache misses, lock contention, downstream latency, or queue backlog.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-timeout-interview",
+      "payload": {
+        "text": "Interview drill",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-timeout-interview",
+      "payload": {
+        "text": "**Answer this without notes:** When would you choose Timeouts, and when would you intentionally avoid it? Mention at least one bottleneck it addresses, one failure mode it introduces, and one alternative. Then quantify the workload you are designing for."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "field-guide-timeout",
+      "payload": {
+        "title": "Engineering lens",
+        "body": "For Timeouts, treat the system as a control loop: observe load and failure, choose a bounded response, and measure whether the response stabilizes the system instead of simply moving the bottleneck somewhere else.",
+        "kind": "tip"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "numerical-lens-timeout",
+      "payload": {
+        "text": "### Numerical sanity check\n\nWhen estimating capacity, distinguish average from peak. If average traffic is 4,000 RPS and the observed peak-to-average factor is 3×, design the first pass around roughly 12,000 RPS, then leave headroom for failure and growth."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "field-question-timeout",
+      "payload": {
+        "shape": "prediction",
+        "question": "What is the earliest signal that Timeouts is becoming the bottleneck: latency, saturation, errors, queue depth, or something else? Why?",
+        "context": "Do not optimize for a memorized definition. Reason from the workload and failure mode.",
+        "options": [
+          "Scale the same component immediately.",
+          "Measure the current bottleneck and state the assumption that changed.",
+          "Add more technologies until throughput improves.",
+          "Choose the most popular architecture."
+        ],
+        "answer_index": 1,
+        "rationale": "Good system design starts with the bottleneck and the changed constraint. The most popular or complex choice is not automatically correct.",
+        "difficulty": "interview"
+      }
+    }
+  ],
+  "trade_offs": {
+    "pros": [
+      "Prevents cascading failures — one slow dependency can't take down the whole system.",
+      "Frees resources (threads, connections, memory) on failure.",
+      "Provides bounded latency — clients know the worst-case wait.",
+      "Cheap to add — usually a single config line."
+    ],
+    "cons": [
+      "Too-short timeouts cause false failures on legitimately slow operations.",
+      "Retries on top of timeouts multiply latency (3 retries * 1s = 3s total).",
+      "Requires tuning per call — one global timeout rarely fits all calls.",
+      "Server may keep doing work after the client times out (wasted resources)."
+    ]
+  },
+  "failure_modes": [
+    "Default timeout too long (or none) — slow dependency exhausts resources.",
+    "Timeout too short — false failures during normal latency variance.",
+    "No deadline propagation — end-to-end latency unbounded, work wasted after client gives up.",
+    "Server-side work continues after client-side timeout — wasted resources and possible cascades."
+  ],
+  "common_mistakes": [
+    "Relying on client defaults (often 60s or unlimited).",
+    "Setting only the read timeout, not the connection timeout.",
+    "Not propagating deadlines across service hops.",
+    "Forgetting to set server-side timeouts on database queries (they often default to 'forever')."
+  ],
+  "where_you_see_it": [
+    "Every HTTP client (axios, requests, fetch with AbortController).",
+    "Every database driver (pg_statement_timeout, MySQL wait_timeout).",
+    "Every RPC framework (gRPC `grpc-timeout` header, Go context deadlines)."
+  ],
+  "interview_prompts": [
+    "Why do timeouts matter so much in distributed systems?",
+    "Explain connection timeout vs read timeout.",
+    "What is deadline propagation, and why is it necessary?",
+    "How do you choose a timeout value for a new API call?"
+  ],
+  "real_system_mappings": [
+    {
+      "system": "gRPC deadlines",
+      "how": "Propagates the client's deadline through the `grpc-timeout` HTTP/2 header. Each hop subtracts the time it has used and passes the reduced deadline downstream, so total latency stays bounded."
+    },
+    {
+      "system": "PostgreSQL statement_timeout",
+      "how": "Server-side query timeout. A query that exceeds it is aborted by the server, freeing the connection and the locks it held — preventing a single slow query from blocking others."
+    }
+  ],
+  "status": "published",
+  "sources": [
+    {
+      "title": "System Design Primer",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Open source"
+    },
+    {
+      "title": "ByteByteGo — Scale from zero to millions",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "ByteByteGo"
+    },
+    {
+      "title": "System Design Tutorial",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "GeeksforGeeks"
+    },
+    {
+      "title": "System Design Roadmap",
+      "url": "https://roadmap.sh/system-design",
+      "publisher": "roadmap.sh"
+    },
+    {
+      "title": "Reliability & Resilience reference",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Reliability & Resilience reference",
+      "url": "https://sre.google/sre-book/table-of-contents/",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Reliability & Resilience reference",
+      "url": "https://aws.amazon.com/builders-library/",
+      "publisher": "Reference"
+    },
+    {
+      "title": "AWS Well-Architected",
+      "url": "https://aws.amazon.com/architecture/well-architected/",
+      "publisher": "AWS"
+    }
+  ]
+}

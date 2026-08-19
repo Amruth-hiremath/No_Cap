@@ -1,0 +1,428 @@
+{
+  "slug": "gatekeeper",
+  "version": 4,
+  "title": "Gatekeeper Pattern",
+  "phase": "security",
+  "area": "Security",
+  "estimated_minutes": 7,
+  "difficulty": "core",
+  "summary": "The gatekeeper pattern places a single, hardened gateway between clients and backend services. The gateway validates requests (authentication, authorization, schema, rate limits), rejects invalid ones, and forwards only clean traffic to the backends. Backends trust the gateway and don't repeat the checks. This concentrates security in one well-audited place rather than spreading it (inconsistently) across every service.",
+  "why_it_matters": "Without a gateway, every backend service must implement authentication, rate limiting, schema validation, and request sanitization — and they will do it inconsistently. One service forgets a check; that's the vulnerability an attacker finds. With a gateway, these cross-cutting concerns are implemented once, in a well-audited component, and every backend benefits. The gateway also gives a single point for logging, monitoring, and policy enforcement. The pattern is universal: AWS API Gateway, Kong, Envoy, and Cloudflare all implement it. Every mature microservice architecture has one.",
+  "prerequisites": [
+    "authentication",
+    "authorization",
+    "rate-limiting"
+  ],
+  "related": [
+    "api-gateway",
+    "authentication",
+    "authorization",
+    "rate-limiting",
+    "reverse-proxy"
+  ],
+  "used_in": [
+    "Every microservice architecture.",
+    "Every public API.",
+    "Cloud provider ingress (AWS API Gateway, Cloudflare)."
+  ],
+  "blocks": [
+    {
+      "type": "prose",
+      "id": "intro",
+      "payload": {
+        "text": "The gatekeeper is a reverse proxy that sits in front of backend services and acts as the single entry point. It handles cross-cutting concerns so backends don't have to:\n\n- **Authentication**: verify the caller's identity (API key, JWT, OAuth token).\n- **Authorization**: check the caller has permission for this request (scopes, roles).\n- **Rate limiting**: enforce per-client limits; reject with 429.\n- **Schema validation**: reject malformed requests before they reach the backend.\n- **TLS termination**: decrypt HTTPS at the edge; backends receive plain HTTP (or mTLS in a service mesh).\n- **Request sanitization**: strip sensitive headers, normalize inputs.\n- **Logging and metrics**: emit access logs, latency metrics, error rates.\n\nThe backend trusts the gateway: if a request arrives, it's been authenticated, authorized, and validated. The backend focuses on business logic, not security plumbing.\n\nThis pattern is also called an API gateway when it adds protocol translation, request composition, and other API-management features."
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "topology",
+      "payload": {
+        "code": "flowchart TD\n    N0[\"WITHOUT\"]\n    N1[\"GATEKEEPER\"]\n    N2[\"auth, rate limit, validate, log\"]\n    N3[\"Client\"]\n    N4[\"Service\"]\n    N5[\"(auth,\"]\n    N6[\"rate\"]\n    N7[\"limit,\"]\n    N8[\"validate,\"]\n    N9[\"log)\"]\n    N10[\"Each\"]\n    N11[\"service\"]\n    N12[\"reimplements\"]\n    N13[\"the\"]\n    N14[\"same\"]\n    N15[\"concerns.\"]\n    N16[\"Inconsistent.\"]\n    N17[\"Bug\"]\n    N18[\"prone.\"]\n    N19[\"One\"]\n    N20[\"forgets\"]\n    N21[\"check\"]\n    N22[\"vuln.\"]\n    N23[\"WITH\"]\n    N24[\" GATEKEEPER \"]\n    N25[\"authN\"]\n    N26[\"authZ\"]\n    N27[\"limit\"]\n    N28[\"validate\"]\n    N29[\"sanitize\"]\n    N30[\"log\"]\n    N31[\"TLS\"]\n    N32[\"termination\"]\n    N33[\"Svc\"]\n    N34[\"trusts GW — no auth checks\"]\n    N35[\"(trusts\"]\n    N36[\"auth\"]\n    N37[\"checks)\"]\n    N38[\"Single\"]\n    N39[\"point\"]\n    N40[\"security\"]\n    N41[\"enforcement.\"]\n    N42[\"Backends\"]\n    N43[\"focus\"]\n    N44[\"business\"]\n    N45[\"logic.\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44\n    N44 --> N45",
+        "caption": "Without a gateway, every service reimplements security. With one, concerns are centralized and backends trust the gateway.",
+        "alt_text": "Two topology diagrams. Without a gatekeeper: the client calls services A, B, and C directly. Each service reimplements authentication, rate limiting, validation, and logging. The result is inconsistent, bug-prone, and one service forgetting a check creates a vulnerability. With a gatekeeper: the client calls the gatekeeper, which performs authentication, authorization, rate limiting, validation, sanitization, logging, and TLS termination, then forwards to services A, B, and C. The services trust the gateway and don't repeat the auth checks. Single point of security enforcement; backends focus on business logic."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "trust-boundary",
+      "payload": {
+        "text": "The gatekeeper establishes a **trust boundary**. Inside the boundary (between gateway and backends), traffic is trusted — backends accept requests without re-validating auth. Outside the boundary (between client and gateway), nothing is trusted.\n\nThis implies two things:\n\n1. **The network between gateway and backends must be secured** (private VPC, mTLS, network policies). If any attacker can reach a backend directly, bypassing the gateway, the pattern fails. The backends trust all traffic from inside the boundary.\n\n2. **The gateway must be thorough**. If it misses a check, the backend won't catch it. Common gaps: not validating request bodies, not checking scopes on every route, rate-limiting only some endpoints. The gateway's correctness is the system's correctness.\n\nFor defense in depth, some backends do partial re-validation (\"defense in depth\") — but the gateway is the primary check. The backend's check is a safety net, not the main control."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "vs-apigateway",
+      "payload": {
+        "text": "Gatekeeper vs API Gateway: the terms overlap. A gatekeeper is the security-focused reverse proxy. An API Gateway is a broader role: it adds API management features (protocol translation, request composition, response caching, developer portal, monetization).\n\nIn practice, most modern API gateways (Kong, AWS API Gateway, Apigee) do both: gatekeeper security + API management. The gatekeeper pattern is the security subset of the API Gateway role.\n\nA service mesh (Istio, Linkerd) extends the pattern to service-to-service calls: every service has a sidecar that acts as a gatekeeper for inbound traffic and as an authenticated client for outbound traffic. The mesh provides mTLS, authorization policies, and telemetry across every hop — not just at the edge."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "single-point",
+      "payload": {
+        "title": "The gateway is a single point of failure",
+        "body": "Concentrating security in the gateway means concentrating failure there too. If the gateway is down, no one can reach the backends. Mitigations: run multiple gateway instances behind a load balancer; design stateless gateways so any instance can serve any request; have health checks that remove failing instances. The gateway must also be highly available — it's now part of the critical path. Don't make the gateway stateful (per-client rate limit state needs shared storage like Redis, not local memory). The pattern's benefits far outweigh the SPOF risk if architected correctly.",
+        "kind": "warning"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "features",
+      "payload": {
+        "text": "Beyond security, gateways typically provide:\n\n- **Routing**: route /api/v1/orders to the orders service, /api/v1/users to the users service.\n- **Versioning**: support multiple API versions simultaneously.\n- **Request composition**: combine responses from multiple backends into one response (rare; usually better done in a BFF).\n- **Response caching**: cache idempotent GETs at the gateway.\n- **Protocol translation**: accept HTTP/REST from clients, call gRPC to backends.\n- **Quotas and billing**: track per-customer usage for monetized APIs.\n\nThese features make the gateway an API management tool, not just a security tool. AWS API Gateway, Kong, Apigee, and Envoy + Gloo are the main players.\n\nThe trade-off: every feature added to the gateway is a feature not implemented in backends (good) but also a feature the gateway must scale to handle (potentially limiting). Keep the gateway fast and focused; push business logic to backends."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q1",
+      "payload": {
+        "question": "Why is it a problem if backends can be reached directly, bypassing the gateway?",
+        "shape": "mcq",
+        "options": [
+          "It's slower.",
+          "The backends trust traffic from inside the gateway boundary and don't re-validate auth. An attacker reaching a backend directly bypasses all the gateway's checks.",
+          "The gateway is required for load balancing.",
+          "It's not — backends should be reachable directly."
+        ],
+        "answer_index": 1,
+        "rationale": "The gatekeeper pattern's whole premise is that backends trust traffic from inside the trust boundary (between gateway and backend) and don't repeat auth/authz checks. If an attacker can reach a backend directly — via a misconfigured security group, an exposed internal endpoint, or a SSRF — they bypass all the gateway's authentication, authorization, rate limiting, and validation. This is why the network between gateway and backends must be secured: private VPC, mTLS, network policies. The backends trust that boundary; the boundary must be enforced. Defense-in-depth (backends do partial re-validation) is a safety net, not a replacement for the boundary.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q2",
+      "payload": {
+        "question": "What cross-cutting concerns does a gatekeeper typically handle? (Select the best set.)",
+        "shape": "mcq",
+        "options": [
+          "Business logic and database queries.",
+          "Authentication, authorization, rate limiting, schema validation, TLS termination, logging.",
+          "DNS resolution and IP allocation.",
+          "Backups and disaster recovery."
+        ],
+        "answer_index": 1,
+        "rationale": "The gatekeeper handles cross-cutting concerns — concerns that apply to every request regardless of which backend handles it. Authentication (who is the caller), authorization (are they allowed), rate limiting (are they within limits), schema validation (is the request well-formed), TLS termination (decrypt HTTPS), and logging/metrics (observability). Business logic, database queries, backups, and DR are backend concerns — they belong in the services, not the gateway. The gateway is a security and traffic-management layer, not a business-logic layer. Mixing them creates an unmaintainable gateway.",
+        "difficulty": "core"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q3",
+      "payload": {
+        "question": "Why must the gateway be stateless (or use shared state) for high availability?",
+        "shape": "mcq",
+        "options": [
+          "Stateless is faster.",
+          "If the gateway holds per-client state in memory (e.g., rate limit counters), one instance failing loses that state and rate limits break. Multiple instances need shared state (Redis) for consistent limits.",
+          "Stateless is required by OAuth.",
+          "Stateless gateways are cheaper."
+        ],
+        "answer_index": 1,
+        "rationale": "If the gateway is stateful (e.g., per-client rate limit counters in local memory), then a single instance failing loses that state — the rate limit resets, and traffic spikes. With multiple instances behind a load balancer (the HA pattern), each instance has its own counters, so a client rotating across instances gets N times the limit. The fix is shared state (Redis) for per-client data, so all gateway instances see the same counters. This is the standard pattern for distributed rate limiting. The gateway itself should be stateless — no per-user session state, no per-request context — so any instance can serve any request.",
+        "difficulty": "advanced"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-gatekeeper-mental",
+      "payload": {
+        "text": "Engineering mental model",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-gatekeeper-mental",
+      "payload": {
+        "text": "**Mental model.** Think of Gatekeeper Pattern as a deliberate boundary in a system. The boundary exists because something becomes harder to manage when everything is done in one place: latency, scale, failure isolation, consistency, cost, or team ownership. The useful question is not “what does Gatekeeper Pattern mean?” but “what pressure makes this boundary worth introducing, and what new failure mode does it create?”"
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-gatekeeper-decision",
+      "payload": {
+        "title": "Design lens",
+        "body": "Before choosing Gatekeeper Pattern, name the workload, the critical user path, the dominant bottleneck, the failure you are trying to absorb, and the trade-off you are willing to accept. If you cannot name those five things, the design is probably premature.",
+        "kind": "info"
+      }
+    },
+    {
+      "type": "image",
+      "id": "upgrade-image-gatekeeper",
+      "payload": {
+        "src": "/learning-visuals/gatekeeper.svg",
+        "alt": "Original NO CAP systems visual for Gatekeeper Pattern.",
+        "caption": "Gatekeeper Pattern: a compact system-thinking visual.",
+        "credit": "Original NO CAP visual.",
+        "source_url": "https://github.com/donnemartin/system-design-primer"
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "upgrade-mermaid-gatekeeper",
+      "payload": {
+        "code": "flowchart LR\n  A[Client] --> B[Gateway] --> C[Service] --> D[State] --> E[Outcome]",
+        "caption": "Gatekeeper Pattern: a simplified system view showing the primary flow and the main state boundaries.",
+        "alt_text": "Gatekeeper Pattern: a simplified system view showing the primary flow and the main state boundaries."
+      }
+    },
+    {
+      "type": "code",
+      "id": "upgrade-code-gatekeeper",
+      "payload": {
+        "language": "text",
+        "code": "// Pseudocode\nrequest = receive()\nresult = gatekeeper(request)\nreturn result\n\n// Production questions:\n// 1. What happens on timeout?\n// 2. Can this operation be retried safely?\n// 3. What is the bottleneck?",
+        "caption": "A minimal engineering sketch for reasoning about Gatekeeper Pattern."
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-gatekeeper-numbers",
+      "payload": {
+        "text": "Back-of-the-envelope reasoning",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-gatekeeper-numbers",
+      "payload": {
+        "text": "Numerical lens: write down traffic, payload size, read/write ratio, peak multiplier and durability target before choosing a component. The numbers should justify the architecture."
+      }
+    },
+    {
+      "type": "simulation",
+      "id": "upgrade-sim-gatekeeper",
+      "payload": {
+        "title": "Interactive thought experiment: Gatekeeper Pattern",
+        "description": "Change the variables below and predict what breaks first in Gatekeeper Pattern. The production lab can later reuse these same inputs.",
+        "variables": [
+          {
+            "name": "traffic",
+            "description": "Requests/events per second",
+            "default": "1000"
+          },
+          {
+            "name": "latency",
+            "description": "Dependency latency",
+            "default": "50ms"
+          },
+          {
+            "name": "failure_rate",
+            "description": "Injected failure rate",
+            "default": "0%"
+          }
+        ],
+        "placeholder_note": "Interactive controls are deterministic; use the linked Labs section when a dedicated lab exists."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-gatekeeper-hint",
+      "payload": {
+        "title": "Hint",
+        "body": "If you are stuck on Gatekeeper Pattern, start by drawing the request path and marking every network hop, stateful component, queue, cache and failure boundary. Then estimate where the system will saturate.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-gatekeeper-1",
+      "payload": {
+        "shape": "prediction",
+        "question": "You increase traffic by 10× in a system using Gatekeeper Pattern. What should you inspect first?",
+        "options": [
+          "The newest framework version",
+          "The dominant bottleneck and its saturation signal",
+          "Only the UI",
+          "Nothing; the architecture should absorb any traffic automatically"
+        ],
+        "answer_index": 1,
+        "rationale": "System design is a constraint-and-bottleneck exercise. Start with the resource or dependency that will saturate first, then choose the smallest change that removes that bottleneck.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-gatekeeper-2",
+      "payload": {
+        "shape": "mcq",
+        "question": "Which statement is the safest engineering habit when using Gatekeeper Pattern?",
+        "options": [
+          "Choose it because it is popular",
+          "Add it before measuring the problem",
+          "State the workload, failure mode and trade-off it is solving",
+          "Use the most distributed design possible"
+        ],
+        "answer_index": 2,
+        "rationale": "Good architecture starts from requirements, workload and failure assumptions. The component is the consequence of that reasoning, not the starting point.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "scenario",
+      "id": "upgrade-scenario-gatekeeper",
+      "payload": {
+        "prompt": "Production scenario: your system uses Gatekeeper Pattern, traffic suddenly spikes, and p99 latency doubles. What is your first move?",
+        "context": "You have dashboards for traffic, latency, errors and saturation. You can change the architecture, but every change has operational cost.",
+        "options": [
+          {
+            "id": "a",
+            "text": "Add more instances immediately",
+            "outcome": "This may help, but only if compute saturation is the bottleneck.",
+            "correct": false
+          },
+          {
+            "id": "b",
+            "text": "Inspect the bottleneck and its saturation signal first",
+            "outcome": "Correct: diagnose before scaling or introducing a new pattern.",
+            "correct": true
+          },
+          {
+            "id": "c",
+            "text": "Disable monitoring to reduce overhead",
+            "outcome": "This removes the evidence you need to diagnose the incident.",
+            "correct": false
+          }
+        ],
+        "rationale": "Measure the limiting resource or dependency first. A bottleneck can be compute, database I/O, network, cache misses, lock contention, downstream latency, or queue backlog.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-gatekeeper-interview",
+      "payload": {
+        "text": "Interview drill",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-gatekeeper-interview",
+      "payload": {
+        "text": "**Answer this without notes:** When would you choose Gatekeeper Pattern, and when would you intentionally avoid it? Mention at least one bottleneck it addresses, one failure mode it introduces, and one alternative. Then quantify the workload you are designing for."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "field-guide-gatekeeper",
+      "payload": {
+        "title": "Engineering lens",
+        "body": "For Gatekeeper Pattern, define the trust boundary first. Identify who is allowed to perform each action, where credentials live, how they expire, and what a compromised credential can reach.",
+        "kind": "tip"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "numerical-lens-gatekeeper",
+      "payload": {
+        "text": "### Numerical sanity check\n\nA practical blast-radius question: if one credential is compromised, how many users, services, records or regions could it affect? Prefer designs where that number is deliberately bounded."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "field-question-gatekeeper",
+      "payload": {
+        "shape": "prediction",
+        "question": "What is the smallest trust boundary you would enforce for Gatekeeper Pattern, and what would you log so a suspicious action can be investigated later?",
+        "context": "Do not optimize for a memorized definition. Reason from the workload and failure mode.",
+        "options": [
+          "Scale the same component immediately.",
+          "Measure the current bottleneck and state the assumption that changed.",
+          "Add more technologies until throughput improves.",
+          "Choose the most popular architecture."
+        ],
+        "answer_index": 1,
+        "rationale": "Good system design starts with the bottleneck and the changed constraint. The most popular or complex choice is not automatically correct.",
+        "difficulty": "interview"
+      }
+    }
+  ],
+  "trade_offs": {
+    "pros": [
+      "Centralizes cross-cutting security concerns in one well-audited place.",
+      "Backends focus on business logic, not security plumbing.",
+      "Single point for logging, metrics, and policy enforcement.",
+      "Standard pattern with mature tooling (Kong, AWS API Gateway, Envoy)."
+    ],
+    "cons": [
+      "Single point of failure — must be highly available.",
+      "Adds a network hop (latency).",
+      "Backends trust the boundary — direct access bypasses all checks.",
+      "Can become a bottleneck if it grows too many features."
+    ]
+  },
+  "failure_modes": [
+    "Backend reachable directly, bypassing the gateway (boundary not enforced).",
+    "Gateway becomes a single point of failure (no HA).",
+    "Stateful gateway loses rate limit state on instance failure.",
+    "Gateway becomes a monolith — too much business logic in the wrong layer."
+  ],
+  "common_mistakes": [
+    "Letting backends be reachable from outside the gateway boundary.",
+    "Putting business logic in the gateway instead of backends.",
+    "Running a single gateway instance (no HA).",
+    "Forgetting that backends trust the gateway — defense in depth is still wise."
+  ],
+  "where_you_see_it": [
+    "AWS API Gateway, Kong, Apigee, Gloo.",
+    "Service mesh sidecars (Envoy in Istio).",
+    "Cloudflare Workers as an edge gatekeeper."
+  ],
+  "interview_prompts": [
+    "What is the gatekeeper pattern, and what concerns does it centralize?",
+    "Why must backends not be reachable directly, bypassing the gateway?",
+    "How does the gatekeeper pattern differ from a service mesh?",
+    "How do you make the gateway highly available without losing per-client rate-limit state?"
+  ],
+  "real_system_mappings": [
+    {
+      "system": "AWS API Gateway",
+      "how": "Managed gateway handling auth (Cognito, Lambda authorizers), rate limiting, request validation, TLS termination, and routing to backends. Backends run in private subnets reachable only through the gateway."
+    },
+    {
+      "system": "Istio service mesh",
+      "how": "Extends the gatekeeper pattern to service-to-service calls. Every service has an Envoy sidecar that enforces mTLS, authorization policies, and telemetry. The mesh becomes a distributed gatekeeper covering every hop."
+    }
+  ],
+  "status": "published",
+  "sources": [
+    {
+      "title": "System Design Primer",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Open source"
+    },
+    {
+      "title": "ByteByteGo — Scale from zero to millions",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "ByteByteGo"
+    },
+    {
+      "title": "System Design Tutorial",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "GeeksforGeeks"
+    },
+    {
+      "title": "System Design Roadmap",
+      "url": "https://roadmap.sh/system-design",
+      "publisher": "roadmap.sh"
+    },
+    {
+      "title": "Security reference",
+      "url": "https://www.rfc-editor.org/",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Security reference",
+      "url": "https://owasp.org/www-project-top-ten/",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Security reference",
+      "url": "https://oauth.net/2/",
+      "publisher": "Reference"
+    }
+  ]
+}

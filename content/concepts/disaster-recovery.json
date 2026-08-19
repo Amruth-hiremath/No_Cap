@@ -1,0 +1,431 @@
+{
+  "slug": "disaster-recovery",
+  "version": 4,
+  "title": "Disaster Recovery",
+  "phase": "reliability-resilience",
+  "area": "Reliability & Resilience",
+  "estimated_minutes": 7,
+  "difficulty": "advanced",
+  "summary": "Disaster recovery (DR) is the plan for when an entire site, region, or service is lost — not a single failed instance. It's defined by two metrics: RTO (recovery time objective — how long until we're back up) and RPO (recovery point objective — how much data we can lose). DR strategies range from cold standby (cheap, slow) to hot multi-region (expensive, fast). The right choice depends on the cost of downtime vs the cost of preparedness.",
+  "why_it_matters": "Failures happen at every scale: a single instance, an AZ, a region, or a whole cloud provider. Local redundancy (multi-AZ) handles the first two. Disaster recovery handles the rest: a region goes down (AWS us-east-1, 2017 and 2021), a cloud provider has a major outage, or your data center loses power. Without a DR plan, you're betting your business on a single region never having a multi-hour outage. With one, you can survive even unlikely events — at a cost. The art of DR is choosing the right cost/recovery trade-off for your business.",
+  "prerequisites": [
+    "failover",
+    "replication",
+    "multi-region"
+  ],
+  "related": [
+    "multi-region",
+    "availability-patterns",
+    "failover"
+  ],
+  "used_in": [
+    "Any system with an availability SLO above ~99.9%.",
+    "Regulated industries (finance, healthcare) with data durability requirements.",
+    "Any system where multi-hour downtime is unacceptable."
+  ],
+  "blocks": [
+    {
+      "type": "prose",
+      "id": "intro",
+      "payload": {
+        "text": "Disaster recovery is the discipline of preparing for the worst: an entire data center or region going offline. It's distinct from high availability (HA), which handles individual component failures within a region. DR handles the scenario where the whole region is gone.\n\nTwo metrics define every DR plan:\n\n- **RTO (Recovery Time Objective)**: the maximum time between the disaster and the system being back up. RTO=1 hour means you tolerate at most 1 hour of downtime.\n- **RPO (Recovery Point Objective)**: the maximum amount of data you can lose. RPO=5 minutes means you tolerate losing at most 5 minutes of writes.\n\nThese metrics drive every decision. RTO=0 means hot multi-region active-active (very expensive). RPO=0 means synchronous cross-region replication (slow writes). Most systems pick tolerable values and design to those — not to zero, because zero is too expensive."
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "strategies",
+      "payload": {
+        "code": "flowchart TD\n    N0[\"RTO: hours-days, RPO: hours\"]\n    N1[\"COLD\"]\n    N2[\"STANDBY\"]\n    N3[\"(RTO:\"]\n    N4[\"hours\"]\n    N5[\"days,\"]\n    N6[\"RPO:\"]\n    N7[\"hours)\"]\n    N8[\"Backups\"]\n    N9[\"S3,\"]\n    N10[\"running\"]\n    N11[\"infra\"]\n    N12[\"region.\"]\n    N13[\"disaster:\"]\n    N14[\"provision\"]\n    N15[\"infra,\"]\n    N16[\"restore\"]\n    N17[\"backup,\"]\n    N18[\"deploy\"]\n    N19[\"code.\"]\n    N20[\"Cheapest.\"]\n    N21[\"Slowest.\"]\n    N22[\"Acceptable\"]\n    N23[\"for\"]\n    N24[\"low\"]\n    N25[\"traffic\"]\n    N26[\"internal\"]\n    N27[\"tools.\"]\n    N28[\"RTO: minutes-hours, RPO: minutes\"]\n    N29[\"WARM\"]\n    N30[\"minutes\"]\n    N31[\"hours,\"]\n    N32[\"minutes)\"]\n    N33[\"region\"]\n    N34[\"has\"]\n    N35[\"but\"]\n    N36[\"undersized.\"]\n    N37[\"Replication\"]\n    N38[\"keeps\"]\n    N39[\"data\"]\n    N40[\"fresh.\"]\n    N41[\"scale\"]\n    N42[\"up,\"]\n    N43[\"switch\"]\n    N44[\"DNS.\"]\n    N45[\"Common\"]\n    N46[\"mid\"]\n    N47[\"tier\"]\n    N48[\"production\"]\n    N49[\"systems.\"]\n    N50[\"RTO: seconds-minutes, RPO: seconds\"]\n    N51[\"HOT\"]\n    N52[\"seconds\"]\n    N53[\"minutes,\"]\n    N54[\"seconds)\"]\n    N55[\"fully\"]\n    N56[\"provisioned,\"]\n    N57[\"replication\"]\n    N58[\"near\"]\n    N59[\"real\"]\n    N60[\"time.\"]\n    N61[\"route\"]\n    N62[\"traffic.\"]\n    N63[\"Nearly\"]\n    N64[\"seamless.\"]\n    N65[\"Used\"]\n    N66[\"banks,\"]\n    N67[\"large\"]\n    N68[\"SaaS.\"]\n    N69[\"RTO: ~0, RPO: ~0\"]\n    N70[\"ACTIVE\"]\n    N71[\"~0,\"]\n    N72[\"~0)\"]\n    N73[\"Both\"]\n    N74[\"regions\"]\n    N75[\"serve\"]\n    N76[\"live\"]\n    N77[\"bidirectional.\"]\n    N78[\"Most\"]\n    N79[\"expensive,\"]\n    N80[\"most\"]\n    N81[\"resilient.\"]\n    N82[\"Netflix, Google\"]\n    N83[\"global\"]\n    N84[\"systems\"]\n    N85[\"(Netflix,\"]\n    N86[\"Google).\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44\n    N44 --> N45\n    N45 --> N46\n    N46 --> N47\n    N47 --> N48\n    N48 --> N49\n    N49 --> N50\n    N50 --> N51\n    N51 --> N52\n    N52 --> N53\n    N53 --> N54\n    N54 --> N55\n    N55 --> N56\n    N56 --> N57\n    N57 --> N58\n    N58 --> N59\n    N59 --> N60\n    N60 --> N61\n    N61 --> N62\n    N62 --> N63\n    N63 --> N64\n    N64 --> N65\n    N65 --> N66\n    N66 --> N67\n    N67 --> N68\n    N68 --> N69\n    N69 --> N70\n    N70 --> N71\n    N71 --> N72\n    N72 --> N73\n    N73 --> N74\n    N74 --> N75\n    N75 --> N76\n    N76 --> N77\n    N77 --> N78\n    N78 --> N79\n    N79 --> N80\n    N80 --> N81\n    N81 --> N82\n    N82 --> N83\n    N83 --> N84\n    N84 --> N85\n    N85 --> N86",
+        "caption": "Four DR strategies, trading cost for recovery speed.",
+        "alt_text": "Four strategies shown as a trade-off between cost and recovery speed. Cold standby: backups only, no running infrastructure in the DR region; recovery takes hours to days and data loss can be hours; cheapest, used for low-traffic internal tools. Warm standby: DR region has undersized infrastructure running, with replication keeping data fresh; on disaster, scale up and switch DNS; recovery takes minutes to hours; common for mid-tier production. Hot standby: DR region fully provisioned with near-real-time replication; on disaster, just route traffic; recovery takes seconds to minutes; used by banks and large SaaS. Active-active: both regions serve live traffic with bidirectional replication; recovery is near-zero; most expensive; used by global systems like Netflix and Google."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "rto-rpo",
+      "payload": {
+        "text": "RTO and RPO are about expectations, not technology. You decide them based on business impact: how much does an hour of downtime cost? How much does an hour of lost data cost? Then you pick a strategy that meets them.\n\nFor an internal HR tool used during business hours, RTO=8 hours, RPO=24 hours might be fine — daily backups to S3, manual restore.\n\nFor a SaaS product with a 99.9% SLO, RTO=1 hour, RPO=5 minutes — warm standby with continuous replication.\n\nFor a payments system, RTO=5 minutes, RPO=0 — hot standby with synchronous cross-region replication.\n\nThe trap is over-engineering. A startup spending 50% of its cloud bill on multi-region active-active to chase 99.999% availability is wasting money — its customers would tolerate 99.9% fine. Match the DR strategy to the business need, not to a vanity SLO."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "backups",
+      "payload": {
+        "text": "Backups are the foundation of every DR plan, even the most sophisticated. They're the last line of defense when replication fails (and it does). Key principles:\n\n- **3-2-1 rule**: 3 copies of data, on 2 different media, 1 off-site. In cloud terms: primary, replica, and a backup in a different region (or different cloud).\n- **Test restores**. An untested backup is a hope, not a backup. Most DR plans fail because the restore step has never been rehearsed.\n- **Immutable backups**. Ransomware and malicious insiders delete backups too. Use object lock / WORM storage so backups can't be deleted during the retention window.\n- **Versioned**. Keep multiple points in time, not just the latest. Sometimes the latest backup is corrupted.\n\nFor databases, PITR (point-in-time recovery) lets you restore to any second within the retention window — useful for undoing a bad migration."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "test-the-plan",
+      "payload": {
+        "title": "DR plans that aren't tested don't work",
+        "body": "The dirty secret of disaster recovery is that most plans are theoretical. Runbooks are out of date, DNS changes haven't been tried, the DR database hasn't been promoted in months, and the credentials are stored in the region that's now down. Netflix's Chaos Monkey and the broader practice of Game Days exist precisely because untested DR plans fail when needed. Schedule a DR drill every quarter: simulate a region failure, run the failover, measure RTO and RPO against the targets, and fix what broke. If you can't run a drill in production, at least run one in staging.",
+        "kind": "warning"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "common-disasters",
+      "payload": {
+        "text": "What disasters should you plan for? Real-world examples:\n\n- **Region outages**: AWS us-east-1 has had multi-hour outages in 2017, 2021, and 2023 affecting thousands of services. Multi-region DR is the only mitigation.\n- **Cloud provider outages**: rare but possible. Multi-cloud is the answer, though most teams tolerate single-cloud risk.\n- **Data center loss**: power, cooling, fire. Physical disasters.\n- **Ransomware**: encrypts production data and backups. Immutable backups mitigate.\n- **Bad deployments**: a migration that corrupts data. PITR lets you roll back.\n- **Misconfigured IAM**: an admin accidentally revokes their own access. Break-glass accounts in a separate account mitigate.\n\nEach disaster needs a different recovery strategy. A multi-region plan doesn't protect against ransomware unless the backups are immutable; immutable backups don't help if the deployment is bad."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q1",
+      "payload": {
+        "question": "Your SaaS product has an SLO of 99.9% (~8.7 hours downtime per year). You currently use a single region with daily backups. What DR strategy best matches your SLO?",
+        "shape": "mcq",
+        "options": [
+          "Cold standby — restore from backups when the region fails.",
+          "Warm standby — a smaller DR region with continuous replication, scaled up on failover.",
+          "Active-active multi-region — both regions serve traffic.",
+          "Daily backups are sufficient; no DR needed."
+        ],
+        "answer_index": 1,
+        "rationale": "Cold standby has RTO in hours-to-days; a single region outage would blow your annual SLO budget in one event. Active-active is overkill for a 99.9% SLO — it's expensive and operationally complex. Warm standby hits the sweet spot: continuous replication gives an RPO of minutes, and scaling up the DR region on failover gives an RTO under an hour, well within the SLO. Daily backups alone have an RPO of 24 hours — unacceptable for a production SaaS.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q2",
+      "payload": {
+        "question": "Why is an untested backup not really a backup?",
+        "shape": "mcq",
+        "options": [
+          "Backups degrade over time even when not used.",
+          "You don't know if the restore will actually work — the schema may have drifted, the format may be obsolete, or the credentials may be missing.",
+          "Untested backups take up too much storage.",
+          "Cloud providers charge extra for untested backups."
+        ],
+        "answer_index": 1,
+        "rationale": "A backup you've never restored from is a hypothesis, not a fact. In real DR incidents, teams routinely discover the backup is corrupted, the restore procedure is out of date, the schema has changed since the backup was taken, or the credentials to access the backup are stored in the region that's now down. The only way to know a backup works is to restore from it — regularly, in an environment that mimics production. Game Days and chaos engineering exist to surface these issues before a real disaster does.",
+        "difficulty": "core"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q3",
+      "payload": {
+        "question": "What's the difference between RTO and RPO?",
+        "shape": "mcq",
+        "options": [
+          "RTO is about downtime; RPO is about data loss.",
+          "RTO is about data loss; RPO is about downtime.",
+          "They're the same metric, just measured differently.",
+          "RTO applies to backups; RPO applies to replication."
+        ],
+        "answer_index": 0,
+        "rationale": "RTO (Recovery Time Objective) is the maximum acceptable downtime — how long until the system is back up. RPO (Recovery Point Objective) is the maximum acceptable data loss — how much data you can afford to lose, measured in time. They're independent: you can have RTO=5 minutes (back up fast) with RPO=1 hour (lose the last hour of writes) if you replicate asynchronously; or RTO=1 hour with RPO=0 if you have synchronous replication but slow restore. Choosing them based on business impact drives the entire DR architecture.",
+        "difficulty": "core"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-disaster-recovery-mental",
+      "payload": {
+        "text": "Engineering mental model",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-disaster-recovery-mental",
+      "payload": {
+        "text": "**Mental model.** Think of Disaster Recovery as a deliberate boundary in a system. The boundary exists because something becomes harder to manage when everything is done in one place: latency, scale, failure isolation, consistency, cost, or team ownership. The useful question is not “what does Disaster Recovery mean?” but “what pressure makes this boundary worth introducing, and what new failure mode does it create?”"
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-disaster-recovery-decision",
+      "payload": {
+        "title": "Design lens",
+        "body": "Before choosing Disaster Recovery, name the workload, the critical user path, the dominant bottleneck, the failure you are trying to absorb, and the trade-off you are willing to accept. If you cannot name those five things, the design is probably premature.",
+        "kind": "info"
+      }
+    },
+    {
+      "type": "image",
+      "id": "upgrade-image-disaster-recovery",
+      "payload": {
+        "src": "/learning-visuals/disaster-recovery.svg",
+        "alt": "Original NO CAP systems visual for Disaster Recovery.",
+        "caption": "Disaster Recovery: a compact system-thinking visual.",
+        "credit": "Original NO CAP visual.",
+        "source_url": "https://github.com/donnemartin/system-design-primer"
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "upgrade-mermaid-disaster-recovery",
+      "payload": {
+        "code": "flowchart LR\n  A[Client] --> B[Gateway] --> C[Service] --> D[State] --> E[Outcome]",
+        "caption": "Disaster Recovery: a simplified system view showing the primary flow and the main state boundaries.",
+        "alt_text": "Disaster Recovery: a simplified system view showing the primary flow and the main state boundaries."
+      }
+    },
+    {
+      "type": "code",
+      "id": "upgrade-code-disaster-recovery",
+      "payload": {
+        "language": "text",
+        "code": "// Pseudocode\nrequest = receive()\nresult = disaster_recovery(request)\nreturn result\n\n// Production questions:\n// 1. What happens on timeout?\n// 2. Can this operation be retried safely?\n// 3. What is the bottleneck?",
+        "caption": "A minimal engineering sketch for reasoning about Disaster Recovery."
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-disaster-recovery-numbers",
+      "payload": {
+        "text": "Back-of-the-envelope reasoning",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-disaster-recovery-numbers",
+      "payload": {
+        "text": "Numerical lens: write down traffic, payload size, read/write ratio, peak multiplier and durability target before choosing a component. The numbers should justify the architecture."
+      }
+    },
+    {
+      "type": "simulation",
+      "id": "upgrade-sim-disaster-recovery",
+      "payload": {
+        "title": "Interactive thought experiment: Disaster Recovery",
+        "description": "Change the variables below and predict what breaks first in Disaster Recovery. The production lab can later reuse these same inputs.",
+        "variables": [
+          {
+            "name": "traffic",
+            "description": "Requests/events per second",
+            "default": "1000"
+          },
+          {
+            "name": "latency",
+            "description": "Dependency latency",
+            "default": "50ms"
+          },
+          {
+            "name": "failure_rate",
+            "description": "Injected failure rate",
+            "default": "0%"
+          }
+        ],
+        "placeholder_note": "Interactive controls are deterministic; use the linked Labs section when a dedicated lab exists."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-disaster-recovery-hint",
+      "payload": {
+        "title": "Hint",
+        "body": "If you are stuck on Disaster Recovery, start by drawing the request path and marking every network hop, stateful component, queue, cache and failure boundary. Then estimate where the system will saturate.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-disaster-recovery-1",
+      "payload": {
+        "shape": "prediction",
+        "question": "You increase traffic by 10× in a system using Disaster Recovery. What should you inspect first?",
+        "options": [
+          "The newest framework version",
+          "The dominant bottleneck and its saturation signal",
+          "Only the UI",
+          "Nothing; the architecture should absorb any traffic automatically"
+        ],
+        "answer_index": 1,
+        "rationale": "System design is a constraint-and-bottleneck exercise. Start with the resource or dependency that will saturate first, then choose the smallest change that removes that bottleneck.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-disaster-recovery-2",
+      "payload": {
+        "shape": "mcq",
+        "question": "Which statement is the safest engineering habit when using Disaster Recovery?",
+        "options": [
+          "Choose it because it is popular",
+          "Add it before measuring the problem",
+          "State the workload, failure mode and trade-off it is solving",
+          "Use the most distributed design possible"
+        ],
+        "answer_index": 2,
+        "rationale": "Good architecture starts from requirements, workload and failure assumptions. The component is the consequence of that reasoning, not the starting point.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "scenario",
+      "id": "upgrade-scenario-disaster-recovery",
+      "payload": {
+        "prompt": "Production scenario: your system uses Disaster Recovery, traffic suddenly spikes, and p99 latency doubles. What is your first move?",
+        "context": "You have dashboards for traffic, latency, errors and saturation. You can change the architecture, but every change has operational cost.",
+        "options": [
+          {
+            "id": "a",
+            "text": "Add more instances immediately",
+            "outcome": "This may help, but only if compute saturation is the bottleneck.",
+            "correct": false
+          },
+          {
+            "id": "b",
+            "text": "Inspect the bottleneck and its saturation signal first",
+            "outcome": "Correct: diagnose before scaling or introducing a new pattern.",
+            "correct": true
+          },
+          {
+            "id": "c",
+            "text": "Disable monitoring to reduce overhead",
+            "outcome": "This removes the evidence you need to diagnose the incident.",
+            "correct": false
+          }
+        ],
+        "rationale": "Measure the limiting resource or dependency first. A bottleneck can be compute, database I/O, network, cache misses, lock contention, downstream latency, or queue backlog.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-disaster-recovery-interview",
+      "payload": {
+        "text": "Interview drill",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-disaster-recovery-interview",
+      "payload": {
+        "text": "**Answer this without notes:** When would you choose Disaster Recovery, and when would you intentionally avoid it? Mention at least one bottleneck it addresses, one failure mode it introduces, and one alternative. Then quantify the workload you are designing for."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "field-guide-disaster-recovery",
+      "payload": {
+        "title": "Engineering lens",
+        "body": "A useful engineering lens for Disaster Recovery: define the problem it solves, the simpler design that fails first, the constraint that forces you to introduce this concept, and the new failure modes the concept creates.",
+        "kind": "tip"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "numerical-lens-disaster-recovery",
+      "payload": {
+        "text": "### Numerical sanity check\n\nBack-of-the-envelope reasoning beats fake precision. State your traffic, payload, concurrency and growth assumptions explicitly, then calculate enough to know whether the current architecture is orders of magnitude away from the target."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "field-question-disaster-recovery",
+      "payload": {
+        "shape": "prediction",
+        "question": "Imagine the simplest version of a system using Disaster Recovery. What breaks first as traffic grows by 10×, and what would you change before reaching 100×?",
+        "context": "Do not optimize for a memorized definition. Reason from the workload and failure mode.",
+        "options": [
+          "Scale the same component immediately.",
+          "Measure the current bottleneck and state the assumption that changed.",
+          "Add more technologies until throughput improves.",
+          "Choose the most popular architecture."
+        ],
+        "answer_index": 1,
+        "rationale": "Good system design starts with the bottleneck and the changed constraint. The most popular or complex choice is not automatically correct.",
+        "difficulty": "interview"
+      }
+    }
+  ],
+  "trade_offs": {
+    "pros": [
+      "Survives region-level and provider-level outages.",
+      "Bounds downtime (RTO) and data loss (RPO) to acceptable levels.",
+      "Forces explicit decisions about business continuity.",
+      "Backups protect against operational errors (bad migrations, deletions) that replication doesn't."
+    ],
+    "cons": [
+      "Cost scales steeply with lower RTO/RPO — hot multi-region is expensive.",
+      "Operational complexity: more regions, more replication, more things to break.",
+      "DR plans that aren't tested are worse than useless — they give false confidence.",
+      "Multi-region replication adds write latency (especially synchronous)."
+    ]
+  },
+  "failure_modes": [
+    "Untested DR plans — restore fails when needed because runbooks are stale.",
+    "Credentials stored in the failed region — can't access backups or DR infrastructure.",
+    "Replication lag exceeds RPO — actual data loss is larger than the target.",
+    "DNS caching extends effective RTO beyond what the failover time suggests."
+  ],
+  "common_mistakes": [
+    "Confusing backups with replication — both are needed; neither alone is enough.",
+    "Storing backups in the same region as production — a region outage takes them out too.",
+    "Choosing RPO=0 / RTO=0 for everything — usually overkill, always expensive.",
+    "Running DR drills in staging only — production has different data, traffic, and bugs."
+  ],
+  "where_you_see_it": [
+    "AWS: Multi-AZ (HA), Cross-Region Replication (DR), Backup Vault (last line).",
+    "Netflix: Active-active across multiple AWS regions with Chaos Monkey testing.",
+    "Banks: Hot standby with synchronous cross-region replication for regulatory RPO=0."
+  ],
+  "interview_prompts": [
+    "Define RTO and RPO. How do they drive DR architecture?",
+    "Compare cold, warm, hot, and active-active DR strategies. When would you choose each?",
+    "Why is testing DR plans so important, and how would you do it?",
+    "How do you protect against ransomware in a DR plan?"
+  ],
+  "real_system_mappings": [
+    {
+      "system": "Netflix",
+      "how": "Active-active across multiple AWS regions. Each region is independent and serves live traffic. Regular Game Days simulate region failures to keep the DR plan tested."
+    },
+    {
+      "system": "AWS Backup",
+      "how": "Centralized backup service with cross-region and cross-account copies, point-in-time recovery, and immutable backups via object lock. Designed for 3-2-1 compliance."
+    }
+  ],
+  "status": "published",
+  "sources": [
+    {
+      "title": "System Design Primer",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Open source"
+    },
+    {
+      "title": "ByteByteGo — Scale from zero to millions",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "ByteByteGo"
+    },
+    {
+      "title": "System Design Tutorial",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "GeeksforGeeks"
+    },
+    {
+      "title": "System Design Roadmap",
+      "url": "https://roadmap.sh/system-design",
+      "publisher": "roadmap.sh"
+    },
+    {
+      "title": "Reliability & Resilience reference",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Reliability & Resilience reference",
+      "url": "https://sre.google/sre-book/table-of-contents/",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Reliability & Resilience reference",
+      "url": "https://aws.amazon.com/builders-library/",
+      "publisher": "Reference"
+    },
+    {
+      "title": "AWS Well-Architected",
+      "url": "https://aws.amazon.com/architecture/well-architected/",
+      "publisher": "AWS"
+    }
+  ]
+}

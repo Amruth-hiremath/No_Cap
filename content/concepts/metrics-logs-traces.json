@@ -1,0 +1,430 @@
+{
+  "slug": "metrics-logs-traces",
+  "version": 4,
+  "title": "Metrics, Logs, Traces",
+  "phase": "observability",
+  "area": "Observability",
+  "estimated_minutes": 7,
+  "difficulty": "core",
+  "summary": "Metrics, logs, and traces are the three pillars of observability. Metrics are aggregated numeric signals (cheap, queryable, good for alerting). Logs are discrete events (rich context, expensive to store, good for debugging). Traces follow a single request across services (causality, latency breakdown). A mature observability stack uses all three — they answer different questions.",
+  "why_it_matters": "When something breaks in production, you have minutes to figure out what. Without observability, you're guessing — restarting services, eyeballing dashboards, hoping the problem goes away. With good metrics you know *that* something broke and *when*; with logs you know *what*; with traces you know *where* and *why*. Each pillar alone is insufficient: metrics lack detail, logs lack aggregation, traces lack scope. Together they let you diagnose any issue — but only if they're correlated (shared trace IDs, structured logs, consistent metric labels).",
+  "prerequisites": [
+    "instrumentation"
+  ],
+  "related": [
+    "instrumentation",
+    "alerts-visualization",
+    "performance-monitoring",
+    "slo-sla-sli"
+  ],
+  "used_in": [
+    "Every production monitoring stack.",
+    "Every incident response process.",
+    "Every performance investigation."
+  ],
+  "blocks": [
+    {
+      "type": "prose",
+      "id": "intro",
+      "payload": {
+        "text": "Observability — the ability to ask arbitrary questions of a running system from the outside — rests on three signals. Each has a different shape, cost, and purpose:\n\n- **Metrics**: numeric, aggregated, time-series. \"requests_per_second{service=api, status=200} = 1240\". Cheap to collect (one counter per service+label set), queryable (\"what's the p99 latency?\"), good for alerting and dashboards. Bad for debugging individual requests.\n- **Logs**: discrete events with rich context. \"user=42 fetched order=99 at 10:42:03\". Expensive to store and search but unmatched for understanding what happened to a specific request. Good for debugging, bad for aggregation.\n- **Traces**: a tree of spans following a single request across services. Shows causality (\"API called auth, auth called DB\"), per-hop latency, and where time was spent. Essential for distributed systems, expensive to collect (sample)."
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "pillars",
+      "payload": {
+        "code": "flowchart TD\n    N0[\"aggregated, cheap, alerting\"]\n    N1[\"METRICS\"]\n    N2[\"(aggregated,\"]\n    N3[\"cheap,\"]\n    N4[\"alerting)\"]\n    N5[\"api,route,status\"]\n    N6[\"req_per_sec{api,route,status}\"]\n    N7[\"1240\"]\n    N8[\"api\"]\n    N9[\"latency_p99{api}\"]\n    N10[\"230ms\"]\n    N11[\"error_rate{api}\"]\n    N12[\"0.4%\"]\n    N13[\"'Is\"]\n    N14[\"the\"]\n    N15[\"system\"]\n    N16[\"healthy?'\"]\n    N17[\"'What's\"]\n    N18[\"p99?'\"]\n    N19[\"discrete, expensive, debugging\"]\n    N20[\"LOGS\"]\n    N21[\"(discrete,\"]\n    N22[\"expensive,\"]\n    N23[\"debugging)\"]\n    N24[\"10:42:03\"]\n    N25[\"trace_id\"]\n    N26[\"abc\"]\n    N27[\"user\"]\n    N28[\"fetched\"]\n    N29[\"order\"]\n    N30[\"query\"]\n    N31[\"took\"]\n    N32[\"80ms\"]\n    N33[\"returned\"]\n    N34[\"200\"]\n    N35[\"'What\"]\n    N36[\"happened\"]\n    N37[\"for\"]\n    N38[\"this\"]\n    N39[\"user?'\"]\n    N40[\"causal tree, sampling\"]\n    N41[\"TRACES\"]\n    N42[\"(causal\"]\n    N43[\"tree,\"]\n    N44[\"sampling)\"]\n    N45[\"POST\"]\n    N46[\"orders\"]\n    N47[\"[230ms]\"]\n    N48[\"5ms\"]\n    N49[\"auth.verify()\"]\n    N50[\"[5ms]\"]\n    N51[\"180ms\"]\n    N52[\"db.insert()\"]\n    N53[\"[180ms]\"]\n    N54[\"slow!\"]\n    N55[\"40ms\"]\n    N56[\"email.send()\"]\n    N57[\"[40ms]\"]\n    N58[\"'Where\"]\n    N59[\"time\"]\n    N60[\"going?'\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44\n    N44 --> N45\n    N45 --> N46\n    N46 --> N47\n    N47 --> N48\n    N48 --> N49\n    N49 --> N50\n    N50 --> N51\n    N51 --> N52\n    N52 --> N53\n    N53 --> N54\n    N54 --> N55\n    N55 --> N56\n    N56 --> N57\n    N57 --> N58\n    N58 --> N59\n    N59 --> N60",
+        "caption": "Metrics answer \"is it healthy?\" Logs answer \"what happened?\" Traces answer \"where's the time?\"",
+        "alt_text": "Three pillars shown side by side. Metrics are aggregated and cheap, used for alerting. Examples include requests per second labeled by service, route, and status; p99 latency; and error rate. They answer is the system healthy and what's the p99. Logs are discrete events with rich context, expensive to store but unmatched for understanding a specific request. They answer what happened for this user. Traces are causal trees of spans following one request across services, showing per-hop latency and where time was spent. They answer where is the time going. Together the three pillars cover health, debugging, and causality."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "metrics-deep",
+      "payload": {
+        "text": "Metrics come in three core types:\n\n- **Counter**: monotonically increasing (total requests, total errors). Use `rate()` over time to get per-second values.\n- **Gauge**: a value at a point in time (memory used, queue depth, active connections). Can go up or down.\n- **Histogram**: distribution of values (request latencies). Lets you compute p50, p95, p99. Stores counts in buckets, not individual values — efficient but lossy.\n\nMetrics carry **labels** (dimensions) for filtering and grouping: `http_requests_total{service=api, route=/orders, status=200}`. Cardinality matters — a metric with a label per user ID will explode the time series database. Rule of thumb: keep cardinality under 10 per metric; under 100 is borderline; over 1000 is a problem.\n\nMetrics are the right tool for: dashboards, alerting, capacity planning, SLO tracking. They're the wrong tool for: \"why did this specific request fail?\""
+      }
+    },
+    {
+      "type": "prose",
+      "id": "logs-deep",
+      "payload": {
+        "text": "Logs are discrete events. The key decision is **structured vs unstructured**:\n\n- **Unstructured**: `\"User 42 fetched order 99 in 80ms\"`. Human-readable, hard to query.\n- **Structured**: `{user_id:42, order_id:99, duration_ms:80, level:info, msg:\"order_fetched\"}`. Queryable (`level=error AND duration_ms>1000`), aggregatable.\n\nStructured logs are the modern default. They cost more storage but enable everything downstream: search, alerting, derived metrics. JSON is the standard format; tools like Loki, Elasticsearch, Datadog ingest and query it.\n\nLog levels: DEBUG, INFO, WARN, ERROR, FATAL. Be deliberate — logging everything at INFO floods the system and costs money. Log the things you'd actually want to see in an incident: state transitions, errors with context, business events.\n\nCorrelate logs with traces by including the `trace_id` in every log line. This lets you jump from a slow span in a trace to the logs emitted during that span — the most powerful debugging combination."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "traces-deep",
+      "payload": {
+        "text": "A trace is a tree of spans, where each span represents a unit of work in a request. The root span is the incoming request; child spans are downstream calls (DB query, RPC, internal computation). Spans carry:\n\n- **Operation name**: `db.insert`, `http.get`, `auth.verify`\n- **Start time and duration**: when did it start, how long did it take\n- **Tags**: key-value attributes (user_id, status, db.statement)\n- **Span context**: trace_id, span_id, parent_span_id — for the tree structure\n\nDistributed tracing propagates the trace context across services via headers (W3C Trace Context: `traceparent`). Each service creates spans for its work, linked to the same trace_id. The result: a single view of the entire request, even across 20 services.\n\nThe cost is real — collecting 100% of traces is too much data. Production systems sample: 1% of normal traffic, 100% of errors (tail-based sampling). OpenTelemetry is the open standard that most modern systems use."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "correlation",
+      "payload": {
+        "title": "The killer feature is correlation",
+        "body": "Individually, each pillar has limits. The power is in correlation: a slow trace shows you *where* the time went (the DB span), the metrics show you *whether* this is new (p99 spike at 10am), and the logs show you *what* happened (the DB was doing a full table scan). This requires shared identifiers — trace_id in logs, trace_id in metrics exemplars, consistent service labels across all three. OpenTelemetry does this for you; rolling your own is error-prone.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q1",
+      "payload": {
+        "question": "Your p99 latency spiked from 100ms to 800ms at 10am. Which pillar tells you *where* the time went?",
+        "shape": "mcq",
+        "options": [
+          "Metrics — the latency histogram will show you the slow query.",
+          "Logs — searching the logs will find the slow request.",
+          "Traces — a trace of a slow request shows the per-span breakdown, revealing which call was slow.",
+          "All three are equally good at this."
+        ],
+        "answer_index": 2,
+        "rationale": "Traces are uniquely designed to answer \"where did the time go in this request?\" Each span shows its duration, so a trace immediately reveals which downstream call (DB, RPC, computation) was slow. Metrics tell you the p99 went up but not why. Logs might mention a slow query but lack the structured per-call timing. The standard workflow: see the p99 spike in metrics, click through to a slow trace (often via an exemplar), then jump to the logs for that trace_id to see what the slow span was actually doing.",
+        "difficulty": "core"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q2",
+      "payload": {
+        "question": "You add a `user_id` label to a per-request metric so you can filter by user. What goes wrong?",
+        "shape": "mcq",
+        "options": [
+          "Nothing — it's a useful filter.",
+          "Cardinality explosion: a metric with millions of user_id values creates millions of time series, bloating storage and breaking the TSDB.",
+          "The metric becomes unreadable.",
+          "Logs can't be correlated with it."
+        ],
+        "answer_index": 1,
+        "rationale": "Time series databases store one series per unique label combination. A metric with a high-cardinality label like user_id creates one series per user — millions of series, each consuming memory and storage, even if the value is rarely queried. This is the classic cardinality explosion. The fix is to put high-cardinality data in logs and traces (which are designed for it), not in metrics. If you need per-user latency, store it in logs/traces and aggregate to metrics via exemplars or by sampling.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q3",
+      "payload": {
+        "question": "Why is tail-based sampling preferred over head-based sampling for traces?",
+        "shape": "mcq",
+        "options": [
+          "It's cheaper to implement.",
+          "Tail-based sampling decides after the trace completes, so you can keep 100% of errors and a sample of normal traffic — preserving the interesting traces.",
+          "Head-based sampling is unreliable.",
+          "Tail-based sampling reduces network traffic."
+        ],
+        "answer_index": 1,
+        "rationale": "Head-based sampling decides at the start of a request whether to trace it — so if you sample 1%, you lose 99% of errors too. Tail-based sampling decides after the trace completes, so you can apply rules like \"keep all errors, keep all slow traces, sample the rest at 1%\". This preserves the interesting traces for debugging while keeping volume manageable. The cost is more complex infrastructure (you have to buffer the full trace before deciding), which is why collectors like OpenTelemetry Collector support it.",
+        "difficulty": "advanced"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-metrics-logs-traces-mental",
+      "payload": {
+        "text": "Engineering mental model",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-metrics-logs-traces-mental",
+      "payload": {
+        "text": "**Mental model.** Think of Metrics, Logs, Traces as a deliberate boundary in a system. The boundary exists because something becomes harder to manage when everything is done in one place: latency, scale, failure isolation, consistency, cost, or team ownership. The useful question is not “what does Metrics, Logs, Traces mean?” but “what pressure makes this boundary worth introducing, and what new failure mode does it create?”"
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-metrics-logs-traces-decision",
+      "payload": {
+        "title": "Design lens",
+        "body": "Before choosing Metrics, Logs, Traces, name the workload, the critical user path, the dominant bottleneck, the failure you are trying to absorb, and the trade-off you are willing to accept. If you cannot name those five things, the design is probably premature.",
+        "kind": "info"
+      }
+    },
+    {
+      "type": "image",
+      "id": "upgrade-image-metrics-logs-traces",
+      "payload": {
+        "src": "/learning-visuals/metrics-logs-traces.svg",
+        "alt": "Original NO CAP systems visual for Metrics, Logs, Traces.",
+        "caption": "Metrics, Logs, Traces: a compact system-thinking visual.",
+        "credit": "Original NO CAP visual.",
+        "source_url": "https://github.com/donnemartin/system-design-primer"
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "upgrade-mermaid-metrics-logs-traces",
+      "payload": {
+        "code": "flowchart LR\n  A[Client] --> B[Gateway] --> C[Service] --> D[State] --> E[Outcome]",
+        "caption": "Metrics, Logs, Traces: a simplified system view showing the primary flow and the main state boundaries.",
+        "alt_text": "Metrics, Logs, Traces: a simplified system view showing the primary flow and the main state boundaries."
+      }
+    },
+    {
+      "type": "code",
+      "id": "upgrade-code-metrics-logs-traces",
+      "payload": {
+        "language": "text",
+        "code": "// Pseudocode\nrequest = receive()\nresult = metrics_logs_traces(request)\nreturn result\n\n// Production questions:\n// 1. What happens on timeout?\n// 2. Can this operation be retried safely?\n// 3. What is the bottleneck?",
+        "caption": "A minimal engineering sketch for reasoning about Metrics, Logs, Traces."
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-metrics-logs-traces-numbers",
+      "payload": {
+        "text": "Back-of-the-envelope reasoning",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-metrics-logs-traces-numbers",
+      "payload": {
+        "text": "Numerical lens: write down traffic, payload size, read/write ratio, peak multiplier and durability target before choosing a component. The numbers should justify the architecture."
+      }
+    },
+    {
+      "type": "simulation",
+      "id": "upgrade-sim-metrics-logs-traces",
+      "payload": {
+        "title": "Interactive thought experiment: Metrics, Logs, Traces",
+        "description": "Change the variables below and predict what breaks first in Metrics, Logs, Traces. The production lab can later reuse these same inputs.",
+        "variables": [
+          {
+            "name": "traffic",
+            "description": "Requests/events per second",
+            "default": "1000"
+          },
+          {
+            "name": "latency",
+            "description": "Dependency latency",
+            "default": "50ms"
+          },
+          {
+            "name": "failure_rate",
+            "description": "Injected failure rate",
+            "default": "0%"
+          }
+        ],
+        "placeholder_note": "Interactive controls are deterministic; use the linked Labs section when a dedicated lab exists."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-metrics-logs-traces-hint",
+      "payload": {
+        "title": "Hint",
+        "body": "If you are stuck on Metrics, Logs, Traces, start by drawing the request path and marking every network hop, stateful component, queue, cache and failure boundary. Then estimate where the system will saturate.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-metrics-logs-traces-1",
+      "payload": {
+        "shape": "prediction",
+        "question": "You increase traffic by 10× in a system using Metrics, Logs, Traces. What should you inspect first?",
+        "options": [
+          "The newest framework version",
+          "The dominant bottleneck and its saturation signal",
+          "Only the UI",
+          "Nothing; the architecture should absorb any traffic automatically"
+        ],
+        "answer_index": 1,
+        "rationale": "System design is a constraint-and-bottleneck exercise. Start with the resource or dependency that will saturate first, then choose the smallest change that removes that bottleneck.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-metrics-logs-traces-2",
+      "payload": {
+        "shape": "mcq",
+        "question": "Which statement is the safest engineering habit when using Metrics, Logs, Traces?",
+        "options": [
+          "Choose it because it is popular",
+          "Add it before measuring the problem",
+          "State the workload, failure mode and trade-off it is solving",
+          "Use the most distributed design possible"
+        ],
+        "answer_index": 2,
+        "rationale": "Good architecture starts from requirements, workload and failure assumptions. The component is the consequence of that reasoning, not the starting point.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "scenario",
+      "id": "upgrade-scenario-metrics-logs-traces",
+      "payload": {
+        "prompt": "Production scenario: your system uses Metrics, Logs, Traces, traffic suddenly spikes, and p99 latency doubles. What is your first move?",
+        "context": "You have dashboards for traffic, latency, errors and saturation. You can change the architecture, but every change has operational cost.",
+        "options": [
+          {
+            "id": "a",
+            "text": "Add more instances immediately",
+            "outcome": "This may help, but only if compute saturation is the bottleneck.",
+            "correct": false
+          },
+          {
+            "id": "b",
+            "text": "Inspect the bottleneck and its saturation signal first",
+            "outcome": "Correct: diagnose before scaling or introducing a new pattern.",
+            "correct": true
+          },
+          {
+            "id": "c",
+            "text": "Disable monitoring to reduce overhead",
+            "outcome": "This removes the evidence you need to diagnose the incident.",
+            "correct": false
+          }
+        ],
+        "rationale": "Measure the limiting resource or dependency first. A bottleneck can be compute, database I/O, network, cache misses, lock contention, downstream latency, or queue backlog.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-metrics-logs-traces-interview",
+      "payload": {
+        "text": "Interview drill",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-metrics-logs-traces-interview",
+      "payload": {
+        "text": "**Answer this without notes:** When would you choose Metrics, Logs, Traces, and when would you intentionally avoid it? Mention at least one bottleneck it addresses, one failure mode it introduces, and one alternative. Then quantify the workload you are designing for."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "field-guide-metrics-logs-traces",
+      "payload": {
+        "title": "Engineering lens",
+        "body": "A useful engineering lens for Metrics, Logs, Traces: define the problem it solves, the simpler design that fails first, the constraint that forces you to introduce this concept, and the new failure modes the concept creates.",
+        "kind": "tip"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "numerical-lens-metrics-logs-traces",
+      "payload": {
+        "text": "### Numerical sanity check\n\nBack-of-the-envelope reasoning beats fake precision. State your traffic, payload, concurrency and growth assumptions explicitly, then calculate enough to know whether the current architecture is orders of magnitude away from the target."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "field-question-metrics-logs-traces",
+      "payload": {
+        "shape": "prediction",
+        "question": "Imagine the simplest version of a system using Metrics, Logs, Traces. What breaks first as traffic grows by 10×, and what would you change before reaching 100×?",
+        "context": "Do not optimize for a memorized definition. Reason from the workload and failure mode.",
+        "options": [
+          "Scale the same component immediately.",
+          "Measure the current bottleneck and state the assumption that changed.",
+          "Add more technologies until throughput improves.",
+          "Choose the most popular architecture."
+        ],
+        "answer_index": 1,
+        "rationale": "Good system design starts with the bottleneck and the changed constraint. The most popular or complex choice is not automatically correct.",
+        "difficulty": "interview"
+      }
+    }
+  ],
+  "trade_offs": {
+    "pros": [
+      "Metrics: cheap, queryable, ideal for dashboards and alerting.",
+      "Logs: rich context, ideal for debugging specific events.",
+      "Traces: causal structure, ideal for distributed-system latency analysis.",
+      "Combined: answer any diagnostic question if signals are correlated."
+    ],
+    "cons": [
+      "Metrics: limited detail; cardinality can explode.",
+      "Logs: expensive at scale; search is slow without structure.",
+      "Traces: require sampling; complex to instrument across services.",
+      "Combined: tooling complexity (Prometheus + Loki + Tempo, or Datadog) and cost."
+    ]
+  },
+  "failure_modes": [
+    "High-cardinality metrics labels exploding the TSDB.",
+    "Unstructured logs that can't be queried in an incident.",
+    "Trace context not propagated across service boundaries — broken traces.",
+    "Sampling that drops the interesting traces (errors) — keep tail-based."
+  ],
+  "common_mistakes": [
+    "Using metrics for high-cardinality data (user IDs in labels).",
+    "Logging unstructured text instead of JSON.",
+    "Not propagating trace IDs across services, breaking the trace tree.",
+    "Sampling 100% of traces (cost) or 0.1% and missing errors (visibility)."
+  ],
+  "where_you_see_it": [
+    "Prometheus + Loki + Tempo (Grafana stack).",
+    "Datadog, New Relic, Splunk (commercial all-in-one).",
+    "OpenTelemetry (open standard for emitting all three)."
+  ],
+  "interview_prompts": [
+    "Compare metrics, logs, and traces. When would you use each?",
+    "What is cardinality, and why does it matter for metrics?",
+    "How does distributed tracing work across service boundaries?",
+    "Why is correlation between the three pillars so powerful, and how do you achieve it?"
+  ],
+  "real_system_mappings": [
+    {
+      "system": "OpenTelemetry",
+      "how": "Open standard for emitting metrics, logs, and traces with shared context (trace IDs in logs, exemplars in metrics). The de-facto way to instrument a modern service."
+    },
+    {
+      "system": "Grafana Stack (Prometheus + Loki + Tempo)",
+      "how": "Open-source pillar stack: Prometheus for metrics, Loki for logs, Tempo for traces. Grafana visualizes all three with shared trace IDs for correlation."
+    }
+  ],
+  "status": "published",
+  "sources": [
+    {
+      "title": "System Design Primer",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Open source"
+    },
+    {
+      "title": "ByteByteGo — Scale from zero to millions",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "ByteByteGo"
+    },
+    {
+      "title": "System Design Tutorial",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "GeeksforGeeks"
+    },
+    {
+      "title": "System Design Roadmap",
+      "url": "https://roadmap.sh/system-design",
+      "publisher": "roadmap.sh"
+    },
+    {
+      "title": "Observability reference",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Observability reference",
+      "url": "https://opentelemetry.io/docs/",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Observability reference",
+      "url": "https://sre.google/sre-book/monitoring-distributed-systems/",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Google SRE Book",
+      "url": "https://sre.google/sre-book/table-of-contents/",
+      "publisher": "Google"
+    }
+  ]
+}

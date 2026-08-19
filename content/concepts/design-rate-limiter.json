@@ -1,0 +1,434 @@
+{
+  "slug": "design-rate-limiter",
+  "version": 3,
+  "title": "Design Rate Limiter",
+  "phase": "case-studies",
+  "area": "Case Studies",
+  "estimated_minutes": 12,
+  "difficulty": "interview",
+  "summary": "Design a distributed rate-limiting service that enforces per-user, per-IP, per-route limits at 1M req/sec with sub-millisecond added latency. Covers token bucket vs sliding window vs leaky bucket, a Redis-backed global counter store with Lua scripts for atomicity, an L1 local cache to short-circuit abuse, and fail-open vs fail-closed trade-offs per route.",
+  "why_it_matters": "Every public API needs rate limiting — to prevent abuse, to enforce tiers, to protect downstream services, and to keep cloud bills bounded. The hard part is doing it distributedly and atomically at the edge of your system, on the critical path of every request. Get this wrong and you either let attackers in (too lax) or lock legitimate users out (too strict). The algorithm choice (token bucket vs sliding window) and the atomicity story (Lua scripts in Redis) are reusable knowledge for any control-plane system.",
+  "prerequisites": [
+    "rate-limiting"
+  ],
+  "related": [
+    "design-notification-system"
+  ],
+  "used_in": [
+    "Stripe API rate limits (sliding window per user).",
+    "GitHub API (token bucket, 5000 req/hour for authenticated users).",
+    "AWS API Gateway usage plans (token bucket).",
+    "Cloudflare rate limiting rules (sliding window counter).",
+    "Kong / Envoy / Istio rate limit filters."
+  ],
+  "blocks": [
+    {
+      "type": "prose",
+      "id": "problem",
+      "payload": {
+        "text": "**What are we designing?** A distributed rate-limiting service that sits in front of our APIs and protects them from abuse. Every incoming request passes through the limiter, which decides in <1 ms whether to allow or reject (HTTP 429). Limits are per-user, per-API-key, per-IP, and per-route, with multiple windows (e.g. '100 req/min and 1000 req/hour per user').\n\nRate limiting is deceptively hard. The single-node case is trivial — a counter in memory. The distributed case — where requests hit any of N API servers and the limit must be enforced globally — is the actual interview question. Add the requirement that limits are bursty-but-fair (allow a short spike, not a steady stream) and you are in algorithm territory."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "requirements",
+      "payload": {
+        "text": "**Functional requirements.**\n- Limit by any identity key: user_id, api_key, IP, route, or combination.\n- Multiple limits per identity (e.g. 100/min AND 1000/hour AND 10000/day).\n- Return HTTP 429 with `Retry-After` header on rejection.\n- Soft and hard limits: warn at 80% of limit, reject at 100%.\n- Dynamic limit configuration: change limits without redeploying.\n\n**Non-functional requirements.**\n- **Latency**: p99 < 1 ms added to each request (on the critical path of every API).\n- **Availability**: 99.99% (a dead limiter blocks all traffic).\n- **Accuracy**: exact (not approximate) for hard limits; a slight over-allowance on soft limits is acceptable.\n- **Scale**: 1M req/sec peak across the cluster.\n- **Fail-open vs fail-closed**: depends on the route. Auth/login must fail-closed (better to lock users out than let an attacker in); content fetch should fail-open (better to over-serve than to 5xx the homepage).\n\n**Non-goals.** No bot detection (that's a separate WAF). No DDoS mitigation at L3/L4 (that's Cloudflare)."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "capacity",
+      "payload": {
+        "text": "**Capacity estimation.** Assume 100K req/sec steady, 1M req/sec peak.\n\n*Latency budget.* The limiter adds to EVERY request, so it must be sub-millisecond. That rules out a synchronous DB lookup; we need in-memory or a co-located Redis.\n\n*Memory per counter.* A token-bucket entry is ~50 bytes (key + tokens + last_refill timestamp). If we limit 10M unique users across 5 windows each, that's 50M entries x 50 B = 2.5 GB. Fits easily in a Redis cluster.\n\n*Network.* Every request is one Redis round trip. 1M req/sec x 1 round trip = 1M Redis ops/sec. A 6-node Redis cluster handles 1M ops/sec comfortably (each shard ~200K ops/sec).\n\n*Write bandwidth.* Each limit check is a read-modify-write (decrement tokens). At 1M ops/sec that's 1M writes/sec to Redis — fine, but each write is to a different key, so we need cluster-mode sharding.\n\n*Hot-key risk.* A single user/IP hammering us at 100K req/sec concentrates all their writes on one Redis shard. Mitigation: short-circuit at the edge (per-instance local limit of 10 req/sec per IP) before hitting Redis; this drops the Redis load by 100x for abuse."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "apis",
+      "payload": {
+        "text": "**APIs.**\n\n```\nPOST /v1/check\n  body: { identity: {user_id, ip, route}, timestamp }\n  resp: { allowed: bool, remaining: int, retry_after_ms?: int, limit_name: str }\n\nGET  /v1/limits/{identity}                  -> current usage\nPUT  /v1/config/{limit_name}                -> update limit (hot reload)\n```\n\nThe limiter is typically deployed as a sidecar (Envoy, Istio) or an in-process library (Stripe's Rack::Attack). The HTTP API above is for a standalone service.\n\n**Response headers.** Every API response includes rate-limit headers so clients can throttle themselves:\n```\nX-RateLimit-Limit:     100\nX-RateLimit-Remaining: 73\nX-RateLimit-Reset:     1700000000\nRetry-After:           12          (only on 429)\n```"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "data-model",
+      "payload": {
+        "text": "**Data model.** The limiter's state lives in Redis.\n\n*Token bucket* (per identity per window):\n```\nkey:   rl:{limit_name}:{identity}     e.g. rl:per_user:u_42\nvalue: HASH { tokens: float, last_refill: ts }\nTTL:   window_size_seconds * 2        (auto-expire idle buckets)\n```\n\n*Sliding window* (alternative, more accurate):\n```\nkey:   rl:sw:{limit_name}:{identity}\nvalue: ZSET member=ts, score=ts      (every request adds its ts)\n       ZREMRANGEBYSCORE 0 (now-window)    (drop old)\n       ZCARD                                 (count current window)\nTTL:   window_size_seconds\n```\n\n*Configuration* (Postgres, cached in Redis):\n```\nlimits (\n  name          VARCHAR PRIMARY KEY,    -- 'per_user_minute'\n  identity_dim  VARCHAR,                -- 'user_id' / 'ip' / 'route'\n  algorithm     VARCHAR,                -- 'token_bucket' / 'sliding_window'\n  capacity      INT,\n  refill_rate   FLOAT,                  -- tokens per second\n  window_sec    INT,                    -- for sliding window\n  fail_mode     VARCHAR                 -- 'open' / 'closed'\n)\n```\n\nConfiguration is hot-reloadable: the limiter polls Redis every 5s for config changes, or subscribes to a Redis Pub/Sub channel `rl:config`."
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "arch",
+      "payload": {
+        "code": "flowchart TD\n    N0[\"Client\"]\n    N1[\"[Client]\"]\n    N2[\"API Gateway / LB\"]\n    N3[\"[API\"]\n    N4[\"Gateway\"]\n    N5[\"LB]\"]\n    N6[\"1\"]\n    N7[\"(1)\"]\n    N8[\"every\"]\n    N9[\"request\"]\n    N10[\"passes\"]\n    N11[\"through\"]\n    N12[\"limiter\"]\n    N13[\"Rate\"]\n    N14[\"Limiter\"]\n    N15[\"Sidecar\"]\n    N16[\"(in\"]\n    N17[\"process\"]\n    N18[\"library\"]\n    N19[\"Envoy\"]\n    N20[\"filter;\"]\n    N21[\"local\"]\n    N22[\"cache\"]\n    N23[\"limits\"]\n    N24[\"per\"]\n    N25[\"instance,\"]\n    N26[\"short\"]\n    N27[\"circuits\"]\n    N28[\"token\"]\n    N29[\"bucket\"]\n    N30[\"obvious\"]\n    N31[\"abuse\"]\n    N32[\"before\"]\n    N33[\"Redis\"]\n    N34[\"round\"]\n    N35[\"trip)\"]\n    N36[\"2\"]\n    N37[\"(2)\"]\n    N38[\"hard\"]\n    N39[\"limit\"]\n    N40[\"check\"]\n    N41[\"needs\"]\n    N42[\"global\"]\n    N43[\"state\"]\n    N44[\"Redis Cluster\"]\n    N45[\"[Redis\"]\n    N46[\"Cluster]\"]\n    N47[\"sharded\"]\n    N48[\"identity\"]\n    N49[\"hash\"]\n    N50[\"Lua\"]\n    N51[\"scripts\"]\n    N52[\"for\"]\n    N53[\"atomic\"]\n    N54[\"read\"]\n    N55[\"modify\"]\n    N56[\"write\"]\n    N57[\"3a\"]\n    N58[\"(3a)\"]\n    N59[\"allowed\"]\n    N60[\"forward\"]\n    N61[\"API\"]\n    N62[\"service\"]\n    N63[\"3b\"]\n    N64[\"(3b)\"]\n    N65[\"denied\"]\n    N66[\"429\"]\n    N67[\"with\"]\n    N68[\"Retry\"]\n    N69[\"After\"]\n    N70[\"API Service\"]\n    N71[\"Service]\"]\n    N72[\"config\"]\n    N73[\"plane\"]\n    N74[\"Postgres limits table\"]\n    N75[\"Redis pub/sub 'rl:config'\"]\n    N76[\"Admin\"]\n    N77[\"[Postgres\"]\n    N78[\"table]\"]\n    N79[\"pub\"]\n    N80[\"sub\"]\n    N81[\"'rl:config']\"]\n    N82[\"sidecars\"]\n    N83[\"subscribe,\"]\n    N84[\"hot\"]\n    N85[\"reload\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44\n    N44 --> N45\n    N45 --> N46\n    N46 --> N47\n    N47 --> N48\n    N48 --> N49\n    N49 --> N50\n    N50 --> N51\n    N51 --> N52\n    N52 --> N53\n    N53 --> N54\n    N54 --> N55\n    N55 --> N56\n    N56 --> N57\n    N57 --> N58\n    N58 --> N59\n    N59 --> N60\n    N60 --> N61\n    N61 --> N62\n    N62 --> N63\n    N63 --> N64\n    N64 --> N65\n    N65 --> N66\n    N66 --> N67\n    N67 --> N68\n    N68 --> N69\n    N69 --> N70\n    N70 --> N71\n    N71 --> N72\n    N72 --> N73\n    N73 --> N74\n    N74 --> N75\n    N75 --> N76\n    N76 --> N77\n    N77 --> N78\n    N78 --> N79\n    N79 --> N80\n    N80 --> N81\n    N81 --> N82\n    N82 --> N83\n    N83 --> N84\n    N84 --> N85",
+        "caption": "Distributed rate limiter: local L1 cache short-circuits abuse, Redis cluster holds global counters, Lua scripts keep read-modify-write atomic.",
+        "alt_text": "A diagram of a distributed rate limiter. Client traffic enters through an API gateway or load balancer, then flows through a rate-limiter sidecar running on each API instance. The sidecar has a local L1 cache and a per-instance token bucket that short-circuits obvious abuse before any network call. For hard-limit checks the sidecar calls into a Redis cluster sharded by identity hash, using Lua scripts to keep the read-modify-write atomic. Allowed requests are forwarded to the API service; denied requests return 429 with a Retry-After header. A separate config plane lets admins update limit rules in Postgres, which publishes changes on a Redis pub-sub channel that sidecars subscribe to for hot-reload."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "deep-dive",
+      "payload": {
+        "text": "**Deep dive: token bucket vs sliding window vs leaky bucket.**\n\n**Token bucket.** Each identity has a bucket of size `capacity`, refilled at `refill_rate` tokens/sec. Each request consumes 1 token; if the bucket is empty, reject. Pros: allows bursts (a full bucket of 100 tokens lets a user do 100 req in 0.1s). Cons: the first request after an idle period gets the full bucket, which can cause micro-bursts. This is the AWS API Gateway default.\n\n**Sliding window.** Track every request's timestamp in a sorted set; on each new request, drop entries older than `window`, count remaining, reject if >= limit. Pros: exact — the limit is 'at most N in any rolling 60s'. Cons: O(N) memory per identity for the timestamps; expensive for high-volume keys. This is what Stripe uses for its API limits.\n\n**Sliding window counter (hybrid).** Approximate sliding window by combining a current-window counter and a previous-window counter, weighted by overlap: `est = curr + prev * (1 - elapsed/window)`. Pros: O(1) memory, ~87% accuracy. Cons: slight over/under-allowance at window boundaries. This is what Cloudflare uses and is our recommended default.\n\n**Leaky bucket.** Requests enter a queue at any rate; the queue drains at a fixed rate. Pros: smooths out bursts into a steady stream (great for downstream protection). Cons: adds latency (queue wait); not a great fit for HTTP APIs. Used in telecom and by guava RateLimiter.\n\n**Atomicity in Redis.** A naive `GET tokens; DEC; SET` is racy — two concurrent requests could both read 1 token and both decrement to 0, allowing 2 when the limit is 1. The fix is a Lua script: Redis executes the script atomically, so read-modify-write is single-threaded and safe. This is the only correct way to do rate limiting in Redis.\n\n**Distributed coordination.** Even with Redis atomicity, two API instances checking the same user at the same instant both hit the same Redis shard — fine, that's atomic. The hard case is when Redis itself is partitioned. We use Redis Cluster with quorum reads (READWRITE on the primary) — if the primary is down we either fail-open or fail-closed per route's `fail_mode`.\n\n**Local L1 cache.** Each API instance keeps a tiny per-instance token bucket that caps traffic at, say, 2x the global limit. This short-circuits 99% of requests (no Redis call) and bounds Redis load. The slight over-allowance (each of N instances allows the local limit, so total can be N x local) is acceptable for soft limits; the global Redis check still enforces the hard limit."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "bottlenecks",
+      "payload": {
+        "text": "**Bottlenecks and failure modes.**\n\n- **Hot identity.** A user (or attacker) at 100K req/sec concentrates writes on one Redis shard. *Mitigation*: the L1 local bucket short-circuits at, say, 100 req/sec per instance, so Redis only sees ~100 req/sec from that user regardless of how hard they hit us.\n\n- **Redis failure.** If Redis dies, every limit check fails. *Mitigation*: fail-open for read-heavy routes (allow the request, log for later analysis); fail-closed for auth/payment routes. Run Redis Cluster with replicas + automatic failover.\n\n- **Clock skew.** Sliding-window algorithms depend on timestamps; if an API server's clock is 5 minutes off, it could compute wrong window boundaries. *Mitigation*: use NTP on all hosts; pass the request timestamp from the gateway (single source of truth) rather than reading the per-instance clock.\n\n- **Memory growth.** Each unique identity consumes ~50 bytes. 100M users x 5 windows = 25 GB. *Mitigation*: TTL every key (Redis auto-expires idle buckets after 2x window). LRU-evict the L1 cache.\n\n- **Cold-start latency.** A new user's first request finds no bucket in Redis; we create it. Slight latency spike on first hit. *Mitigation*: pre-create buckets for known active users; accept the one-time cost.\n\n- **Config propagation lag.** When you lower a limit, instances pick it up over 5 seconds (polling) — during which they apply the OLD limit. *Mitigation*: use Redis Pub/Sub for push notifications (sub-second propagation).\n\n- **Thundering herd on Redis recovery.** After a Redis failover, all instances retry at once. *Mitigation*: jittered backoff; L1 cache absorbs most retries."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "scaling",
+      "payload": {
+        "text": "**Scaling strategy and trade-offs.**\n\n*Horizontal scale.* The limiter is stateless per instance — every node can serve every request. Scale by adding instances. Redis Cluster scales by adding shards (sharded by identity hash).\n\n*Multi-region.* Run an independent limiter + Redis per region. Cross-region global limits are not enforced strictly — a user hitting two regions can do 2x the limit. If you need global limits, async-replicate counters to a single authoritative region with periodic reconciliation (accepting over-allowance).\n\n*Hierarchical limits.* Per-instance local bucket -> per-shard Redis -> global Redis. Each layer is cheaper and weaker; the deepest layer enforces the true global limit. This is the standard pattern for high-QPS limiters (Cloudflare, Stripe).\n\n*Algorithms per limit.* Use sliding-window-counter as the default; switch to token bucket for bursty APIs (where short bursts should be allowed); switch to leaky bucket for protecting downstream systems that can't handle spikes.\n\n*Trade-offs made explicit.*\n- We chose Redis-backed over in-memory only — **gained** global accuracy, **lost** the sub-ms latency of pure local checks (mitigated by L1).\n- We chose Lua scripts for atomicity — **gained** correctness, **lost** the ability to use Redis Cluster's MULTI/ACROSS multiple keys (single-shard only; we shard by identity so this is fine).\n- We chose fail-open for read routes — **gained** availability during Redis outages, **lost** strict enforcement during those windows.\n- We chose sliding-window-counter over true sliding window — **gained** O(1) memory, **lost** ~13% accuracy at window boundaries."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q1",
+      "payload": {
+        "question": "You need to rate limit a payment endpoint to 10 req/sec per user with EXACT accuracy (no over-allowance). Which algorithm do you choose?",
+        "shape": "mcq",
+        "options": [
+          "Token bucket — allows bursts, simple, exact.",
+          "Sliding window log (sorted set of timestamps) — exact, but O(N) memory.",
+          "Sliding window counter — approximate (87% accurate), O(1) memory.",
+          "Fixed window counter — exact within each minute boundary."
+        ],
+        "answer_index": 1,
+        "rationale": "Only the sliding-window log (ZSET of timestamps) gives exact accuracy: it counts actual requests in the rolling window. Token bucket allows bursts (a full bucket of 10 lets a user do 10 req in 0.01s, exceeding 10/sec). Sliding window counter is approximate (~13% error). Fixed window has boundary issues (a user can do 10 at 0:59 and 10 at 1:00 = 20 req in 2 seconds, exceeding the per-second limit). For a payment endpoint, exactness matters, so accept the O(N) memory cost. For most other endpoints, the sliding-window counter is the right trade-off.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q2",
+      "payload": {
+        "question": "Your rate limiter is implemented as a simple `GET tokens; if > 0: DEC; SET`. Under load you discover some users exceed their limits. What went wrong?",
+        "shape": "mcq",
+        "options": [
+          "Redis is single-threaded, so this can't be the issue.",
+          "The GET-DEC-SET sequence is not atomic — two concurrent requests can both read the same token count and both decrement.",
+          "The TTL on the keys is too long.",
+          "The Lua script is being recompiled every request."
+        ],
+        "answer_index": 1,
+        "rationale": "GET, then DEC, then SET is three separate Redis commands. Between the GET and the SET, another request can read the same (stale) token count and both decrement, allowing 2x the limit. Redis is single-threaded PER COMMAND, not per multi-command sequence. The fix is to use a Lua script (Redis executes the entire script atomically) or the atomic DECR/INCR commands when the logic permits. This is the #1 bug in hand-rolled rate limiters.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-design-rate-limiter-mental",
+      "payload": {
+        "text": "Engineering mental model",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-design-rate-limiter-mental",
+      "payload": {
+        "text": "**Mental model.** Think of Design Rate Limiter as a deliberate boundary in a system. The boundary exists because something becomes harder to manage when everything is done in one place: latency, scale, failure isolation, consistency, cost, or team ownership. The useful question is not “what does Design Rate Limiter mean?” but “what pressure makes this boundary worth introducing, and what new failure mode does it create?”"
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-design-rate-limiter-decision",
+      "payload": {
+        "title": "Design lens",
+        "body": "Before choosing Design Rate Limiter, name the workload, the critical user path, the dominant bottleneck, the failure you are trying to absorb, and the trade-off you are willing to accept. If you cannot name those five things, the design is probably premature.",
+        "kind": "info"
+      }
+    },
+    {
+      "type": "image",
+      "id": "upgrade-image-design-rate-limiter",
+      "payload": {
+        "src": "/learning-visuals/design-rate-limiter.svg",
+        "alt": "Original NO CAP systems visual for Design Rate Limiter.",
+        "caption": "Design Rate Limiter: a compact system-thinking visual.",
+        "credit": "Original NO CAP visual.",
+        "source_url": "https://github.com/donnemartin/system-design-primer"
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "upgrade-mermaid-design-rate-limiter",
+      "payload": {
+        "code": "flowchart LR\n  A[Client] --> B[Gateway] --> C[Services] --> D[Data] --> E[Delivery]",
+        "caption": "Design Rate Limiter: a simplified system view showing the primary flow and the main state boundaries.",
+        "alt_text": "Design Rate Limiter: a simplified system view showing the primary flow and the main state boundaries."
+      }
+    },
+    {
+      "type": "code",
+      "id": "upgrade-code-design-rate-limiter",
+      "payload": {
+        "language": "text",
+        "code": "// Pseudocode\nrequest = receive()\nresult = design_rate_limiter(request)\nreturn result\n\n// Production questions:\n// 1. What happens on timeout?\n// 2. Can this operation be retried safely?\n// 3. What is the bottleneck?",
+        "caption": "A minimal engineering sketch for reasoning about Design Rate Limiter."
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-design-rate-limiter-numbers",
+      "payload": {
+        "text": "Back-of-the-envelope reasoning",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-design-rate-limiter-numbers",
+      "payload": {
+        "text": "Example: 10M requests/day ÷ 86,400 ≈ 116 requests/s average. Design for peak rather than average; a 10× peak is ≈ 1,160 requests/s."
+      }
+    },
+    {
+      "type": "simulation",
+      "id": "upgrade-sim-design-rate-limiter",
+      "payload": {
+        "title": "Interactive thought experiment: Design Rate Limiter",
+        "description": "Change the variables below and predict what breaks first in Design Rate Limiter. The production lab can later reuse these same inputs.",
+        "variables": [
+          {
+            "name": "traffic",
+            "description": "Requests/events per second",
+            "default": "1000"
+          },
+          {
+            "name": "latency",
+            "description": "Dependency latency",
+            "default": "50ms"
+          },
+          {
+            "name": "failure_rate",
+            "description": "Injected failure rate",
+            "default": "0%"
+          }
+        ],
+        "placeholder_note": "Interactive controls are deterministic; use the linked Labs section when a dedicated lab exists."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-design-rate-limiter-hint",
+      "payload": {
+        "title": "Hint",
+        "body": "If you are stuck on Design Rate Limiter, start by drawing the request path and marking every network hop, stateful component, queue, cache and failure boundary. Then estimate where the system will saturate.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-design-rate-limiter-1",
+      "payload": {
+        "shape": "prediction",
+        "question": "You increase traffic by 10× in a system using Design Rate Limiter. What should you inspect first?",
+        "options": [
+          "The newest framework version",
+          "The dominant bottleneck and its saturation signal",
+          "Only the UI",
+          "Nothing; the architecture should absorb any traffic automatically"
+        ],
+        "answer_index": 1,
+        "rationale": "System design is a constraint-and-bottleneck exercise. Start with the resource or dependency that will saturate first, then choose the smallest change that removes that bottleneck.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-design-rate-limiter-2",
+      "payload": {
+        "shape": "mcq",
+        "question": "Which statement is the safest engineering habit when using Design Rate Limiter?",
+        "options": [
+          "Choose it because it is popular",
+          "Add it before measuring the problem",
+          "State the workload, failure mode and trade-off it is solving",
+          "Use the most distributed design possible"
+        ],
+        "answer_index": 2,
+        "rationale": "Good architecture starts from requirements, workload and failure assumptions. The component is the consequence of that reasoning, not the starting point.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "scenario",
+      "id": "upgrade-scenario-design-rate-limiter",
+      "payload": {
+        "prompt": "Production scenario: your system uses Design Rate Limiter, traffic suddenly spikes, and p99 latency doubles. What is your first move?",
+        "context": "You have dashboards for traffic, latency, errors and saturation. You can change the architecture, but every change has operational cost.",
+        "options": [
+          {
+            "id": "a",
+            "text": "Add more instances immediately",
+            "outcome": "This may help, but only if compute saturation is the bottleneck.",
+            "correct": false
+          },
+          {
+            "id": "b",
+            "text": "Inspect the bottleneck and its saturation signal first",
+            "outcome": "Correct: diagnose before scaling or introducing a new pattern.",
+            "correct": true
+          },
+          {
+            "id": "c",
+            "text": "Disable monitoring to reduce overhead",
+            "outcome": "This removes the evidence you need to diagnose the incident.",
+            "correct": false
+          }
+        ],
+        "rationale": "Measure the limiting resource or dependency first. A bottleneck can be compute, database I/O, network, cache misses, lock contention, downstream latency, or queue backlog.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-design-rate-limiter-interview",
+      "payload": {
+        "text": "Interview drill",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-design-rate-limiter-interview",
+      "payload": {
+        "text": "**Answer this without notes:** When would you choose Design Rate Limiter, and when would you intentionally avoid it? Mention at least one bottleneck it addresses, one failure mode it introduces, and one alternative. Then quantify the workload you are designing for."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "field-guide-design-rate-limiter",
+      "payload": {
+        "title": "Engineering lens",
+        "body": "For Design Rate Limiter, treat the system as a control loop: observe load and failure, choose a bounded response, and measure whether the response stabilizes the system instead of simply moving the bottleneck somewhere else.",
+        "kind": "tip"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "numerical-lens-design-rate-limiter",
+      "payload": {
+        "text": "### Numerical sanity check\n\nWhen estimating capacity, distinguish average from peak. If average traffic is 4,000 RPS and the observed peak-to-average factor is 3×, design the first pass around roughly 12,000 RPS, then leave headroom for failure and growth."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "field-question-design-rate-limiter",
+      "payload": {
+        "shape": "prediction",
+        "question": "What is the earliest signal that Design Rate Limiter is becoming the bottleneck: latency, saturation, errors, queue depth, or something else? Why?",
+        "context": "Do not optimize for a memorized definition. Reason from the workload and failure mode.",
+        "options": [
+          "Scale the same component immediately.",
+          "Measure the current bottleneck and state the assumption that changed.",
+          "Add more technologies until throughput improves.",
+          "Choose the most popular architecture."
+        ],
+        "answer_index": 1,
+        "rationale": "Good system design starts with the bottleneck and the changed constraint. The most popular or complex choice is not automatically correct.",
+        "difficulty": "interview"
+      }
+    }
+  ],
+  "trade_offs": {
+    "pros": [
+      "Sub-millisecond added latency via L1 local cache + occasional Redis round trip.",
+      "Exact limits via Lua scripts for atomic read-modify-write in Redis.",
+      "Fail-open / fail-closed per route lets sensitive APIs stay strict while content APIs stay available.",
+      "Hot-reloadable config via Redis Pub/Sub, no redeploy needed."
+    ],
+    "cons": [
+      "Adds 1 Redis round trip to the hot path of every request (mitigated by L1).",
+      "Sliding-window-log is O(N) memory per identity — expensive for high-QPS keys.",
+      "Global limits across regions require async reconciliation (over-allowance).",
+      "Redis failure forces a fail-mode choice that either hurts accuracy or availability."
+    ]
+  },
+  "failure_modes": [
+    "Hot identity saturates one Redis shard — needs L1 short-circuit.",
+    "Non-atomic GET-DEC-SET race allows limit overruns — must use Lua scripts.",
+    "Clock skew breaks sliding-window algorithms — needs NTP + gateway-provided timestamps.",
+    "Config propagation lag applies stale limits during the propagation window.",
+    "Memory growth from idle buckets — needs aggressive TTL."
+  ],
+  "common_mistakes": [
+    "Using GET then DEC then SET in Redis — race condition allows limit overruns.",
+    "Choosing token bucket for a strict 'no bursts' requirement.",
+    "Failing closed on every route — kills availability during a Redis outage.",
+    "Running a single global Redis instance — hot-key hotspot, no HA.",
+    "Forgetting to TTL keys — memory grows forever."
+  ],
+  "where_you_see_it": [
+    "Stripe API rate limits (sliding window per user).",
+    "GitHub API (token bucket, 5000 req/hour for authenticated users).",
+    "AWS API Gateway usage plans (token bucket).",
+    "Cloudflare rate limiting rules (sliding window counter).",
+    "Kong / Envoy / Istio rate limit filters."
+  ],
+  "interview_prompts": [
+    "Design a distributed rate limiter.",
+    "Token bucket vs sliding window — when do you pick which?",
+    "How do you make the limiter atomic across multiple API instances?",
+    "What happens if Redis dies — fail open or fail closed?"
+  ],
+  "real_system_mappings": [
+    {
+      "system": "Stripe API",
+      "how": "Sliding-window log per user identity, 100 req/sec read and 100 req/sec write. Returns X-RateLimit-* headers on every response."
+    },
+    {
+      "system": "Cloudflare",
+      "how": "Edge-deployed sliding-window-counter algorithm, ~87% accuracy at O(1) memory, runs at every PoP for sub-ms latency."
+    },
+    {
+      "system": "Envoy / Istio RateLimitService",
+      "how": "Sidecar pattern with a central Redis-backed gRPC rate limit service; supports hierarchical limits and YAML-configured rules."
+    }
+  ],
+  "status": "published",
+  "sources": [
+    {
+      "title": "System Design Primer",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Open source"
+    },
+    {
+      "title": "ByteByteGo — Scale from zero to millions",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "ByteByteGo"
+    },
+    {
+      "title": "System Design Tutorial",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "GeeksforGeeks"
+    },
+    {
+      "title": "System Design Roadmap",
+      "url": "https://roadmap.sh/system-design",
+      "publisher": "roadmap.sh"
+    },
+    {
+      "title": "Case Studies reference",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Case Studies reference",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Case Studies reference",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "Reference"
+    }
+  ]
+}

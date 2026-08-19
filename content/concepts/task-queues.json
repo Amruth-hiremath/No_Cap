@@ -1,0 +1,426 @@
+{
+  "slug": "task-queues",
+  "version": 4,
+  "title": "Task Queues",
+  "phase": "scaling-performance",
+  "area": "Scaling & Performance",
+  "estimated_minutes": 7,
+  "difficulty": "core",
+  "summary": "A task queue decouples producing work from doing work. Producers push tasks onto a queue; workers pull them off and execute. This enables background jobs (email sending, image processing), smooths bursty load (the queue absorbs spikes), and lets you scale workers independently of web servers. Tools: Celery (Python), Sidekiq (Ruby), SQS (managed), Redis-backed queues.",
+  "why_it_matters": "Synchronous request handling is brittle: a slow operation (sending an email, generating a PDF, transcoding video) holds an HTTP connection and a web server thread. If enough such operations pile up, the web tier exhausts threads and the whole service becomes unresponsive. Task queues solve this by deferring the work: the web server enqueues a task and returns immediately; a worker pool processes it asynchronously. This decouples response time from work time, smooths bursty load (the queue absorbs spikes), and lets you scale workers independently — more workers for image processing, fewer for email. Every non-trivial backend uses task queues.",
+  "prerequisites": [
+    "message-queues",
+    "background-jobs"
+  ],
+  "related": [
+    "message-queues",
+    "queue-based-load-leveling",
+    "background-jobs",
+    "competing-consumers"
+  ],
+  "used_in": [
+    "Every backend with slow operations (emails, image processing, transcoding).",
+    "Every batch or scheduled job system.",
+    "Every event-driven architecture."
+  ],
+  "blocks": [
+    {
+      "type": "prose",
+      "id": "intro",
+      "payload": {
+        "text": "A task queue has three components:\n\n- **Producer**: the code that creates a task. Typically a web server handling a user request — e.g., \"user uploaded a photo; enqueue a resize task.\"\n- **Queue**: the broker (Redis, RabbitMQ, SQS) that holds tasks until a worker picks them up.\n- **Worker**: a process that pulls tasks from the queue and executes them. Workers can be scaled independently of web servers.\n\nThe flow: producer enqueues a task (e.g., `resize_photo(photo_id=42)`). The task is serialized and stored in the queue. A worker pulls the task, deserializes it, executes the function, and acknowledges. If the worker crashes before acknowledging, the queue redelivers the task to another worker (at-least-once delivery).\n\nKey benefits: web response is fast (no waiting for slow work), bursty load is smoothed (queue absorbs spikes), workers scale independently (more workers for image processing, fewer for email), and failures are retried automatically."
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "architecture",
+      "payload": {
+        "code": "flowchart TD\n    N0[\"synchronous\"]\n    N1[\"WITHOUT\"]\n    N2[\"TASK\"]\n    N3[\"QUEUE\"]\n    N4[\"(synchronous)\"]\n    N5[\"200ms\"]\n    N6[\"User\"]\n    N7[\"Web:\"]\n    N8[\"POST\"]\n    N9[\"upload\"]\n    N10[\"(200ms)\"]\n    N11[\"3s\"]\n    N12[\"resize\"]\n    N13[\"photo\"]\n    N14[\"(3s)\"]\n    N15[\"blocks\"]\n    N16[\"1s\"]\n    N17[\"send\"]\n    N18[\"email\"]\n    N19[\"(1s)\"]\n    N20[\"4.2s later\"]\n    N21[\"Web\"]\n    N22[\"User:\"]\n    N23[\"200\"]\n    N24[\"(4.2s\"]\n    N25[\"later)\"]\n    N26[\"thread\"]\n    N27[\"held\"]\n    N28[\"for\"]\n    N29[\"4.2s.\"]\n    N30[\"100\"]\n    N31[\"users\"]\n    N32[\"threads\"]\n    N33[\"service\"]\n    N34[\"dies.\"]\n    N35[\"async\"]\n    N36[\"WITH\"]\n    N37[\"(async)\"]\n    N38[\"resize_photo, photo_id=42\"]\n    N39[\"Queue:\"]\n    N40[\"enqueue(resize_photo,\"]\n    N41[\"photo_id\"]\n    N42[\"42)\"]\n    N43[\"send_email, user_id=7\"]\n    N44[\"enqueue(send_email,\"]\n    N45[\"user_id\"]\n    N46[\"250ms\"]\n    N47[\"(250ms)\"]\n    N48[\"scaled independently\"]\n    N49[\"Workers\"]\n    N50[\"(scaled\"]\n    N51[\"independently):\"]\n    N52[\"42\"]\n    N53[\"Worker\"]\n    N54[\"pulls\"]\n    N55[\"resize_photo(42)\"]\n    N56[\"runs\"]\n    N57[\"ack\"]\n    N58[\"7\"]\n    N59[\"send_email(7)\"]\n    N60[\"no work\"]\n    N61[\"idle\"]\n    N62[\"(no\"]\n    N63[\"work)\"]\n    N64[\"Burst\"]\n    N65[\"1000\"]\n    N66[\"uploads?\"]\n    N67[\"Queue\"]\n    N68[\"holds\"]\n    N69[\"them;\"]\n    N70[\"workers\"]\n    N71[\"chew\"]\n    N72[\"through\"]\n    N73[\"them\"]\n    N74[\"minutes.\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44\n    N44 --> N45\n    N45 --> N46\n    N46 --> N47\n    N47 --> N48\n    N48 --> N49\n    N49 --> N50\n    N50 --> N51\n    N51 --> N52\n    N52 --> N53\n    N53 --> N54\n    N54 --> N55\n    N55 --> N56\n    N56 --> N57\n    N57 --> N58\n    N58 --> N59\n    N59 --> N60\n    N60 --> N61\n    N61 --> N62\n    N62 --> N63\n    N63 --> N64\n    N64 --> N65\n    N65 --> N66\n    N66 --> N67\n    N67 --> N68\n    N68 --> N69\n    N69 --> N70\n    N70 --> N71\n    N71 --> N72\n    N72 --> N73\n    N73 --> N74",
+        "caption": "Synchronous handlers hold threads during slow work. Task queues defer the work; workers process it asynchronously.",
+        "alt_text": "Two diagrams. Without a task queue (synchronous): the user posts an upload, the web server resizes the photo in 3 seconds, sends an email in 1 second, and responds 200 after 4.2 seconds. The web thread is held for 4.2 seconds. 100 users means 100 threads, and the service dies. With a task queue (asynchronous): the user posts an upload, the web server enqueues resize photo and send email tasks, then responds 200 in 250 milliseconds. Workers scaled independently pull tasks off the queue and run them — worker A resizes the photo in 3 seconds, worker B sends the email in 1 second, worker C is idle. A burst of 1000 uploads is held by the queue; 10 workers chew through them in about 5 minutes."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "patterns",
+      "payload": {
+        "text": "Common task queue patterns:\n\n- **Fire-and-forget**: enqueue a task and don't wait. The web response doesn't depend on the task's result. E.g., \"send welcome email.\"\n- **Deferred result**: enqueue a task and poll for completion. Used when the result is needed but not immediately — e.g., \"generate PDF, return URL when ready.\"\n- **Scheduled jobs**: enqueue a task to run at a specific time or on a schedule (cron). E.g., \"send daily digest at 8am.\"\n- **Workflow / pipeline**: chain tasks where each step's output is the next step's input. E.g., \"resize → upload to S3 → notify user.\" Tools like Celery, Temporal, and Airflow support this.\n- **Fan-out / fan-in**: split a large task into many parallel subtasks, then aggregate results. E.g., \"process 1000 images in parallel, then upload the combined result.\"\n- **Retry with backoff**: failed tasks are retried with exponential backoff, eventually moved to a dead-letter queue if they keep failing.\n\nEach pattern is a building block. Most production systems combine several."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "delivery-semantics",
+      "payload": {
+        "text": "Task queues have delivery semantics:\n\n- **At-least-once** (most common): a task is delivered at least once. If the worker crashes before acknowledging, it's redelivered. Tasks must be idempotent — running twice must not have side effects (double-charging, double-sending).\n- **At-most-once**: a task is delivered at most once. If the worker crashes, the task is lost. Used only when loss is acceptable (e.g., a metrics sample).\n- **Exactly-once**: theoretically impossible without distributed consensus. Most \"exactly-once\" systems are at-least-once with idempotency keys making duplicates no-ops.\n\nMake tasks idempotent by including an idempotency key (e.g., the entity ID + operation). The worker checks if it's already processed this key and skips if so. This is the same pattern as idempotent HTTP.\n\nFor tasks with side effects (sending email, charging a card), the consumer must dedupe — check a \"processed\" table or use the provider's idempotency key support (Stripe, SendGrid support this)."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "poison-queue",
+      "payload": {
+        "title": "Poison messages and dead-letter queues",
+        "body": "Some tasks always fail — a malformed payload, a deleted resource, a bug. Without protection, the queue redelivers them forever, wasting worker capacity. The fix: after N retries, move the task to a **dead-letter queue** (DLQ). Operators monitor the DLQ; tasks there need manual investigation. Without a DLQ, poison messages can consume a meaningful fraction of worker capacity; with one, they're isolated and the system keeps processing good tasks. Every production task queue needs a DLQ and an alert when it's non-empty.",
+        "kind": "warning"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "tooling",
+      "payload": {
+        "text": "Task queue tooling landscape:\n\n- **Celery** (Python): the standard Python task queue. Backed by Redis or RabbitMQ. Mature, feature-rich, complex configuration.\n- **Sidekiq** (Ruby): the Ruby equivalent. Fast, simple, Redis-backed.\n- **AWS SQS** (managed): Amazon's managed queue. No infrastructure to run. Integrates with Lambda (workers = Lambda functions) or ECS. Slightly higher latency than Redis-backed.\n- **BullMQ** (Node.js): Redis-backed, modern, supports scheduled jobs and workflows.\n- **Temporal** (workflow engine): not a simple queue — a full workflow orchestrator with retries, compensations, and state persistence. Used for complex multi-step workflows.\n- **Airflow** (data pipelines): for scheduled data engineering jobs (DAGs). Different niche than general task queues.\n\nPick based on your stack and needs. For most web apps: Celery/Sidekiq/BullMQ for general tasks, SQS for managed, Temporal for complex workflows. Don't reinvent — these have solved idempotency, retries, DLQs, and scaling."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q1",
+      "payload": {
+        "question": "Your web server handles photo uploads. Each upload triggers a 3-second resize and a 1-second email. Without a task queue, what happens at 100 concurrent uploads?",
+        "shape": "mcq",
+        "options": [
+          "Each request takes 4 seconds; the server handles them in parallel — no problem.",
+          "Each request holds a thread for 4 seconds; 100 concurrent uploads need 100 threads, which exceeds typical thread pools, causing the service to become unresponsive or reject requests.",
+          "The server queues them in memory and processes sequentially.",
+          "The operating system handles the load automatically."
+        ],
+        "answer_index": 1,
+        "rationale": "Synchronous request handling holds a thread (and a connection) for the duration of the work. 100 concurrent uploads each holding a thread for 4 seconds requires 100 threads. Typical web server thread pools are 50-200, so you're at or past capacity. New requests queue or fail. The user-facing impact: the service becomes slow or unavailable even though it's \"working\" — it's just blocked. The fix is the task queue pattern: the web server enqueues resize and email tasks and returns in milliseconds. Workers process the queue at their own pace, scaled to handle the load.",
+        "difficulty": "core"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q2",
+      "payload": {
+        "question": "A task to charge a user's card is delivered twice due to a worker crash before ack. How do you prevent double-charging?",
+        "shape": "mcq",
+        "options": [
+          "Use at-most-once delivery instead.",
+          "Make the task idempotent: include an idempotency key (e.g., order_id) and use the payment provider's idempotency support so the second call is a no-op.",
+          "Tell the user not to retry.",
+          "Use exactly-once delivery — most queues support it."
+        ],
+        "answer_index": 1,
+        "rationale": "At-least-once delivery means tasks can be redelivered (worker crash, network blip). For idempotent operations (resize a photo), this is fine — running twice produces the same result. For non-idempotent operations (charging a card, sending an email), you must make them idempotent. The pattern: include an idempotency key (typically the entity ID + operation) and pass it to the downstream provider. Stripe, SendGrid, and other well-designed APIs support idempotency keys — a second call with the same key is a no-op. The worker doesn't need to track what it's processed; the provider does. \"Exactly-once delivery\" is generally impossible without distributed consensus — most systems are at-least-once plus idempotency.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q3",
+      "payload": {
+        "question": "What's the role of a dead-letter queue (DLQ)?",
+        "shape": "mcq",
+        "options": [
+          "It's where successful tasks go for archival.",
+          "It's where tasks that fail repeatedly are moved, isolating poison messages so they don't consume worker capacity forever.",
+          "It's a backup of the main queue.",
+          "It's the same as the main queue, just on different infrastructure."
+        ],
+        "answer_index": 1,
+        "rationale": "A poison message is a task that always fails (malformed payload, deleted resource, bug). Without a DLQ, the queue redelivers it forever, wasting worker capacity and potentially blocking other tasks. The DLQ is a separate queue where tasks that exceed a retry threshold are moved. Operators monitor the DLQ and investigate manually — these tasks need a code fix, a data fix, or a one-off intervention. The DLQ isolates the poison so the main queue keeps flowing. Every production task queue needs a DLQ with alerting — a non-empty DLQ means something is broken.",
+        "difficulty": "core"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-task-queues-mental",
+      "payload": {
+        "text": "Engineering mental model",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-task-queues-mental",
+      "payload": {
+        "text": "**Mental model.** Think of Task Queues as a deliberate boundary in a system. The boundary exists because something becomes harder to manage when everything is done in one place: latency, scale, failure isolation, consistency, cost, or team ownership. The useful question is not “what does Task Queues mean?” but “what pressure makes this boundary worth introducing, and what new failure mode does it create?”"
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-task-queues-decision",
+      "payload": {
+        "title": "Design lens",
+        "body": "Before choosing Task Queues, name the workload, the critical user path, the dominant bottleneck, the failure you are trying to absorb, and the trade-off you are willing to accept. If you cannot name those five things, the design is probably premature.",
+        "kind": "info"
+      }
+    },
+    {
+      "type": "image",
+      "id": "upgrade-image-task-queues",
+      "payload": {
+        "src": "/learning-visuals/task-queues.svg",
+        "alt": "Original NO CAP systems visual for Task Queues.",
+        "caption": "Task Queues: a compact system-thinking visual.",
+        "credit": "Original NO CAP visual.",
+        "source_url": "https://github.com/donnemartin/system-design-primer"
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "upgrade-mermaid-task-queues",
+      "payload": {
+        "code": "flowchart LR\n  A[Producer] --> Q[(Broker)] --> B[Consumer] --> X[Retry] --> O[Outcome]",
+        "caption": "Task Queues: a simplified system view showing the primary flow and the main state boundaries.",
+        "alt_text": "Task Queues: a simplified system view showing the primary flow and the main state boundaries."
+      }
+    },
+    {
+      "type": "code",
+      "id": "upgrade-code-task-queues",
+      "payload": {
+        "language": "python",
+        "code": "message_id = queue.publish({\n    \"type\": \"task-queues\",\n    \"key\": resource_id\n})\n# Consumer must be safe to retry.",
+        "caption": "A minimal engineering sketch for reasoning about Task Queues."
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-task-queues-numbers",
+      "payload": {
+        "text": "Back-of-the-envelope reasoning",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-task-queues-numbers",
+      "payload": {
+        "text": "Numerical lens: write down traffic, payload size, read/write ratio, peak multiplier and durability target before choosing a component. The numbers should justify the architecture."
+      }
+    },
+    {
+      "type": "simulation",
+      "id": "upgrade-sim-task-queues",
+      "payload": {
+        "title": "Interactive thought experiment: Task Queues",
+        "description": "Change the variables below and predict what breaks first in Task Queues. The production lab can later reuse these same inputs.",
+        "variables": [
+          {
+            "name": "producer_rate",
+            "description": "Messages produced per second",
+            "default": "1000"
+          },
+          {
+            "name": "consumer_count",
+            "description": "Concurrent consumers",
+            "default": "4"
+          },
+          {
+            "name": "processing_rate",
+            "description": "Messages processed per consumer per second",
+            "default": "300"
+          }
+        ],
+        "placeholder_note": "Interactive controls are deterministic; use the linked Labs section when a dedicated lab exists."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-task-queues-hint",
+      "payload": {
+        "title": "Hint",
+        "body": "If you are stuck on Task Queues, start by drawing the request path and marking every network hop, stateful component, queue, cache and failure boundary. Then estimate where the system will saturate.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-task-queues-1",
+      "payload": {
+        "shape": "prediction",
+        "question": "You increase traffic by 10× in a system using Task Queues. What should you inspect first?",
+        "options": [
+          "The newest framework version",
+          "The dominant bottleneck and its saturation signal",
+          "Only the UI",
+          "Nothing; the architecture should absorb any traffic automatically"
+        ],
+        "answer_index": 1,
+        "rationale": "System design is a constraint-and-bottleneck exercise. Start with the resource or dependency that will saturate first, then choose the smallest change that removes that bottleneck.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-task-queues-2",
+      "payload": {
+        "shape": "mcq",
+        "question": "Which statement is the safest engineering habit when using Task Queues?",
+        "options": [
+          "Choose it because it is popular",
+          "Add it before measuring the problem",
+          "State the workload, failure mode and trade-off it is solving",
+          "Use the most distributed design possible"
+        ],
+        "answer_index": 2,
+        "rationale": "Good architecture starts from requirements, workload and failure assumptions. The component is the consequence of that reasoning, not the starting point.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "scenario",
+      "id": "upgrade-scenario-task-queues",
+      "payload": {
+        "prompt": "Production scenario: your system uses Task Queues, traffic suddenly spikes, and p99 latency doubles. What is your first move?",
+        "context": "You have dashboards for traffic, latency, errors and saturation. You can change the architecture, but every change has operational cost.",
+        "options": [
+          {
+            "id": "a",
+            "text": "Add more instances immediately",
+            "outcome": "This may help, but only if compute saturation is the bottleneck.",
+            "correct": false
+          },
+          {
+            "id": "b",
+            "text": "Inspect the bottleneck and its saturation signal first",
+            "outcome": "Correct: diagnose before scaling or introducing a new pattern.",
+            "correct": true
+          },
+          {
+            "id": "c",
+            "text": "Disable monitoring to reduce overhead",
+            "outcome": "This removes the evidence you need to diagnose the incident.",
+            "correct": false
+          }
+        ],
+        "rationale": "Measure the limiting resource or dependency first. A bottleneck can be compute, database I/O, network, cache misses, lock contention, downstream latency, or queue backlog.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-task-queues-interview",
+      "payload": {
+        "text": "Interview drill",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-task-queues-interview",
+      "payload": {
+        "text": "**Answer this without notes:** When would you choose Task Queues, and when would you intentionally avoid it? Mention at least one bottleneck it addresses, one failure mode it introduces, and one alternative. Then quantify the workload you are designing for."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "field-guide-task-queues",
+      "payload": {
+        "title": "Engineering lens",
+        "body": "For Task Queues, separate producer speed from consumer speed. The key design question is what happens when production temporarily exceeds processing capacity: queue it, shed it, slow producers down, or degrade the feature.",
+        "kind": "tip"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "numerical-lens-task-queues",
+      "payload": {
+        "text": "### Numerical sanity check\n\nA simple queue sanity check: if producers create 8,000 messages/s and consumers process 6,000 messages/s, backlog grows at roughly 2,000 messages/s until the imbalance is corrected."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "field-question-task-queues",
+      "payload": {
+        "shape": "prediction",
+        "question": "A downstream service slows down while Task Queues keeps accepting traffic. Would you rather apply backpressure, queue more work, shed load, or degrade? Explain the trade-off.",
+        "context": "Do not optimize for a memorized definition. Reason from the workload and failure mode.",
+        "options": [
+          "Scale the same component immediately.",
+          "Measure the current bottleneck and state the assumption that changed.",
+          "Add more technologies until throughput improves.",
+          "Choose the most popular architecture."
+        ],
+        "answer_index": 1,
+        "rationale": "Good system design starts with the bottleneck and the changed constraint. The most popular or complex choice is not automatically correct.",
+        "difficulty": "interview"
+      }
+    }
+  ],
+  "trade_offs": {
+    "pros": [
+      "Web responses are fast — slow work is deferred.",
+      "Bursty load is smoothed — the queue absorbs spikes.",
+      "Workers scale independently of web servers.",
+      "Retries and DLQs handle transient failures and poison messages."
+    ],
+    "cons": [
+      "Tasks must be idempotent (at-least-once delivery).",
+      "Adds infrastructure (broker, workers, monitoring).",
+      "Harder to debug — work is asynchronous and distributed.",
+      "Latency for the user-visible effect (the email arrives seconds later, not immediately)."
+    ]
+  },
+  "failure_modes": [
+    "Non-idempotent tasks double-execute on redelivery (double charge, double email).",
+    "Poison messages without a DLQ consume worker capacity forever.",
+    "Workers crash silently — tasks not acked, queue grows unboundedly.",
+    "Queue backlog grows faster than workers can process — latency explodes."
+  ],
+  "common_mistakes": [
+    "Not making tasks idempotent — duplicates on retry.",
+    "No dead-letter queue — poison messages never go away.",
+    "Not monitoring queue depth — backlog grows silently until users complain.",
+    "Holding tasks in memory (no broker) — lost on crash."
+  ],
+  "where_you_see_it": [
+    "Celery (Python), Sidekiq (Ruby), BullMQ (Node.js).",
+    "AWS SQS + Lambda (managed, serverless workers).",
+    "Temporal and Airflow for complex workflows and data pipelines."
+  ],
+  "interview_prompts": [
+    "Why use a task queue instead of doing the work synchronously in the request handler?",
+    "Why must task handlers be idempotent? How do you make a non-idempotent operation (charging a card) idempotent?",
+    "What's a dead-letter queue, and why do you need one?",
+    "How do you scale a task queue to handle bursty load?"
+  ],
+  "real_system_mappings": [
+    {
+      "system": "Celery + Redis",
+      "how": "Python's standard task queue. Producers enqueue tasks via a Redis broker; workers pull and execute. Supports retries, scheduled jobs, task chains, and a dead-letter pattern via rejected task handling."
+    },
+    {
+      "system": "AWS SQS + Lambda",
+      "how": "Managed serverless task queue. Producers push to SQS; Lambda functions pull (or are triggered) and process. Scales automatically; supports DLQs, retries, and visibility timeouts."
+    }
+  ],
+  "status": "published",
+  "sources": [
+    {
+      "title": "System Design Primer",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Open source"
+    },
+    {
+      "title": "ByteByteGo — Scale from zero to millions",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "ByteByteGo"
+    },
+    {
+      "title": "System Design Tutorial",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "GeeksforGeeks"
+    },
+    {
+      "title": "System Design Roadmap",
+      "url": "https://roadmap.sh/system-design",
+      "publisher": "roadmap.sh"
+    },
+    {
+      "title": "Scaling & Performance reference",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Scaling & Performance reference",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Scaling & Performance reference",
+      "url": "https://highscalability.com/",
+      "publisher": "Reference"
+    }
+  ]
+}

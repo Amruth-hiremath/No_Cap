@@ -1,0 +1,414 @@
+{
+  "slug": "anti-corruption-layer",
+  "version": 3,
+  "title": "Anti-Corruption Layer",
+  "phase": "design-patterns",
+  "area": "Design Patterns",
+  "estimated_minutes": 7,
+  "difficulty": "advanced",
+  "summary": "An Anti-Corruption Layer (ACL) is a translation boundary between two bounded contexts — typically a new system and a legacy one — that prevents the legacy's domain model, terminology, and quirks from leaking into the new system. The ACL translates in both directions: outbound calls from the new system become legacy-compatible calls, and inbound responses from the legacy become clean new-domain objects. The new system never sees the legacy's data shapes, error conventions, or technical debt — it sees only its own clean model. The ACL is the price you pay to keep a migration from corrupting the system you're migrating to.",
+  "why_it_matters": "When you migrate from a legacy system, the temptation is to let the new system speak the legacy's vocabulary — to call the same stored procedures, accept the same JSON shapes, return the same error codes. This works for a week and corrupts forever: the new system inherits all the legacy's bad design decisions, and you've rebuilt the same mess in a new language. The ACL breaks this by forcing a translation: the new system has its own clean model, and the ACL is the seam where translation happens. Once the legacy is retired, the ACL can be removed too — leaving a clean system, not a translated mess.",
+  "prerequisites": [
+    "microservices",
+    "strangler-fig"
+  ],
+  "related": [
+    "strangler-fig",
+    "sidecar"
+  ],
+  "used_in": [
+    "Migrations from legacy systems where the legacy has a different domain model.",
+    "Integrating with third-party SaaS whose API design leaks into your system.",
+    "Strangler Fig migrations — the ACL sits at the boundary between new and old.",
+    "Domain-driven design: the ACL is the boundary between bounded contexts."
+  ],
+  "blocks": [
+    {
+      "type": "prose",
+      "id": "intro",
+      "payload": {
+        "text": "The Anti-Corruption Layer is a pattern from Domain-Driven Design (DDD), introduced by Eric Evans. The metaphor: you're building a new, clean system (a city). Next door is a legacy system (a polluted industrial site). You don't want the pollution leaking into your city, so you build a wall with a controlled checkpoint — everything that crosses the boundary is cleaned, filtered, translated. That checkpoint is the ACL.\n\nConcretely, the ACL is a service (or a layer within a service) that sits between your new code and the legacy system:\n\n- The new system calls the ACL using its own clean domain model.\n- The ACL translates the call into the legacy's protocol, schema, and conventions.\n- The ACL calls the legacy.\n- The legacy responds in its own (often ugly) format.\n- The ACL translates the response back into the new system's clean model.\n- The new system receives a clean object, unaware of the legacy's existence.\n\nThe new system's code never imports legacy types, never names legacy fields, never inherits legacy's error conventions. It only sees its own model. The legacy's quirks — its PascalCase JSON, its cryptic error codes, its status enums like 'PARTL' and 'CNCL' — live and die inside the ACL.\n\nThis pattern is essential during Strangler Fig migrations: each new service that needs to call legacy wraps the calls in an ACL, so the new service is built on clean concepts from day one. When the legacy is eventually retired, the ACL is removed — and the new service is already clean."
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "acl",
+      "payload": {
+        "code": "flowchart TD\n    N0[\"clean\"]\n    N1[\"New\"]\n    N2[\"System\"]\n    N3[\"(clean)\"]\n    N4[\"Legacy\"]\n    N5[\"messy, untouchable\"]\n    N6[\"(messy,\"]\n    N7[\"untouchable)\"]\n    N8[\"Order\"]\n    N9[\"id:\"]\n    N10[\"UUID\"]\n    N11[\"ORD_TBL\"]\n    N12[\"8\"]\n    N13[\"status:\"]\n    N14[\"OrderStatus\"]\n    N15[\"ord_id\"]\n    N16[\"CHAR(8)\"]\n    N17[\"4\"]\n    N18[\"totalCents:\"]\n    N19[\"int\"]\n    N20[\"stts_cd\"]\n    N21[\"CHAR(4)\"]\n    N22[\"tot_amt\"]\n    N23[\"DECIMAL\"]\n    N24[\"api\"]\n    N25[\"GetOrd?ordno\"]\n    N26[\"calls\"]\n    N27[\"with\"]\n    N28[\"returns\"]\n    N29[\"legacy\"]\n    N30[\"Anti\"]\n    N31[\"Corruption\"]\n    N32[\"Layer\"]\n    N33[\"CHAR(8\"]\n    N34[\"Order.id\"]\n    N35[\"(UUID)\"]\n    N36[\"ORD_TBL.ord_id\"]\n    N37[\"(CHAR(8))\"]\n    N38[\"Order.status.PAID\"]\n    N39[\"'PD'\"]\n    N40[\"Order.totalCents\"]\n    N41[\"(int)\"]\n    N42[\"100\"]\n    N43[\"errors\"]\n    N44[\"exceptions\"]\n    N45[\"retcode\"]\n    N46[\"Translates\"]\n    N47[\"both\"]\n    N48[\"directions.\"]\n    N49[\"system\"]\n    N50[\"sees\"]\n    N51[\"only\"]\n    N52[\"Order.\"]\n    N53[\"When\"]\n    N54[\"retires,\"]\n    N55[\"ACL\"]\n    N56[\"removed\"]\n    N57[\"new\"]\n    N58[\"already\"]\n    N59[\"clean.\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44\n    N44 --> N45\n    N45 --> N46\n    N46 --> N47\n    N47 --> N48\n    N48 --> N49\n    N49 --> N50\n    N50 --> N51\n    N51 --> N52\n    N52 --> N53\n    N53 --> N54\n    N54 --> N55\n    N55 --> N56\n    N56 --> N57\n    N57 --> N58\n    N58 --> N59",
+        "caption": "Anti-Corruption Layer translates between the new system's clean domain model and the legacy's messy schema. New code never sees legacy types.",
+        "alt_text": "A diagram showing the new clean system on the left with an Order class containing id as UUID, status as OrderStatus enum, and totalCents as integer, and the legacy system on the right with ORD_TBL containing ord_id CHAR(8), stts_cd CHAR(4), and tot_amt DECIMAL, plus an API endpoint /api/GetOrd. Between them sits the Anti-Corruption Layer, which translates: Order.id UUID to ord_id CHAR(8), Order.status.PAID to stts_cd equals PD, Order.totalCents int to tot_amt times 100, and legacy retcode integers to exceptions. The diagram notes that the new system sees only the clean Order object, and when the legacy retires, the ACL is removed, leaving the new system already clean."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "what-it-translates",
+      "payload": {
+        "text": "An ACL translates more than just data shapes. It translates:\n\n- **Data schemas**: new system's `Order.id` (UUID) ↔ legacy's `ord_id` (CHAR(8)).\n- **Status enums**: new system's `OrderStatus.PAID` ↔ legacy's `stts_cd = 'PD'`. The new system has meaningful enum values; the legacy's cryptic codes live in the ACL.\n- **Units and types**: new system's `totalCents` (int) ↔ legacy's `tot_amt` (DECIMAL dollars). The ACL handles precision and rounding rules.\n- **Protocols**: new system calls via typed gRPC; legacy is a SOAP service or a stored procedure. The ACL speaks both.\n- **Error conventions**: new system throws typed exceptions; legacy returns retcode 0/1/2/3. The ACL maps.\n- **Naming and vocabulary**: new system uses the business's current language (‘customer’, ‘subscription’); legacy uses outdated terms (‘acct’, ‘svc_plan’). The ACL renames.\n- **Business rules**: legacy may require a side-effect (writing to an audit table) that the new system shouldn't have to know about. The ACL hides it.\n- **Pagination, filtering, sorting conventions**: new system uses standard `?limit=10&offset=20`; legacy uses a custom `?pg=2&sz=10` or no pagination at all.\n\nThe ACL is also a place to enforce invariants the legacy doesn't: validation, idempotency keys, rate limiting, observability. The new system gets a clean, well-behaved API; the legacy is left alone."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "vs-facade",
+      "payload": {
+        "title": "ACL vs Facade vs Adapter",
+        "body": "These patterns are related but distinct. A Facade simplifies access to a complex subsystem — it hides complexity but doesn't necessarily translate domains. An Adapter makes one interface compatible with another at the API level. An Anti-Corruption Layer is a Facade + Adapter with a strategic intent: prevent the legacy's domain model from corrupting the new system's domain model. The difference is intent and scope. The ACL exists because the legacy's model is bad, not just complex; the goal is to keep the new system clean, not just to call legacy more conveniently.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "implementation",
+      "payload": {
+        "text": "Where does the ACL live?\n\n- **As a separate service** — a dedicated microservice that exposes a clean API and calls legacy. Other services call it, never the legacy. Easiest to reason about; some operational overhead.\n- **As a library within the new service** — the new service imports a `legacy-adapter` module that handles translation. Lower overhead; couples the new service to the adapter's release cycle.\n- **As a sidecar** — the ACL runs in a sidecar container alongside the new service. Useful if the ACL needs its own language (e.g., it must call SOAP and the new service is gRPC-native).\n- **As a layer in a façade / API gateway** — if the gateway supports transformation logic (e.g., Kong plugins, API Gateway mapping templates).\n\nImplementation tips:\n- **The ACL is its own bounded context.** It owns the translation logic and the legacy's quirks. Don't spread translation across services.\n- **Test the ACL with contract tests on both sides.** The legacy side is fixed (you can't change it); the new side is your contract with new services.\n- **The ACL is throwaway.** When legacy is retired, delete the ACL. Don't build anything into the ACL you'd want to keep — that goes in the new system.\n- **Keep the ACL thin.** Don't put business logic in it; that belongs in the new system. The ACL translates, it doesn't decide.\n- **Make the ACL observable.** Translation bugs surface as ‘why did this call fail?’ — log both the clean request and the legacy request, with correlation IDs.\n\nA common failure: the ACL becomes a god-object that knows too much. Resist this. The ACL is a translator, not a business layer."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q1",
+      "payload": {
+        "question": "You're migrating from a legacy SOAP-based billing system to a new gRPC-based microservice. What does an Anti-Corruption Layer add beyond a simple protocol adapter?",
+        "shape": "mcq",
+        "options": [
+          "Nothing — a SOAP-to-gRPC adapter is an ACL by another name.",
+          "It translates the domain model and vocabulary (e.g., legacy 'acct' → new 'customer', legacy 'PD' → new 'PAID'), not just the protocol. The new system never sees legacy types or terms.",
+          "It enforces security by adding authentication between the two systems.",
+          "It improves performance by caching legacy responses."
+        ],
+        "answer_index": 1,
+        "rationale": "A protocol adapter only translates wire formats (SOAP ↔ gRPC). An Anti-Corruption Layer goes further: it translates the domain model itself — types, enums, vocabulary, error conventions, business rules. The new system never sees legacy types like 'acct' or status code 'PD'; it sees only its own clean 'Customer' with a 'PAID' status enum. This is the strategic value: the new system's domain stays clean and isn't polluted by the legacy's design decisions. Security (c) and caching (d) may be features of the ACL but are not its defining purpose. A protocol adapter (a) is a subset of an ACL, not equivalent.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q2",
+      "payload": {
+        "question": "When the legacy system is finally retired, what happens to the Anti-Corruption Layer?",
+        "shape": "mcq",
+        "options": [
+          "It becomes the new system's primary API gateway, since it already has translation logic.",
+          "It's removed — the new system is already clean and no longer needs translation. The ACL was always meant to be throwaway.",
+          "It's kept forever as a defense against future legacy migrations.",
+          "It's refactored into business logic, since the translation logic is valuable."
+        ],
+        "answer_index": 1,
+        "rationale": "The ACL is, by design, throwaway. Its sole purpose is to translate between new and legacy during the migration period. When the legacy is retired, there's nothing to translate to, so the ACL is deleted. The new system is already clean — that's the whole point of the pattern. Keeping the ACL (c) is a common mistake that turns temporary scaffolding into permanent coupling. Repurposing the ACL as business logic (d) is wrong because the ACL should never have contained business logic — it's a translator, not a decision-maker. Treating the ACL as a permanent API gateway (a) is also a mistake: the ACL's API is shaped by translation concerns, not by the new system's clean domain model. Delete it.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-anti-corruption-layer-mental",
+      "payload": {
+        "text": "Engineering mental model",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-anti-corruption-layer-mental",
+      "payload": {
+        "text": "**Mental model.** Think of Anti-Corruption Layer as a deliberate boundary in a system. The boundary exists because something becomes harder to manage when everything is done in one place: latency, scale, failure isolation, consistency, cost, or team ownership. The useful question is not “what does Anti-Corruption Layer mean?” but “what pressure makes this boundary worth introducing, and what new failure mode does it create?”"
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-anti-corruption-layer-decision",
+      "payload": {
+        "title": "Design lens",
+        "body": "Before choosing Anti-Corruption Layer, name the workload, the critical user path, the dominant bottleneck, the failure you are trying to absorb, and the trade-off you are willing to accept. If you cannot name those five things, the design is probably premature.",
+        "kind": "info"
+      }
+    },
+    {
+      "type": "image",
+      "id": "upgrade-image-anti-corruption-layer",
+      "payload": {
+        "src": "/learning-visuals/anti-corruption-layer.svg",
+        "alt": "Original NO CAP systems visual for Anti-Corruption Layer.",
+        "caption": "Anti-Corruption Layer: a compact system-thinking visual.",
+        "credit": "Original NO CAP visual.",
+        "source_url": "https://github.com/donnemartin/system-design-primer"
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "upgrade-mermaid-anti-corruption-layer",
+      "payload": {
+        "code": "flowchart LR\n  A[Client] --> B[Gateway] --> C[Service] --> D[State] --> E[Outcome]",
+        "caption": "Anti-Corruption Layer: a simplified system view showing the primary flow and the main state boundaries.",
+        "alt_text": "Anti-Corruption Layer: a simplified system view showing the primary flow and the main state boundaries."
+      }
+    },
+    {
+      "type": "code",
+      "id": "upgrade-code-anti-corruption-layer",
+      "payload": {
+        "language": "text",
+        "code": "// Pseudocode\nrequest = receive()\nresult = anti_corruption_layer(request)\nreturn result\n\n// Production questions:\n// 1. What happens on timeout?\n// 2. Can this operation be retried safely?\n// 3. What is the bottleneck?",
+        "caption": "A minimal engineering sketch for reasoning about Anti-Corruption Layer."
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-anti-corruption-layer-numbers",
+      "payload": {
+        "text": "Back-of-the-envelope reasoning",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-anti-corruption-layer-numbers",
+      "payload": {
+        "text": "Numerical lens: write down traffic, payload size, read/write ratio, peak multiplier and durability target before choosing a component. The numbers should justify the architecture."
+      }
+    },
+    {
+      "type": "simulation",
+      "id": "upgrade-sim-anti-corruption-layer",
+      "payload": {
+        "title": "Interactive thought experiment: Anti-Corruption Layer",
+        "description": "Change the variables below and predict what breaks first in Anti-Corruption Layer. The production lab can later reuse these same inputs.",
+        "variables": [
+          {
+            "name": "traffic",
+            "description": "Requests/events per second",
+            "default": "1000"
+          },
+          {
+            "name": "latency",
+            "description": "Dependency latency",
+            "default": "50ms"
+          },
+          {
+            "name": "failure_rate",
+            "description": "Injected failure rate",
+            "default": "0%"
+          }
+        ],
+        "placeholder_note": "Interactive controls are deterministic; use the linked Labs section when a dedicated lab exists."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-anti-corruption-layer-hint",
+      "payload": {
+        "title": "Hint",
+        "body": "If you are stuck on Anti-Corruption Layer, start by drawing the request path and marking every network hop, stateful component, queue, cache and failure boundary. Then estimate where the system will saturate.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-anti-corruption-layer-1",
+      "payload": {
+        "shape": "prediction",
+        "question": "You increase traffic by 10× in a system using Anti-Corruption Layer. What should you inspect first?",
+        "options": [
+          "The newest framework version",
+          "The dominant bottleneck and its saturation signal",
+          "Only the UI",
+          "Nothing; the architecture should absorb any traffic automatically"
+        ],
+        "answer_index": 1,
+        "rationale": "System design is a constraint-and-bottleneck exercise. Start with the resource or dependency that will saturate first, then choose the smallest change that removes that bottleneck.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-anti-corruption-layer-2",
+      "payload": {
+        "shape": "mcq",
+        "question": "Which statement is the safest engineering habit when using Anti-Corruption Layer?",
+        "options": [
+          "Choose it because it is popular",
+          "Add it before measuring the problem",
+          "State the workload, failure mode and trade-off it is solving",
+          "Use the most distributed design possible"
+        ],
+        "answer_index": 2,
+        "rationale": "Good architecture starts from requirements, workload and failure assumptions. The component is the consequence of that reasoning, not the starting point.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "scenario",
+      "id": "upgrade-scenario-anti-corruption-layer",
+      "payload": {
+        "prompt": "Production scenario: your system uses Anti-Corruption Layer, traffic suddenly spikes, and p99 latency doubles. What is your first move?",
+        "context": "You have dashboards for traffic, latency, errors and saturation. You can change the architecture, but every change has operational cost.",
+        "options": [
+          {
+            "id": "a",
+            "text": "Add more instances immediately",
+            "outcome": "This may help, but only if compute saturation is the bottleneck.",
+            "correct": false
+          },
+          {
+            "id": "b",
+            "text": "Inspect the bottleneck and its saturation signal first",
+            "outcome": "Correct: diagnose before scaling or introducing a new pattern.",
+            "correct": true
+          },
+          {
+            "id": "c",
+            "text": "Disable monitoring to reduce overhead",
+            "outcome": "This removes the evidence you need to diagnose the incident.",
+            "correct": false
+          }
+        ],
+        "rationale": "Measure the limiting resource or dependency first. A bottleneck can be compute, database I/O, network, cache misses, lock contention, downstream latency, or queue backlog.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-anti-corruption-layer-interview",
+      "payload": {
+        "text": "Interview drill",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-anti-corruption-layer-interview",
+      "payload": {
+        "text": "**Answer this without notes:** When would you choose Anti-Corruption Layer, and when would you intentionally avoid it? Mention at least one bottleneck it addresses, one failure mode it introduces, and one alternative. Then quantify the workload you are designing for."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "field-guide-anti-corruption-layer",
+      "payload": {
+        "title": "Engineering lens",
+        "body": "A useful engineering lens for Anti-Corruption Layer: define the problem it solves, the simpler design that fails first, the constraint that forces you to introduce this concept, and the new failure modes the concept creates.",
+        "kind": "tip"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "numerical-lens-anti-corruption-layer",
+      "payload": {
+        "text": "### Numerical sanity check\n\nBack-of-the-envelope reasoning beats fake precision. State your traffic, payload, concurrency and growth assumptions explicitly, then calculate enough to know whether the current architecture is orders of magnitude away from the target."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "field-question-anti-corruption-layer",
+      "payload": {
+        "shape": "prediction",
+        "question": "Imagine the simplest version of a system using Anti-Corruption Layer. What breaks first as traffic grows by 10×, and what would you change before reaching 100×?",
+        "context": "Do not optimize for a memorized definition. Reason from the workload and failure mode.",
+        "options": [
+          "Scale the same component immediately.",
+          "Measure the current bottleneck and state the assumption that changed.",
+          "Add more technologies until throughput improves.",
+          "Choose the most popular architecture."
+        ],
+        "answer_index": 1,
+        "rationale": "Good system design starts with the bottleneck and the changed constraint. The most popular or complex choice is not automatically correct.",
+        "difficulty": "interview"
+      }
+    }
+  ],
+  "trade_offs": {
+    "pros": [
+      "New system's domain model stays clean — no pollution from legacy's design decisions.",
+      "Translation logic is centralized — one place to fix legacy quirks.",
+      "New services can be built using current business vocabulary, not legacy's outdated terms.",
+      "ACL is removable — when legacy retires, the new system is already clean.",
+      "Decouples new system's evolution from legacy's stability."
+    ],
+    "cons": [
+      "Adds a translation layer — extra latency, extra code, extra service to operate.",
+      "Translation logic can be complex — legacy's quirks don't always map cleanly.",
+      "Two systems to maintain during migration — the ACL is yet another moving part.",
+      "Risk of the ACL becoming a god-object with business logic mixed in.",
+      "Schema evolution on both sides means the ACL must be kept in sync with both."
+    ]
+  },
+  "failure_modes": [
+    "ACL becomes a god-object — translation logic creeps into business logic; the ACL becomes hard to remove.",
+    "Translation bugs — subtle mismatches between legacy and new model (precision loss, status enum drift).",
+    "ACL performance bottleneck — extra hop on every legacy call.",
+    "ACL failure cascades — if ACL is down, new system can't reach legacy at all (need fallbacks).",
+    "Stale translations — legacy changes a field meaning; the ACL's translation is now wrong, silently.",
+    "ACL becomes permanent — team never retires legacy, ACL stays forever as tech debt."
+  ],
+  "common_mistakes": [
+    "Skipping the ACL ‘just for one call’ — that one call's legacy types propagate everywhere.",
+    "Putting business logic in the ACL — it should translate only; decisions belong in the new system.",
+    "Not testing both sides of the ACL — legacy-side contract tests catch translation drift.",
+    "Letting the new system see legacy types even partially — leaks defeat the purpose.",
+    "Treating the ACL as permanent infrastructure — it's scaffolding; plan to remove it.",
+    "Not making the ACL observable — translation bugs need to be debuggable with correlation IDs."
+  ],
+  "where_you_see_it": [
+    "Every Strangler Fig migration that involves a domain model mismatch.",
+    "Domain-Driven Design — the ACL is the canonical DDD pattern for context mapping.",
+    "Migrations from vendor systems (SAP, Oracle, Salesforce) to in-house services.",
+    "Replacing SOAP-based legacy services with REST/gRPC-based new services.",
+    "Integrating with acquired companies' systems during M&A."
+  ],
+  "interview_prompts": [
+    "What is an Anti-Corruption Layer, and how does it differ from a protocol adapter or a facade?",
+    "You're migrating from a legacy billing system with a messy schema. How do you keep the new system clean?",
+    "When does an ACL not make sense? When is the overhead not worth it?",
+    "What happens to the ACL when the legacy system is retired? Why?",
+    "How would you test an Anti-Corruption Layer? What contracts matter on each side?"
+  ],
+  "real_system_mappings": [
+    {
+      "system": "Domain-Driven Design context mapping (Eric Evans)",
+      "how": "Evans introduced the ACL in the DDD 'Context Mapping' chapter as the pattern for managing relationships between bounded contexts where one is a legacy or third-party system whose model you don't want to adopt."
+    },
+    {
+      "system": "Migrations from mainframe/SAP to cloud microservices",
+      "how": "Companies migrating from SAP or mainframe systems to cloud-native microservices universally build ACLs — the legacy's data model, error conventions, and vocabulary are deeply embedded and cannot be allowed to leak into new services."
+    },
+    {
+      "system": "Strapi / API gateways with mapping templates",
+      "how": "API gateways like Kong or AWS API Gateway can implement ACL behavior via mapping templates and plugins — translating between an external messy API and the internal clean model. This is a lightweight, gateway-resident ACL."
+    }
+  ],
+  "status": "published",
+  "sources": [
+    {
+      "title": "System Design Primer",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Open source"
+    },
+    {
+      "title": "ByteByteGo — Scale from zero to millions",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "ByteByteGo"
+    },
+    {
+      "title": "System Design Tutorial",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "GeeksforGeeks"
+    },
+    {
+      "title": "System Design Roadmap",
+      "url": "https://roadmap.sh/system-design",
+      "publisher": "roadmap.sh"
+    },
+    {
+      "title": "Design Patterns reference",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Design Patterns reference",
+      "url": "https://learn.microsoft.com/en-us/azure/architecture/patterns/",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Design Patterns reference",
+      "url": "https://martinfowler.com/",
+      "publisher": "Reference"
+    }
+  ]
+}

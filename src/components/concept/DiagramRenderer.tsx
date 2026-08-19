@@ -51,7 +51,7 @@ export function DiagramRenderer({ block }: DiagramRendererProps) {
   }, [nodes, direction]);
 
   return (
-    <figure className="my-5 overflow-hidden rounded-lg border border-border bg-surface">
+    <figure className="nocap-breakout my-5 overflow-hidden rounded-lg border border-border bg-surface lg:-mx-24 lg:w-[calc(100%+12rem)]">
       {layout && !showText ? (
         <div className="relative overflow-x-auto bg-surface-inset">
           <svg

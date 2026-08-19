@@ -20,7 +20,11 @@ export type BlockType =
   | 'quiz'
   | 'simulation'
   | 'scenario'
-  | 'callout';
+  | 'callout'
+  | 'mermaid'
+  | 'image'
+  | 'heading'
+  | 'video';
 
 export interface ProseBlock {
   type: 'prose';
@@ -156,6 +160,48 @@ export interface SimulationBlock {
   };
 }
 
+export interface MermaidBlock {
+  type: 'mermaid';
+  id: string;
+  payload: {
+    code: string;
+    caption?: string;
+    alt_text?: string;
+  };
+}
+
+export interface ImageBlock {
+  type: 'image';
+  id: string;
+  payload: {
+    src: string;
+    alt: string;
+    caption?: string;
+    credit?: string;
+    source_url?: string;
+  };
+}
+
+export interface HeadingBlock {
+  type: 'heading';
+  id: string;
+  payload: {
+    text: string;
+    level?: 2 | 3 | 4;
+  };
+}
+
+export interface VideoBlock {
+  type: 'video';
+  id: string;
+  payload: {
+    provider: 'youtube';
+    video_id: string;
+    title?: string;
+    description?: string;
+  };
+}
+
 export type LessonBlock =
   | ProseBlock
   | DiagramBlock
@@ -165,7 +211,11 @@ export type LessonBlock =
   | CalloutBlock
   | QuizBlock
   | ScenarioBlock
-  | SimulationBlock;
+  | SimulationBlock
+  | MermaidBlock
+  | ImageBlock
+  | HeadingBlock
+  | VideoBlock;
 
 /* ── Concept ────────────────────────────────────────────────────── */
 
@@ -198,6 +248,7 @@ export interface Concept {
     reference_scale?: string;
   };
   status: 'published' | 'draft';
+  sources?: { title: string; url: string; publisher?: string }[];
 }
 
 /* ── Track / Phase / Glossary ──────────────────────────────────── */
@@ -311,4 +362,56 @@ export interface FocusSessionState {
   running: boolean;
   started_at: string | null;
   concept_slug: string | null;
+}
+
+/* ── Notes / Highlights / Bookmarks ─────────────────────────────── */
+
+export interface Note {
+  id: string;
+  concept_slug: string;
+  block_id?: string;
+  title: string;
+  body: string;
+  selected_text?: string;
+  anchor_start?: number;
+  anchor_end?: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface Highlight {
+  id: string;
+  concept_slug: string;
+  block_id: string;
+  selected_text: string;
+  color: 'amber' | 'green' | 'rust' | 'info';
+  created_at: string;
+}
+
+export interface Bookmark {
+  id: string;
+  concept_slug: string;
+  block_id?: string;
+  label: string;
+  created_at: string;
+}
+
+/* ── Curriculum registry ────────────────────────────────────────── */
+
+export interface SectionEntry {
+  slug: string;
+  title: string;
+  status: 'published' | 'draft' | 'planned';
+  estimated_minutes: number;
+  difficulty: string;
+  prerequisites: string[];
+  related: string[];
+}
+
+export interface CurriculumSection {
+  slug: string;
+  title: string;
+  description: string;
+  order: number;
+  concepts: SectionEntry[];
 }

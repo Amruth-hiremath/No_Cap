@@ -1,0 +1,387 @@
+{
+  "slug": "idempotent-operations",
+  "version": 4,
+  "title": "Idempotent Operations",
+  "phase": "scaling-performance",
+  "area": "Scaling & Performance",
+  "estimated_minutes": 7,
+  "difficulty": "core",
+  "summary": "An operation is idempotent if doing it once has the same effect as doing it many times. In distributed systems where retries and duplicates are normal, idempotency is not optional — it's the difference between safe retries and double charges.",
+  "why_it_matters": "Networks fail, timeouts happen, messages get redelivered. Without idempotency, every retry risks duplicating side effects — double charges, duplicate emails, inconsistent state. With idempotency, you can retry safely, which is the foundation of every reliable distributed system.",
+  "prerequisites": [
+    "rest"
+  ],
+  "related": [
+    "retry",
+    "message-queues"
+  ],
+  "used_in": [
+    "Every payment API.",
+    "Every message queue consumer.",
+    "Every retry-safe HTTP client."
+  ],
+  "blocks": [
+    {
+      "type": "prose",
+      "id": "intro",
+      "payload": {
+        "text": "An operation is **idempotent** if calling it once produces the same result as calling it multiple times. Mathematically: `f(f(x)) = f(x)`.\n\n- **Idempotent**: `PUT /users/42 {name: 'Ada'}` — setting a value. Doing it 1 time or 100 times results in the same state.\n- **Not idempotent**: `POST /charges {amount: 100}` — creating a resource. Doing it twice creates two charges.\n\nIn a perfect world, you call an API once and it works. In the real world, networks fail, timeouts happen, and clients retry. If the operation isn't idempotent, retries cause duplicates."
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "idempotency",
+      "payload": {
+        "code": "flowchart TD\n    N0[\"dangerous retries\"]\n    N1[\"WITHOUT\"]\n    N2[\"IDEMPOTENCY\"]\n    N3[\"(dangerous\"]\n    N4[\"retries)\"]\n    N5[\"amount: $100\"]\n    N6[\"Client\"]\n    N7[\"POST\"]\n    N8[\"charges\"]\n    N9[\"{amount:\"]\n    N10[\"$100}\"]\n    N11[\"network blip\"]\n    N12[\"Timeout\"]\n    N13[\"(network\"]\n    N14[\"blip)\"]\n    N15[\"retries\"]\n    N16[\"Result:\"]\n    N17[\"TWO\"]\n    N18[\"$100.\"]\n    N19[\"User\"]\n    N20[\"angry.\"]\n    N21[\"safe retries\"]\n    N22[\"WITH\"]\n    N23[\"KEY\"]\n    N24[\"(safe\"]\n    N25[\"Headers:\"]\n    N26[\"Idempotency\"]\n    N27[\"Key:\"]\n    N28[\"abc\"]\n    N29[\"123\"]\n    N30[\"Body:\"]\n    N31[\"Server\"]\n    N32[\"sees\"]\n    N33[\"key\"]\n    N34[\"already\"]\n    N35[\"processed\"]\n    N36[\"returns\"]\n    N37[\"the\"]\n    N38[\"SAME\"]\n    N39[\"result.\"]\n    N40[\"double\"]\n    N41[\"charge.\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41",
+        "caption": "Idempotency keys make non-idempotent operations safe to retry.",
+        "alt_text": "Two diagrams. Without idempotency: a client sends a POST to charge $100, gets a timeout, retries, and the server creates two charges — the user is double-charged. With an idempotency key: the client sends the same unique key with each request. On retry, the server recognizes the key, skips processing, and returns the original result. No double charge."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "http-methods",
+      "payload": {
+        "text": "HTTP methods and idempotency:\n\n- **GET**: idempotent (and safe — no side effects).\n- **PUT**: idempotent — replaces the resource. PUT /users/42 {name:'Ada'} 10 times = same result.\n- **DELETE**: idempotent — deletes the resource. Deleting a non-existent resource returns 404, but the state is the same.\n- **POST**: NOT idempotent — creates a new resource each time.\n- **PATCH**: NOT necessarily idempotent — depends on the operation (PATCH with 'set name to Ada' is idempotent; PATCH with 'increment count by 1' is not).\n\nTo make POST idempotent, use an **idempotency key**: a unique ID sent by the client that the server uses to deduplicate."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "idempotency-key",
+      "payload": {
+        "title": "How idempotency keys work",
+        "body": "The client generates a unique key (UUID) for each logical operation and sends it in a header: `Idempotency-Key: 7c8d2f3a-...`. The server stores the key + result. If it sees the same key again, it returns the stored result instead of re-processing. Stripe's API popularized this pattern. It's the standard way to make payments safely retryable.",
+        "kind": "success"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q1",
+      "payload": {
+        "question": "Your payment API receives a POST /charge request, but the network times out. The client retries with the same Idempotency-Key. What should the server do?",
+        "shape": "mcq",
+        "options": [
+          "Process the charge again — the client asked for it.",
+          "Look up the Idempotency-Key. If already processed, return the stored result. If not, process normally.",
+          "Return an error — duplicates are not allowed.",
+          "Charge half the amount since it's a retry."
+        ],
+        "answer_index": 1,
+        "rationale": "The server checks if it has seen the Idempotency-Key before. If yes, it returns the stored result (success or failure) without re-processing — this is the whole point of idempotency keys. If the key is new, it processes the charge and stores the result. This makes the operation safe to retry: the client can retry freely without fear of double-charging. Stripe, Square, and Adyen all use this pattern.",
+        "difficulty": "core"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q2",
+      "payload": {
+        "question": "Which HTTP method is NOT idempotent by default?",
+        "shape": "mcq",
+        "options": [
+          "GET",
+          "PUT",
+          "DELETE",
+          "POST"
+        ],
+        "answer_index": 3,
+        "rationale": "POST creates a new resource each time it's called. POST /users {name:'Ada'} called 3 times creates 3 users. GET, PUT, and DELETE are idempotent: GET returns the same resource, PUT sets the same state, DELETE removes the resource (and subsequent calls return 404, but the state is the same — resource doesn't exist). To make POST idempotent, use an idempotency key.",
+        "difficulty": "core"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-idempotent-operations-mental",
+      "payload": {
+        "text": "Engineering mental model",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-idempotent-operations-mental",
+      "payload": {
+        "text": "**Mental model.** Think of Idempotent Operations as a deliberate boundary in a system. The boundary exists because something becomes harder to manage when everything is done in one place: latency, scale, failure isolation, consistency, cost, or team ownership. The useful question is not “what does Idempotent Operations mean?” but “what pressure makes this boundary worth introducing, and what new failure mode does it create?”"
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-idempotent-operations-decision",
+      "payload": {
+        "title": "Design lens",
+        "body": "Before choosing Idempotent Operations, name the workload, the critical user path, the dominant bottleneck, the failure you are trying to absorb, and the trade-off you are willing to accept. If you cannot name those five things, the design is probably premature.",
+        "kind": "info"
+      }
+    },
+    {
+      "type": "image",
+      "id": "upgrade-image-idempotent-operations",
+      "payload": {
+        "src": "/learning-visuals/idempotent-operations.svg",
+        "alt": "Original NO CAP systems visual for Idempotent Operations.",
+        "caption": "Idempotent Operations: a compact system-thinking visual.",
+        "credit": "Original NO CAP visual.",
+        "source_url": "https://github.com/donnemartin/system-design-primer"
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "upgrade-mermaid-idempotent-operations",
+      "payload": {
+        "code": "flowchart LR\n  A[Client] --> B[Gateway] --> C[Service] --> D[State] --> E[Outcome]",
+        "caption": "Idempotent Operations: a simplified system view showing the primary flow and the main state boundaries.",
+        "alt_text": "Idempotent Operations: a simplified system view showing the primary flow and the main state boundaries."
+      }
+    },
+    {
+      "type": "code",
+      "id": "upgrade-code-idempotent-operations",
+      "payload": {
+        "language": "text",
+        "code": "// Pseudocode\nrequest = receive()\nresult = idempotent_operations(request)\nreturn result\n\n// Production questions:\n// 1. What happens on timeout?\n// 2. Can this operation be retried safely?\n// 3. What is the bottleneck?",
+        "caption": "A minimal engineering sketch for reasoning about Idempotent Operations."
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-idempotent-operations-numbers",
+      "payload": {
+        "text": "Back-of-the-envelope reasoning",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-idempotent-operations-numbers",
+      "payload": {
+        "text": "Numerical lens: write down traffic, payload size, read/write ratio, peak multiplier and durability target before choosing a component. The numbers should justify the architecture."
+      }
+    },
+    {
+      "type": "simulation",
+      "id": "upgrade-sim-idempotent-operations",
+      "payload": {
+        "title": "Interactive thought experiment: Idempotent Operations",
+        "description": "Change the variables below and predict what breaks first in Idempotent Operations. The production lab can later reuse these same inputs.",
+        "variables": [
+          {
+            "name": "traffic",
+            "description": "Requests/events per second",
+            "default": "1000"
+          },
+          {
+            "name": "latency",
+            "description": "Dependency latency",
+            "default": "50ms"
+          },
+          {
+            "name": "failure_rate",
+            "description": "Injected failure rate",
+            "default": "0%"
+          }
+        ],
+        "placeholder_note": "Interactive controls are deterministic; use the linked Labs section when a dedicated lab exists."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-idempotent-operations-hint",
+      "payload": {
+        "title": "Hint",
+        "body": "If you are stuck on Idempotent Operations, start by drawing the request path and marking every network hop, stateful component, queue, cache and failure boundary. Then estimate where the system will saturate.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-idempotent-operations-1",
+      "payload": {
+        "shape": "prediction",
+        "question": "You increase traffic by 10× in a system using Idempotent Operations. What should you inspect first?",
+        "options": [
+          "The newest framework version",
+          "The dominant bottleneck and its saturation signal",
+          "Only the UI",
+          "Nothing; the architecture should absorb any traffic automatically"
+        ],
+        "answer_index": 1,
+        "rationale": "System design is a constraint-and-bottleneck exercise. Start with the resource or dependency that will saturate first, then choose the smallest change that removes that bottleneck.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-idempotent-operations-2",
+      "payload": {
+        "shape": "mcq",
+        "question": "Which statement is the safest engineering habit when using Idempotent Operations?",
+        "options": [
+          "Choose it because it is popular",
+          "Add it before measuring the problem",
+          "State the workload, failure mode and trade-off it is solving",
+          "Use the most distributed design possible"
+        ],
+        "answer_index": 2,
+        "rationale": "Good architecture starts from requirements, workload and failure assumptions. The component is the consequence of that reasoning, not the starting point.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "scenario",
+      "id": "upgrade-scenario-idempotent-operations",
+      "payload": {
+        "prompt": "Production scenario: your system uses Idempotent Operations, traffic suddenly spikes, and p99 latency doubles. What is your first move?",
+        "context": "You have dashboards for traffic, latency, errors and saturation. You can change the architecture, but every change has operational cost.",
+        "options": [
+          {
+            "id": "a",
+            "text": "Add more instances immediately",
+            "outcome": "This may help, but only if compute saturation is the bottleneck.",
+            "correct": false
+          },
+          {
+            "id": "b",
+            "text": "Inspect the bottleneck and its saturation signal first",
+            "outcome": "Correct: diagnose before scaling or introducing a new pattern.",
+            "correct": true
+          },
+          {
+            "id": "c",
+            "text": "Disable monitoring to reduce overhead",
+            "outcome": "This removes the evidence you need to diagnose the incident.",
+            "correct": false
+          }
+        ],
+        "rationale": "Measure the limiting resource or dependency first. A bottleneck can be compute, database I/O, network, cache misses, lock contention, downstream latency, or queue backlog.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-idempotent-operations-interview",
+      "payload": {
+        "text": "Interview drill",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-idempotent-operations-interview",
+      "payload": {
+        "text": "**Answer this without notes:** When would you choose Idempotent Operations, and when would you intentionally avoid it? Mention at least one bottleneck it addresses, one failure mode it introduces, and one alternative. Then quantify the workload you are designing for."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "field-guide-idempotent-operations",
+      "payload": {
+        "title": "Engineering lens",
+        "body": "A useful engineering lens for Idempotent Operations: define the problem it solves, the simpler design that fails first, the constraint that forces you to introduce this concept, and the new failure modes the concept creates.",
+        "kind": "tip"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "numerical-lens-idempotent-operations",
+      "payload": {
+        "text": "### Numerical sanity check\n\nBack-of-the-envelope reasoning beats fake precision. State your traffic, payload, concurrency and growth assumptions explicitly, then calculate enough to know whether the current architecture is orders of magnitude away from the target."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "field-question-idempotent-operations",
+      "payload": {
+        "shape": "prediction",
+        "question": "Imagine the simplest version of a system using Idempotent Operations. What breaks first as traffic grows by 10×, and what would you change before reaching 100×?",
+        "context": "Do not optimize for a memorized definition. Reason from the workload and failure mode.",
+        "options": [
+          "Scale the same component immediately.",
+          "Measure the current bottleneck and state the assumption that changed.",
+          "Add more technologies until throughput improves.",
+          "Choose the most popular architecture."
+        ],
+        "answer_index": 1,
+        "rationale": "Good system design starts with the bottleneck and the changed constraint. The most popular or complex choice is not automatically correct.",
+        "difficulty": "interview"
+      }
+    }
+  ],
+  "trade_offs": {
+    "pros": [
+      "Safe retries — the foundation of reliable distributed systems.",
+      "Handles duplicate messages (at-least-once delivery).",
+      "Prevents double charges, duplicate sends, inconsistent state."
+    ],
+    "cons": [
+      "Requires a unique key per logical operation — client must generate and track keys.",
+      "Server must store key→result mapping (storage cost, TTL management).",
+      "Not all operations are naturally idempotent — some require extra work (optimistic locking, conditional updates)."
+    ]
+  },
+  "failure_modes": [
+    "Idempotency key collision — two different operations get the same key (use UUIDs to prevent).",
+    "Key TTL expires too early — retry after TTL results in duplicate processing.",
+    "Race condition — two requests with the same key arrive simultaneously (use a lock or insert-only table)."
+  ],
+  "common_mistakes": [
+    "Treating POST as idempotent — it's not; use idempotency keys.",
+    "Forgetting that PATCH is not necessarily idempotent (depends on the operation).",
+    "Not storing the result — if you only check 'have I seen this key?' but don't return the original result, the client gets a different response on retry."
+  ],
+  "where_you_see_it": [
+    "Every payment API (Stripe, Square, Adyen).",
+    "Every message queue consumer (idempotent processing).",
+    "Every retry-safe HTTP client."
+  ],
+  "interview_prompts": [
+    "What is idempotency? Why does it matter in distributed systems?",
+    "How do idempotency keys work? When would you use them?",
+    "Which HTTP methods are idempotent? How do you make POST idempotent?"
+  ],
+  "real_system_mappings": [
+    {
+      "system": "Stripe API",
+      "how": "Accepts Idempotency-Key header on all POST requests. Stores key→result for 24h. Retries with the same key return the original result."
+    },
+    {
+      "system": "AWS SQS",
+      "how": "Supports deduplication IDs for FIFO queues. If a message with the same dedup ID is sent within 5 minutes, SQS returns the original instead of creating a duplicate."
+    }
+  ],
+  "status": "published",
+  "sources": [
+    {
+      "title": "System Design Primer",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Open source"
+    },
+    {
+      "title": "ByteByteGo — Scale from zero to millions",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "ByteByteGo"
+    },
+    {
+      "title": "System Design Tutorial",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "GeeksforGeeks"
+    },
+    {
+      "title": "System Design Roadmap",
+      "url": "https://roadmap.sh/system-design",
+      "publisher": "roadmap.sh"
+    },
+    {
+      "title": "Scaling & Performance reference",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Scaling & Performance reference",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Scaling & Performance reference",
+      "url": "https://highscalability.com/",
+      "publisher": "Reference"
+    }
+  ]
+}

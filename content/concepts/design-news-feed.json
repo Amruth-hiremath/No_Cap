@@ -1,0 +1,437 @@
+{
+  "slug": "design-news-feed",
+  "version": 3,
+  "title": "Design News Feed",
+  "phase": "case-studies",
+  "area": "Case Studies",
+  "estimated_minutes": 12,
+  "difficulty": "interview",
+  "summary": "Design a ranked (Facebook-style) news feed at 2B users. Covers pre-computing ranked feeds every 5 min so reads stay O(1) despite expensive ML ranking, the candidate-vs-ranked feed split in Redis, the feature store for ranking signals, the hide-feedback loop that adapts ranking per user, and the celebrity-bypass hybrid fan-out for the candidate set.",
+  "why_it_matters": "A ranked news feed is the next step beyond a chronological feed (Instagram/Twitter). It introduces ML ranking, feature stores, pre-computation vs rank-on-read trade-offs, and the engagement feedback loop that makes the feed adapt to each user. These patterns (feature stores, pre-computed recommendations, async feedback loops) appear in every modern recommendation system — TikTok's For You page, YouTube's recommendations, Spotify's Discover Weekly.",
+  "prerequisites": [
+    "cache-aside",
+    "sharding",
+    "pub-sub"
+  ],
+  "related": [
+    "design-instagram",
+    "design-twitter"
+  ],
+  "used_in": [
+    "Facebook News Feed",
+    "TikTok For You page",
+    "YouTube home recommendations",
+    "Reddit 'Best' sort",
+    "LinkedIn feed"
+  ],
+  "blocks": [
+    {
+      "type": "prose",
+      "id": "problem",
+      "payload": {
+        "text": "**What are we designing?** A ranked news feed — Facebook-style, where the feed is not just chronological but algorithmically ranked by relevance, recency, and engagement signals. Posts can be text, photos, links, or videos. The feed must feel fresh (new posts appear within seconds), personalized (different users see different content), and engaging (ranking optimizes for time-on-site and interactions).\n\nThis is the 'design Instagram + ranking' problem. The hard part is no longer the fan-out (we know how to do that); the hard part is **pre-computing a ranked feed** such that reads are still O(1) even though ranking is expensive (ML model, hundreds of features)."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "requirements",
+      "payload": {
+        "text": "**Functional requirements.**\n- Users post stories (text, photo, link, video).\n- Users follow / friend other users.\n- The home feed shows a ranked subset of recent stories from friends/pages.\n- Users can like, comment, share, hide.\n- Feed updates in near-real-time when friends post.\n- Feed ranking adapts based on user engagement (hide future similar posts after a hide).\n\n**Non-functional requirements.**\n- **Feed read latency**: p99 < 200 ms (despite ranking).\n- **Freshness**: a friend's new post appears in the feed within 30 s.\n- **Personalization**: each user's feed is unique.\n- **Availability**: 99.99%.\n- **Scale**: 2B users, 1B+ stories posted/day, 10B+ feed reads/day.\n\n**Non-goals.** No ad targeting, no marketplace, no stories (24-hour)."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "capacity",
+      "payload": {
+        "text": "**Capacity estimation.**\n\n*Posts.* 1B stories/day. Average story ~2KB metadata + media (50% have photos at ~500KB, 5% have video at ~50MB). Metadata = 2TB/day; media = ~3PB/day. Stored on object storage.\n\n*Feed reads.* 2B users x ~10 feed refreshes/day = 20B feed reads/day = ~230K reads/sec average, peak ~1M/sec.\n\n*Fan-out.* Average user has ~300 friends and ~50 page follows. 1B stories/day x ~350 followers = 350B fan-out writes/day = 4M writes/sec. This is why we need the celebrity bypass AND a smart pre-computation strategy.\n\n*Ranked feed storage.* If we pre-compute a ranked feed of 100 story_ids per user, 2B users x 100 x 8 bytes = 1.6 TB. Fits in a sharded Redis cluster.\n\n*Ranking compute.* If we re-rank a feed of 500 candidate stories on every refresh, each rank call costs ~10 ms on an ML model. To hit 200 ms read latency, we MUST pre-compute ranks, not rank on read.\n\n*Bandwidth.* 1M reads/sec x 50KB per feed response = 50 GB/s = 400 Gbps. Requires multi-region CDN."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "apis",
+      "payload": {
+        "text": "**APIs.**\n\n```\nPOST /v1/stories              (text, media_ids, privacy)\nGET  /v1/feed?cursor=...      -> ranked, paginated\nPOST /v1/stories/:id/like\nPOST /v1/stories/:id/comment\nPOST /v1/stories/:id/hide     -> trains ranking model (downweight similar)\n```\n\nThe feed endpoint returns ranked stories. The cursor encodes the user's position in the feed so paginated calls return older stories in rank order (not time order)."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "data-model",
+      "payload": {
+        "text": "**Data model.**\n\n*Stories* (sharded by story_id):\n```\nstories (story_id BIGINT PK, author_id, type, text, media_url,\n         created_at, like_count, comment_count, share_count)\n```\n\n*Feed candidates* (per-user, Redis ZSET of recent story_ids):\n```\nkey: feed_candidates:{user_id}\nvalue: ZSET member=story_id, score=created_at   -- raw chronological\n       capped at 1000 (last ~24h)\n```\n\n*Ranked feed* (per-user, pre-computed, Redis LIST):\n```\nkey: feed_ranked:{user_id}\nvalue: LIST of ranked story_ids, top 100 pre-computed by the ranker\nTTL: 5 minutes   -- re-ranked on a schedule\n```\n\n*User features* (for ranking, stored in feature store):\n```\nuser_features (user_id, last_seen_ts, avg_session_length,\n               affinity_to_author MAP<author_id, float>,\n               affinity_to_topic MAP<topic, float>, ...)\n```\n\n*Story features* (computed on post):\n```\nstory_features (story_id, embedding VECTOR, topics LIST<TEXT>,\n                author_verified BOOL, has_media BOOL, ...)\n```"
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "arch",
+      "payload": {
+        "code": "flowchart TD\n    N0[\"WRITE\"]\n    N1[\"PATH\"]\n    N2[\"insert\"]\n    N3[\"Author\"]\n    N4[\"posts\"]\n    N5[\"story\"]\n    N6[\"Story\"]\n    N7[\"Service\"]\n    N8[\"Stories\"]\n    N9[\"(insert)\"]\n    N10[\"Kafka: stories.v1\"]\n    N11[\"[Kafka:\"]\n    N12[\"stories.v1]\"]\n    N13[\"Fan-out Worker\"]\n    N14[\"Feature Extractor\"]\n    N15[\"Search Indexer\"]\n    N16[\"[Fan\"]\n    N17[\"out\"]\n    N18[\"Worker]\"]\n    N19[\"[Feature\"]\n    N20[\"Extractor]\"]\n    N21[\"[Search\"]\n    N22[\"Indexer]\"]\n    N23[\"ZADD\"]\n    N24[\"candidate\"]\n    N25[\"computes\"]\n    N26[\"indexes\"]\n    N27[\"into\"]\n    N28[\"feed\"]\n    N29[\"for\"]\n    N30[\"each\"]\n    N31[\"features,\"]\n    N32[\"stores\"]\n    N33[\"Elasticsearch\"]\n    N34[\"follower\"]\n    N35[\"feature\"]\n    N36[\"store\"]\n    N37[\"READ\"]\n    N38[\"Ranking Trigger\"]\n    N39[\"User\"]\n    N40[\"opens\"]\n    N41[\"feed:\"]\n    N42[\"[Ranking\"]\n    N43[\"Trigger]\"]\n    N44[\"Feed\"]\n    N45[\"(every\"]\n    N46[\"min\"]\n    N47[\"1\"]\n    N48[\"user_id\"]\n    N49[\"(1)\"]\n    N50[\"GET\"]\n    N51[\"feed_ranked:{user_id}\"]\n    N52[\"list\"]\n    N53[\"change,\"]\n    N54[\"pre-computed\"]\n    N55[\"from\"]\n    N56[\"Redis\"]\n    N57[\"(pre\"]\n    N58[\"computed)\"]\n    N59[\"ranks\"]\n    N60[\"top\"]\n    N61[\"100\"]\n    N62[\"2\"]\n    N63[\"(2)\"]\n    N64[\"miss\"]\n    N65[\"stale\"]\n    N66[\"Ranker\"]\n    N67[\"stories\"]\n    N68[\"read\"]\n    N69[\"candidates\"]\n    N70[\"ZSET\"]\n    N71[\"the\"]\n    N72[\"user,\"]\n    N73[\"fetch\"]\n    N74[\"user\"]\n    N75[\"features\"]\n    N76[\"writes\"]\n    N77[\"run\"]\n    N78[\"model,\"]\n    N79[\"score\"]\n    N80[\"return\"]\n    N81[\"100,\"]\n    N82[\"cache\"]\n    N83[\"Engagement\"]\n    N84[\"feedback\"]\n    N85[\"likes\"]\n    N86[\"hides\"]\n    N87[\"Kafka\"]\n    N88[\"trainer\"]\n    N89[\"updates\"]\n    N90[\"next\"]\n    N91[\"rank\"]\n    N92[\"call\"]\n    N93[\"adapts\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44\n    N44 --> N45\n    N45 --> N46\n    N46 --> N47\n    N47 --> N48\n    N48 --> N49\n    N49 --> N50\n    N50 --> N51\n    N51 --> N52\n    N52 --> N53\n    N53 --> N54\n    N54 --> N55\n    N55 --> N56\n    N56 --> N57\n    N57 --> N58\n    N58 --> N59\n    N59 --> N60\n    N60 --> N61\n    N61 --> N62\n    N62 --> N63\n    N63 --> N64\n    N64 --> N65\n    N65 --> N66\n    N66 --> N67\n    N67 --> N68\n    N68 --> N69\n    N69 --> N70\n    N70 --> N71\n    N71 --> N72\n    N72 --> N73\n    N73 --> N74\n    N74 --> N75\n    N75 --> N76\n    N76 --> N77\n    N77 --> N78\n    N78 --> N79\n    N79 --> N80\n    N80 --> N81\n    N81 --> N82\n    N82 --> N83\n    N83 --> N84\n    N84 --> N85\n    N85 --> N86\n    N86 --> N87\n    N87 --> N88\n    N88 --> N89\n    N89 --> N90\n    N90 --> N91\n    N91 --> N92\n    N92 --> N93",
+        "caption": "News feed: write path fans out candidate story_ids and extracts features async; read path serves pre-ranked feeds from Redis, with a ranker service re-ranking every 5 min.",
+        "alt_text": "A diagram of a ranked news feed. The write path: an author posts a story, the Story Service inserts into the Stories DB and publishes to Kafka. Three consumers read from Kafka: a fan-out worker that ZADDs the story_id into each follower's candidate feed in Redis, a feature extractor that computes story features for the ranker, and a search indexer that indexes into Elasticsearch. The read path: a user opens the feed, the Feed Service reads the pre-computed ranked feed from Redis. On a miss or staleness, it calls the Ranker Service which reads candidate story_ids, fetches user and story features, runs an ML model to score each story, and writes the top 100 back to Redis as the ranked feed. A separate engagement feedback loop feeds likes and hides via Kafka into a trainer that updates user features for the next rank call."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "deep-dive",
+      "payload": {
+        "text": "**Deep dive: pre-computing the ranked feed.**\n\nRanking is expensive: a modern feed ranker (Facebook's EdgeRank successors, Instagram's) is a gradient-boosted tree or small neural net over ~100 features per (user, story) pair. Scoring 500 candidate stories takes 50-200 ms — too slow for a read that must be < 200 ms total. So we **pre-compute**.\n\n**Pre-computation strategy.** A background ranking job runs per user every 5 minutes (or on candidate-list change). It reads the user's `feed_candidates` ZSET (last 1000 stories), fetches features for each from the feature store, scores them with the ranker model, and writes the top 100 ranked story_ids to `feed_ranked:{user_id}` with TTL 5 min.\n\n**Triggering the ranker.** Three triggers:\n1. **Scheduled**: every 5 min for active users (last-seen < 1 hour ago). For inactive users, we don't rank — they get a fresh rank on next open.\n2. **On candidate change**: when a new story is fanned out to a user, the fan-out worker publishes a `rank_request` event for that user; the ranker re-ranks.\n3. **On read miss**: if the user opens the feed and `feed_ranked` is missing or expired, the Feed Service calls the Ranker synchronously (the slow path, ~100 ms).\n\n**Features.** Examples: affinity_to_author (decayed sum of past interactions), story age (decayed by hours), story type (photo/video/link), story's global engagement (a proxy for quality), user's past session length, time of day, device type. These live in a feature store (Tectonic at Facebook, Feast open-source).\n\n**The hide feedback loop.** When a user hides a story, we publish `hide_event` to Kafka. A trainer updates `user_features.affinity_to_author` and `affinity_to_topic` to downweight that author/topic. The next rank call (within 5 min) reflects the change.\n\n**Celebrity bypass.** Same as Instagram/Twitter: pages with >10K followers skip fan-out. Their stories are fetched at rank time and added to the candidate pool.\n\n**Mixed ranking.** Real feeds interleave ranked organic stories with sponsored content (ads) and 'you might like' recommendations. Each slot has a different ranking policy; the feed builder composes them into the final ordered list."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "bottlenecks",
+      "payload": {
+        "text": "**Bottlenecks and failure modes.**\n\n- **Ranker overload.** 2B users / 5 min = 6.7M rank calls/sec. Each call scores 500 stories. *Mitigation*: batch rank calls per user (rank 100 stories in one model call); shard the ranker across GPU/CPU pools; skip ranking for inactive users.\n\n- **Feature store latency.** The ranker fetches ~100 features per story; for 500 stories that's 50K feature lookups. *Mitigation*: pre-fetch features into a local cache on the ranker; use a feature store with sub-ms p99 (Redis-backed).\n\n- **Fan-out write amplification.** 4M fan-out writes/sec at peak. *Mitigation*: celebrity bypass; batch fan-out writes per user (one Redis pipeline per follower).\n\n- **Stale feed.** Pre-computed feeds are up to 5 min old; a friend's new post may not appear immediately. *Mitigation*: when a new story is fanned out, prepend it to the user's ranked feed immediately with a 'fresh' flag (the ranker will re-rank it in the next pass).\n\n- **Cold-start users.** New users have no engagement history → features are empty → ranking is random. *Mitigation*: serve a 'popular today' feed for the first week until features accumulate.\n\n- **Model drift.** A bad ranking model change can drop engagement 10% in hours. *Mitigation*: A/B test model changes on 1% of users; auto-rollback if engagement drops.\n\n- **Hide-storm.** A controversial post triggers millions of hides simultaneously; the trainer updates features for millions of users. *Mitigation*: batch updates; throttle the trainer."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "scaling",
+      "payload": {
+        "text": "**Scaling strategy and trade-offs.**\n\n*Pre-compute vs rank-on-read.* We pre-compute for active users (top 100 stories, 5-min TTL). For inactive users (opening the app once a week), we rank on read — the one-time 100 ms latency is acceptable.\n\n*Multi-region.* Feed cache (Redis) and ranker are per-region. The Stories DB is globally replicated. Ranking compute is heavy; we run rankers in each region to keep user-feature access local.\n\n*Feature store.* Redis-backed feature store with sub-ms p99. Features are updated by the trainer in batches; reads are eventual (a few seconds behind).\n\n*Ranking model.* GBDT (e.g. XGBoost / LightGBM) for fast scoring; small neural net for embeddings (text + image). Models are versioned and rolled out via A/B test.\n\n*Trade-offs made explicit.*\n- We chose pre-computation — **gained** fast reads, **lost** real-time freshness (mitigated by immediate-prepend of fresh stories).\n- We chose per-user ranking — **gained** personalization, **lost** computation cost (must run rankers at 6.7M calls/sec).\n- We chose 5-min TTL — **gained** low ranker load, **lost** adaptivity (hide feedback takes up to 5 min to take effect).\n- We chose fan-out-on-write for the candidate set — **gained** O(1) candidate fetches at rank time, **lost** write amplification (mitigated by celebrity bypass)."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q1",
+      "payload": {
+        "question": "Why does the news feed pre-compute ranked feeds instead of ranking on read?",
+        "shape": "mcq",
+        "options": [
+          "Ranking 500 candidate stories takes 50-200 ms via an ML model, which would blow the 200 ms p99 read latency budget; pre-computing the top 100 every 5 min keeps reads O(1).",
+          "The ranker model is too expensive to run at all.",
+          "Users prefer ranked feeds to be cached.",
+          "Pre-computation is simpler to implement."
+        ],
+        "answer_index": 0,
+        "rationale": "A modern feed ranker (XGBoost or neural net over ~100 features) scores one (user, story) pair in ~0.2-0.4 ms. For 500 candidate stories, that's 100-200 ms — already the entire latency budget for a read, before network and hydration. Pre-computing the top 100 stories per user every 5 min (or on candidate change) means reads are just a Redis GET — sub-millisecond. The trade-off is freshness: a brand-new post may take up to 5 min to appear (mitigated by immediate-prepend of fresh stories into the ranked feed).",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q2",
+      "payload": {
+        "question": "A user hides a story from author X. When will their feed stop showing stories from author X?",
+        "shape": "mcq",
+        "options": [
+          "Immediately — the hide event is processed synchronously.",
+          "Within ~5 minutes — the next scheduled rank call picks up the updated affinity_to_author feature.",
+          "Only after the user hides 3 stories from X.",
+          "Never — hides don't affect ranking."
+        ],
+        "answer_index": 1,
+        "rationale": "The hide event flows async through Kafka to a trainer, which updates `user_features.affinity_to_author[X]` in the feature store. The next rank call (within 5 minutes, or sooner if triggered by candidate change) reads the updated feature, scores stories from X lower, and rewrites `feed_ranked:{user_id}`. Until the next rank call, the existing ranked feed (which may include stories from X) is served. This is the freshness-vs-cost trade-off of pre-computation. Synchronous hide processing (option A) would be fast but would require invalidating the pre-computed feed and re-ranking on the read path, which is the very cost we're trying to avoid.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-design-news-feed-mental",
+      "payload": {
+        "text": "Engineering mental model",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-design-news-feed-mental",
+      "payload": {
+        "text": "**Mental model.** Think of Design News Feed as a deliberate boundary in a system. The boundary exists because something becomes harder to manage when everything is done in one place: latency, scale, failure isolation, consistency, cost, or team ownership. The useful question is not “what does Design News Feed mean?” but “what pressure makes this boundary worth introducing, and what new failure mode does it create?”"
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-design-news-feed-decision",
+      "payload": {
+        "title": "Design lens",
+        "body": "Before choosing Design News Feed, name the workload, the critical user path, the dominant bottleneck, the failure you are trying to absorb, and the trade-off you are willing to accept. If you cannot name those five things, the design is probably premature.",
+        "kind": "info"
+      }
+    },
+    {
+      "type": "image",
+      "id": "upgrade-image-design-news-feed",
+      "payload": {
+        "src": "/learning-visuals/design-news-feed.svg",
+        "alt": "Original NO CAP systems visual for Design News Feed.",
+        "caption": "Design News Feed: a compact system-thinking visual.",
+        "credit": "Original NO CAP visual.",
+        "source_url": "https://github.com/donnemartin/system-design-primer"
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "upgrade-mermaid-design-news-feed",
+      "payload": {
+        "code": "flowchart LR\n  A[Client] --> B[Gateway] --> C[Services] --> D[Data] --> E[Delivery]",
+        "caption": "Design News Feed: a simplified system view showing the primary flow and the main state boundaries.",
+        "alt_text": "Design News Feed: a simplified system view showing the primary flow and the main state boundaries."
+      }
+    },
+    {
+      "type": "code",
+      "id": "upgrade-code-design-news-feed",
+      "payload": {
+        "language": "text",
+        "code": "// Pseudocode\nrequest = receive()\nresult = design_news_feed(request)\nreturn result\n\n// Production questions:\n// 1. What happens on timeout?\n// 2. Can this operation be retried safely?\n// 3. What is the bottleneck?",
+        "caption": "A minimal engineering sketch for reasoning about Design News Feed."
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-design-news-feed-numbers",
+      "payload": {
+        "text": "Back-of-the-envelope reasoning",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-design-news-feed-numbers",
+      "payload": {
+        "text": "Numerical lens: write down traffic, payload size, read/write ratio, peak multiplier and durability target before choosing a component. The numbers should justify the architecture."
+      }
+    },
+    {
+      "type": "simulation",
+      "id": "upgrade-sim-design-news-feed",
+      "payload": {
+        "title": "Interactive thought experiment: Design News Feed",
+        "description": "Change the variables below and predict what breaks first in Design News Feed. The production lab can later reuse these same inputs.",
+        "variables": [
+          {
+            "name": "traffic",
+            "description": "Requests/events per second",
+            "default": "1000"
+          },
+          {
+            "name": "latency",
+            "description": "Dependency latency",
+            "default": "50ms"
+          },
+          {
+            "name": "failure_rate",
+            "description": "Injected failure rate",
+            "default": "0%"
+          }
+        ],
+        "placeholder_note": "Interactive controls are deterministic; use the linked Labs section when a dedicated lab exists."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-design-news-feed-hint",
+      "payload": {
+        "title": "Hint",
+        "body": "If you are stuck on Design News Feed, start by drawing the request path and marking every network hop, stateful component, queue, cache and failure boundary. Then estimate where the system will saturate.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-design-news-feed-1",
+      "payload": {
+        "shape": "prediction",
+        "question": "You increase traffic by 10× in a system using Design News Feed. What should you inspect first?",
+        "options": [
+          "The newest framework version",
+          "The dominant bottleneck and its saturation signal",
+          "Only the UI",
+          "Nothing; the architecture should absorb any traffic automatically"
+        ],
+        "answer_index": 1,
+        "rationale": "System design is a constraint-and-bottleneck exercise. Start with the resource or dependency that will saturate first, then choose the smallest change that removes that bottleneck.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-design-news-feed-2",
+      "payload": {
+        "shape": "mcq",
+        "question": "Which statement is the safest engineering habit when using Design News Feed?",
+        "options": [
+          "Choose it because it is popular",
+          "Add it before measuring the problem",
+          "State the workload, failure mode and trade-off it is solving",
+          "Use the most distributed design possible"
+        ],
+        "answer_index": 2,
+        "rationale": "Good architecture starts from requirements, workload and failure assumptions. The component is the consequence of that reasoning, not the starting point.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "scenario",
+      "id": "upgrade-scenario-design-news-feed",
+      "payload": {
+        "prompt": "Production scenario: your system uses Design News Feed, traffic suddenly spikes, and p99 latency doubles. What is your first move?",
+        "context": "You have dashboards for traffic, latency, errors and saturation. You can change the architecture, but every change has operational cost.",
+        "options": [
+          {
+            "id": "a",
+            "text": "Add more instances immediately",
+            "outcome": "This may help, but only if compute saturation is the bottleneck.",
+            "correct": false
+          },
+          {
+            "id": "b",
+            "text": "Inspect the bottleneck and its saturation signal first",
+            "outcome": "Correct: diagnose before scaling or introducing a new pattern.",
+            "correct": true
+          },
+          {
+            "id": "c",
+            "text": "Disable monitoring to reduce overhead",
+            "outcome": "This removes the evidence you need to diagnose the incident.",
+            "correct": false
+          }
+        ],
+        "rationale": "Measure the limiting resource or dependency first. A bottleneck can be compute, database I/O, network, cache misses, lock contention, downstream latency, or queue backlog.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-design-news-feed-interview",
+      "payload": {
+        "text": "Interview drill",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-design-news-feed-interview",
+      "payload": {
+        "text": "**Answer this without notes:** When would you choose Design News Feed, and when would you intentionally avoid it? Mention at least one bottleneck it addresses, one failure mode it introduces, and one alternative. Then quantify the workload you are designing for."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "field-guide-design-news-feed",
+      "payload": {
+        "title": "Engineering lens",
+        "body": "A useful engineering lens for Design News Feed: define the problem it solves, the simpler design that fails first, the constraint that forces you to introduce this concept, and the new failure modes the concept creates.",
+        "kind": "tip"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "numerical-lens-design-news-feed",
+      "payload": {
+        "text": "### Numerical sanity check\n\nBack-of-the-envelope reasoning beats fake precision. State your traffic, payload, concurrency and growth assumptions explicitly, then calculate enough to know whether the current architecture is orders of magnitude away from the target."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "field-question-design-news-feed",
+      "payload": {
+        "shape": "prediction",
+        "question": "Imagine the simplest version of a system using Design News Feed. What breaks first as traffic grows by 10×, and what would you change before reaching 100×?",
+        "context": "Do not optimize for a memorized definition. Reason from the workload and failure mode.",
+        "options": [
+          "Scale the same component immediately.",
+          "Measure the current bottleneck and state the assumption that changed.",
+          "Add more technologies until throughput improves.",
+          "Choose the most popular architecture."
+        ],
+        "answer_index": 1,
+        "rationale": "Good system design starts with the bottleneck and the changed constraint. The most popular or complex choice is not automatically correct.",
+        "difficulty": "interview"
+      }
+    }
+  ],
+  "trade_offs": {
+    "pros": [
+      "Pre-computed ranked feeds keep read latency O(1) despite expensive ML ranking.",
+      "Hide feedback loop adapts ranking per user within ~5 min.",
+      "Feature store decouples ranking from the data sources (stories, engagement logs).",
+      "Celebrity bypass in fan-out keeps write amplification bounded."
+    ],
+    "cons": [
+      "Pre-computation means feeds are up to 5 min stale — fresh posts need immediate-prepend.",
+      "Ranker compute is heavy — 6.7M rank calls/sec needed for 2B users.",
+      "Cold-start users have no features — needs a fallback 'popular today' feed.",
+      "Model drift can drop engagement fast — needs A/B testing and auto-rollback."
+    ]
+  },
+  "failure_modes": [
+    "Ranker overload at 2B users — needs batching and per-user skip for inactive.",
+    "Feature store latency — needs sub-ms p99 (Redis-backed).",
+    "Fan-out write amplification — needs celebrity bypass.",
+    "Stale feed after a new post — needs immediate-prepend of fresh stories.",
+    "Hide-storm on controversial posts — needs batched, throttled feature updates."
+  ],
+  "common_mistakes": [
+    "Ranking on read for every feed request — blows the latency budget.",
+    "Storing the full ranked feed (with story content) instead of just story_ids — wastes cache.",
+    "Running the ranker synchronously on candidate change — too slow.",
+    "Single-region feature store — multi-region ranking reads stall on cross-region calls.",
+    "Skipping the celebrity bypass — fan-out crushes the cache cluster."
+  ],
+  "where_you_see_it": [
+    "Facebook News Feed",
+    "TikTok For You page",
+    "YouTube home recommendations",
+    "Reddit 'Best' sort",
+    "LinkedIn feed"
+  ],
+  "interview_prompts": [
+    "Design a ranked news feed. How do you keep reads fast when ranking is expensive?",
+    "A user hides a story. When does their feed change?",
+    "How do you handle a new user with no engagement history?",
+    "How do you A/B test a new ranking model safely?"
+  ],
+  "real_system_mappings": [
+    {
+      "system": "Facebook News Feed",
+      "how": "EdgeRank and successors; pre-computed ranked feeds with 5-min TTL; feature store (Tectonic); celebrity bypass. Documented in Meta engineering blog."
+    },
+    {
+      "system": "TikTok For You page",
+      "how": "Real-time ranking over candidate videos, with a separate exploration pool. Uses a deep neural net over hundreds of features including watch time and re-watch rate."
+    },
+    {
+      "system": "YouTube recommendations",
+      "how": "Two-stage: candidate generation (collaborative filtering) then ranking (deep NN). Pre-computed per-user recommendations cached in Redis."
+    }
+  ],
+  "status": "published",
+  "sources": [
+    {
+      "title": "System Design Primer",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Open source"
+    },
+    {
+      "title": "ByteByteGo — Scale from zero to millions",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "ByteByteGo"
+    },
+    {
+      "title": "System Design Tutorial",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "GeeksforGeeks"
+    },
+    {
+      "title": "System Design Roadmap",
+      "url": "https://roadmap.sh/system-design",
+      "publisher": "roadmap.sh"
+    },
+    {
+      "title": "Case Studies reference",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Case Studies reference",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Case Studies reference",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "Reference"
+    }
+  ]
+}

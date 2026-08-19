@@ -1,0 +1,447 @@
+{
+  "slug": "bandwidth-estimation",
+  "version": 4,
+  "title": "Bandwidth Estimation",
+  "phase": "interview-preparation",
+  "area": "Interview Preparation",
+  "estimated_minutes": 7,
+  "difficulty": "core",
+  "summary": "Bandwidth estimation computes how much network egress the system produces per second: QPS × payload size, converted from bytes/sec to Gbps (1 Gbps = 10^9 bits/sec = 125 MB/sec). The estimate determines whether the system needs a CDN, multiple regions, or peer-to-peer distribution. Bandwidth is often the dominant constraint in media-heavy systems — a single origin server cannot physically serve 100 Gbps, and even 10 Gbps is rare. Forgetting to convert bytes to bits (8x error) is the most common bandwidth-estimation mistake.",
+  "why_it_matters": "Bandwidth is the constraint that breaks media-heavy systems. A 1 Gbps network connection serves ~125 MB/sec — at 1 MB per photo, that is 125 photos/sec, far less than a popular Instagram feed demands. YouTube at planetary scale serves hundreds of Gbps continuously, which is physically impossible from a single origin. The only way to serve this bandwidth is a CDN with thousands of edge POPs, each absorbing a fraction of the load. Estimating bandwidth is the only way to recognize this need and design accordingly. In interviews, candidates who skip bandwidth estimation propose single-origin architectures that physically cannot work at scale.",
+  "prerequisites": [
+    "capacity-estimation"
+  ],
+  "related": [
+    "qps-estimation",
+    "capacity-estimation",
+    "cdn-caching"
+  ],
+  "used_in": [
+    "Every system design interview for media-heavy systems (YouTube, Netflix, Instagram).",
+    "CDN sizing decisions (how many POPs, how much edge cache).",
+    "Cloud cost estimation (egress is the most expensive cloud line item).",
+    "Network architecture (1 Gbps vs 10 Gbps vs 100 Gbps uplinks)."
+  ],
+  "blocks": [
+    {
+      "type": "prose",
+      "id": "intro",
+      "payload": {
+        "text": "**Bandwidth estimation** computes the network egress rate the system produces: how many bits per second flow out to users. The base formula:\n\n```\nBandwidth (bytes/sec) = QPS × payload_size_bytes\nBandwidth (Gbps)      = bytes/sec × 8 / 10^9\n```\n\nThe crucial conversion: **1 Gbps = 10^9 bits/sec = 125 MB/sec.** Note the bits, not bytes — 8 bits per byte. The most common interview mistake is treating 1 Gbps as 1 GB/sec, which is wrong by 8x.\n\nExample (Twitter with media):\n- Read QPS = 115k average.\n- Timeline payload per read = 1 KB text.\n- 10% of reads include media, average 1 MB.\n- Text bandwidth: 115k × 1 KB = 115 MB/s = 0.92 Gbps ≈ 1 Gbps.\n- Media bandwidth: 11.5k × 1 MB = 11.5 GB/s = 92 Gbps.\n- Total: ~93 Gbps (peak: × 5 ≈ 465 Gbps).\n\nA single origin server cannot serve 93 Gbps — a typical AWS instance has a 10-25 Gbps network interface. Even 10 such instances cannot physically serve 465 Gbps peak. This is why a CDN with hundreds of edge POPs is mandatory: each POP absorbs a fraction of the load, and the origin sees only the cache misses.\n\nThe deeper insight: **bandwidth is often the constraint that drives the entire architecture.** For Twitter, the database write QPS (11.5k) is modest — one beefy PostgreSQL could handle it. But the bandwidth (93 Gbps) is impossible without a CDN. The architecture is bandwidth-driven, not QPS-driven. Estimating bandwidth surfaces this fact; skipping it hides it."
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "flow",
+      "payload": {
+        "code": "flowchart TD\n    N0[\"Twitter-like, average\"]\n    N1[\"BANDWIDTH\"]\n    N2[\"ESTIMATION\"]\n    N3[\"WORKED\"]\n    N4[\"EXAMPLE\"]\n    N5[\"(Twitter\"]\n    N6[\"like,\"]\n    N7[\"average)\"]\n    N8[\"Inputs:\"]\n    N9[\"Read\"]\n    N10[\"QPS\"]\n    N11[\"115\"]\n    N12[\"Text\"]\n    N13[\"payload\"]\n    N14[\"per\"]\n    N15[\"read\"]\n    N16[\"Media\"]\n    N17[\"fraction\"]\n    N18[\"reads\"]\n    N19[\"10%\"]\n    N20[\"Average\"]\n    N21[\"media\"]\n    N22[\"size\"]\n    N23[\"STEP\"]\n    N24[\"BYTES\"]\n    N25[\"PER\"]\n    N26[\"SECOND\"]\n    N27[\"egress\"]\n    N28[\"115k\"]\n    N29[\"sec\"]\n    N30[\"11.5\"]\n    N31[\"Total\"]\n    N32[\"~11.6\"]\n    N33[\"CONVERT\"]\n    N34[\"BITS\"]\n    N35[\"GBPS\"]\n    N36[\"byte\"]\n    N37[\"bits\"]\n    N38[\"Gbps\"]\n    N39[\"10^9\"]\n    N40[\"125\"]\n    N41[\"~1 Gbps\"]\n    N42[\"bandwidth\"]\n    N43[\"0.92\"]\n    N44[\"(~1\"]\n    N45[\"Gbps)\"]\n    N46[\"average\"]\n    N47[\"(average)\"]\n    N48[\"× 5 peak factor\"]\n    N49[\"PEAK\"]\n    N50[\"peak\"]\n    N51[\"factor)\"]\n    N52[\"Peak\"]\n    N53[\"total\"]\n    N54[\"465\"]\n    N55[\"ARCHITECTURE\"]\n    N56[\"DECISION\"]\n    N57[\"typical\"]\n    N58[\"AWS\"]\n    N59[\"instance\"]\n    N60[\"NIC\"]\n    N61[\"Gbps.\"]\n    N62[\"Cannot\"]\n    N63[\"serve\"]\n    N64[\"Even\"]\n    N65[\"instances\"]\n    N66[\"100\"]\n    N67[\"250\"]\n    N68[\"aggregate,\"]\n    N69[\"still\"]\n    N70[\"under\"]\n    N71[\"Must\"]\n    N72[\"use\"]\n    N73[\"CDN:\"]\n    N74[\"each\"]\n    N75[\"edge\"]\n    N76[\"POP\"]\n    N77[\"absorbs\"]\n    N78[\"the\"]\n    N79[\"load.\"]\n    N80[\"manageable\"]\n    N81[\"With\"]\n    N82[\"95%\"]\n    N83[\"cache\"]\n    N84[\"hit\"]\n    N85[\"rate\"]\n    N86[\"CDN,\"]\n    N87[\"origin\"]\n    N88[\"sees\"]\n    N89[\"only\"]\n    N90[\"(manageable).\"]\n    N91[\"~$0.09/GB\"]\n    N92[\"Cloud\"]\n    N93[\"cost\"]\n    N94[\"(~$0.09\"]\n    N95[\"GB)\"]\n    N96[\"for\"]\n    N97[\"11.6\"]\n    N98[\"86400\"]\n    N99[\"day\"]\n    N100[\"~$90k\"]\n    N101[\"day.\"]\n    N102[\"CDN\"]\n    N103[\"mandatory;\"]\n    N104[\"direct\"]\n    N105[\"serving\"]\n    N106[\"both\"]\n    N107[\"infeasible\"]\n    N108[\"and\"]\n    N109[\"uneconomical.\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44\n    N44 --> N45\n    N45 --> N46\n    N46 --> N47\n    N47 --> N48\n    N48 --> N49\n    N49 --> N50\n    N50 --> N51\n    N51 --> N52\n    N52 --> N53\n    N53 --> N54\n    N54 --> N55\n    N55 --> N56\n    N56 --> N57\n    N57 --> N58\n    N58 --> N59\n    N59 --> N60\n    N60 --> N61\n    N61 --> N62\n    N62 --> N63\n    N63 --> N64\n    N64 --> N65\n    N65 --> N66\n    N66 --> N67\n    N67 --> N68\n    N68 --> N69\n    N69 --> N70\n    N70 --> N71\n    N71 --> N72\n    N72 --> N73\n    N73 --> N74\n    N74 --> N75\n    N75 --> N76\n    N76 --> N77\n    N77 --> N78\n    N78 --> N79\n    N79 --> N80\n    N80 --> N81\n    N81 --> N82\n    N82 --> N83\n    N83 --> N84\n    N84 --> N85\n    N85 --> N86\n    N86 --> N87\n    N87 --> N88\n    N88 --> N89\n    N89 --> N90\n    N90 --> N91\n    N91 --> N92\n    N92 --> N93\n    N93 --> N94\n    N94 --> N95\n    N95 --> N96\n    N96 --> N97\n    N97 --> N98\n    N98 --> N99\n    N99 --> N100\n    N100 --> N101\n    N101 --> N102\n    N102 --> N103\n    N103 --> N104\n    N104 --> N105\n    N105 --> N106\n    N106 --> N107\n    N107 --> N108\n    N108 --> N109",
+        "caption": "Bandwidth estimation: QPS × payload, convert bytes to bits (×8), divide by 10^9 for Gbps. Media dominates.",
+        "alt_text": "Bandwidth estimation worked example for a Twitter-like system at average load. Inputs: 115 thousand read QPS, 1 KB text payload per read, 10 percent of reads include media, average media size 1 MB. Step 1 bytes per second: text egress 115 MB per second, media egress 11.5 GB per second, total about 11.6 GB per second. Step 2 convert bytes to bits to Gbps: 1 byte equals 8 bits, 1 Gbps equals 10 to the 9 bits per second equals 125 MB per second. Text bandwidth 0.92 Gbps about 1 Gbps. Media bandwidth 92 Gbps. Total bandwidth about 93 Gbps average. Step 3 peak bandwidth with 5x peak factor: peak total about 465 Gbps. Step 4 architecture decision: a typical AWS instance NIC is 10 to 25 Gbps, cannot serve 93 Gbps. Even 10 instances equals 100 to 250 Gbps aggregate, still under peak 465 Gbps. Must use a CDN: each edge POP absorbs a fraction of the load. With 95 percent cache hit rate at the CDN, origin sees only about 5 Gbps, manageable. Cloud egress cost at AWS about 9 cents per GB, 11.6 GB per second times 86400 is about 1 petabyte per day equals about 90 thousand dollars per day. CDN is mandatory; direct origin serving is both infeasible and uneconomical."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "units",
+      "payload": {
+        "text": "**Units — the bandwidth-estimation killer.**\n\nBandwidth estimation has one recurring bug: confusing bits and bytes. Memorize these conversions before any interview:\n\n- **1 byte = 8 bits.** Always.\n- **1 Gbps = 10^9 bits per second = 125 MB per second.** (10^9 / 8 = 125 × 10^6 bytes = 125 MB.)\n- **1 GB/sec = 8 Gbps.** (1 GB = 8 × 10^9 bits = 8 Gbps.)\n- **1 MB/sec = 8 Mbps.** (1 MB = 8 × 10^6 bits.)\n\nThe common mistakes:\n- Treating 1 Gbps as 1 GB/sec — off by 8x. (1 Gbps = 0.125 GB/sec.)\n- Treating 1 Mbps as 1 MB/sec — off by 8x. (1 Mbps = 0.125 MB/sec.)\n- Forgetting that network speeds are in bits, storage sizes are in bytes.\n\nThe rule: **network bandwidth is in bits per second (bps, Kbps, Mbps, Gbps); storage and payload sizes are in bytes (B, KB, MB, GB). To convert a payload rate to bandwidth, multiply bytes/sec by 8.**\n\nOnce you internalize this, the math is straightforward: QPS × payload_size_bytes × 8 / 10^9 = bandwidth in Gbps. The hard part is not the math; it is not confusing bits and bytes.\n\nAnother conversion worth memorizing: 1 day = 86,400 seconds. So 1 GB/sec for 1 day = 86.4 TB/day. And 1 PB = 10^3 TB = 10^6 GB. Cloud egress is typically priced per GB (AWS ~$0.09/GB egress), so 1 PB egress = $90k/month. This is why bandwidth is the dominant cloud cost for media-heavy systems."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "cdn-mandatory",
+      "payload": {
+        "title": "Above ~10 Gbps, a CDN is mandatory",
+        "body": "A single AWS instance has a 10-25 Gbps network interface. Above 10 Gbps sustained, no single instance can serve the traffic, and even horizontal scaling within one region hits practical limits (load balancer throughput, cross-AZ bandwidth). The only way to serve 50+ Gbps is a CDN with many edge POPs, each absorbing a fraction of the load. The CDN does not just reduce latency — it is the only physically possible way to serve the bandwidth. Estimating bandwidth is how you recognize this need before designing an architecture that physically cannot work.",
+        "kind": "warning"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "egress-cost",
+      "payload": {
+        "text": "**Egress cost — the dominant cloud bill.**\n\nBandwidth is not just a technical constraint; it is a cost constraint. Cloud egress (data leaving the cloud to users) is the most expensive cloud line item:\n\n- **AWS egress: ~$0.09/GB** (first 10 TB free, then $0.09-0.12/GB).\n- **GCP egress: ~$0.085/GB** (similar tiered pricing).\n- **Cloudflare egress: $0** (their differentiator — they don't charge for egress, only for premium features).\n\nFor a media-heavy system:\n- 10 GB/sec sustained = 864 TB/day = ~$78k/day = ~$2.3M/month in AWS egress.\n- 100 GB/sec sustained = ~$23M/month in AWS egress.\n\nThis is why Netflix built their own CDN (Open Connect) — at their scale, AWS egress would have cost more than their entire content budget. Cloudflare's $0 egress model exists precisely because egress is the dominant cost for media-heavy customers.\n\nA CDN does not just absorb the bandwidth physically — it also reduces the egress cost. AWS CloudFront charges ~$0.085/GB vs S3's $0.09/GB, but more importantly, when the CDN serves a cache hit, the origin does not see the traffic — so the origin's egress cost is only on misses. At 95% CDN cache hit rate, origin egress drops 20x, and origin egress cost drops with it.\n\nThe interview lesson: **always estimate bandwidth AND cost.** A design that is technically feasible at 100 Gbps but costs $23M/month in egress is uneconomical. The CDN is not just a performance optimization; it is a cost optimization."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "interview-flow",
+      "payload": {
+        "text": "**The bandwidth estimation interview step-by-step.**\n\n1. **Start with QPS and payload size.** Read QPS × payload bytes/sec = bytes/sec.\n2. **Convert bytes/sec to Gbps.** Multiply by 8 (bytes to bits), divide by 10^9.\n3. **Estimate peak.** Multiply by 3-5x peak factor.\n4. **Identify the architecture implication.**\n   - < 1 Gbps: single origin server works.\n   - 1-10 Gbps: multiple origins + load balancer.\n   - 10-100 Gbps: CDN mandatory, multiple regions.\n   - 100+ Gbps: global CDN with hundreds of POPs (Netflix, YouTube scale).\n5. **Estimate cost.** Total bytes/sec × 86400 × $0.09/GB = daily egress cost.\n6. **Mention the CDN as the answer to both performance and cost.**\n\nFor Twitter with media:\n- Average: 93 Gbps → CDN mandatory (origin cannot serve).\n- Peak: 465 Gbps → global CDN with many POPs.\n- Cost without CDN: ~$2.3M/month in AWS egress.\n- Cost with CDN (95% hit rate): ~$115k/month in origin egress (95% reduction).\n\nThe whole exercise takes 1-2 minutes. The interviewer is testing whether you recognize that bandwidth, not QPS, is the constraint for media-heavy systems, and that the CDN is the only architecture that physically and economically works at scale."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q1",
+      "payload": {
+        "question": "You estimate a media-heavy system at 100 GB/sec of egress. What is this in Gbps, and what architecture does it imply?",
+        "shape": "mcq",
+        "options": [
+          "100 Gbps; a single AWS instance with a 100 Gbps NIC can handle it.",
+          "800 Gbps (100 GB/sec × 8 bits/byte = 800 Gbps). A CDN with many edge POPs is mandatory; no single origin or single region can serve this.",
+          "12.5 Gbps; multiple origins in one region can handle it.",
+          "0.8 Gbps; a single server is fine."
+        ],
+        "answer_index": 1,
+        "rationale": "Convert bytes to bits: 100 GB/sec × 8 bits/byte = 800 Gbps. This is far beyond what any single instance (10-25 Gbps NIC) or single region (typically 100s of Gbps aggregate) can serve. The architecture is forced: a global CDN with many edge POPs, each absorbing a fraction of the load. The CDN also reduces egress cost dramatically — at 100 GB/sec sustained, AWS egress would cost $23M/month. The deeper lesson: bandwidth, not QPS, is the binding constraint for media-heavy systems. Get the byte-to-bit conversion right; getting it wrong by 8x leads to radically wrong architecture.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q2",
+      "payload": {
+        "question": "Your system serves 50 GB/day of egress. What is the approximate AWS egress cost per month?",
+        "shape": "mcq",
+        "options": [
+          "~$5/month (50 GB × 30 × $0.09 ≈ $135, but the first 10 TB/month is free at AWS, so it's effectively $0 for small systems).",
+          "~$5,000/month",
+          "~$50,000/month",
+          "~$500,000/month"
+        ],
+        "answer_index": 0,
+        "rationale": "Compute: 50 GB/day × 30 days = 1500 GB/month. At $0.09/GB, that is $135/month — and AWS provides the first 10 TB/month free, so a system at this scale pays nothing or almost nothing. The deeper lesson: bandwidth cost matters at scale, not at small scale. A system serving 50 GB/day is small enough that bandwidth is not a constraint. A system serving 50 GB/sec (× 86400 = 4.3 PB/day) costs ~$400k/day in egress — that is the scale where the CDN is not optional. Knowing the scale where bandwidth matters is as important as knowing the formula.",
+        "difficulty": "core"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q3",
+      "payload": {
+        "question": "Why does Netflix operate its own CDN (Open Connect) rather than using AWS CloudFront, given that Netflix runs on AWS for everything else?",
+        "shape": "mcq",
+        "options": [
+          "Because AWS CloudFront does not support video.",
+          "Because at Netflix's bandwidth scale (~hundreds of Gbps sustained), AWS egress would cost more than their entire content budget. Operating their own CDN with ISP-embedded appliances eliminates the per-GB egress charge, saving tens of millions of dollars per month.",
+          "Because CloudFront is too slow.",
+          "Because Netflix does not actually use AWS."
+        ],
+        "answer_index": 1,
+        "rationale": "Netflix's video traffic is in the hundreds of Gbps sustained, which translates to petabytes per day. At AWS egress rates (~$0.09/GB), this would cost tens of millions of dollars per month — more than Netflix's content budget. Their solution is Open Connect: purpose-built CDN appliances embedded directly in ISP facilities, so video traffic flows from the ISP-embedded appliance to the user without crossing AWS's billable egress. Netflix still uses AWS for everything except video delivery (databases, APIs, recommendations, billing). The lesson: bandwidth is the dominant cost at media scale, and at extreme scale the only viable architecture is to bypass the per-GB egress model entirely — either via a custom CDN or a zero-egress provider like Cloudflare.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-bandwidth-estimation-mental",
+      "payload": {
+        "text": "Engineering mental model",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-bandwidth-estimation-mental",
+      "payload": {
+        "text": "**Mental model.** Think of Bandwidth Estimation as a deliberate boundary in a system. The boundary exists because something becomes harder to manage when everything is done in one place: latency, scale, failure isolation, consistency, cost, or team ownership. The useful question is not “what does Bandwidth Estimation mean?” but “what pressure makes this boundary worth introducing, and what new failure mode does it create?”"
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-bandwidth-estimation-decision",
+      "payload": {
+        "title": "Design lens",
+        "body": "Before choosing Bandwidth Estimation, name the workload, the critical user path, the dominant bottleneck, the failure you are trying to absorb, and the trade-off you are willing to accept. If you cannot name those five things, the design is probably premature.",
+        "kind": "info"
+      }
+    },
+    {
+      "type": "image",
+      "id": "upgrade-image-bandwidth-estimation",
+      "payload": {
+        "src": "/learning-visuals/bandwidth-estimation.svg",
+        "alt": "Original NO CAP systems visual for Bandwidth Estimation.",
+        "caption": "Bandwidth Estimation: a compact system-thinking visual.",
+        "credit": "Original NO CAP visual.",
+        "source_url": "https://github.com/donnemartin/system-design-primer"
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "upgrade-mermaid-bandwidth-estimation",
+      "payload": {
+        "code": "flowchart LR\n  A[Client] --> B[Gateway] --> C[Service] --> D[State] --> E[Outcome]",
+        "caption": "Bandwidth Estimation: a simplified system view showing the primary flow and the main state boundaries.",
+        "alt_text": "Bandwidth Estimation: a simplified system view showing the primary flow and the main state boundaries."
+      }
+    },
+    {
+      "type": "code",
+      "id": "upgrade-code-bandwidth-estimation",
+      "payload": {
+        "language": "text",
+        "code": "// Pseudocode\nrequest = receive()\nresult = bandwidth_estimation(request)\nreturn result\n\n// Production questions:\n// 1. What happens on timeout?\n// 2. Can this operation be retried safely?\n// 3. What is the bottleneck?",
+        "caption": "A minimal engineering sketch for reasoning about Bandwidth Estimation."
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-bandwidth-estimation-numbers",
+      "payload": {
+        "text": "Back-of-the-envelope reasoning",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-bandwidth-estimation-numbers",
+      "payload": {
+        "text": "Example: 10,000 req/s × 200 KB response ≈ 2,000,000 KB/s ≈ 2 GB/s ≈ 16 Gbps before protocol overhead. Always separate average traffic from peak traffic."
+      }
+    },
+    {
+      "type": "simulation",
+      "id": "upgrade-sim-bandwidth-estimation",
+      "payload": {
+        "title": "Interactive thought experiment: Bandwidth Estimation",
+        "description": "Change the variables below and predict what breaks first in Bandwidth Estimation. The production lab can later reuse these same inputs.",
+        "variables": [
+          {
+            "name": "traffic",
+            "description": "Requests/events per second",
+            "default": "1000"
+          },
+          {
+            "name": "latency",
+            "description": "Dependency latency",
+            "default": "50ms"
+          },
+          {
+            "name": "failure_rate",
+            "description": "Injected failure rate",
+            "default": "0%"
+          }
+        ],
+        "placeholder_note": "Interactive controls are deterministic; use the linked Labs section when a dedicated lab exists."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-bandwidth-estimation-hint",
+      "payload": {
+        "title": "Hint",
+        "body": "If you are stuck on Bandwidth Estimation, start by drawing the request path and marking every network hop, stateful component, queue, cache and failure boundary. Then estimate where the system will saturate.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-bandwidth-estimation-1",
+      "payload": {
+        "shape": "prediction",
+        "question": "You increase traffic by 10× in a system using Bandwidth Estimation. What should you inspect first?",
+        "options": [
+          "The newest framework version",
+          "The dominant bottleneck and its saturation signal",
+          "Only the UI",
+          "Nothing; the architecture should absorb any traffic automatically"
+        ],
+        "answer_index": 1,
+        "rationale": "System design is a constraint-and-bottleneck exercise. Start with the resource or dependency that will saturate first, then choose the smallest change that removes that bottleneck.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-bandwidth-estimation-2",
+      "payload": {
+        "shape": "mcq",
+        "question": "Which statement is the safest engineering habit when using Bandwidth Estimation?",
+        "options": [
+          "Choose it because it is popular",
+          "Add it before measuring the problem",
+          "State the workload, failure mode and trade-off it is solving",
+          "Use the most distributed design possible"
+        ],
+        "answer_index": 2,
+        "rationale": "Good architecture starts from requirements, workload and failure assumptions. The component is the consequence of that reasoning, not the starting point.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "scenario",
+      "id": "upgrade-scenario-bandwidth-estimation",
+      "payload": {
+        "prompt": "Production scenario: your system uses Bandwidth Estimation, traffic suddenly spikes, and p99 latency doubles. What is your first move?",
+        "context": "You have dashboards for traffic, latency, errors and saturation. You can change the architecture, but every change has operational cost.",
+        "options": [
+          {
+            "id": "a",
+            "text": "Add more instances immediately",
+            "outcome": "This may help, but only if compute saturation is the bottleneck.",
+            "correct": false
+          },
+          {
+            "id": "b",
+            "text": "Inspect the bottleneck and its saturation signal first",
+            "outcome": "Correct: diagnose before scaling or introducing a new pattern.",
+            "correct": true
+          },
+          {
+            "id": "c",
+            "text": "Disable monitoring to reduce overhead",
+            "outcome": "This removes the evidence you need to diagnose the incident.",
+            "correct": false
+          }
+        ],
+        "rationale": "Measure the limiting resource or dependency first. A bottleneck can be compute, database I/O, network, cache misses, lock contention, downstream latency, or queue backlog.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-bandwidth-estimation-interview",
+      "payload": {
+        "text": "Interview drill",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-bandwidth-estimation-interview",
+      "payload": {
+        "text": "**Answer this without notes:** When would you choose Bandwidth Estimation, and when would you intentionally avoid it? Mention at least one bottleneck it addresses, one failure mode it introduces, and one alternative. Then quantify the workload you are designing for."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "field-guide-bandwidth-estimation",
+      "payload": {
+        "title": "Engineering lens",
+        "body": "A useful engineering lens for Bandwidth Estimation: define the problem it solves, the simpler design that fails first, the constraint that forces you to introduce this concept, and the new failure modes the concept creates.",
+        "kind": "tip"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "numerical-lens-bandwidth-estimation",
+      "payload": {
+        "text": "### Numerical sanity check\n\nBack-of-the-envelope reasoning beats fake precision. State your traffic, payload, concurrency and growth assumptions explicitly, then calculate enough to know whether the current architecture is orders of magnitude away from the target."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "field-question-bandwidth-estimation",
+      "payload": {
+        "shape": "prediction",
+        "question": "Imagine the simplest version of a system using Bandwidth Estimation. What breaks first as traffic grows by 10×, and what would you change before reaching 100×?",
+        "context": "Do not optimize for a memorized definition. Reason from the workload and failure mode.",
+        "options": [
+          "Scale the same component immediately.",
+          "Measure the current bottleneck and state the assumption that changed.",
+          "Add more technologies until throughput improves.",
+          "Choose the most popular architecture."
+        ],
+        "answer_index": 1,
+        "rationale": "Good system design starts with the bottleneck and the changed constraint. The most popular or complex choice is not automatically correct.",
+        "difficulty": "interview"
+      }
+    }
+  ],
+  "trade_offs": {
+    "pros": [
+      "Surfaces the bandwidth constraint that often dominates media-heavy systems.",
+      "Forces the byte-to-bit conversion that catches common estimation mistakes.",
+      "Drives the CDN decision — the only physical solution for high bandwidth.",
+      "Enables egress cost estimation — often the largest cloud line item.",
+      "Reveals when single-origin architectures are physically infeasible."
+    ],
+    "cons": [
+      "Easy to confuse bits and bytes (8x error) — the most common mistake.",
+      "Requires estimating payload sizes, which vary by 10-1000x depending on assumptions.",
+      "Captures steady-state, not burst spikes (which can be 10-100x average).",
+      "Egress pricing varies by provider and is tiered — estimates are approximate.",
+      "Does not account for CDN cache hit rate, which dramatically reduces origin bandwidth."
+    ]
+  },
+  "failure_modes": [
+    "Confusing bits and bytes — off by 8x.",
+    "Designing single-origin architectures that physically cannot serve the bandwidth.",
+    "Forgetting to estimate egress cost — design is uneconomical.",
+    "Not accounting for peak (× 5x) — system collapses at peak bandwidth.",
+    "Assuming the origin handles the full load when a CDN is required.",
+    "Forgetting that cross-AZ and cross-region bandwidth also has costs and limits."
+  ],
+  "common_mistakes": [
+    "Treating 1 Gbps as 1 GB/sec (off by 8x).",
+    "Not translating bandwidth into architecture decisions (CDN, multi-region).",
+    "Forgetting to multiply by peak factor.",
+    "Not estimating egress cost at all.",
+    "Assuming the cloud provider's published bandwidth limits do not apply to your system.",
+    "Forgetting that the CDN reduces origin bandwidth by the cache hit rate (often 95%)."
+  ],
+  "where_you_see_it": [
+    "Every system design interview for media-heavy systems (YouTube, Netflix, Instagram, TikTok).",
+    "CDN sizing and POP planning.",
+    "Cloud cost estimation (egress is the dominant cost for media).",
+    "Network architecture (1 Gbps vs 10 Gbps vs 100 Gbps uplinks).",
+    "Multi-region deployment decisions (bandwidth drives geographic distribution)."
+  ],
+  "interview_prompts": [
+    "Estimate the bandwidth required for YouTube at 1B users streaming 1 hour/day each at 5 Mbps.",
+    "Estimate the AWS egress cost for a system serving 100 GB/sec sustained.",
+    "Your bandwidth estimate is 200 Gbps. Can a single AWS region handle it? What architecture do you propose?",
+    "Why does Netflix operate its own CDN? Why not just use AWS CloudFront?",
+    "Your system serves 1 GB/sec egress. What is the monthly cost, and at what scale does the CDN become mandatory?"
+  ],
+  "real_system_mappings": [
+    {
+      "system": "Netflix Open Connect",
+      "how": "Netflix operates its own CDN with ISP-embedded appliances, precisely because AWS egress at their bandwidth scale (hundreds of Gbps sustained, petabytes per day) would cost tens of millions of dollars per month. Open Connect bypasses the per-GB egress charge by serving video from within ISP facilities."
+    },
+    {
+      "system": "Cloudflare's $0 egress model",
+      "how": "Cloudflare's competitive differentiator is $0 egress — they don't charge for bandwidth out, only for premium features and computed usage. This exists because egress is the dominant cost for media-heavy customers, and undercutting AWS on egress captures those workloads."
+    },
+    {
+      "system": "YouTube / Google Video Infrastructure",
+      "how": "YouTube serves hundreds of Gbps of video globally, distributed via Google's edge cache infrastructure (GFE / Google Front End servers at ISPs). The bandwidth is split across thousands of edge POPs; no single origin could serve it."
+    },
+    {
+      "system": "AWS CloudFront + S3 origin pattern",
+      "how": "The standard pattern for media at moderate scale: S3 origin + CloudFront CDN. The CDN absorbs 90-99% of read traffic (cache hit rate), so origin egress is small and cheap. At extreme scale, customers migrate to Netflix-style appliance CDNs or Cloudflare for the zero-egress model."
+    }
+  ],
+  "status": "published",
+  "sources": [
+    {
+      "title": "System Design Primer",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Open source"
+    },
+    {
+      "title": "ByteByteGo — Scale from zero to millions",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "ByteByteGo"
+    },
+    {
+      "title": "System Design Tutorial",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "GeeksforGeeks"
+    },
+    {
+      "title": "System Design Roadmap",
+      "url": "https://roadmap.sh/system-design",
+      "publisher": "roadmap.sh"
+    },
+    {
+      "title": "Interview Preparation reference",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Interview Preparation reference",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Interview Preparation reference",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "Reference"
+    },
+    {
+      "title": "ByteByteGo — Scaling Websites",
+      "url": "https://bytebytego.com/guides/how-to-scale-a-website-to-support-millions-of-users/",
+      "publisher": "ByteByteGo"
+    }
+  ]
+}

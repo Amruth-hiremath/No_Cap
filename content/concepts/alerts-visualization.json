@@ -1,0 +1,430 @@
+{
+  "slug": "alerts-visualization",
+  "version": 4,
+  "title": "Alerts & Visualization",
+  "phase": "observability",
+  "area": "Observability",
+  "estimated_minutes": 7,
+  "difficulty": "core",
+  "summary": "Alerts and visualization are the user-facing layer of observability: dashboards make the system's state visible at a glance, and alerts notify humans when something needs attention. Good alerting is hard — alert on too much and on-call engineers burn out from fatigue (alert deafness); alert on too little and outages go undetected. The rule: every alert must be actionable, investigated, and either fixable or silenced.",
+  "why_it_matters": "A dashboard nobody looks at is wasted engineering. An alert nobody acts on is worse than no alert — it trains the team to ignore the next one, which will be the real outage. Alert fatigue is a top cause of prolonged outages: when on-call gets 50 pages a day, they stop reading them, and the critical alert that should have triggered a 2-minute fix instead becomes a 2-hour outage. Good alerting — alerting on SLO burn rates, alerting only on actionable conditions, with runbooks attached — is the difference between an SRE team that sleeps and one that burns out.",
+  "prerequisites": [
+    "metrics-logs-traces",
+    "slo-sla-sli"
+  ],
+  "related": [
+    "slo-sla-sli",
+    "performance-monitoring",
+    "availability-monitoring"
+  ],
+  "used_in": [
+    "Every on-call rotation.",
+    "Every NOC (network operations center).",
+    "Every incident response process."
+  ],
+  "blocks": [
+    {
+      "type": "prose",
+      "id": "intro",
+      "payload": {
+        "text": "Alerts and visualization are two sides of the same coin: dashboards show the system's state continuously; alerts pull humans in when the state needs attention. Both are essential — and both are easy to get wrong.\n\n**Dashboards** answer: \"what's the system doing right now?\" They should be designed for a quick glance: at-a-glance health (red/green), with the ability to drill into details. A good dashboard has 4-6 panels, organized by service, with the most important metrics (the four golden signals) at the top.\n\n**Alerts** answer: \"does a human need to look at this right now?\" They should be rare, actionable, and attached to a runbook. An alert that fires frequently without action is alert fatigue — a leading cause of burnout and prolonged outages."
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "alert-pyramid",
+      "payload": {
+        "code": "flowchart TD\n    N0[\"Google SRE\"]\n    N1[\"ALERTING\"]\n    N2[\"PHILOSOPHY\"]\n    N3[\"(Google\"]\n    N4[\"SRE)\"]\n    N5[\"Every\"]\n    N6[\"alert\"]\n    N7[\"should\"]\n    N8[\"be:\"]\n    N9[\"a human can do something\"]\n    N10[\"actionable\"]\n    N11[\"human\"]\n    N12[\"can\"]\n    N13[\"something)\"]\n    N14[\"it warrants attention\"]\n    N15[\"investigated\"]\n    N16[\"(it\"]\n    N17[\"warrants\"]\n    N18[\"attention)\"]\n    N19[\"not noise / flapping\"]\n    N20[\"genuine\"]\n    N21[\"(not\"]\n    N22[\"noise\"]\n    N23[\"flapping)\"]\n    N24[\"PYRAMID\"]\n    N25[\"SIGNALS\"]\n    N26[\"no alert\"]\n    N27[\"All\"]\n    N28[\"metrics\"]\n    N29[\"dashboards\"]\n    N30[\"(no\"]\n    N31[\"alert)\"]\n    N32[\"next business day\"]\n    N33[\"Outliers\"]\n    N34[\"tickets\"]\n    N35[\"(next\"]\n    N36[\"business\"]\n    N37[\"day)\"]\n    N38[\"24/7, wake someone\"]\n    N39[\"SLO\"]\n    N40[\"burn\"]\n    N41[\"pages\"]\n    N42[\"(24\"]\n    N43[\"wake\"]\n    N44[\"someone)\"]\n    N45[\"something's alive?\"]\n    N46[\"Heartbeat\"]\n    N47[\"(something's\"]\n    N48[\"alive?)\"]\n    N49[\"ALERT\"]\n    N50[\"FATIGUE\"]\n    N51[\"day\"]\n    N52[\"engineer\"]\n    N53[\"stops\"]\n    N54[\"reading\"]\n    N55[\"them.\"]\n    N56[\"Real\"]\n    N57[\"outage\"]\n    N58[\"respond\"]\n    N59[\"instead\"]\n    N60[\"5min.\"]\n    N61[\"Better:\"]\n    N62[\"day,\"]\n    N63[\"all\"]\n    N64[\"actionable.\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44\n    N44 --> N45\n    N45 --> N46\n    N46 --> N47\n    N47 --> N48\n    N48 --> N49\n    N49 --> N50\n    N50 --> N51\n    N51 --> N52\n    N52 --> N53\n    N53 --> N54\n    N54 --> N55\n    N55 --> N56\n    N56 --> N57\n    N57 --> N58\n    N58 --> N59\n    N59 --> N60\n    N60 --> N61\n    N61 --> N62\n    N62 --> N63\n    N63 --> N64",
+        "caption": "Not everything should alert. Most signals stay on dashboards; only urgent actionable issues become pages.",
+        "alt_text": "A diagram of alerting philosophy. Every alert must be actionable (a human can do something), investigated (it warrants attention), and genuine (not noise or flapping). A pyramid of signals: all metrics go to dashboards with no alert. Outliers become tickets, handled the next business day. SLO burn and heartbeat failures become pages, waking someone 24/7. Alert fatigue: fifty pages a day means the engineer stops reading them. When a real outage happens, response takes two hours instead of five minutes. The better target is two to three pages per day, all actionable."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "dashboards",
+      "payload": {
+        "text": "Good dashboards follow a few principles:\n\n- **Glanceable**: a quick look tells you if the system is healthy. Use color (red/green/yellow) and clear thresholds. If you have to read numbers, it's not glanceable.\n- **Layered**: top-level overview dashboard shows service health. Clicking through gets per-service dashboards with details.\n- **Service-centric**: one dashboard per service, showing its golden signals (latency, traffic, errors, saturation).\n- **SLO-aware**: include the SLO and error budget burn rate on the dashboard, so the team knows where they stand.\n- **Time-aware**: default to last 1 hour, with the ability to zoom out to 24h or 7d for trends.\n- **Don't overcrowd**: 4-6 panels per dashboard. More than that and the eye can't find what's important.\n\nGrafana is the de-facto open-source tool. Datadog, New Relic, Splunk are commercial equivalents. The tool matters less than the design — a well-designed dashboard in any tool beats a poorly designed one in the \"best\" tool."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "alert-design",
+      "payload": {
+        "text": "Designing alerts that don't suck:\n\n- **Alert on SLO burn rates, not raw thresholds.** \"p99 > 1s\" fires constantly due to variance. \"SLO burn rate of 14x over 1 hour\" fires when there's a real problem worth paging for. This is the Google SRE multi-window multi-burn-rate approach.\n- **Use multiple windows**: short window (5min, high burn rate) for acute outages; long window (1h or 6h, lower burn rate) for chronic problems. Page on the short window, ticket on the long window.\n- **Every page needs a runbook.** The page should link to the runbook for that alert — what to check, what to do, who to escalate to. Without a runbook, the on-call engineer is debugging from zero.\n- **Symptom-based over cause-based.** Don't alert on \"CPU > 90%\" (a cause) — alert on \"user-facing latency exceeds SLO\" (a symptom). The user doesn't care about CPU; they care about latency. Symptom alerts catch problems regardless of cause.\n- **Eliminate flapping.** Alerts that fire and clear repeatedly train the team to ignore them. Add hysteresis (alert at 90%, clear at 80%) and minimum duration (alert only after 5 minutes)."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "on-call",
+      "payload": {
+        "title": "On-call rotation is part of the system",
+        "body": "Alerting only works if there's a human to receive it. A 24/7 on-call rotation with primary + secondary is the standard. Key principles: rotations of 1 week, not 2 (avoid burnout); follow-the-sun for global teams (no one gets woken up at 3am unless it's their daytime); secondary on-call handles escalations; post-on-call debriefs identify which alerts were noise and should be silenced. The team that builds the system runs the system — this creates feedback: noisy alerts get fixed because they affect the people who can fix them.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "alert-fatigue",
+      "payload": {
+        "text": "Alert fatigue is the silent killer of SRE teams. Symptoms:\n\n- On-call gets >10 pages per day.\n- Pages are routinely ignored or auto-dismissed.\n- The team has learned to wait for the second or third page before investigating.\n- Mean time to acknowledge (MTTA) is growing.\n- Engineers dread the on-call rotation.\n\nFixes:\n\n- **Audit every alert**. Was it actionable? If not, silence or convert to a ticket.\n- **Eliminate redundant alerts**. If three alerts fire for the same underlying issue, keep one.\n- **Add hysteresis**. Many flaps are because the metric crosses a threshold briefly. Add minimum duration and clear thresholds.\n- **Move chronic issues to tickets**. Slow SLO burn over 6 hours is a problem but not a 3am page.\n- **Track alert metrics**. Pages per shift, % actionable, MTTA, MTTR. If pages per shift is rising, fix it before burnout.\n\nA team that gets 2-3 actionable pages per shift responds in 5 minutes. A team that gets 50 pages per shift responds in 30. Less is more."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q1",
+      "payload": {
+        "question": "Your team gets 40 pages per day. Most are auto-dismissed. The last three outages took 30+ minutes to acknowledge. What's the diagnosis and the fix?",
+        "shape": "mcq",
+        "options": [
+          "The on-call team is underperforming — train them better.",
+          "Alert fatigue: too many non-actionable alerts have trained the team to ignore pages. Audit every alert, silence non-actionable ones, and target 2-3 actionable pages per shift.",
+          "The alerting tool is broken — switch vendors.",
+          "Add more alerts so no issue is missed."
+        ],
+        "answer_index": 1,
+        "rationale": "This is textbook alert fatigue. When the team is paged 40 times a day, they stop reading pages — they wait for someone to call them or for the second page. The fix is to reduce noise, not add more alerts. Audit every alert: was it actionable (a human can do something), genuine (not flapping), and investigated (warranted attention)? If not, silence it or convert it to a ticket (next business day). The target is 2-3 actionable pages per shift — at that level, the team responds in minutes. More alerts is the opposite of the right answer.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q2",
+      "payload": {
+        "question": "Which alert is best designed?",
+        "shape": "mcq",
+        "options": [
+          "\"CPU > 90% for 5 minutes\" — catches high utilization.",
+          "\"p99 latency exceeds SLO threshold of 500ms with a 14x burn rate over 1 hour\" — symptom-based, SLO-driven, with a runbook link.",
+          "\"Disk usage > 50%\" — catches early.",
+          "\"Any 5xx error\" — catches all errors."
+        ],
+        "answer_index": 1,
+        "rationale": "The SLO burn-rate alert is the Google SRE gold standard. It's symptom-based (alerts on user-visible latency, not a guessed cause like CPU), it accounts for variance (a single p99 spike doesn't fire; sustained burn does), it's tied to the SLO (so it reflects business priorities), and it has a built-in threshold that's meaningful (14x burn = budget will be exhausted in ~2 hours if not fixed). CPU and disk alerts are cause-based and noisy; \"any 5xx\" has no variance tolerance. Every page should also have a runbook attached — without it, on-call is debugging from zero.",
+        "difficulty": "advanced"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q3",
+      "payload": {
+        "question": "What's the difference between a page and a ticket?",
+        "shape": "mcq",
+        "options": [
+          "Pages are urgent and wake someone 24/7; tickets are handled during business hours.",
+          "Pages are for managers; tickets are for engineers.",
+          "Tickets are urgent; pages are not.",
+          "They're the same — just different tools."
+        ],
+        "answer_index": 0,
+        "rationale": "The page/ticket split is the key to avoiding alert fatigue. Pages are for acute issues that need immediate human attention, even at 3am — typically acute SLO burn or heartbeat failures. Tickets are for chronic issues that should be investigated but not at 3am — slow SLO burn over 6h, capacity trends, intermittent errors below the page threshold. The split lets the on-call engineer focus on what's urgent without being woken for what's important but not urgent. Without this split, everything becomes a page, and the urgent gets lost in the noise.",
+        "difficulty": "core"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-alerts-visualization-mental",
+      "payload": {
+        "text": "Engineering mental model",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-alerts-visualization-mental",
+      "payload": {
+        "text": "**Mental model.** Think of Alerts & Visualization as a deliberate boundary in a system. The boundary exists because something becomes harder to manage when everything is done in one place: latency, scale, failure isolation, consistency, cost, or team ownership. The useful question is not “what does Alerts & Visualization mean?” but “what pressure makes this boundary worth introducing, and what new failure mode does it create?”"
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-alerts-visualization-decision",
+      "payload": {
+        "title": "Design lens",
+        "body": "Before choosing Alerts & Visualization, name the workload, the critical user path, the dominant bottleneck, the failure you are trying to absorb, and the trade-off you are willing to accept. If you cannot name those five things, the design is probably premature.",
+        "kind": "info"
+      }
+    },
+    {
+      "type": "image",
+      "id": "upgrade-image-alerts-visualization",
+      "payload": {
+        "src": "/learning-visuals/alerts-visualization.svg",
+        "alt": "Original NO CAP systems visual for Alerts & Visualization.",
+        "caption": "Alerts & Visualization: a compact system-thinking visual.",
+        "credit": "Original NO CAP visual.",
+        "source_url": "https://github.com/donnemartin/system-design-primer"
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "upgrade-mermaid-alerts-visualization",
+      "payload": {
+        "code": "flowchart LR\n  A[Signal] --> B[Collector] --> C[Store] --> D[Rule] --> E[Alert]",
+        "caption": "Alerts & Visualization: a simplified system view showing the primary flow and the main state boundaries.",
+        "alt_text": "Alerts & Visualization: a simplified system view showing the primary flow and the main state boundaries."
+      }
+    },
+    {
+      "type": "code",
+      "id": "upgrade-code-alerts-visualization",
+      "payload": {
+        "language": "text",
+        "code": "// Pseudocode\nrequest = receive()\nresult = alerts_visualization(request)\nreturn result\n\n// Production questions:\n// 1. What happens on timeout?\n// 2. Can this operation be retried safely?\n// 3. What is the bottleneck?",
+        "caption": "A minimal engineering sketch for reasoning about Alerts & Visualization."
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-alerts-visualization-numbers",
+      "payload": {
+        "text": "Back-of-the-envelope reasoning",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-alerts-visualization-numbers",
+      "payload": {
+        "text": "Numerical lens: write down traffic, payload size, read/write ratio, peak multiplier and durability target before choosing a component. The numbers should justify the architecture."
+      }
+    },
+    {
+      "type": "simulation",
+      "id": "upgrade-sim-alerts-visualization",
+      "payload": {
+        "title": "Interactive thought experiment: Alerts & Visualization",
+        "description": "Change the variables below and predict what breaks first in Alerts & Visualization. The production lab can later reuse these same inputs.",
+        "variables": [
+          {
+            "name": "traffic",
+            "description": "Requests/events per second",
+            "default": "1000"
+          },
+          {
+            "name": "latency",
+            "description": "Dependency latency",
+            "default": "50ms"
+          },
+          {
+            "name": "failure_rate",
+            "description": "Injected failure rate",
+            "default": "0%"
+          }
+        ],
+        "placeholder_note": "Interactive controls are deterministic; use the linked Labs section when a dedicated lab exists."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-alerts-visualization-hint",
+      "payload": {
+        "title": "Hint",
+        "body": "If you are stuck on Alerts & Visualization, start by drawing the request path and marking every network hop, stateful component, queue, cache and failure boundary. Then estimate where the system will saturate.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-alerts-visualization-1",
+      "payload": {
+        "shape": "prediction",
+        "question": "You increase traffic by 10× in a system using Alerts & Visualization. What should you inspect first?",
+        "options": [
+          "The newest framework version",
+          "The dominant bottleneck and its saturation signal",
+          "Only the UI",
+          "Nothing; the architecture should absorb any traffic automatically"
+        ],
+        "answer_index": 1,
+        "rationale": "System design is a constraint-and-bottleneck exercise. Start with the resource or dependency that will saturate first, then choose the smallest change that removes that bottleneck.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-alerts-visualization-2",
+      "payload": {
+        "shape": "mcq",
+        "question": "Which statement is the safest engineering habit when using Alerts & Visualization?",
+        "options": [
+          "Choose it because it is popular",
+          "Add it before measuring the problem",
+          "State the workload, failure mode and trade-off it is solving",
+          "Use the most distributed design possible"
+        ],
+        "answer_index": 2,
+        "rationale": "Good architecture starts from requirements, workload and failure assumptions. The component is the consequence of that reasoning, not the starting point.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "scenario",
+      "id": "upgrade-scenario-alerts-visualization",
+      "payload": {
+        "prompt": "Production scenario: your system uses Alerts & Visualization, traffic suddenly spikes, and p99 latency doubles. What is your first move?",
+        "context": "You have dashboards for traffic, latency, errors and saturation. You can change the architecture, but every change has operational cost.",
+        "options": [
+          {
+            "id": "a",
+            "text": "Add more instances immediately",
+            "outcome": "This may help, but only if compute saturation is the bottleneck.",
+            "correct": false
+          },
+          {
+            "id": "b",
+            "text": "Inspect the bottleneck and its saturation signal first",
+            "outcome": "Correct: diagnose before scaling or introducing a new pattern.",
+            "correct": true
+          },
+          {
+            "id": "c",
+            "text": "Disable monitoring to reduce overhead",
+            "outcome": "This removes the evidence you need to diagnose the incident.",
+            "correct": false
+          }
+        ],
+        "rationale": "Measure the limiting resource or dependency first. A bottleneck can be compute, database I/O, network, cache misses, lock contention, downstream latency, or queue backlog.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-alerts-visualization-interview",
+      "payload": {
+        "text": "Interview drill",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-alerts-visualization-interview",
+      "payload": {
+        "text": "**Answer this without notes:** When would you choose Alerts & Visualization, and when would you intentionally avoid it? Mention at least one bottleneck it addresses, one failure mode it introduces, and one alternative. Then quantify the workload you are designing for."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "field-guide-alerts-visualization",
+      "payload": {
+        "title": "Engineering lens",
+        "body": "A useful engineering lens for Alerts & Visualization: define the problem it solves, the simpler design that fails first, the constraint that forces you to introduce this concept, and the new failure modes the concept creates.",
+        "kind": "tip"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "numerical-lens-alerts-visualization",
+      "payload": {
+        "text": "### Numerical sanity check\n\nBack-of-the-envelope reasoning beats fake precision. State your traffic, payload, concurrency and growth assumptions explicitly, then calculate enough to know whether the current architecture is orders of magnitude away from the target."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "field-question-alerts-visualization",
+      "payload": {
+        "shape": "prediction",
+        "question": "Imagine the simplest version of a system using Alerts & Visualization. What breaks first as traffic grows by 10×, and what would you change before reaching 100×?",
+        "context": "Do not optimize for a memorized definition. Reason from the workload and failure mode.",
+        "options": [
+          "Scale the same component immediately.",
+          "Measure the current bottleneck and state the assumption that changed.",
+          "Add more technologies until throughput improves.",
+          "Choose the most popular architecture."
+        ],
+        "answer_index": 1,
+        "rationale": "Good system design starts with the bottleneck and the changed constraint. The most popular or complex choice is not automatically correct.",
+        "difficulty": "interview"
+      }
+    }
+  ],
+  "trade_offs": {
+    "pros": [
+      "Dashboards give at-a-glance visibility into system health.",
+      "Good alerting catches real issues before users notice.",
+      "SLO-based alerting aligns alerts with business priorities.",
+      "Runbook-attached alerts reduce time-to-resolution."
+    ],
+    "cons": [
+      "Alert fatigue from too many non-actionable alerts.",
+      "Cause-based alerts (CPU, disk) fire without user impact.",
+      "Flapping alerts without hysteresis train teams to ignore them.",
+      "Dashboards nobody looks at are wasted engineering."
+    ]
+  },
+  "failure_modes": [
+    "Alert fatigue — too many non-actionable pages, team stops reading them.",
+    "Flapping alerts without hysteresis fire and clear repeatedly.",
+    "Cause-based alerts (\"CPU high\") that don't reflect user impact.",
+    "Dashboards that show too many panels — eye can't find what's important."
+  ],
+  "common_mistakes": [
+    "Alerting on raw thresholds instead of SLO burn rates.",
+    "Alerting on causes (CPU, disk) instead of symptoms (latency, errors).",
+    "Not attaching runbooks to alerts — on-call debugs from zero.",
+    "Not auditing alerts — once-added alerts persist forever, even if useless."
+  ],
+  "where_you_see_it": [
+    "Grafana dashboards + Prometheus alerting + PagerDuty for paging.",
+    "Datadog monitoring + built-in alerting + PagerDuty integration.",
+    "Google SRE's multi-window multi-burn-rate alerting."
+  ],
+  "interview_prompts": [
+    "What is alert fatigue, and how do you prevent it?",
+    "Why alert on SLO burn rates instead of raw thresholds?",
+    "What's the difference between a page and a ticket? Give an example of each.",
+    "What makes a good dashboard?"
+  ],
+  "real_system_mappings": [
+    {
+      "system": "PagerDuty + Grafana + Prometheus",
+      "how": "Open-source stack: Grafana for dashboards, Prometheus for alerting rules, Alertmanager for routing, PagerDuty for paging and on-call rotation. Industry standard."
+    },
+    {
+      "system": "Google SRE Multi-window Multi-burn-rate",
+      "how": "Alerting strategy that pages on high SLO burn over short windows (acute outages) and tickets on lower burn over long windows (chronic problems). Dramatically reduces alert fatigue."
+    }
+  ],
+  "status": "published",
+  "sources": [
+    {
+      "title": "System Design Primer",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Open source"
+    },
+    {
+      "title": "ByteByteGo — Scale from zero to millions",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "ByteByteGo"
+    },
+    {
+      "title": "System Design Tutorial",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "GeeksforGeeks"
+    },
+    {
+      "title": "System Design Roadmap",
+      "url": "https://roadmap.sh/system-design",
+      "publisher": "roadmap.sh"
+    },
+    {
+      "title": "Observability reference",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Observability reference",
+      "url": "https://opentelemetry.io/docs/",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Observability reference",
+      "url": "https://sre.google/sre-book/monitoring-distributed-systems/",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Google SRE Book",
+      "url": "https://sre.google/sre-book/table-of-contents/",
+      "publisher": "Google"
+    }
+  ]
+}

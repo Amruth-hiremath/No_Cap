@@ -1,0 +1,442 @@
+{
+  "slug": "cdn-caching",
+  "version": 4,
+  "title": "CDN Caching",
+  "phase": "cache-aside",
+  "area": "Caching",
+  "estimated_minutes": 7,
+  "difficulty": "core",
+  "summary": "CDN caching stores responses at edge nodes geographically close to users, so a request for static (or stale-while-revalidate-able) content is served from the nearest edge instead of the origin. Latency drops from 100+ ms (cross-continent) to 5-30 ms (local edge), origin load collapses to a small fraction of read traffic, and the system becomes resilient to origin failures. The cost is cache coherence: every edge holds its own copy, and invalidation must propagate to hundreds of POPs.",
+  "why_it_matters": "CDN caching is the standard way to serve static and slowly-changing content at global scale. Every major website — Netflix, YouTube, GitHub, Twitter, Amazon — uses a CDN for static assets, and many use it for API responses too. Without a CDN, a user in Singapore hitting an origin in Virginia pays 200+ ms of network latency per request; with a CDN, the same user pays 20 ms to the Singapore edge POP. The CDN also acts as a DDoS shield (it absorbs the traffic) and as a load shedding layer (origin sees only cache misses). Understanding CDN caching means understanding the architecture of the modern web.",
+  "prerequisites": [
+    "cdn",
+    "caching-strategies"
+  ],
+  "related": [
+    "web-server-caching",
+    "client-caching"
+  ],
+  "used_in": [
+    "Every major website serving static assets.",
+    "Video streaming (Netflix Open Connect, YouTube).",
+    "API response caching (GraphQL persisted queries, public REST endpoints).",
+    "Software distribution (npm, pip, Docker Hub via CloudFront/Fastly)."
+  ],
+  "blocks": [
+    {
+      "type": "prose",
+      "id": "intro",
+      "payload": {
+        "text": "A CDN (Content Delivery Network) is a globally distributed set of cache servers — called POPs (Points of Presence) or edge nodes — that sit between users and your origin. When a user requests a resource, the DNS resolution routes them to the nearest POP (typically via anycast or EDNS client subnet). The POP serves the request from its cache if it has it; otherwise it fetches from the origin, caches the response, and serves it.\n\nThis is fundamentally a cache-aside pattern at the edge: read-through on miss, with TTLs governing freshness. But unlike application-level cache-aside, the CDN cache is geographically distributed — there is no single \"cache node,\" there are hundreds. Each POP maintains its own cache, so the same resource may be cached in 200 different places, with 200 different TTL countdowns, and 200 different invalidation states.\n\nCDN caching is the second layer in the standard cache hierarchy:\n\n```\nclient cache → CDN edge → web server cache → app cache → DB cache → DB\n```\n\nThe client cache is faster (zero network), but only the CDN can serve a *first-visit* user from a nearby POP. Client cache is invisible to the operator; the CDN is operator-controlled and observable. They are complementary: client caching handles repeat visits, CDN handles first visits and global latency."
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "flow",
+      "payload": {
+        "code": "flowchart TD\n    N0[\"WITHOUT\"]\n    N1[\"CDN\"]\n    N2[\"every\"]\n    N3[\"user\"]\n    N4[\"pays\"]\n    N5[\"cross\"]\n    N6[\"continent\"]\n    N7[\"latency\"]\n    N8[\"Singapore\"]\n    N9[\"Virginia, US\"]\n    N10[\"User\"]\n    N11[\"(Singapore)\"]\n    N12[\"220ms\"]\n    N13[\"Origin\"]\n    N14[\"(Virginia,\"]\n    N15[\"US)\"]\n    N16[\"Berlin\"]\n    N17[\"(Berlin)\"]\n    N18[\"110ms\"]\n    N19[\"São Paulo\"]\n    N20[\"(São\"]\n    N21[\"Paulo)\"]\n    N22[\"160ms\"]\n    N23[\"Virginia\"]\n    N24[\"(Virginia)\"]\n    N25[\"10ms\"]\n    N26[\"WITH\"]\n    N27[\"hits\"]\n    N28[\"the\"]\n    N29[\"nearest\"]\n    N30[\"edge\"]\n    N31[\"15ms\"]\n    N32[\"POP\"]\n    N33[\"cache\"]\n    N34[\"hit\"]\n    N35[\"return\"]\n    N36[\"MISS\"]\n    N37[\"Frankfurt\"]\n    N38[\"8ms\"]\n    N39[\"(Frankfurt)\"]\n    N40[\"12ms\"]\n    N41[\"4ms\"]\n    N42[\"typically 1-5% of read traffic\"]\n    N43[\"sees\"]\n    N44[\"only\"]\n    N45[\"MISSES\"]\n    N46[\"(typically\"]\n    N47[\"read\"]\n    N48[\"traffic).\"]\n    N49[\"Latency\"]\n    N50[\"drops\"]\n    N51[\"from\"]\n    N52[\"100\"]\n    N53[\"15ms.\"]\n    N54[\"load\"]\n    N55[\"100x.\"]\n    N56[\"CACHE\"]\n    N57[\"STATE\"]\n    N58[\"PER\"]\n    N59[\"Each\"]\n    N60[\"has\"]\n    N61[\"its\"]\n    N62[\"own\"]\n    N63[\"cache.\"]\n    N64[\"The\"]\n    N65[\"same\"]\n    N66[\"URL\"]\n    N67[\"may\"]\n    N68[\"be:\"]\n    N69[\"different TTLs\"]\n    N70[\"HIT\"]\n    N71[\"POP,\"]\n    N72[\"(different\"]\n    N73[\"TTLs)\"]\n    N74[\"STALE\"]\n    N75[\"one\"]\n    N76[\"FRESH\"]\n    N77[\"another\"]\n    N78[\"Evicted\"]\n    N79[\"present\"]\n    N80[\"Invalidation\"]\n    N81[\"must\"]\n    N82[\"fan\"]\n    N83[\"out\"]\n    N84[\"ALL\"]\n    N85[\"POPs\"]\n    N86[\"that\"]\n    N87[\"have\"]\n    N88[\"content.\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44\n    N44 --> N45\n    N45 --> N46\n    N46 --> N47\n    N47 --> N48\n    N48 --> N49\n    N49 --> N50\n    N50 --> N51\n    N51 --> N52\n    N52 --> N53\n    N53 --> N54\n    N54 --> N55\n    N55 --> N56\n    N56 --> N57\n    N57 --> N58\n    N58 --> N59\n    N59 --> N60\n    N60 --> N61\n    N61 --> N62\n    N62 --> N63\n    N63 --> N64\n    N64 --> N65\n    N65 --> N66\n    N66 --> N67\n    N67 --> N68\n    N68 --> N69\n    N69 --> N70\n    N70 --> N71\n    N71 --> N72\n    N72 --> N73\n    N73 --> N74\n    N74 --> N75\n    N75 --> N76\n    N76 --> N77\n    N77 --> N78\n    N78 --> N79\n    N79 --> N80\n    N80 --> N81\n    N81 --> N82\n    N82 --> N83\n    N83 --> N84\n    N84 --> N85\n    N85 --> N86\n    N86 --> N87\n    N87 --> N88",
+        "caption": "CDN caching: requests route to the nearest edge POP, serving from cache when possible. Origin sees only misses.",
+        "alt_text": "CDN caching diagram. Without a CDN, every user pays cross-continent latency: a user in Singapore to an origin in Virginia pays 220 milliseconds; Berlin 110; São Paulo 160; Virginia 10. With a CDN, every user hits the nearest edge POP: Singapore 15 ms, Berlin 8 ms, São Paulo 12 ms, Virginia 4 ms — and the POP serves from its cache. On a miss, the POP fetches from the origin. The origin sees only cache misses, typically 1 to 5 percent of read traffic. Latency drops from 100 to 220 ms down to 4 to 15 ms, and origin load drops 20 to 100x. Each POP has its own cache: the same URL may be a hit at Singapore, a miss at Frankfurt, stale at one POP and fresh at another, evicted from one and present at another. Invalidation must fan out to all POPs that have the content."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "ttl-layers",
+      "payload": {
+        "text": "**TTLs: `max-age` vs `s-maxage` vs `stale-while-revalidate`.**\n\nCDN caching is governed by HTTP cache headers, but with an important nuance: the CDN (a shared proxy cache) has different TTL semantics than a browser (a private cache). The HTTP spec provides separate directives for each.\n\n- **`Cache-Control: max-age=N`** — applies to all caches (browser AND CDN). The response is fresh for N seconds.\n- **`Cache-Control: s-maxage=N`** — applies ONLY to shared caches (CDN, proxy). Overrides `max-age` for the CDN. Use this when you want the CDN to cache for a long time but the browser to revalidate frequently.\n- **`Cache-Control: stale-while-revalidate=N`** — the CDN may serve stale content for up to N seconds while it revalidates against the origin in the background. This is refresh-ahead at the CDN layer: hot content never misses.\n- **`Cache-Control: private`** — the response is user-specific; CDNs must not cache it (only the user's browser may).\n- **`Cache-Control: public`** — explicitly allows shared caches to store the response (needed when basic auth would otherwise make the response uncacheable).\n\nThe classic pattern for static assets: `Cache-Control: public, max-age=31536000, immutable` — cache for a year, no revalidation, no conditional requests. Combined with versioned URLs (content-hashed filenames), this is the gold standard.\n\nFor API responses that change occasionally: `Cache-Control: public, max-age=60, s-maxage=300, stale-while-revalidate=60` — the browser revalidates every 60s, the CDN caches for 5 minutes, and the CDN may serve stale for an extra 60s while refreshing."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "invalidation",
+      "payload": {
+        "title": "Invalidation is the hard part",
+        "body": "Once a response is cached at hundreds of POPs, updating it requires either (a) waiting for the TTL to expire (minutes to days) or (b) explicitly purging the URL. CDNs offer purge APIs (Cloudflare, CloudFront, Fastly all do), but a global purge takes 10-60 seconds to propagate, and a single purge call does not reach POPs that have evicted the content (no need) or never had it (no need) — that's actually fine. The tricky case is partial purges: purging one URL but not its dependency chain leaves the site in an inconsistent state. The robust pattern is versioned URLs — change the URL when the content changes, and let old URLs age out naturally.",
+        "kind": "warning"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "origin-shield",
+      "payload": {
+        "text": "**Origin shield — protecting the origin from cache miss storms.**\n\nIf a piece of content suddenly becomes viral and many POPs miss at the same time, the origin can still see a burst of requests — one from each POP that just missed. For an origin at capacity, this can be enough to take it down. The standard mitigation is an **origin shield**: a single intermediate cache layer between the POPs and the origin.\n\n```\nPOPs (hundreds) → origin shield (1-2 caches) → origin\n```\n\nWhen POPs miss, they fetch from the shield rather than the origin. The shield collapses concurrent misses: if 100 POPs all request the same URL within 100ms, the shield fetches from the origin once, then serves the result to all 100 POPs. The origin sees one request, not 100. CloudFront calls this a \"shield,\" Fastly calls it an \"origin shield,\" Akamai calls it an \"edge origin.\" The pattern is universal.\n\nOrigin shielding also enables more aggressive caching of the cache-miss path: even a `no-cache` response (must revalidate every time) can be coalesced by the shield so that only one revalidation reaches the origin per interval. This is the same idea as single-flight / request coalescing for cache stampedes, applied at the CDN-to-origin hop."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "when-to-use",
+      "payload": {
+        "text": "**When to use CDN caching:**\n- **Static assets** (JS, CSS, images, fonts, videos). Always.\n- **Public, slowly-changing data** (product catalog, public profiles, landing pages). Short TTL or stale-while-revalidate.\n- **Global user base.** If your users are in one region, an origin cache may be enough; if they are global, a CDN is essential.\n- **API responses that are public and cacheable** (GraphQL persisted queries, public REST endpoints). Use `s-maxage` to keep the browser TTL short while the CDN caches longer.\n- **When you need DDoS protection.** The CDN absorbs the traffic; the origin sees only misses.\n\n**When NOT to use CDN caching:**\n- **User-specific, real-time data** (live chat, real-time dashboards). `private` or `no-store`.\n- **POST/PUT/DELETE responses.** CDNs cache GET and HEAD by default; non-idempotent methods are not cached.\n- **Single-region, low-latency apps** where an origin cache would suffice. The CDN adds a hop for first-visit users.\n- **Highly dynamic content with strict freshness requirements** and no `stale-while-revalidate` tolerance."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q1",
+      "payload": {
+        "question": "Your API returns a public list of trending products that updates every 5 minutes. You want the CDN to cache aggressively but the browser to revalidate every minute. Which headers do you set?",
+        "shape": "mcq",
+        "options": [
+          "`Cache-Control: max-age=300`",
+          "`Cache-Control: max-age=60, s-maxage=300`",
+          "`Cache-Control: no-cache`",
+          "`Cache-Control: max-age=300, private`"
+        ],
+        "answer_index": 1,
+        "rationale": "`max-age=60` tells the browser to cache for 60 seconds then revalidate. `s-maxage=300` overrides `max-age` for shared caches (the CDN), so the CDN caches for 300 seconds. This is the canonical pattern for public data that the CDN can cache longer than individual browsers — the CDN absorbs most read traffic, and the browser still revalidates reasonably often to catch updates. Option 1 would have both browser and CDN cache for 300s (browser too long). Option 3 disables caching entirely. Option 4 (`private`) would prevent the CDN from caching at all, defeating the purpose.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q2",
+      "payload": {
+        "question": "Without an origin shield, a viral URL causes 50 CDN POPs to miss simultaneously and each fetches from the origin. The origin crashes. What would an origin shield have done?",
+        "shape": "mcq",
+        "options": [
+          "It would have prevented the viral spike entirely.",
+          "It would have collapsed the 50 concurrent misses into 1 fetch from the origin, then served the cached response to all 50 POPs.",
+          "It would have purged the URL from all POPs.",
+          "It would have increased the TTL on all POPs."
+        ],
+        "answer_index": 1,
+        "rationale": "An origin shield is a single intermediate cache between the POPs and the origin. When multiple POPs miss at the same time, they all fetch from the shield — and the shield collapses those concurrent misses into one fetch from the origin. The origin sees one request, not 50. The shield then serves the response to all 50 POPs, which cache it and serve their respective users. This is the same single-flight / request-coalescing pattern used to prevent cache stampedes, applied at the CDN-to-origin hop. Without a shield, a viral URL can take down the origin even though every POP has a cache, because the misses are not coalesced.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q3",
+      "payload": {
+        "question": "You deploy a bug fix to a JS bundle. The bundle is served via CDN at `/app.js` with `Cache-Control: max-age=31536000`. Users report still seeing the bug. Why, and what is the standard fix?",
+        "shape": "mcq",
+        "options": [
+          "The CDN is broken — contact the vendor.",
+          "The URL `/app.js` is cached at every POP and every browser for up to a year. The fix is to deploy a versioned URL (`/app.def456.js`) and update the HTML to reference it, so clients fetch the new URL while old URLs age out.",
+          "Purge the URL on the CDN — this will fix all users immediately.",
+          "Set `Cache-Control: no-cache` on the bundle."
+        ],
+        "answer_index": 1,
+        "rationale": "A one-year TTL on a non-versioned URL means the response is cached at every CDN POP and every browser that has visited it, for up to a year. Purging the CDN reaches only the POPs (not the browsers), so browsers will still serve the old version from their local cache until their TTL expires. The standard fix is versioned URLs: deploy the new bundle as `/app.def456.js`, update the HTML to reference the new URL, and clients fetch the new URL because they have never seen it before. The old URL `/app.js` ages out of caches naturally. Combined with `max-age=31536000, immutable`, this gives perfect caching with instant updates. This is the pattern every modern bundler (webpack, Vite) produces by default.",
+        "difficulty": "core"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-cdn-caching-mental",
+      "payload": {
+        "text": "Engineering mental model",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-cdn-caching-mental",
+      "payload": {
+        "text": "**Mental model.** Think of CDN Caching as a deliberate boundary in a system. The boundary exists because something becomes harder to manage when everything is done in one place: latency, scale, failure isolation, consistency, cost, or team ownership. The useful question is not “what does CDN Caching mean?” but “what pressure makes this boundary worth introducing, and what new failure mode does it create?”"
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-cdn-caching-decision",
+      "payload": {
+        "title": "Design lens",
+        "body": "Before choosing CDN Caching, name the workload, the critical user path, the dominant bottleneck, the failure you are trying to absorb, and the trade-off you are willing to accept. If you cannot name those five things, the design is probably premature.",
+        "kind": "info"
+      }
+    },
+    {
+      "type": "image",
+      "id": "upgrade-image-cdn-caching",
+      "payload": {
+        "src": "/learning-visuals/cdn-caching.svg",
+        "alt": "Original NO CAP systems visual for CDN Caching.",
+        "caption": "CDN Caching: a compact system-thinking visual.",
+        "credit": "Original NO CAP visual.",
+        "source_url": "https://github.com/donnemartin/system-design-primer"
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "upgrade-mermaid-cdn-caching",
+      "payload": {
+        "code": "flowchart LR\n  A[Request] --> B[Lookup] --> C[Cache] --> D[Origin] --> E[Response]",
+        "caption": "CDN Caching: a simplified system view showing the primary flow and the main state boundaries.",
+        "alt_text": "CDN Caching: a simplified system view showing the primary flow and the main state boundaries."
+      }
+    },
+    {
+      "type": "code",
+      "id": "upgrade-code-cdn-caching",
+      "payload": {
+        "language": "text",
+        "code": "// Pseudocode\nrequest = receive()\nresult = cdn_caching(request)\nreturn result\n\n// Production questions:\n// 1. What happens on timeout?\n// 2. Can this operation be retried safely?\n// 3. What is the bottleneck?",
+        "caption": "A minimal engineering sketch for reasoning about CDN Caching."
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-cdn-caching-numbers",
+      "payload": {
+        "text": "Back-of-the-envelope reasoning",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-cdn-caching-numbers",
+      "payload": {
+        "text": "Numerical lens: write down traffic, payload size, read/write ratio, peak multiplier and durability target before choosing a component. The numbers should justify the architecture."
+      }
+    },
+    {
+      "type": "simulation",
+      "id": "upgrade-sim-cdn-caching",
+      "payload": {
+        "title": "Interactive thought experiment: CDN Caching",
+        "description": "Change the variables below and predict what breaks first in CDN Caching. The production lab can later reuse these same inputs.",
+        "variables": [
+          {
+            "name": "traffic",
+            "description": "Requests/events per second",
+            "default": "1000"
+          },
+          {
+            "name": "latency",
+            "description": "Dependency latency",
+            "default": "50ms"
+          },
+          {
+            "name": "failure_rate",
+            "description": "Injected failure rate",
+            "default": "0%"
+          }
+        ],
+        "placeholder_note": "Interactive controls are deterministic; use the linked Labs section when a dedicated lab exists."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-cdn-caching-hint",
+      "payload": {
+        "title": "Hint",
+        "body": "If you are stuck on CDN Caching, start by drawing the request path and marking every network hop, stateful component, queue, cache and failure boundary. Then estimate where the system will saturate.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-cdn-caching-1",
+      "payload": {
+        "shape": "prediction",
+        "question": "You increase traffic by 10× in a system using CDN Caching. What should you inspect first?",
+        "options": [
+          "The newest framework version",
+          "The dominant bottleneck and its saturation signal",
+          "Only the UI",
+          "Nothing; the architecture should absorb any traffic automatically"
+        ],
+        "answer_index": 1,
+        "rationale": "System design is a constraint-and-bottleneck exercise. Start with the resource or dependency that will saturate first, then choose the smallest change that removes that bottleneck.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-cdn-caching-2",
+      "payload": {
+        "shape": "mcq",
+        "question": "Which statement is the safest engineering habit when using CDN Caching?",
+        "options": [
+          "Choose it because it is popular",
+          "Add it before measuring the problem",
+          "State the workload, failure mode and trade-off it is solving",
+          "Use the most distributed design possible"
+        ],
+        "answer_index": 2,
+        "rationale": "Good architecture starts from requirements, workload and failure assumptions. The component is the consequence of that reasoning, not the starting point.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "scenario",
+      "id": "upgrade-scenario-cdn-caching",
+      "payload": {
+        "prompt": "Production scenario: your system uses CDN Caching, traffic suddenly spikes, and p99 latency doubles. What is your first move?",
+        "context": "You have dashboards for traffic, latency, errors and saturation. You can change the architecture, but every change has operational cost.",
+        "options": [
+          {
+            "id": "a",
+            "text": "Add more instances immediately",
+            "outcome": "This may help, but only if compute saturation is the bottleneck.",
+            "correct": false
+          },
+          {
+            "id": "b",
+            "text": "Inspect the bottleneck and its saturation signal first",
+            "outcome": "Correct: diagnose before scaling or introducing a new pattern.",
+            "correct": true
+          },
+          {
+            "id": "c",
+            "text": "Disable monitoring to reduce overhead",
+            "outcome": "This removes the evidence you need to diagnose the incident.",
+            "correct": false
+          }
+        ],
+        "rationale": "Measure the limiting resource or dependency first. A bottleneck can be compute, database I/O, network, cache misses, lock contention, downstream latency, or queue backlog.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-cdn-caching-interview",
+      "payload": {
+        "text": "Interview drill",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-cdn-caching-interview",
+      "payload": {
+        "text": "**Answer this without notes:** When would you choose CDN Caching, and when would you intentionally avoid it? Mention at least one bottleneck it addresses, one failure mode it introduces, and one alternative. Then quantify the workload you are designing for."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "field-guide-cdn-caching",
+      "payload": {
+        "title": "Engineering lens",
+        "body": "For CDN Caching, reason in this order: what data is hottest, where can it live closer to the caller, what makes it stale, and what happens on a miss or cache failure. A cache is an optimization boundary, not the source of truth.",
+        "kind": "tip"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "numerical-lens-cdn-caching",
+      "payload": {
+        "text": "### Numerical sanity check\n\nA useful first-order model is cache_load = request_rate × (1 - hit_rate). If traffic is 20,000 req/s and the hit rate is 90%, roughly 2,000 req/s still reaches the origin before considering misses caused by expiration or eviction."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "field-question-cdn-caching",
+      "payload": {
+        "shape": "prediction",
+        "question": "You have a read-heavy CDN Caching path. Traffic doubles overnight. What metric would you inspect first, and what would convince you to add another cache layer?",
+        "context": "Do not optimize for a memorized definition. Reason from the workload and failure mode.",
+        "options": [
+          "Scale the same component immediately.",
+          "Measure the current bottleneck and state the assumption that changed.",
+          "Add more technologies until throughput improves.",
+          "Choose the most popular architecture."
+        ],
+        "answer_index": 1,
+        "rationale": "Good system design starts with the bottleneck and the changed constraint. The most popular or complex choice is not automatically correct.",
+        "difficulty": "interview"
+      }
+    }
+  ],
+  "trade_offs": {
+    "pros": [
+      "Latency drops from 100-220ms (cross-continent) to 4-30ms (local edge).",
+      "Origin load drops 20-100x — only cache misses reach the origin.",
+      "DDoS shield — the CDN absorbs traffic; the origin sees only misses.",
+      "Global horizontal scale — every POP is its own cache, no shared state.",
+      "Resilient to origin failures — POPs can serve stale content (`stale-if-error`) while the origin recovers."
+    ],
+    "cons": [
+      "Cache coherence is hard — each POP has its own cache; invalidation must fan out.",
+      "Cost — CDNs charge per GB transferred ($0.01-0.10/GB), can become expensive at video scale.",
+      "First-visit miss — every URL must be fetched from the origin once per POP.",
+      "Non-cacheable content (POST, user-specific) bypasses the CDN, adding a hop.",
+      "Vendor lock-in — purge APIs and config differ between Cloudflare/CloudFront/Fastly/Akamai."
+    ]
+  },
+  "failure_modes": [
+    "Viral URL without origin shield → concurrent misses from many POPs overwhelm the origin.",
+    "Long TTL on non-versioned URL → buggy response cached for months at every POP and browser.",
+    "Purge takes 10-60 seconds to propagate globally → brief window of inconsistency.",
+    "Cache key collisions — including or excluding query params changes the cache key, causing leaks or misses.",
+    "`private` content cached at the CDN due to misconfigured headers → cross-user data leak.",
+    "Stale content served after origin recovers from failure if `stale-if-error` TTL is too long."
+  ],
+  "common_mistakes": [
+    "Forgetting `s-maxage` — using `max-age` for both browser and CDN when they should differ.",
+    "Caching user-specific responses without `private` — cross-user data leakage via shared POP caches.",
+    "Long TTLs on non-versioned URLs — buggy responses cached for the full TTL at every POP and browser.",
+    "Not enabling origin shield on viral content — origin crashes despite the CDN absorbing 95% of traffic.",
+    "Treating CDN purge as instant — it is eventual (seconds to minutes); design for the propagation window.",
+    "Caching POST responses by accident — most CDNs only cache GET/HEAD by default; misconfiguration can cache state-changing requests."
+  ],
+  "where_you_see_it": [
+    "Every major website — static assets via CDN.",
+    "Netflix Open Connect — purpose-built CDN for video delivery.",
+    "npm registry, Docker Hub, PyPI — software distribution via CloudFront/Fastly.",
+    "GitHub Pages and raw.githubusercontent.com — served via Fastly.",
+    "API response caching for public REST endpoints (e.g., GitHub public API)."
+  ],
+  "interview_prompts": [
+    "Design the caching strategy for a global e-commerce site with static assets, product pages, and per-user cart.",
+    "How would you handle a viral URL on a CDN-backed site to prevent origin overload?",
+    "What is the difference between `max-age`, `s-maxage`, and `stale-while-revalidate`? When would you use each?",
+    "How would you deploy a hotfix to a JS bundle that is CDN-cached with a 1-year TTL?",
+    "When would you NOT use a CDN, even for static content?"
+  ],
+  "real_system_mappings": [
+    {
+      "system": "Netflix Open Connect",
+      "how": "Netflix's purpose-built CDN distributes video chunks to ISP-embedded Open Connect Appliances (OCAs) — caching video at the ISP edge so streaming traffic never reaches Netflix's origin. The canonical example of CDN caching for video at planetary scale."
+    },
+    {
+      "system": "Cloudflare / CloudFront / Fastly / Akamai",
+      "how": "The major commercial CDNs. Cloudflare has 300+ POPs; CloudFront integrates with AWS origin (S3, ALB); Fastly offers instant purges (sub-second); Akamai is the original. All implement `s-maxage`, `stale-while-revalidate`, and origin shielding."
+    },
+    {
+      "system": "GitHub raw content and Pages",
+      "how": "GitHub serves raw.githubusercontent.com and Pages sites through Fastly, with aggressive caching of static content. Hot JS bundles in popular repos are served from edge POPs globally with sub-30ms latency."
+    },
+    {
+      "system": "npm registry / Docker Hub / PyPI",
+      "how": "Software package registries use CloudFront/Cloudflare to cache package tarballs at the edge. A globally popular package (e.g., `react`) is served from edge POPs, not from the central registry."
+    }
+  ],
+  "status": "published",
+  "sources": [
+    {
+      "title": "System Design Primer",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Open source"
+    },
+    {
+      "title": "ByteByteGo — Scale from zero to millions",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "ByteByteGo"
+    },
+    {
+      "title": "System Design Tutorial",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "GeeksforGeeks"
+    },
+    {
+      "title": "System Design Roadmap",
+      "url": "https://roadmap.sh/system-design",
+      "publisher": "roadmap.sh"
+    },
+    {
+      "title": "Caching reference",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Caching reference",
+      "url": "https://aws.amazon.com/caching/",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Caching reference",
+      "url": "https://redis.io/docs/latest/develop/get-started/",
+      "publisher": "Reference"
+    }
+  ]
+}

@@ -31,7 +31,6 @@ export default function HomePage() {
 
   const streak = useStore((s) => s.streak);
   const lastVisited = useStore((s) => s.last_visited_concept);
-  const lastPosition = useStore((s) => s.last_visited_position);
   const mastery = useStore((s) => s.mastery);
   const review_items = useStore((s) => s.review_items);
   const dueReviews = useMemo(() => {
@@ -216,7 +215,7 @@ export default function HomePage() {
             </p>
             <p className="mt-1 text-xs text-text-muted">
               {continueConcept.area} · {continueConcept.estimated_minutes} min
-              {lastPosition > 100 && ' · scroll position saved'}
+              {mounted && lastVisited && ' · scroll position saved'}
             </p>
             <Link
               href={`/concepts/${continueConcept.slug}`}

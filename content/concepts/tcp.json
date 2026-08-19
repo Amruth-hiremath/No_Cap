@@ -1,0 +1,546 @@
+{
+  "slug": "tcp",
+  "version": 3,
+  "title": "TCP — Transmission Control Protocol",
+  "phase": "networking-communication",
+  "area": "Networking & Communication",
+  "estimated_minutes": 9,
+  "difficulty": "core",
+  "summary": "TCP is the connection-oriented, reliable, ordered transport protocol that carries most of the internet's traffic — HTTP, HTTPS, gRPC, SSH, SMTP, databases, message queues. It achieves reliability on top of an unreliable IP network through sequence numbers, acknowledgements, retransmission, flow control, and congestion control. Understanding TCP is understanding why your HTTP request takes 100ms before it can even send a byte.",
+  "why_it_matters": "TCP is the substrate of nearly every web service. Its handshake costs a round-trip before data flows. Its head-of-line blocking means one lost packet stalls every concurrent request on the connection. Its congestion control (slow start, AIMD) explains why a fresh connection is slow and why throughput ramps up over time. If you cannot reason about TCP, you cannot reason about latency, throughput, or the design decisions behind HTTP/2, HTTP/3, and QUIC.",
+  "prerequisites": [
+    "http"
+  ],
+  "related": [
+    "udp",
+    "tls",
+    "quic",
+    "websockets"
+  ],
+  "used_in": [
+    "HTTP/1.1 and HTTP/2 (HTTP/3 uses QUIC over UDP).",
+    "All database connections (Postgres, MySQL, MongoDB).",
+    "SSH, SMTP, FTP, gRPC, WebSockets — every reliable transport."
+  ],
+  "blocks": [
+    {
+      "type": "prose",
+      "id": "intro",
+      "payload": {
+        "text": "TCP sits on top of IP and adds four things IP does not give you: **reliability** (every byte arrives or you find out), **ordering** (bytes arrive in the order you sent them), **flow control** (the sender does not overwhelm the receiver), and **congestion control** (the network does not collapse under load). The cost of these guarantees is complexity, latency, and head-of-line blocking.\n\nTCP is **connection-oriented**: before any data flows, the two endpoints run a handshake to agree on initial sequence numbers and capabilities. The connection has state — sequence numbers, window sizes, congestion variables — that both sides maintain for the lifetime of the connection. Closing a connection is itself a multi-packet ceremony (the four-way FIN/ACK handshake). This state is why TCP is heavier than UDP and why each connection consumes kernel memory (typically tens of KB)."
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "handshake",
+      "payload": {
+        "code": "flowchart TD\n    N0[\"Connection Setup\"]\n    N1[\"Three\"]\n    N2[\"Way\"]\n    N3[\"Handshake\"]\n    N4[\"(Connection\"]\n    N5[\"Setup)\"]\n    N6[\"Client\"]\n    N7[\"Server\"]\n    N8[\"1\"]\n    N9[\"SYN,\"]\n    N10[\"seq\"]\n    N11[\"(1)\"]\n    N12[\"picks\"]\n    N13[\"random\"]\n    N14[\"2\"]\n    N15[\"SYN\"]\n    N16[\"ACK,\"]\n    N17[\"ack\"]\n    N18[\"(2)\"]\n    N19[\"its\"]\n    N20[\"own\"]\n    N21[\"seq,\"]\n    N22[\"acks\"]\n    N23[\"client's\"]\n    N24[\"3\"]\n    N25[\"(3)\"]\n    N26[\"server's\"]\n    N27[\"data\"]\n    N28[\"can\"]\n    N29[\"now\"]\n    N30[\"flow\"]\n    N31[\"Four-Way Fin\"]\n    N32[\"Teardown\"]\n    N33[\"(Four\"]\n    N34[\"Fin)\"]\n    N35[\"FIN\"]\n    N36[\"ACK\"]\n    N37[\"TIME_WAIT 2*MSL before close\"]\n    N38[\"(TIME_WAIT\"]\n    N39[\"2*MSL\"]\n    N40[\"before\"]\n    N41[\"close)\"]\n    N42[\"Latency\"]\n    N43[\"cost:\"]\n    N44[\"RTT\"]\n    N45[\"first\"]\n    N46[\"byte.\"]\n    N47[\"TLS 1.2: 2 RTT; TLS 1.3: 1 RTT\"]\n    N48[\"TLS\"]\n    N49[\"adds\"]\n    N50[\"another\"]\n    N51[\"top\"]\n    N52[\"(TLS\"]\n    N53[\"1.2:\"]\n    N54[\"RTT;\"]\n    N55[\"1.3:\"]\n    N56[\"RTT).\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44\n    N44 --> N45\n    N45 --> N46\n    N46 --> N47\n    N47 --> N48\n    N48 --> N49\n    N49 --> N50\n    N50 --> N51\n    N51 --> N52\n    N52 --> N53\n    N53 --> N54\n    N54 --> N55\n    N55 --> N56",
+        "caption": "TCP three-way handshake and four-way teardown. The handshake alone costs one round-trip before any application data can be sent.",
+        "alt_text": "A sequence diagram of the TCP three-way handshake between a client and a server. Step one: the client sends SYN with a random sequence number x. Step two: the server responds with SYN-ACK containing its own sequence number y and an acknowledgement of x plus one. Step three: the client sends ACK acknowledging y plus one. Only then can data flow. The teardown is a four-way FIN exchange with a TIME_WAIT state lasting two times the maximum segment lifetime. The handshake costs one round trip before the first byte; TLS adds one or two more round trips on top."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "reliability",
+      "payload": {
+        "text": "TCP's reliability is built from three mechanisms layered on top of IP's best-effort delivery.\n\n**Sequence numbers and acknowledgements.** Every byte sent has a sequence number. The receiver acknowledges the next byte it expects. If the sender does not see an ACK within the retransmission timeout (RTO, typically 200ms-1s, computed from smoothed RTT measurements), it resends. This is how TCP recovers from packet loss without involving the application.\n\n**Cumulative ACKs.** An ACK for byte N means 'I have received everything up to N-1.' If the receiver gets bytes 1, 2, 4 (3 was lost), it ACKs byte 3 — telling the sender 'I am still waiting for 3.' The sender's retransmission timer eventually fires for byte 3.\n\n**Fast retransmit.** When the sender sees three duplicate ACKs for the same byte, it infers a loss and retransmits immediately without waiting for the RTO. Three dup-ACKs is a strong signal because each dup-ACK means a later segment arrived — the missing one is probably gone, not just delayed.\n\nThese mechanisms give you the guarantee every web developer takes for granted: you send bytes, the receiver gets them in order, or you find out the connection died. The application never has to deal with lost or reordered packets."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "flow-vs-congestion",
+      "payload": {
+        "text": "**Flow control** protects the receiver. The receiver advertises a 'window' in every ACK — how many bytes of buffer it has free. The sender never sends more than the window. If the receiver's app is slow to read, the window shrinks; the sender slows down. If the window hits zero, the sender periodically probes with one byte to detect when the window reopens. Flow control is purely point-to-point: it stops the sender from overwhelming the receiver.\n\n**Congestion control** protects the network. Without it, every TCP sender would blast packets as fast as their sender window allowed, and routers would drop packets en masse, triggering retransmissions, triggering more drops — congestion collapse. The internet survived the 1986 congestion collapse because Van Jacobson added congestion control to TCP in 1988.\n\nThe classic algorithm has four phases:\n\n- **Slow start**: start by sending a small window (1-10 segments), double it every RTT without loss. Exponential growth gets you to bandwidth quickly.\n- **Congestion avoidance**: when the window crosses a 'slow start threshold', switch to linear growth — add one segment per RTT. Probe for bandwidth gently.\n- **Fast retransmit**: on three dup-ACKs, retransmit the missing segment without waiting for RTO.\n- **Multiplicative decrease**: on loss, halve the window (and reset slow-start threshold to half the current window). AIMD — additive increase, multiplicative decrease — is provably fair across competing flows.\n\nModern variants (CUBIC, BBR) tune the math, but the structure is the same: probe up, back off hard on loss. The practical consequence: a fresh TCP connection starts slow and ramps up over ~10 RTTs to its steady-state throughput. This is why persistent connections and connection pools are critical for performance — you do not want to pay slow start on every request."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "head-of-line",
+      "payload": {
+        "title": "Head-of-line blocking — TCP's biggest modern problem",
+        "body": "TCP guarantees in-order delivery. If segment 3 of a stream is lost, segment 4 (which arrived fine) sits in the receiver's buffer until segment 3 is retransmitted. The application cannot see segment 4 even though it is there. This is head-of-line blocking. On a single HTTP/1.1 connection it is manageable (you are processing one request at a time). On an HTTP/2 multiplexed connection, it is brutal: 50 parallel requests all stall because one packet was lost, even though only one logical stream cares about that packet. This is the reason HTTP/3 abandons TCP for QUIC.",
+        "kind": "warning"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "vs-udp",
+      "payload": {
+        "text": "**TCP vs UDP** is the transport decision. TCP offers reliability, ordering, flow control, and congestion control — at the cost of setup latency (1 RTT handshake), state per connection, head-of-line blocking, and the kernel doing work on every packet. UDP offers none of those — you send datagrams, they may arrive, may not, may arrive out of order. The application gets a thin pipe and builds what it needs on top.\n\nUse TCP when:\n- The data must arrive completely and in order (HTTP, file transfer, database queries, SSH).\n- You do not want to reimplement reliability.\n- The latency cost of the handshake is amortized over a long connection (keep-alive, connection pools).\n\nUse UDP when:\n- Late data is useless (voice, video — a 200ms-old audio frame is noise, retransmitting it makes things worse).\n- The application has its own reliability semantics (DNS — just retry the whole query).\n- You need to avoid head-of-line blocking across independent streams (QUIC, HTTP/3).\n- You are building a custom congestion control (WebRTC, QUIC).\n\nThe modern trend is to push reliability, ordering, and congestion control out of the kernel and into the application layer over UDP — so the application can make smarter decisions (per-stream reliability, 0-RTT setup, connection migration). QUIC is the proof: it implements TCP's guarantees on top of UDP, adds TLS, removes head-of-line blocking, and now carries a meaningful fraction of the internet's traffic."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q1",
+      "payload": {
+        "question": "Why does a fresh TCP connection feel slow for the first few requests, even on a fast network?",
+        "shape": "mcq",
+        "options": [
+          "TCP negotiates bandwidth with the router on connect, which takes time.",
+          "Slow-start begins with a small congestion window and doubles each RTT, so it takes several round-trips to reach full throughput.",
+          "The three-way handshake consumes most of the connection's lifetime.",
+          "TCP requires the receiver to send a credit check before accepting data."
+        ],
+        "answer_index": 1,
+        "rationale": "Slow start is the answer. A new TCP connection has no idea what the network's available bandwidth is, so it starts with a tiny congestion window (1-10 segments) and doubles it every RTT without loss. On a 100ms RTT link, that means 5-10 RTTs (0.5-1 second) before you reach full throughput. The handshake itself is only 1 RTT — noticeable but not the main cost. This is why production systems keep connections alive (HTTP keep-alive, database connection pools) so the second request does not pay slow start again. Modern TCP variants like BBR and TCP Fast Open reduce but do not eliminate this cost.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q2",
+      "payload": {
+        "question": "On an HTTP/2 connection multiplexing 50 concurrent requests, one packet is lost. What is the impact, and why does it motivate HTTP/3's move to QUIC over UDP?",
+        "shape": "mcq",
+        "options": [
+          "All 50 requests stall until the lost packet is retransmitted, because TCP delivers bytes in order across the whole connection.",
+          "Only the request whose packet was lost stalls; the other 49 continue because HTTP/2 multiplexes streams independently.",
+          "The connection drops and all 50 requests must be retried over a new connection.",
+          "No impact — HTTP/2 has its own reliability layer above TCP."
+        ],
+        "answer_index": 0,
+        "rationale": "This is head-of-line blocking at the transport layer. TCP guarantees in-order delivery of the byte stream; HTTP/2 multiplexes 50 logical streams over that one byte stream. When a TCP segment is lost, all bytes after it are stuck in the receiver's kernel buffer until the retransmission arrives — even bytes belonging to streams whose data already arrived. The application cannot see them. HTTP/2 solved application-layer head-of-line blocking (multiple HTTP/1.1 connections queued behind each other) but introduced transport-layer head-of-line blocking because it still runs on TCP. HTTP/3 fixes this by running each stream over its own independent flow within QUIC, so a loss on stream A does not stall stream B.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q3",
+      "payload": {
+        "question": "Which of these applications should choose UDP instead of TCP, and why?",
+        "shape": "mcq",
+        "options": [
+          "A file download — latency is not critical and every byte must arrive.",
+          "A database replication stream — missing a transaction is unacceptable.",
+          "Live video conferencing — a late frame is useless and retransmitting it makes things worse.",
+          "An SSH session — every keystroke must reach the server in order."
+        ],
+        "answer_index": 2,
+        "rationale": "Live video conferencing is the textbook case for UDP. A video frame that arrives 200ms late is not 'correct data, slightly delayed' — it is useless, because the next frame has already been displayed. Retransmitting it via TCP would consume bandwidth and queue behind the current frame, making latency worse. UDP lets the sender fire-and-forget; the receiver just shows whatever arrives and ignores gaps. Modern codecs (Opus, VP8) are designed to tolerate loss. The other three — file downloads, database replication, SSH — all require reliable, ordered delivery and have no concept of 'late is useless'. They want TCP (or a TCP-equivalent like QUIC).",
+        "difficulty": "core"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "handshake-deep",
+      "payload": {
+        "text": "**The three-way handshake, annotated.** Why does TCP need three packets, not two? The goal is for both sides to agree on initial sequence numbers (ISNs). Sequence numbers are not '1, 2, 3...' — they start at a random 32-bit value to prevent packet injection attacks (an attacker who can predict the ISN can forge packets that look like they belong to an existing connection).\n\nThe flow:\n1. **SYN** — Client picks a random ISN `x` and sends `SYN, seq=x`. This says 'I want to talk; my stream will start at byte x.'\n2. **SYN+ACK** — Server picks its own random ISN `y` and sends `SYN, seq=y, ack=x+1`. This says 'I want to talk too; my stream starts at byte y; I acknowledge your SYN by sending ack=x+1 (meaning I expect byte x+1 next, which proves I got your x).'\n3. **ACK** — Client sends `ACK, ack=y+1`, proving it received the server's SYN.\n\nAfter step 3, both sides know each other's ISNs and can begin exchanging data. The first byte of application data can be piggybacked on this ACK (TCP Fast Open), but most clients don't use it.\n\nThis is **1 RTT** — one round trip from SYN to data-flow. For HTTPS, add 1 RTT for TLS 1.3 (or 2 RTT for TLS 1.2). So a fresh HTTPS connection to a server 100ms away costs 200-300ms before the first byte of HTTP response. This is why connection reuse is so valuable: amortize the handshake across many requests."
+      }
+    },
+    {
+      "type": "video",
+      "id": "upgrade-video-tcp",
+      "payload": {
+        "provider": "youtube",
+        "video_id": "Z6QEDisuGoU",
+        "title": "How the Internet Works — DNS, TCP, HTTP explained",
+        "description": "Supplementary explanation. The NO CAP lesson remains self-contained.",
+        "source_url": "https://www.youtube.com/watch?v=Z6QEDisuGoU"
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "handshake-sequence",
+      "payload": {
+        "code": "sequenceDiagram\n    participant C as Client\n    participant S as Server\n    Note over C: pick ISN x (random)\n    C->>S: SYN, seq=x\n    Note right of S: pick ISN y (random)\n    S->>C: SYN+ACK, seq=y, ack=x+1\n    Note left of C: server's SYN seen\n    C->>S: ACK, ack=y+1\n    Note over C,S: 1 RTT elapsed - data can now flow\n    C->>S: GET /api/users (seq=x+1)\n    S->>C: 200 OK + body (seq=y+1)\n    Note over C,S: Teardown: 4-way FIN exchange\n    C->>S: FIN, seq=m\n    S->>C: ACK, ack=m+1\n    Note right of S: half-closed: server can still send\n    S->>C: FIN, seq=n\n    C->>S: ACK, ack=n+1\n    Note left of C: TIME_WAIT 2*MSL (~60-120s)\n    Note over C,S: TIME_WAIT catches stray FIN retransmissions<br/>so a delayed packet can't corrupt a future conn<br/>with the same 4-tuple",
+        "caption": "TCP three-way handshake and four-way teardown. The handshake costs one RTT before data flows. TIME_WAIT on the closer side lasts 2×MSL (typically 60-120s) to absorb stray retransmissions.",
+        "alt_text": "Sequence diagram of TCP handshake and teardown. The client picks a random ISN x and sends SYN. The server picks random ISN y and sends SYN+ACK with ack=x+1. The client sends ACK with ack=y+1. One RTT has elapsed and data can flow. After data exchange, teardown is a four-way FIN exchange: client sends FIN, server ACKs (now half-closed), server sends FIN, client ACKs. The client enters TIME_WAIT for 2xMSL (~60-120 seconds) to catch stray retransmissions so they can't corrupt a future connection with the same 4-tuple."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "flow-vs-congestion-comparison",
+      "payload": {
+        "text": "**Flow control vs congestion control — same shape, different problems.** Both use a 'window' (a cap on in-flight bytes), but they protect different things and respond to different signals.\n\n| Aspect | Flow control | Congestion control |\n|--------|--------------|--------------------|\n| Protects | The receiver (don't overflow its buffer) | The network (don't collapse it) |\n| Signal | Receiver advertises `rwnd` in every ACK | Inferred from loss (3 dup-ACKs or RTO timeout) |\n| Window name | Receive window (rwnd) | Congestion window (cwnd) |\n| Effective window | `min(rwnd, cwnd)` | `min(rwnd, cwnd)` |\n| Algorithm | Sliding window, fixed cap per ACK | Slow start → congestion avoidance → fast retransmit → multiplicative decrease |\n| Tunable by app? | No — kernel-managed | No — kernel-managed (BBR/CUBIC selectable) |\n\nThe sender's actual send window is `min(rwnd, cwnd)` — the lesser of what the receiver can absorb and what the network can carry. If the receiver is slow (small rwnd), flow control binds. If the network is lossy (small cwnd), congestion control binds. They're independent mechanisms that compose.\n\nThe practical implication for system design: if a TCP connection feels slow to ramp up, it's almost always congestion control (slow start). If it stalls mid-stream, it's almost always flow control (the receiver app isn't reading fast enough). Diagnose accordingly."
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "head-of-line-blocking",
+      "payload": {
+        "code": "flowchart TD\n    subgraph HTTP2[TCP connection carrying HTTP/2 streams]\n        direction LR\n        S1[Stream 1: GET /api/users]\n        S2[Stream 2: GET /api/orders]\n        S3[Stream 3: GET /api/products]\n        S4[Stream 4: GET /api/reviews]\n        S5[Stream 5: GET /api/cart]\n    end\n    Loss[TCP segment for<br/>stream 3 lost in network]\n    Loss --> S3\n    Buf1[Streams 4,5 data<br/>arrived at receiver<br/>BUT blocked in kernel buffer]\n    Buf2[Stream 1,2 data<br/>also blocked if they<br/>arrive after the loss]\n    S3 --> Buf1\n    S4 -.->|data arrived but stuck| Buf1\n    S5 -.->|data arrived but stuck| Buf1\n    S3 -.->|waiting for retransmit| Buf2\n    Retx[Retransmission<br/>1 RTT later]\n    Retx --> Drain[All streams unblock at once]\n    Buf1 --> Drain\n    Buf2 --> Drain\n    classDef lost fill:#fee,stroke:#c33,color:#900\n    classDef stuck fill:#fff4e5,stroke:#cc7a00,color:#995500\n    classDef ok fill:#e6f4ea,stroke:#188038,color:#0d652d\n    class Loss lost\n    class Buf1,Buf2 stuck\n    class Drain ok",
+        "caption": "TCP head-of-line blocking on an HTTP/2 connection. A single lost segment for stream 3 stalls all multiplexed streams — even streams whose data already arrived — until stream 3's segment is retransmitted.",
+        "alt_text": "A flowchart showing TCP head-of-line blocking on an HTTP/2 connection. Five streams are multiplexed over one TCP connection. A segment belonging to stream 3 is lost in the network. Data from streams 4 and 5 arrives at the receiver but is stuck in the kernel buffer waiting for stream 3's retransmission. After one retransmission RTT, all streams unblock at once. This is the failure mode that motivated HTTP/3's move to QUIC over UDP, where streams are independent."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "http3-quic-real-example",
+      "payload": {
+        "title": "Real system: how HTTP/3 solves TCP's limitations",
+        "body": "HTTP/3 runs over QUIC, which is itself over UDP. QUIC reimplements TCP's reliability (sequence numbers, ACKs, retransmission, congestion control) in user-space — but with three key differences TCP cannot match: (1) **Independent streams** — a loss on stream 3 doesn't block streams 1, 2, 4-20. (2) **0-RTT connection setup** — resumed connections send HTTP data in the very first packet by combining the TLS handshake with the QUIC handshake. (3) **Connection migration** — a QUIC connection is identified by a connection ID, not a 4-tuple, so when your phone switches from Wi-Fi to cellular (IP changes), the connection survives — no re-handshake. Google measured a 3% improvement in YouTube watch time after deploying QUIC. Cloudflare serves ~50% of its traffic over HTTP/3 today. The cost: QUIC is implemented in user-space, so it consumes more CPU than kernel TCP — but the latency wins are worth it for most workloads.",
+        "kind": "tip"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q-tcp-vs-quic",
+      "payload": {
+        "question": "Your mobile app keeps a long-lived HTTPS connection to your backend. Users complain that when they switch from Wi-Fi to cellular mid-session, the app freezes for 5+ seconds before recovering. What's happening, and what fixes it?",
+        "shape": "mcq",
+        "options": [
+          "TCP slow start restarts because the connection's RTT estimate is stale.",
+          "TCP connections are identified by the 4-tuple (src IP, src port, dst IP, dst port). When Wi-Fi → cellular changes the source IP, the kernel sees a 'different' connection and tears down the old one — the app must reconnect and pay the TCP+TLS handshake again. QUIC's connection ID survives IP changes.",
+          "TLS certificate pinning rejects the new IP.",
+          "The cellular carrier rate-limits new connections."
+        ],
+        "answer_index": 1,
+        "rationale": "TCP identifies a connection by its 4-tuple (source IP, source port, destination IP, destination port). When your phone switches from Wi-Fi to cellular, the source IP changes — so the existing TCP connection is now invalid from the kernel's perspective. The app's socket either times out or gets a RST, and the app must establish a new TCP connection (1 RTT) + new TLS handshake (1 RTT for TLS 1.3) before it can send another request. On a 100ms cellular RTT, that's ~200-300ms minimum — but the app often doesn't detect the failure for several seconds (waiting for TCP retransmission timeouts), which is where the 5-second freeze comes from. QUIC fixes this by identifying connections with a random connection ID instead of the 4-tuple. When the phone switches networks, QUIC packets with the same connection ID are recognized as belonging to the same logical connection — no re-handshake, no app freeze. This is one of the three big wins QUIC has over TCP (along with no head-of-line blocking and 0-RTT setup).",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "scenario",
+      "id": "scenario-connection-pool",
+      "payload": {
+        "prompt": "Your Postgres-backed API opens a new database connection per request to keep the code simple. At 100 RPS this works fine. At 1,000 RPS, latency jumps from 20ms to 400ms and Postgres starts refusing connections. Diagnose the root cause and pick the fix.",
+        "context": "Each new TCP connection to Postgres pays: TCP handshake (1 RTT), TLS handshake if used (1-2 RTT), Postgres startup message + auth (1 RTT), and TCP slow start on the first query (several RTTs to ramp up cwnd). On a 1ms-RTT LAN this is invisible. On a 5ms-RTT link, each new connection is ~30ms of setup before any data flows.",
+        "options": [
+          {
+            "id": "a",
+            "text": "Add more Postgres instances behind PgBouncer.",
+            "outcome": "Helps with throughput but doesn't fix the per-connection handshake tax. You're paying 30ms setup on every request, regardless of how many Postgres backends you have.",
+            "correct": false
+          },
+          {
+            "id": "b",
+            "text": "Use a connection pool (PgBouncer in transaction-pooling mode, or a client-side pool like HikariCP). Reuse connections across requests.",
+            "outcome": "Correct — pays the TCP + TLS + Postgres startup cost once per connection, not once per request. 100 connections handling 1,000 RPS = 10 req/s/conn, well within TCP's keep-alive envelope.",
+            "correct": true
+          },
+          {
+            "id": "c",
+            "text": "Switch from Postgres to a NoSQL database that doesn't have this problem.",
+            "outcome": "Wrong diagnosis — every database with a TCP connection has this problem. Connection setup cost is a transport-layer issue, not a database issue.",
+            "correct": false
+          },
+          {
+            "id": "d",
+            "text": "Increase Postgres's max_connections to 10,000.",
+            "outcome": "Postgres forks a process per connection — 10,000 processes will exhaust kernel memory and tank performance. You've masked the symptom and made the underlying problem worse.",
+            "correct": false
+          }
+        ],
+        "rationale": "Every new TCP connection pays: 3-way handshake (1 RTT), optional TLS handshake (1-2 RTT), Postgres startup + auth (1 RTT), and slow start on the first query (multiple RTTs to ramp cwnd). At 100 RPS, you're opening ~100 connections/sec — your server can absorb that. At 1,000 RPS, you're opening ~1,000 connections/sec, each holding kernel state and Postgres process state for a fraction of a second. Postgres forks a backend process per connection, so 1,000 RPS × 30ms setup = ~30 active backends minimum, but with TIME_WAIT (60-120s after close) you're piling up tens of thousands of closing sockets. The fix is a connection pool: pay the setup cost once per connection, then reuse across requests. PgBouncer (server-side pool) multiplexes many app connections onto a few Postgres backends. Client-side pools (HikariCP, SQLAlchemy pool) keep connections warm in the app process. Either way, 100 long-lived connections can handle 1,000+ RPS at sub-10ms latency. The deeper lesson: TCP is not free. Connection setup is expensive enough that it dominates performance for short-lived connections — always pool.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-tcp-mental",
+      "payload": {
+        "text": "Engineering mental model",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-tcp-mental",
+      "payload": {
+        "text": "**Mental model.** Think of TCP — Transmission Control Protocol as a deliberate boundary in a system. The boundary exists because something becomes harder to manage when everything is done in one place: latency, scale, failure isolation, consistency, cost, or team ownership. The useful question is not “what does TCP — Transmission Control Protocol mean?” but “what pressure makes this boundary worth introducing, and what new failure mode does it create?”"
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-tcp-decision",
+      "payload": {
+        "title": "Design lens",
+        "body": "Before choosing TCP — Transmission Control Protocol, name the workload, the critical user path, the dominant bottleneck, the failure you are trying to absorb, and the trade-off you are willing to accept. If you cannot name those five things, the design is probably premature.",
+        "kind": "info"
+      }
+    },
+    {
+      "type": "image",
+      "id": "upgrade-image-tcp",
+      "payload": {
+        "src": "/learning-visuals/tcp.svg",
+        "alt": "Original NO CAP systems visual for TCP — Transmission Control Protocol.",
+        "caption": "TCP — Transmission Control Protocol: a compact system-thinking visual.",
+        "credit": "Original NO CAP visual.",
+        "source_url": "https://github.com/donnemartin/system-design-primer"
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "upgrade-mermaid-tcp",
+      "payload": {
+        "code": "sequenceDiagram\n participant C as Client\n participant S as Server\n C->>S: SYN\n S-->>C: SYN-ACK\n C->>S: ACK\n C->>S: Data\n S-->>C: ACK",
+        "caption": "TCP starts with a three-way handshake before reliable, ordered byte-stream delivery.",
+        "alt_text": "TCP starts with a three-way handshake before reliable, ordered byte-stream delivery."
+      }
+    },
+    {
+      "type": "code",
+      "id": "upgrade-code-tcp",
+      "payload": {
+        "language": "text",
+        "code": "// Pseudocode\nrequest = receive()\nresult = tcp(request)\nreturn result\n\n// Production questions:\n// 1. What happens on timeout?\n// 2. Can this operation be retried safely?\n// 3. What is the bottleneck?",
+        "caption": "A minimal engineering sketch for reasoning about TCP — Transmission Control Protocol."
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-tcp-numbers",
+      "payload": {
+        "text": "Back-of-the-envelope reasoning",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-tcp-numbers",
+      "payload": {
+        "text": "Numerical lens: write down traffic, payload size, read/write ratio, peak multiplier and durability target before choosing a component. The numbers should justify the architecture."
+      }
+    },
+    {
+      "type": "simulation",
+      "id": "upgrade-sim-tcp",
+      "payload": {
+        "title": "Interactive thought experiment: TCP — Transmission Control Protocol",
+        "description": "Change the variables below and predict what breaks first in TCP — Transmission Control Protocol. The production lab can later reuse these same inputs.",
+        "variables": [
+          {
+            "name": "traffic",
+            "description": "Requests/events per second",
+            "default": "1000"
+          },
+          {
+            "name": "latency",
+            "description": "Dependency latency",
+            "default": "50ms"
+          },
+          {
+            "name": "failure_rate",
+            "description": "Injected failure rate",
+            "default": "0%"
+          }
+        ],
+        "placeholder_note": "Interactive controls are deterministic; use the linked Labs section when a dedicated lab exists."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-tcp-hint",
+      "payload": {
+        "title": "Hint",
+        "body": "If you are stuck on TCP — Transmission Control Protocol, start by drawing the request path and marking every network hop, stateful component, queue, cache and failure boundary. Then estimate where the system will saturate.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-tcp-1",
+      "payload": {
+        "shape": "prediction",
+        "question": "You increase traffic by 10× in a system using TCP — Transmission Control Protocol. What should you inspect first?",
+        "options": [
+          "The newest framework version",
+          "The dominant bottleneck and its saturation signal",
+          "Only the UI",
+          "Nothing; the architecture should absorb any traffic automatically"
+        ],
+        "answer_index": 1,
+        "rationale": "System design is a constraint-and-bottleneck exercise. Start with the resource or dependency that will saturate first, then choose the smallest change that removes that bottleneck.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-tcp-2",
+      "payload": {
+        "shape": "mcq",
+        "question": "Which statement is the safest engineering habit when using TCP — Transmission Control Protocol?",
+        "options": [
+          "Choose it because it is popular",
+          "Add it before measuring the problem",
+          "State the workload, failure mode and trade-off it is solving",
+          "Use the most distributed design possible"
+        ],
+        "answer_index": 2,
+        "rationale": "Good architecture starts from requirements, workload and failure assumptions. The component is the consequence of that reasoning, not the starting point.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "scenario",
+      "id": "upgrade-scenario-tcp",
+      "payload": {
+        "prompt": "Production scenario: your system uses TCP — Transmission Control Protocol, traffic suddenly spikes, and p99 latency doubles. What is your first move?",
+        "context": "You have dashboards for traffic, latency, errors and saturation. You can change the architecture, but every change has operational cost.",
+        "options": [
+          {
+            "id": "a",
+            "text": "Add more instances immediately",
+            "outcome": "This may help, but only if compute saturation is the bottleneck.",
+            "correct": false
+          },
+          {
+            "id": "b",
+            "text": "Inspect the bottleneck and its saturation signal first",
+            "outcome": "Correct: diagnose before scaling or introducing a new pattern.",
+            "correct": true
+          },
+          {
+            "id": "c",
+            "text": "Disable monitoring to reduce overhead",
+            "outcome": "This removes the evidence you need to diagnose the incident.",
+            "correct": false
+          }
+        ],
+        "rationale": "Measure the limiting resource or dependency first. A bottleneck can be compute, database I/O, network, cache misses, lock contention, downstream latency, or queue backlog.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-tcp-interview",
+      "payload": {
+        "text": "Interview drill",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-tcp-interview",
+      "payload": {
+        "text": "**Answer this without notes:** When would you choose TCP — Transmission Control Protocol, and when would you intentionally avoid it? Mention at least one bottleneck it addresses, one failure mode it introduces, and one alternative. Then quantify the workload you are designing for."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "field-guide-tcp",
+      "payload": {
+        "title": "Engineering lens",
+        "body": "A useful engineering lens for TCP - Transmission Control Protocol: define the problem it solves, the simpler design that fails first, the constraint that forces you to introduce this concept, and the new failure modes the concept creates.",
+        "kind": "tip"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "numerical-lens-tcp",
+      "payload": {
+        "text": "### Numerical sanity check\n\nBack-of-the-envelope reasoning beats fake precision. State your traffic, payload, concurrency and growth assumptions explicitly, then calculate enough to know whether the current architecture is orders of magnitude away from the target."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "field-question-tcp",
+      "payload": {
+        "shape": "prediction",
+        "question": "Imagine the simplest version of a system using TCP - Transmission Control Protocol. What breaks first as traffic grows by 10×, and what would you change before reaching 100×?",
+        "context": "Do not optimize for a memorized definition. Reason from the workload and failure mode.",
+        "options": [
+          "Scale the same component immediately.",
+          "Measure the current bottleneck and state the assumption that changed.",
+          "Add more technologies until throughput improves.",
+          "Choose the most popular architecture."
+        ],
+        "answer_index": 1,
+        "rationale": "Good system design starts with the bottleneck and the changed constraint. The most popular or complex choice is not automatically correct.",
+        "difficulty": "interview"
+      }
+    }
+  ],
+  "trade_offs": {
+    "pros": [
+      "Reliability built in — the application does not deal with lost or reordered packets.",
+      "In-order byte stream — trivial to reason about at the application layer.",
+      "Mature congestion control keeps the network stable under load.",
+      "Battle-tested for decades; every OS kernel implements it well."
+    ],
+    "cons": [
+      "Handshake costs 1 RTT before any data — a tax on short-lived connections.",
+      "Head-of-line blocking — one lost packet stalls everything on the connection.",
+      "Connection state in the kernel — limits the number of concurrent connections a server can hold.",
+      "Slow start penalizes fresh connections; you want keep-alive or pooling.",
+      "TCP is in the kernel — iterating on it (e.g., new congestion control) takes years."
+    ]
+  },
+  "failure_modes": [
+    "Slow start on every new connection makes short connections slow — mitigated by keep-alive and connection pools.",
+    "Head-of-line blocking on multiplexed connections (HTTP/2) — motivating the move to QUIC.",
+    "TIME_WAIT exhaustion on servers under high connection churn — mitigated by SO_REUSEADDR / SO_REUSEPORT.",
+    "Bufferbloat — oversized buffers defeat congestion control and inflate latency.",
+    "NAT timeouts killing idle connections — mitigated by application-level keepalives."
+  ],
+  "common_mistakes": [
+    "Opening a new TCP connection per request instead of using keep-alive — pays the handshake and slow-start cost every time.",
+    "Treating TCP as 'infinite throughput' — every connection pays slow start and AIMD.",
+    "Assuming TLS over TCP is cheap — TLS 1.2 adds 2 RTT, TLS 1.3 adds 1 RTT on top of the TCP handshake.",
+    "Forgetting that TCP guarantees byte ordering, not message boundaries — you must frame your messages yourself.",
+    "Ignoring TIME_WAIT — a server under connection churn can exhaust ephemeral ports.",
+    "Blaming the network for what is actually slow start on a fresh connection."
+  ],
+  "where_you_see_it": [
+    "Every HTTP/1.1 and HTTP/2 connection on the web.",
+    "Database driver connections (PostgreSQL, MySQL, MongoDB).",
+    "SSH, SFTP, SMTP — classic TCP applications.",
+    "gRPC (runs over HTTP/2, which runs over TCP).",
+    "WebSockets (HTTP upgrade over TCP)."
+  ],
+  "interview_prompts": [
+    "Walk through the TCP three-way handshake. Why does it cost one RTT before any data can flow?",
+    "What is head-of-line blocking, and why does HTTP/3 move to QUIC over UDP to fix it?",
+    "Explain slow start and congestion avoidance. Why does this matter for connection pooling?",
+    "TCP vs UDP — give three real systems and explain which transport each should use and why.",
+    "What happens at the TCP layer when you type https://example.com and hit Enter?"
+  ],
+  "real_system_mappings": [
+    {
+      "system": "HTTP/2",
+      "how": "Multiplexes multiple HTTP streams over a single TCP connection. Solves application-layer head-of-line blocking but inherits transport-layer head-of-line blocking from TCP."
+    },
+    {
+      "system": "PostgreSQL",
+      "how": "Each client connection is a long-lived TCP socket; libraries use connection pools to amortize the TCP handshake and slow start across many queries."
+    },
+    {
+      "system": "TCP BBR (Google)",
+      "how": "Modern congestion control that models bandwidth and RTT instead of reacting to loss. Deployed on Google's backbone and YouTube; reduces latency and improves throughput on lossy links."
+    }
+  ],
+  "status": "published",
+  "sources": [
+    {
+      "title": "System Design Primer",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Open source"
+    },
+    {
+      "title": "ByteByteGo — Scale from zero to millions",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "ByteByteGo"
+    },
+    {
+      "title": "System Design Tutorial",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "GeeksforGeeks"
+    },
+    {
+      "title": "System Design Roadmap",
+      "url": "https://roadmap.sh/system-design",
+      "publisher": "roadmap.sh"
+    },
+    {
+      "title": "Networking & Communication reference",
+      "url": "https://www.rfc-editor.org/",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Networking & Communication reference",
+      "url": "https://developer.mozilla.org/en-US/docs/Web/HTTP",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Networking & Communication reference",
+      "url": "https://www.cloudflare.com/learning/network-layer/what-is-a-protocol/",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Cloudflare Learning Center",
+      "url": "https://www.cloudflare.com/learning/",
+      "publisher": "Cloudflare"
+    }
+  ]
+}

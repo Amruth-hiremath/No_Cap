@@ -1,0 +1,461 @@
+{
+  "slug": "mvcc",
+  "version": 4,
+  "title": "MVCC",
+  "phase": "databases-data-systems",
+  "area": "Databases & Data Systems",
+  "estimated_minutes": 7,
+  "difficulty": "expert",
+  "summary": "Multi-Version Concurrency Control (MVCC) is how PostgreSQL, MySQL/InnoDB, Oracle, and SQL Server (with RCSI) handle concurrent reads and writes without locking readers. Each transaction sees a consistent snapshot of committed data as of its start time; writers create new versions of rows instead of overwriting in place. Readers never block writers and writers never block readers — a major concurrency win over the lock-based alternatives.",
+  "why_it_matters": "Before MVCC, databases used strict two-phase locking: a read took a shared lock, a write took an exclusive lock, and they blocked each other. Under heavy concurrent load, this caused throughput collapse — a single long-running query could lock out writes to the whole table. MVCC is the reason modern databases can sustain high concurrency with snapshot isolation. Understanding it explains the actual behavior of every modern SQL database and clarifies why isolation levels behave the way they do.",
+  "prerequisites": [
+    "isolation-levels"
+  ],
+  "related": [
+    "transactions",
+    "isolation-levels",
+    "wal"
+  ],
+  "used_in": [
+    "PostgreSQL — MVCC is foundational; every transaction operates on a snapshot.",
+    "MySQL/InnoDB — MVCC underlies Repeatable Read and Read Committed.",
+    "Oracle — undo segments reconstruct older row versions for snapshot reads.",
+    "Microsoft SQL Server — optional via Read Committed Snapshot Isolation (RCSI).",
+    "CockroachDB, YugabyteDB — distributed MVCC for sharded SQL."
+  ],
+  "blocks": [
+    {
+      "type": "prose",
+      "id": "intro",
+      "payload": {
+        "text": "**MVCC** solves a fundamental tension in concurrent databases: readers want a stable view of the data, writers want to mutate it. With traditional locking, you have to choose — either readers block writers (read locks) or writers block readers (write locks), or both.\n\nMVCC takes a different approach: **each transaction sees a snapshot of the database as of its start time**. When a transaction modifies a row, the database doesn't overwrite the existing version — it creates a new version and marks the old one as historical. Other transactions running concurrently continue to see the old version (matching their snapshot). Only transactions that start after the writer commits see the new version.\n\nThe result: **readers never block writers, and writers never block readers**. Both can proceed in parallel, each working with their own consistent view. This is why PostgreSQL can run a 30-second analytics query against a busy OLTP table without blocking writes — the analytics query sees its snapshot from start-of-transaction.\n\nThe cost: rows accumulate versions, and the database must periodically clean up old versions no longer visible to any active transaction. This cleanup is called **VACUUM** in PostgreSQL (autovacuum runs continuously) and purge in MySQL/InnoDB."
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "mvcc-versioning",
+      "payload": {
+        "code": "flowchart TD\n    N0[\"MVCC:\"]\n    N1[\"writers\"]\n    N2[\"create\"]\n    N3[\"new\"]\n    N4[\"versions,\"]\n    N5[\"not\"]\n    N6[\"overwrite\"]\n    N7[\"snapshot\"]\n    N8[\"Transaction\"]\n    N9[\"starts\"]\n    N10[\"(snapshot).\"]\n    N11[\"Reads\"]\n    N12[\"balance.\"]\n    N13[\"Writes\"]\n    N14[\"reads\"]\n    N15[\"balance\"]\n    N16[\"again\"]\n    N17[\"30.\"]\n    N18[\"Time\"]\n    N19[\"acct\"]\n    N20[\"bal\"]\n    N21[\"100\"]\n    N22[\"begins\"]\n    N23[\"commits\"]\n    N24[\"created\"]\n    N25[\"150\"]\n    N26[\"(snapshot)\"]\n    N27[\"Storage:\"]\n    N28[\"xmin\"]\n    N29[\"xmax\"]\n    N30[\"NULL\"]\n    N31[\"old version\"]\n    N32[\"current\"]\n    N33[\"(old\"]\n    N34[\"version)\"]\n    N35[\"(current)\"]\n    N36[\"A's\"]\n    N37[\"doesn't\"]\n    N38[\"see\"]\n    N39[\"B's\"]\n    N40[\"version\"]\n    N41[\"(xmin\"]\n    N42[\"committed\"]\n    N43[\"10).\"]\n    N44[\"keeps\"]\n    N45[\"reading\"]\n    N46[\"100.\"]\n    N47[\"write\"]\n    N48[\"didn't\"]\n    N49[\"block\"]\n    N50[\"read\"]\n    N51[\"saw\"]\n    N52[\"the\"]\n    N53[\"old\"]\n    N54[\"version.\"]\n    N55[\"wasn't\"]\n    N56[\"blocked\"]\n    N57[\"held\"]\n    N58[\"lock.\"]\n    N59[\"VACUUM\"]\n    N60[\"later\"]\n    N61[\"removes\"]\n    N62[\"once\"]\n    N63[\"active\"]\n    N64[\"transaction\"]\n    N65[\"can\"]\n    N66[\"it.\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44\n    N44 --> N45\n    N45 --> N46\n    N46 --> N47\n    N47 --> N48\n    N48 --> N49\n    N49 --> N50\n    N50 --> N51\n    N51 --> N52\n    N52 --> N53\n    N53 --> N54\n    N54 --> N55\n    N55 --> N56\n    N56 --> N57\n    N57 --> N58\n    N58 --> N59\n    N59 --> N60\n    N60 --> N61\n    N61 --> N62\n    N62 --> N63\n    N63 --> N64\n    N64 --> N65\n    N65 --> N66",
+        "caption": "MVCC: each transaction sees a snapshot; writers create new row versions instead of overwriting in place.",
+        "alt_text": "A timeline diagram showing MVCC. Transaction A starts at time 10 and takes a snapshot. Transaction B starts at time 20 and writes balance=150, creating a new row version (xmin=20, xmax=NULL). The old version (xmin=1, bal=100, xmax=20) is preserved. B commits at time 25. Transaction A reads balance again at time 30 and still sees balance=100, because its snapshot at time 10 predates B's commit at time 25. A's read was never blocked by B's write, and B's write was never blocked by A's read. VACUUM later removes the old version once no active transaction can see it."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "how-postgres-does-it",
+      "payload": {
+        "text": "PostgreSQL's MVCC implementation is the most pedagogically useful to understand. Each row carries two hidden system columns:\n\n- **xmin** — the transaction ID (xid) that created (inserted) this version of the row.\n- **xmax** — the transaction ID that deleted or updated this version (NULL if it's the current version).\n\nWhen a transaction modifies a row, PostgreSQL:\n1. Sets `xmax` on the old version to the current transaction's xid (marking it as deleted by this transaction).\n2. Inserts a new row with `xmin` = current xid, `xmax` = NULL.\n\nSo updates are really delete-then-insert under the hood. The old version stays on disk until VACUUM reclaims it.\n\nWhen a transaction reads, PostgreSQL decides for each row version whether it's visible by checking:\n- Was the creating transaction (xmin) committed before my snapshot started?\n- Was the deleting transaction (xmax) committed before my snapshot started, or is it still running (in which case the row is still visible to me)?\n\nThe 'snapshot' is a list of transactions that were in-progress when the current transaction started. PostgreSQL uses this to compute visibility without taking any locks on the rows themselves. The snapshot also tracks a `xmin` boundary (the oldest active xid) and a `xmax` boundary (the next xid to be assigned), enabling fast visibility checks.\n\nThis is the magic: visibility is computed from transaction IDs and commit status, not from locks on rows. Readers don't block writers; writers don't block readers."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "snapshot-vs-isolation",
+      "payload": {
+        "title": "MVCC enables the isolation levels",
+        "body": "MVCC is the implementation; isolation levels are the API. The difference between Read Committed and Repeatable Read in PostgreSQL is entirely about when the snapshot is taken: Read Committed takes a new snapshot at the start of each statement; Repeatable Read takes a snapshot at the start of the transaction and uses it for all statements. Same MVCC machinery, different snapshot refresh policy. Serializable adds conflict detection on top of Repeatable Read's snapshot.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "bloat-and-vacuum",
+      "payload": {
+        "text": "The cost of MVCC is **version bloat**. Every update creates a new version; the old version isn't reclaimed until no active transaction can see it. A table that's heavily updated will accumulate dead tuples (the old versions) until they're cleaned up. This bloats the table and its indexes, slows scans, and wastes memory.\n\nPostgreSQL's cleanup mechanism is **VACUUM**:\n- Identifies dead tuples (versions with xmax set, committed, and not visible to any active transaction).\n- Marks their space as reusable in the table's free-space map.\n- Optionally reclaims space back to the OS (`VACUUM FULL`, which rewrites the table and locks it).\n- Also runs `ANALYZE` to refresh planner statistics.\n\n**Autovacuum** runs continuously in the background, parameterized by thresholds (e.g., 'VACUUM when 20% of rows have changed'). Most production databases run with autovacuum on; tuning its aggressiveness is one of the most common PostgreSQL operational tasks.\n\nWhy bloat matters:\n- A table with 1M live rows and 9M dead tuples scans 10M rows for every Seq Scan.\n- Indexes grow proportionally; index-only scans become impossible because the visibility map is stale.\n- Cache hit ratio drops as the buffer cache fills with dead tuples.\n\nThis is the unique operational tax of MVCC: you must vacuum. Skip it and performance collapses; let it run too aggressively and it competes with your workload. The right balance depends on write rate and table size."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "advantages-trade-offs",
+      "payload": {
+        "text": "**Why MVCC dominates:**\n\n1. **Readers don't block writers** — long-running analytics queries don't stall OLTP writes.\n2. **Writers don't block readers** — concurrent updates don't freeze reads.\n3. **Snapshot isolation for free** — every transaction gets a consistent view without explicit locks.\n4. **Locks are smaller and shorter** — only write-write conflicts require row locks; reads take none.\n5. **Non-blocking backups** — `pg_dump` uses a snapshot and doesn't lock the database.\n\n**Costs:**\n\n1. **Storage bloat** — old versions persist until vacuumed. Tables and indexes can grow 5-10× larger than their logical size.\n2. **Vacuum overhead** — background cleanup consumes CPU and I/O.\n3. **Transaction ID wraparound** — xids are 32-bit in PostgreSQL; if autovacuum can't keep up, the database can hit xid wraparound and refuse writes until vacuumed (a real production incident). Modern PostgreSQL mitigates this but the risk exists.\n4. **Write amplification** — every UPDATE writes a new version, updating every index on the table (HOT updates optimize this when possible).\n5. **Long-running transactions are dangerous** — they pin the vacuum horizon, preventing dead-tuple cleanup and causing cascading bloat.\n\nThe biggest production footgun is the long-running transaction: a `psql` session left open for an hour, a stuck background worker holding a transaction open. Until that transaction ends, vacuum cannot reclaim any dead tuple that became dead while it was active. The result: exponential bloat that can take hours to recover from. Monitoring for long-running transactions is essential in any PostgreSQL deployment."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q1",
+      "payload": {
+        "question": "In PostgreSQL, transaction A reads `balance = 100`. Transaction B updates the same row to `balance = 150` and commits. Transaction A reads the same row again. At Read Committed isolation, what does A see, and why doesn't B's write block A's read?",
+        "shape": "mcq",
+        "options": [
+          "A sees 150, because B's commit makes the new value visible. No lock is held because MVCC doesn't lock for reads.",
+          "A sees 100, because A's snapshot was taken before B's commit. No lock because MVCC shows A the old row version.",
+          "A blocks until B commits, then sees 150.",
+          "A sees an error — concurrent modification."
+        ],
+        "answer_index": 0,
+        "rationale": "At Read Committed isolation in PostgreSQL, each statement gets a fresh snapshot. A's first read took a snapshot before B's commit, seeing 100. A's second read (after B commits) takes a new snapshot that includes B's commit, so it sees 150. This is the non-repeatable read anomaly, allowed by Read Committed. The key point: B's write never blocked A's read because MVCC uses version visibility rather than read locks. A reads the row version visible to its snapshot; B creates a new version. They don't interfere. (If A had been at Repeatable Read isolation, A would use the same snapshot for both reads and would still see 100 on the second read — a non-repeatable read prevented.)",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q2",
+      "payload": {
+        "question": "What happens in PostgreSQL when you run `UPDATE accounts SET balance = balance + 100 WHERE id = 1`?",
+        "shape": "mcq",
+        "options": [
+          "The existing row's `balance` field is updated in place.",
+          "A new row version is inserted with the new balance and a new xmin; the old version's xmax is set to mark it deleted. Indexes are updated to point to the new version (unless HOT applies).",
+          "The row is locked and the field is modified atomically using a CAS instruction.",
+          "The update is appended to a log; the data file is updated by a background worker."
+        ],
+        "answer_index": 1,
+        "rationale": "PostgreSQL's MVCC never updates in place. An UPDATE creates a new row version (new tuple) with the new balance, sets the new tuple's xmin to the current transaction's xid, and sets the old tuple's xmax to the current xid (marking the old version as deleted by this transaction). Indexes that reference the row are updated to point to the new version, unless the update qualifies for HOT (Heap-Only Tuple) optimization — which happens when no indexed column is changed, letting Postgres skip index updates and save work. The old version remains on disk until VACUUM reclaims it. This is why heavy update workloads cause bloat and why autovacuum is critical. The log-append pattern in option 4 describes a LSM tree (Cassandra, RocksDB), not a B-tree database like PostgreSQL.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q3",
+      "payload": {
+        "question": "Your PostgreSQL database is slowing down over weeks. Tables and indexes are much larger than their logical row count. What's likely happening, and what's the fix?",
+        "shape": "mcq",
+        "options": [
+          "Disk corruption — restore from backup.",
+          "MVCC bloat — dead tuples accumulate because vacuum isn't keeping up. Tune autovacuum or run VACUUM (and possibly VACUUM FULL / REINDEX).",
+          "Network latency — move the database closer to the app.",
+          "Index corruption — drop and recreate all indexes."
+        ],
+        "answer_index": 1,
+        "rationale": "This is the classic PostgreSQL bloat scenario. MVCC creates a new version on every UPDATE; the old version (dead tuple) stays on disk until VACUUM reclaims it. If vacuum isn't keeping up — either because autovacuum thresholds are too conservative, write rate is too high, or a long-running transaction is pinning the vacuum horizon — dead tuples accumulate. Tables and indexes grow far beyond their logical size, scans slow, cache hit ratios drop, and performance degrades. Fix: identify the cause (long-running transactions, conservative autovacuum settings, or simply high write rate); tune autovacuum to be more aggressive on the affected tables; run VACUUM (or VACUUM FULL for severe bloat — but it locks the table). Index bloat may require REINDEX CONCURRENTLY. Monitor pg_stat_user_tables.n_dead_tup and configure alerts.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q4",
+      "payload": {
+        "question": "Why is a long-running transaction in PostgreSQL dangerous, even if it does nothing?",
+        "shape": "mcq",
+        "options": [
+          "It consumes memory proportional to its duration.",
+          "It pins the vacuum horizon — VACUUM cannot reclaim any dead tuple created while the transaction is active, causing cascading bloat.",
+          "It locks the entire database.",
+          "It consumes CPU even when idle."
+        ],
+        "answer_index": 1,
+        "rationale": "A long-running transaction holds a snapshot — a point-in-time view of the database. As long as it's active, VACUUM cannot reclaim any row version that became 'dead' after the transaction's snapshot started, because the transaction might still need to see those versions for its consistent view. The result: dead tuples accumulate, tables and indexes bloat, performance degrades, and the database can eventually hit transaction ID wraparound — a real production-incident scenario. A common cause is a developer's `psql` session left open overnight, or a stuck background worker holding a transaction open. Monitoring for long-running transactions (e.g., `pg_stat_activity` with `state = 'idle in transaction'`) is essential PostgreSQL operational hygiene.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-mvcc-mental",
+      "payload": {
+        "text": "Engineering mental model",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-mvcc-mental",
+      "payload": {
+        "text": "**Mental model.** Think of MVCC as a deliberate boundary in a system. The boundary exists because something becomes harder to manage when everything is done in one place: latency, scale, failure isolation, consistency, cost, or team ownership. The useful question is not “what does MVCC mean?” but “what pressure makes this boundary worth introducing, and what new failure mode does it create?”"
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-mvcc-decision",
+      "payload": {
+        "title": "Design lens",
+        "body": "Before choosing MVCC, name the workload, the critical user path, the dominant bottleneck, the failure you are trying to absorb, and the trade-off you are willing to accept. If you cannot name those five things, the design is probably premature.",
+        "kind": "info"
+      }
+    },
+    {
+      "type": "image",
+      "id": "upgrade-image-mvcc",
+      "payload": {
+        "src": "/learning-visuals/mvcc.svg",
+        "alt": "Original NO CAP systems visual for MVCC.",
+        "caption": "MVCC: a compact system-thinking visual.",
+        "credit": "Original NO CAP visual.",
+        "source_url": "https://github.com/donnemartin/system-design-primer"
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "upgrade-mermaid-mvcc",
+      "payload": {
+        "code": "flowchart LR\n  A[Client] --> B[Gateway] --> C[Service] --> D[State] --> E[Outcome]",
+        "caption": "MVCC: a simplified system view showing the primary flow and the main state boundaries.",
+        "alt_text": "MVCC: a simplified system view showing the primary flow and the main state boundaries."
+      }
+    },
+    {
+      "type": "code",
+      "id": "upgrade-code-mvcc",
+      "payload": {
+        "language": "text",
+        "code": "// Pseudocode\nrequest = receive()\nresult = mvcc(request)\nreturn result\n\n// Production questions:\n// 1. What happens on timeout?\n// 2. Can this operation be retried safely?\n// 3. What is the bottleneck?",
+        "caption": "A minimal engineering sketch for reasoning about MVCC."
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-mvcc-numbers",
+      "payload": {
+        "text": "Back-of-the-envelope reasoning",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-mvcc-numbers",
+      "payload": {
+        "text": "Numerical lens: write down traffic, payload size, read/write ratio, peak multiplier and durability target before choosing a component. The numbers should justify the architecture."
+      }
+    },
+    {
+      "type": "simulation",
+      "id": "upgrade-sim-mvcc",
+      "payload": {
+        "title": "Interactive thought experiment: MVCC",
+        "description": "Change the variables below and predict what breaks first in MVCC. The production lab can later reuse these same inputs.",
+        "variables": [
+          {
+            "name": "traffic",
+            "description": "Requests/events per second",
+            "default": "1000"
+          },
+          {
+            "name": "latency",
+            "description": "Dependency latency",
+            "default": "50ms"
+          },
+          {
+            "name": "failure_rate",
+            "description": "Injected failure rate",
+            "default": "0%"
+          }
+        ],
+        "placeholder_note": "Interactive controls are deterministic; use the linked Labs section when a dedicated lab exists."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-mvcc-hint",
+      "payload": {
+        "title": "Hint",
+        "body": "If you are stuck on MVCC, start by drawing the request path and marking every network hop, stateful component, queue, cache and failure boundary. Then estimate where the system will saturate.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-mvcc-1",
+      "payload": {
+        "shape": "prediction",
+        "question": "You increase traffic by 10× in a system using MVCC. What should you inspect first?",
+        "options": [
+          "The newest framework version",
+          "The dominant bottleneck and its saturation signal",
+          "Only the UI",
+          "Nothing; the architecture should absorb any traffic automatically"
+        ],
+        "answer_index": 1,
+        "rationale": "System design is a constraint-and-bottleneck exercise. Start with the resource or dependency that will saturate first, then choose the smallest change that removes that bottleneck.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-mvcc-2",
+      "payload": {
+        "shape": "mcq",
+        "question": "Which statement is the safest engineering habit when using MVCC?",
+        "options": [
+          "Choose it because it is popular",
+          "Add it before measuring the problem",
+          "State the workload, failure mode and trade-off it is solving",
+          "Use the most distributed design possible"
+        ],
+        "answer_index": 2,
+        "rationale": "Good architecture starts from requirements, workload and failure assumptions. The component is the consequence of that reasoning, not the starting point.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "scenario",
+      "id": "upgrade-scenario-mvcc",
+      "payload": {
+        "prompt": "Production scenario: your system uses MVCC, traffic suddenly spikes, and p99 latency doubles. What is your first move?",
+        "context": "You have dashboards for traffic, latency, errors and saturation. You can change the architecture, but every change has operational cost.",
+        "options": [
+          {
+            "id": "a",
+            "text": "Add more instances immediately",
+            "outcome": "This may help, but only if compute saturation is the bottleneck.",
+            "correct": false
+          },
+          {
+            "id": "b",
+            "text": "Inspect the bottleneck and its saturation signal first",
+            "outcome": "Correct: diagnose before scaling or introducing a new pattern.",
+            "correct": true
+          },
+          {
+            "id": "c",
+            "text": "Disable monitoring to reduce overhead",
+            "outcome": "This removes the evidence you need to diagnose the incident.",
+            "correct": false
+          }
+        ],
+        "rationale": "Measure the limiting resource or dependency first. A bottleneck can be compute, database I/O, network, cache misses, lock contention, downstream latency, or queue backlog.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-mvcc-interview",
+      "payload": {
+        "text": "Interview drill",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-mvcc-interview",
+      "payload": {
+        "text": "**Answer this without notes:** When would you choose MVCC, and when would you intentionally avoid it? Mention at least one bottleneck it addresses, one failure mode it introduces, and one alternative. Then quantify the workload you are designing for."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "field-guide-mvcc",
+      "payload": {
+        "title": "Engineering lens",
+        "body": "For MVCC, start with access patterns rather than brand names. Identify the dominant reads/writes, data relationships, consistency requirements, partition key, hot keys and failure behavior before choosing a storage strategy.",
+        "kind": "tip"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "numerical-lens-mvcc",
+      "payload": {
+        "text": "### Numerical sanity check\n\nA rough capacity check: required write throughput ≈ peak writes/s × average record size. At 5,000 writes/s and 2 KB average payloads, the raw incoming data stream is about 10 MB/s before indexes, replication and overhead."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "field-question-mvcc",
+      "payload": {
+        "shape": "prediction",
+        "question": "A team proposes MVCC because it 'scales'. What workload characteristic would make that choice a poor fit?",
+        "context": "Do not optimize for a memorized definition. Reason from the workload and failure mode.",
+        "options": [
+          "Scale the same component immediately.",
+          "Measure the current bottleneck and state the assumption that changed.",
+          "Add more technologies until throughput improves.",
+          "Choose the most popular architecture."
+        ],
+        "answer_index": 1,
+        "rationale": "Good system design starts with the bottleneck and the changed constraint. The most popular or complex choice is not automatically correct.",
+        "difficulty": "interview"
+      }
+    }
+  ],
+  "trade_offs": {
+    "pros": [
+      "Readers never block writers, writers never block readers — high concurrency.",
+      "Snapshot isolation provides consistent reads without read locks.",
+      "Enables non-blocking backups (pg_dump uses a snapshot).",
+      "Foundation for Repeatable Read and Serializable isolation levels.",
+      "Long-running analytics queries don't stall OLTP writes."
+    ],
+    "cons": [
+      "Storage bloat — old row versions persist until vacuumed.",
+      "VACUUM overhead — background cleanup consumes CPU and I/O.",
+      "Write amplification — every UPDATE writes a new version and updates indexes.",
+      "Transaction ID wraparound risk if autovacuum falls behind.",
+      "Long-running transactions pin the vacuum horizon, causing cascading bloat."
+    ]
+  },
+  "failure_modes": [
+    "Bloat — dead tuples accumulate when autovacuum can't keep up.",
+    "Transaction ID wraparound — rare but catastrophic; database refuses writes.",
+    "Long-running transactions pinning vacuum horizon — cascading bloat.",
+    "Snapshot too old errors — when the snapshot's xmin is older than retained undo (Oracle specifically).",
+    "Hot standby replication lag — read replicas replay WAL but queries may need older snapshots than the replica has retained.",
+    "Write amplification on heavily-indexed tables — each UPDATE touches every index."
+  ],
+  "common_mistakes": [
+    "Disabling autovacuum — works for a while, then explodes in bloat.",
+    "Leaving idle-in-transaction sessions open — pins the vacuum horizon.",
+    "Running VACUUM FULL in production — takes an exclusive table lock; use pg_repack instead.",
+    "Forgetting that UPDATE writes a new version — designing as if updates were free.",
+    "Not monitoring n_dead_tup — bloat is silent until it isn't.",
+    "Assuming MVCC means no locking at all — write-write conflicts still take row locks."
+  ],
+  "where_you_see_it": [
+    "PostgreSQL — MVCC is foundational; every transaction operates on a snapshot.",
+    "MySQL/InnoDB — MVCC underlies Repeatable Read and Read Committed.",
+    "Oracle — undo segments reconstruct older versions.",
+    "Microsoft SQL Server (RCSI) — opt-in MVCC for Read Committed.",
+    "CockroachDB, YugabyteDB — distributed MVCC across shards with timestamp ordering."
+  ],
+  "interview_prompts": [
+    "How does MVCC work, and why is it such a big deal for concurrency?",
+    "Explain what happens on disk when PostgreSQL executes an UPDATE.",
+    "Why does PostgreSQL need VACUUM? What happens if it falls behind?",
+    "What's the difference between Read Committed and Repeatable Read in PostgreSQL, given that both use MVCC?",
+    "Why is an idle-in-transaction session dangerous in PostgreSQL?",
+    "What is transaction ID wraparound, and how do you prevent it?"
+  ],
+  "real_system_mappings": [
+    {
+      "system": "PostgreSQL",
+      "how": "MVCC is foundational — every transaction takes a snapshot at start. Updates create new row versions (new tuples) with xmin/xmax transaction IDs. Autovacuum reclaims dead tuples continuously. Long-running transactions are the most common operational footgun because they pin the vacuum horizon."
+    },
+    {
+      "system": "MySQL / InnoDB",
+      "how": "Uses MVCC with undo logs to reconstruct older row versions. Each transaction sees rows visible according to its snapshot — Repeatable Read uses the transaction-start snapshot, Read Committed refreshes per statement. Purge threads clean up old undo log entries."
+    },
+    {
+      "system": "Oracle",
+      "how": "MVCC via undo segments — when a row is updated, the old version goes to an undo segment, and other transactions reconstruct older versions from undo. Long-running queries can fail with 'ORA-01555: snapshot too old' if the undo they need has been overwritten."
+    },
+    {
+      "system": "CockroachDB",
+      "how": "Distributed MVCC with HLC (Hybrid Logical Clocks) timestamps. Each transaction reads at a timestamp and sees a consistent snapshot across the cluster. Enables serializable transactions across datacenters, at the cost of write latency for coordination."
+    }
+  ],
+  "status": "published",
+  "sources": [
+    {
+      "title": "System Design Primer",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Open source"
+    },
+    {
+      "title": "ByteByteGo — Scale from zero to millions",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "ByteByteGo"
+    },
+    {
+      "title": "System Design Tutorial",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "GeeksforGeeks"
+    },
+    {
+      "title": "System Design Roadmap",
+      "url": "https://roadmap.sh/system-design",
+      "publisher": "roadmap.sh"
+    },
+    {
+      "title": "Databases & Data Systems reference",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Databases & Data Systems reference",
+      "url": "https://www.postgresql.org/docs/",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Databases & Data Systems reference",
+      "url": "https://aws.amazon.com/what-is/database/",
+      "publisher": "Reference"
+    }
+  ]
+}

@@ -1,0 +1,415 @@
+{
+  "slug": "cqrs",
+  "version": 3,
+  "title": "CQRS",
+  "phase": "design-patterns",
+  "area": "Design Patterns",
+  "estimated_minutes": 7,
+  "difficulty": "advanced",
+  "summary": "CQRS (Command Query Responsibility Segregation) separates the model used to *write* data from the model used to *read* data. Instead of one shared schema optimized for neither, you have a write model optimized for transactional integrity and a read model optimized for queries — kept in sync by events. The two models can live in different stores (e.g., Postgres for writes, Elasticsearch for reads), be scaled independently, and use different shapes (normalized vs denormalized). The trade-off is operational complexity: you now have two systems to keep consistent instead of one.",
+  "why_it_matters": "Most systems have wildly asymmetric read/write ratios — a social feed might be 99% reads, 1% writes. A single model forces compromise: either writes are slow (because reads need denormalization) or reads are slow (because writes need normalization). CQRS breaks the compromise: optimize each side for its own workload. It also unlocks patterns like event sourcing (write model = event log), materialized views (read model = precomputed projections), and independent scaling (more read replicas, fewer write replicas).",
+  "prerequisites": [
+    "event-sourcing",
+    "sql-vs-nosql"
+  ],
+  "related": [
+    "event-sourcing",
+    "materialized-view",
+    "denormalization"
+  ],
+  "used_in": [
+    "High-read systems with complex query patterns (search, analytics dashboards, activity feeds).",
+    "Event-sourced systems where the write model is an event log and read models are projections.",
+    "Systems with very different write vs read workloads (e.g., financial trading: simple writes, complex analytical reads).",
+    "Multi-store architectures: relational for writes, document/search/graph for reads."
+  ],
+  "blocks": [
+    {
+      "type": "prose",
+      "id": "intro",
+      "payload": {
+        "text": "In a typical CRUD application, one model serves both writes (insert/update/delete) and reads (select). This works for simple cases but breaks down when:\n\n- Read patterns differ from write patterns (reads need denormalized views; writes need normalized tables).\n- Read volume vastly exceeds write volume (you need many read replicas but few write nodes).\n- Reads need full-text search, graph traversal, or aggregations the relational store can't do efficiently.\n- Different teams own different views of the same data.\n\nCQRS splits the model:\n\n- **Command side** (writes): the source of truth. Validates business rules, applies state changes, emits events. Optimized for transactional integrity, normalization, consistency. Usually a relational database or an event log.\n- **Query side** (reads): projections of the write-side data, optimized for queries. Often denormalized, indexed differently, or in a different store entirely (Elasticsearch, Redis, a denormalized Postgres view, a graph database).\n- **Synchronization**: the command side emits events when state changes; the query side subscribes and updates its projections. Eventually consistent — the read model lags the write model by milliseconds (or seconds, under load).\n\nThe key insight: a single model is a compromise. Two models cost more but each can be optimal for its workload."
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "topology",
+      "payload": {
+        "code": "flowchart TD\n    N0[\"Writes\"]\n    N1[\"Reads\"]\n    N2[\"commands\"]\n    N3[\"queries\"]\n    N4[\"(commands)\"]\n    N5[\"(queries)\"]\n    N6[\"s\"]\n    N7[\"Write\"]\n    N8[\"Model\"]\n    N9[\"event\"]\n    N10[\"stream\"]\n    N11[\"Read\"]\n    N12[\"Model(s)\"]\n    N13[\"(source\"]\n    N14[\"OrderCreated,\"]\n    N15[\"orders_by_user\"]\n    N16[\"truth)\"]\n    N17[\"OrderShipped,\"]\n    N18[\"orders_by_status\"]\n    N19[\"e.g.\"]\n    N20[\"Postgres\"]\n    N21[\"OrderCancelled\"]\n    N22[\"search\"]\n    N23[\"index\"]\n    N24[\"business\"]\n    N25[\"Elasticsearch\"]\n    N26[\"rules\"]\n    N27[\"Redis\"]\n    N28[\"caches\"]\n    N29[\"eventually consistent\"]\n    N30[\"(eventually\"]\n    N31[\"consistent)\"]\n    N32[\"read\"]\n    N33[\"models\"]\n    N34[\"lag\"]\n    N35[\"Apply\"]\n    N36[\"Serve\"]\n    N37[\"command,\"]\n    N38[\"validate,\"]\n    N39[\"fast,\"]\n    N40[\"emit\"]\n    N41[\"evt\"]\n    N42[\"scaled\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42",
+        "caption": "CQRS topology: commands hit the write model, which emits events; projections build read models optimized for queries. Reads are eventually consistent with writes.",
+        "alt_text": "A diagram showing writes (commands) on the left and reads (queries) on the right. The write model on the left is the source of truth, implemented as Postgres with business rules. It emits an event stream — OrderCreated, OrderShipped, OrderCancelled — which is consumed by the read model on the right, consisting of multiple projections like orders_by_user, orders_by_status, and a search index in Elasticsearch with Redis caches. The two sides are eventually consistent — read models lag writes by milliseconds. The caption notes that commands apply, validate, and emit events; reads serve fast, scaled queries."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "when-to-use",
+      "payload": {
+        "text": "CQRS is powerful but expensive. Use it when:\n\n- **Read and write workloads differ significantly** — e.g., 100× more reads than writes, or reads require complex joins/search the write store can't do efficiently.\n- **You need different read shapes** — same data, viewed differently: by user, by tenant, by status, by date range, full-text. Each is a different projection.\n- **You need independent scaling** — read replicas can scale reads, but they share the write store's schema. CQRS lets you use a different store entirely.\n- **You're already doing event sourcing** — CQRS is the natural companion: write side is an event log, read sides are projections.\n- **Multiple bounded contexts need the same data** — each context owns its own read model.\n\nDo NOT use it when:\n- The system is simple CRUD with similar read/write loads — the complexity isn't worth it.\n- Team is small and can't operate two stores and a sync pipeline.\n- Strong consistency is required on reads (CQRS is fundamentally eventually consistent).\n- The write model would just be a thin wrapper over a relational store — you're adding indirection for no benefit.\n\nA common CQRS anti-pattern: applying it everywhere by default. Most domains have one part that genuinely benefits (e.g., the activity feed) and ten parts that are simple CRUD. Apply CQRS surgically, not fleet-wide."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "with-es",
+      "payload": {
+        "title": "CQRS + Event Sourcing",
+        "body": "CQRS and Event Sourcing are often paired but are independent patterns. Event Sourcing stores writes as an append-only log of events (OrderCreated, OrderShipped) — the write model is the log, not the current state. CQRS separates read and write models. Combined: the write model is the event log, and read models are projections rebuilt from the log. Without event sourcing, CQRS can still use a traditional database as the write model — but the combination is what unlocks time-travel queries, audit trails, and rebuilding read models from scratch.",
+        "kind": "key"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "consistency",
+      "payload": {
+        "text": "The defining property of CQRS is that the read model is *eventually consistent* with the write model. After a write, reads may briefly return stale data.\n\nThis is usually fine:\n- A user updates their profile and sees the old version for 50ms? No one notices.\n- A search index lags the database by 200ms under load? Acceptable for most queries.\n\nBut it's NOT fine for:\n- **Read-your-writes consistency**: the same user who just wrote should see their write immediately. Solutions: route the user's next read to the write store, or wait for the read model to catch up before responding.\n- **Cross-aggregate transactions**: writing Order A and updating Customer B's balance in the same transaction — possible in a relational DB, impossible across CQRS without sagas.\n- **Real-time requirements**: stock trading, auctions, locks — these need strong consistency, not eventual.\n\nPractical mitigations:\n- **Versioned reads**: include a version/etag; the client knows if it's stale.\n- **Sticky routing**: send a user's reads to the same region/replica that handled their write, so they see their own writes immediately.\n- **Read-after-write from the write store**: for critical reads, bypass the read model.\n- **Synchronous projection**: update the read model in the same transaction (defeats much of the scalability benefit, but possible for low-volume critical paths).\n\nAlways ask: 'how stale can a read be?' If the answer is 'zero,' CQRS is probably the wrong pattern."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q1",
+      "payload": {
+        "question": "A system has 99% reads, complex full-text search queries, and writes that need transactional integrity. Which pattern is most appropriate?",
+        "shape": "mcq",
+        "options": [
+          "Use a single relational database with indexes — simplest and good enough.",
+          "Use CQRS: relational store for writes, Elasticsearch for full-text reads, kept in sync by events.",
+          "Use a NoSQL store for everything — it scales naturally.",
+          "Use read replicas of the relational store to handle the read load."
+        ],
+        "answer_index": 1,
+        "rationale": "The three requirements — high read volume, complex full-text search, and transactional writes — are exactly the sweet spot for CQRS. The relational store handles writes with proper transactions and business rules. Elasticsearch handles full-text search queries it's optimized for. They're kept in sync via events (CDC or application-emitted events). A single relational store with indexes (a) can't do efficient full-text search. Read replicas (d) help with read volume but still share the relational schema, so they can't do efficient full-text search either. NoSQL (c) trades away the transactional integrity the writes need. CQRS lets each side be optimal for its workload.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q2",
+      "payload": {
+        "question": "After a user updates their profile in a CQRS system, they refresh the page and see the old profile. What is the most likely cause?",
+        "shape": "mcq",
+        "options": [
+          "The write failed silently — the update was never persisted.",
+          "The read model lags the write model (eventual consistency), so the refresh read a stale projection.",
+          "CQRS doesn't allow reads after writes.",
+          "The user's browser is broken."
+        ],
+        "answer_index": 1,
+        "rationale": "CQRS read models are eventually consistent with the write model — projections update asynchronously by consuming events. If the user refreshes before the projection has consumed the update event, they see the old data. This is a known property of CQRS, not a bug. The standard fix for read-your-writes consistency is either (a) route that user's reads to the write store temporarily after their write, (b) have the client include the version/etag of their write and wait for the read model to catch up, or (c) accept the brief staleness if it doesn't matter for the user experience. Option (a) is wrong because the write probably succeeded (the read is just stale). Option (c) is wrong — CQRS allows reads, just eventually. Option (d) is a non-answer.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-cqrs-mental",
+      "payload": {
+        "text": "Engineering mental model",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-cqrs-mental",
+      "payload": {
+        "text": "**Mental model.** Think of CQRS as a deliberate boundary in a system. The boundary exists because something becomes harder to manage when everything is done in one place: latency, scale, failure isolation, consistency, cost, or team ownership. The useful question is not “what does CQRS mean?” but “what pressure makes this boundary worth introducing, and what new failure mode does it create?”"
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-cqrs-decision",
+      "payload": {
+        "title": "Design lens",
+        "body": "Before choosing CQRS, name the workload, the critical user path, the dominant bottleneck, the failure you are trying to absorb, and the trade-off you are willing to accept. If you cannot name those five things, the design is probably premature.",
+        "kind": "info"
+      }
+    },
+    {
+      "type": "image",
+      "id": "upgrade-image-cqrs",
+      "payload": {
+        "src": "/learning-visuals/cqrs.svg",
+        "alt": "Original NO CAP systems visual for CQRS.",
+        "caption": "CQRS: a compact system-thinking visual.",
+        "credit": "Original NO CAP visual.",
+        "source_url": "https://github.com/donnemartin/system-design-primer"
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "upgrade-mermaid-cqrs",
+      "payload": {
+        "code": "flowchart LR\n  A[Client] --> B[Gateway] --> C[Service] --> D[State] --> E[Outcome]",
+        "caption": "CQRS: a simplified system view showing the primary flow and the main state boundaries.",
+        "alt_text": "CQRS: a simplified system view showing the primary flow and the main state boundaries."
+      }
+    },
+    {
+      "type": "code",
+      "id": "upgrade-code-cqrs",
+      "payload": {
+        "language": "text",
+        "code": "// Pseudocode\nrequest = receive()\nresult = cqrs(request)\nreturn result\n\n// Production questions:\n// 1. What happens on timeout?\n// 2. Can this operation be retried safely?\n// 3. What is the bottleneck?",
+        "caption": "A minimal engineering sketch for reasoning about CQRS."
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-cqrs-numbers",
+      "payload": {
+        "text": "Back-of-the-envelope reasoning",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-cqrs-numbers",
+      "payload": {
+        "text": "Numerical lens: write down traffic, payload size, read/write ratio, peak multiplier and durability target before choosing a component. The numbers should justify the architecture."
+      }
+    },
+    {
+      "type": "simulation",
+      "id": "upgrade-sim-cqrs",
+      "payload": {
+        "title": "Interactive thought experiment: CQRS",
+        "description": "Change the variables below and predict what breaks first in CQRS. The production lab can later reuse these same inputs.",
+        "variables": [
+          {
+            "name": "traffic",
+            "description": "Requests/events per second",
+            "default": "1000"
+          },
+          {
+            "name": "latency",
+            "description": "Dependency latency",
+            "default": "50ms"
+          },
+          {
+            "name": "failure_rate",
+            "description": "Injected failure rate",
+            "default": "0%"
+          }
+        ],
+        "placeholder_note": "Interactive controls are deterministic; use the linked Labs section when a dedicated lab exists."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-cqrs-hint",
+      "payload": {
+        "title": "Hint",
+        "body": "If you are stuck on CQRS, start by drawing the request path and marking every network hop, stateful component, queue, cache and failure boundary. Then estimate where the system will saturate.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-cqrs-1",
+      "payload": {
+        "shape": "prediction",
+        "question": "You increase traffic by 10× in a system using CQRS. What should you inspect first?",
+        "options": [
+          "The newest framework version",
+          "The dominant bottleneck and its saturation signal",
+          "Only the UI",
+          "Nothing; the architecture should absorb any traffic automatically"
+        ],
+        "answer_index": 1,
+        "rationale": "System design is a constraint-and-bottleneck exercise. Start with the resource or dependency that will saturate first, then choose the smallest change that removes that bottleneck.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-cqrs-2",
+      "payload": {
+        "shape": "mcq",
+        "question": "Which statement is the safest engineering habit when using CQRS?",
+        "options": [
+          "Choose it because it is popular",
+          "Add it before measuring the problem",
+          "State the workload, failure mode and trade-off it is solving",
+          "Use the most distributed design possible"
+        ],
+        "answer_index": 2,
+        "rationale": "Good architecture starts from requirements, workload and failure assumptions. The component is the consequence of that reasoning, not the starting point.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "scenario",
+      "id": "upgrade-scenario-cqrs",
+      "payload": {
+        "prompt": "Production scenario: your system uses CQRS, traffic suddenly spikes, and p99 latency doubles. What is your first move?",
+        "context": "You have dashboards for traffic, latency, errors and saturation. You can change the architecture, but every change has operational cost.",
+        "options": [
+          {
+            "id": "a",
+            "text": "Add more instances immediately",
+            "outcome": "This may help, but only if compute saturation is the bottleneck.",
+            "correct": false
+          },
+          {
+            "id": "b",
+            "text": "Inspect the bottleneck and its saturation signal first",
+            "outcome": "Correct: diagnose before scaling or introducing a new pattern.",
+            "correct": true
+          },
+          {
+            "id": "c",
+            "text": "Disable monitoring to reduce overhead",
+            "outcome": "This removes the evidence you need to diagnose the incident.",
+            "correct": false
+          }
+        ],
+        "rationale": "Measure the limiting resource or dependency first. A bottleneck can be compute, database I/O, network, cache misses, lock contention, downstream latency, or queue backlog.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-cqrs-interview",
+      "payload": {
+        "text": "Interview drill",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-cqrs-interview",
+      "payload": {
+        "text": "**Answer this without notes:** When would you choose CQRS, and when would you intentionally avoid it? Mention at least one bottleneck it addresses, one failure mode it introduces, and one alternative. Then quantify the workload you are designing for."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "field-guide-cqrs",
+      "payload": {
+        "title": "Engineering lens",
+        "body": "A useful engineering lens for CQRS: define the problem it solves, the simpler design that fails first, the constraint that forces you to introduce this concept, and the new failure modes the concept creates.",
+        "kind": "tip"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "numerical-lens-cqrs",
+      "payload": {
+        "text": "### Numerical sanity check\n\nBack-of-the-envelope reasoning beats fake precision. State your traffic, payload, concurrency and growth assumptions explicitly, then calculate enough to know whether the current architecture is orders of magnitude away from the target."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "field-question-cqrs",
+      "payload": {
+        "shape": "prediction",
+        "question": "Imagine the simplest version of a system using CQRS. What breaks first as traffic grows by 10×, and what would you change before reaching 100×?",
+        "context": "Do not optimize for a memorized definition. Reason from the workload and failure mode.",
+        "options": [
+          "Scale the same component immediately.",
+          "Measure the current bottleneck and state the assumption that changed.",
+          "Add more technologies until throughput improves.",
+          "Choose the most popular architecture."
+        ],
+        "answer_index": 1,
+        "rationale": "Good system design starts with the bottleneck and the changed constraint. The most popular or complex choice is not automatically correct.",
+        "difficulty": "interview"
+      }
+    }
+  ],
+  "trade_offs": {
+    "pros": [
+      "Reads and writes can be independently optimized — different stores, different schemas, different scaling.",
+      "Read models can be shaped exactly for their query (denormalized, indexed, cached) without affecting writes.",
+      "Independent scaling — add read replicas without scaling the write store.",
+      "Enables event sourcing and materialized-view patterns naturally.",
+      "Read model failures don't break writes (and vice versa) — better fault isolation."
+    ],
+    "cons": [
+      "Operational complexity — now you operate two (or more) stores and a sync pipeline.",
+      "Eventually consistent reads — not suitable when reads must be strongly consistent.",
+      "Read-your-writes requires extra work (sticky routing, version waits).",
+      "Higher latency for the rare synchronous read-your-writes case.",
+      "More moving parts to test, debug, and monitor — bugs in the sync pipeline are subtle."
+    ]
+  },
+  "failure_modes": [
+    "Sync pipeline lag grows under load — read model falls further and further behind writes.",
+    "Sync pipeline drops events — read model permanently diverges from write model (requires rebuild).",
+    "Read model becomes a SPOF — if Elasticsearch goes down, no reads, even though writes still work.",
+    "Schema evolution breaks projections — a new write field requires updating all read model projections.",
+    "Replay storms — rebuilding a projection from the event log takes hours and stresses the write store.",
+    "Inconsistent ordering — events delivered out of order cause incorrect projections (need sequencing)."
+  ],
+  "common_mistakes": [
+    "Applying CQRS everywhere by default — most domains are simple CRUD and don't need it.",
+    "Forgetting to handle read-your-writes — users see stale data after their own writes.",
+    "Not monitoring sync lag — silent staleness causes user-visible bugs.",
+    "Using different technologies for write and read without team expertise in both.",
+    "Not having a replay strategy — when the read model drifts, you need to rebuild it from the event log.",
+    "Assuming CQRS == Event Sourcing — they're independent; CQRS can use a relational write store without events."
+  ],
+  "where_you_see_it": [
+    "E-commerce product catalogs — relational store for inventory writes, Elasticsearch for search reads.",
+    "Activity feeds (Twitter, Facebook) — writes to a normalized store, reads from precomputed fan-out feeds.",
+    "Booking systems (airlines, hotels) — transactional writes, search/analytics reads on different stores.",
+    "Financial systems — append-only event log for writes, multiple read projections for reporting.",
+    "Multi-tenant SaaS — per-tenant read models optimized for each tenant's query patterns."
+  ],
+  "interview_prompts": [
+    "What is CQRS, and when would you use it? When would you NOT use it?",
+    "How does CQRS relate to Event Sourcing? Are they the same pattern?",
+    "After a user writes data, they read it back and see the old version. What's happening, and how do you fix it?",
+    "How would you design a system where 99% of traffic is complex full-text search and 1% is transactional writes?",
+    "What are the operational costs of CQRS, and how do you decide they're worth paying?"
+  ],
+  "real_system_mappings": [
+    {
+      "system": "Amazon DynamoDB + Elasticsearch (common AWS pattern)",
+      "how": "Many AWS-based e-commerce systems use DynamoDB for transactional writes and stream changes via DynamoDB Streams into Elasticsearch for full-text search reads — a textbook CQRS implementation across two stores."
+    },
+    {
+      "system": "Facebook / Instagram activity feeds",
+      "how": "Writes go to a normalized store; reads come from precomputed, denormalized fan-out feeds in Redis or specialized stores — each feed is a different read-model projection optimized for one user's timeline query."
+    },
+    {
+      "system": "Axon Framework (Java)",
+      "how": "Axon is a Java framework that implements CQRS + Event Sourcing explicitly: commands update an event-sourced aggregate, events are published to a bus, and query-side projections subscribe to build read models — a textbook reference implementation."
+    }
+  ],
+  "status": "published",
+  "sources": [
+    {
+      "title": "System Design Primer",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Open source"
+    },
+    {
+      "title": "ByteByteGo — Scale from zero to millions",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "ByteByteGo"
+    },
+    {
+      "title": "System Design Tutorial",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "GeeksforGeeks"
+    },
+    {
+      "title": "System Design Roadmap",
+      "url": "https://roadmap.sh/system-design",
+      "publisher": "roadmap.sh"
+    },
+    {
+      "title": "Design Patterns reference",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Design Patterns reference",
+      "url": "https://learn.microsoft.com/en-us/azure/architecture/patterns/",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Design Patterns reference",
+      "url": "https://martinfowler.com/",
+      "publisher": "Reference"
+    }
+  ]
+}

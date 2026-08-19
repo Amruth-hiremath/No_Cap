@@ -1,0 +1,413 @@
+{
+  "slug": "strangler-fig",
+  "version": 3,
+  "title": "Strangler Fig",
+  "phase": "design-patterns",
+  "area": "Design Patterns",
+  "estimated_minutes": 7,
+  "difficulty": "advanced",
+  "summary": "Strangler Fig is a migration pattern: instead of rewriting a legacy system in one risky big-bang, you wrap it with a routing layer that incrementally redirects new features (or specific endpoints) to a new implementation, while the old system keeps running. Over time, the new system 'strangles' the old one — taking on more responsibility — until the legacy can be retired entirely. The pattern, named by Martin Fowler after a strangler fig vine that grows around and eventually replaces its host tree, trades a high-risk big-bang for a series of low-risk, reversible steps.",
+  "why_it_matters": "Big-bang rewrites fail. They take years, run over budget, and the old system keeps changing underneath them — so when the new system finally ships, it's already wrong. Strangler Fig makes the migration observable, reversible, and value-delivering from week one: every chunk migrated is a feature shipped. It is the canonical answer to 'how do we replace a monolith without stopping the business?'",
+  "prerequisites": [
+    "microservices"
+  ],
+  "related": [
+    "anti-corruption-layer",
+    "sidecar",
+    "service-mesh"
+  ],
+  "used_in": [
+    "Monolith → microservices migrations.",
+    "Replacing legacy vendor systems with in-house builds.",
+    "Re-platforming: moving from on-prem to cloud, or one cloud to another.",
+    "Language migrations: rewriting a Python service in Go, one endpoint at a time."
+  ],
+  "blocks": [
+    {
+      "type": "prose",
+      "id": "intro",
+      "payload": {
+        "text": "The Strangler Fig pattern, introduced by Martin Fowler in 2004, is the canonical strategy for incrementally replacing a legacy system. The name comes from the strangler fig vine: it sprouts in the canopy of a host tree, drops roots to the ground, and over decades the vine grows thicker and thicker until it eventually replaces — strangles — the host tree, leaving only the vine behind.\n\nThe software version works the same way:\n\n1. **Put a routing façade in front of the legacy system.** This façade (an API gateway, reverse proxy, or feature router) initially forwards 100% of traffic to the legacy.\n2. **Build the new implementation of one slice of functionality** — say, the `GET /orders/{id}` endpoint, or the search feature.\n3. **Reconfigure the façade** to route that one slice to the new implementation. Everything else still goes to legacy.\n4. **Observe.** If the new slice misbehaves, flip the routing back. Migration is reversible.\n5. **Repeat** for the next slice — endpoint by endpoint, feature by feature, domain by domain.\n6. **Eventually, the legacy system handles nothing.** Decommission it.\n\nThe key insight is that the routing façade gives you a *reversible migration*. Every step is small enough to validate and cheap enough to roll back. This is the opposite of a big-bang rewrite, where you bet the company on a single cutover date."
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "façade",
+      "payload": {
+        "code": "flowchart TD\n    N0[\"Clients\"]\n    N1[\"Routing\"]\n    N2[\"Façade\"]\n    N3[\"decides:\"]\n    N4[\"new\"]\n    N5[\"old?\"]\n    N6[\"API gateway / proxy\"]\n    N7[\"(API\"]\n    N8[\"gateway\"]\n    N9[\"proxy)\"]\n    N10[\"orders\"]\n    N11[\"products\"]\n    N12[\"users\"]\n    N13[\"search...\"]\n    N14[\"migrated\"]\n    N15[\"still legacy\"]\n    N16[\"(migrated)\"]\n    N17[\"(still\"]\n    N18[\"legacy)\"]\n    N19[\"New\"]\n    N20[\"Svc\"]\n    N21[\"Legacy\"]\n    N22[\"Monolith\"]\n    N23[\"Go\"]\n    N24[\"still runs!\"]\n    N25[\"(Go)\"]\n    N26[\"runs!)\"]\n    N27[\"Over\"]\n    N28[\"time,\"]\n    N29[\"more\"]\n    N30[\"routes\"]\n    N31[\"migrate\"]\n    N32[\"left\"]\n    N33[\"legacy\"]\n    N34[\"shrinks\"]\n    N35[\"eventually\"]\n    N36[\"retired.\"]\n    N37[\"Migration\"]\n    N38[\"████████░░░░░░░░░░░░\"]\n    N39[\"~35%\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39",
+        "caption": "Routing façade splits traffic: migrated endpoints go to the new service; the rest still hit the legacy system. Migration proceeds incrementally and is reversible at any step.",
+        "alt_text": "A diagram showing clients at the top, then a routing façade (API gateway or proxy) that decides for each request whether to send it to the new service or the legacy monolith. Migrated endpoints like orders go to the new service written in Go, while products, users, and search still go to the legacy monolith which keeps running. A progress bar at the bottom shows about 35 percent migrated, with more routes migrating left over time and the legacy eventually being retired."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "slicing",
+      "payload": {
+        "text": "Choosing what to migrate first matters. Good first slices:\n\n- **Read-only endpoints** — they don't have to handle writes, transactions, or consistency. Easy to migrate, easy to roll back.\n- **New features** — instead of bolting new code onto legacy, build the new feature in the new system, route to it from day one. Legacy never has to learn about it.\n- **Low-traffic, low-risk endpoints** — to validate the pipeline (deployment, monitoring, routing) before high-stakes migrations.\n- **A bounded subdomain** — e.g., the entire 'orders' subdomain, including reads and writes, fully owned by the new service. This avoids the worst case: write split between legacy and new, requiring bidirectional data sync.\n\nThe hardest migrations are when data is shared between legacy and new — both must read and write the same data. Patterns for this:\n- **Change data capture (CDC)**: stream legacy DB changes to the new service's store.\n- **Dual writes**: write to both, accept inconsistency temporarily.\n- **Anti-corruption layer**: translate between legacy and new domain models.\n- **Expand/Contract**: expand schema to support both, migrate, then contract.\n\nThe migration is done when the legacy system can be turned off without anyone noticing."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "vs-big-bang",
+      "payload": {
+        "title": "Strangler Fig vs Big-Bang Rewrite",
+        "body": "Big-bang rewrites feel heroic but fail often: the new system must reach feature parity before cutover, and the legacy keeps changing underneath, so 'parity' is a moving target. Years pass, the new system is never quite done, the team burns out, the business loses patience, and the rewrite is cancelled. Strangler Fig inverts this: ship value every week, validate every step, roll back when wrong. The total time may be similar, but the risk profile is vastly better. Joel Spolsky's famous 2000 essay 'Things You Should Never Do' warned against Netscape's big-bang rewrite; Strangler Fig is the answer to that warning.",
+        "kind": "key"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "façade-impl",
+      "payload": {
+        "text": "The façade is the linchpin. Common implementations:\n\n- **Reverse proxy with path-based routing** — nginx, HAProxy, Envoy: `location /orders/ { proxy_pass new-svc; } location / { proxy_pass legacy; }`. Simple and battle-tested.\n- **API gateway** (Kong, AWS API Gateway, Apigee) — adds auth, rate limiting, observability.\n- **Service mesh** (Istio, Linkerd) — if you're already in a mesh, virtual services + destination rules do this elegantly.\n- **Feature flags** (LaunchDarkly, Unleash) — route per-request based on user ID, percentage, or environment. Useful for canary migrations: 1% of users go to new, 99% to legacy.\n- **DNS / traffic manager** — for migrating entire domains.\n\nWhatever you choose, the façade must support:\n1. Per-route decisions (not just 'all or nothing').\n2. Gradual rollout (1%, 10%, 50%, 100%).\n3. Fast rollback (flip a config, not redeploy).\n4. Observability (per-route error rates, latency, traffic) so you can spot regressions.\n5. Header/cookie-based routing for canaries."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q1",
+      "payload": {
+        "question": "Why does Strangler Fig generally produce lower migration risk than a big-bang rewrite?",
+        "shape": "mcq",
+        "options": [
+          "It is faster overall, so there is less time for things to go wrong.",
+          "Each step is small and reversible — you can roll back a single migrated slice without affecting the rest.",
+          "It requires fewer engineers, so communication overhead is lower.",
+          "The legacy system stops changing during the migration, simplifying parity."
+        ],
+        "answer_index": 1,
+        "rationale": "The defining advantage of Strangler Fig is reversibility per slice. A big-bang rewrite is a single huge bet: on cutover day, either it works or the business is down. Strangler Fig moves one endpoint (or one slice, or one percentage of traffic) at a time, and each move can be rolled back in seconds by re-pointing the routing façade. This bounds the blast radius of any failure to one slice. The total migration time is often similar to or longer than a big-bang, but the risk profile is far better. The legacy usually keeps changing during migration, which is itself a reason to prefer incremental — you can keep up slice by slice rather than chasing parity over years.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q2",
+      "payload": {
+        "question": "You are migrating an e-commerce monolith. Which endpoint is the BEST candidate to migrate first under Strangler Fig?",
+        "shape": "mcq",
+        "options": [
+          "POST /checkout — the highest-revenue endpoint, to validate the new system under real money.",
+          "GET /products/{id} — a high-traffic read-only endpoint, low risk and easy to roll back.",
+          "POST /admin/refund — rarely used, so a safe first migration.",
+          "All endpoints simultaneously, to avoid the cost of running two systems."
+        ],
+        "answer_index": 1,
+        "rationale": "The best first migration is read-only, high-traffic, and low-risk. GET /products/{id} is read-only (no write consistency concerns), high-traffic (you'll quickly see if the new service handles load), and easy to roll back (a single routing change). Starting with POST /checkout is reckless — it's the highest-revenue endpoint and any bug costs real money. POST /admin/refund is rarely used, so it doesn't validate the new system under real load. Migrating everything simultaneously is by definition a big-bang, not Strangler Fig. The right strategy is to prove the migration pipeline with a low-stakes endpoint, then progressively take on higher-stakes ones.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-strangler-fig-mental",
+      "payload": {
+        "text": "Engineering mental model",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-strangler-fig-mental",
+      "payload": {
+        "text": "**Mental model.** Think of Strangler Fig as a deliberate boundary in a system. The boundary exists because something becomes harder to manage when everything is done in one place: latency, scale, failure isolation, consistency, cost, or team ownership. The useful question is not “what does Strangler Fig mean?” but “what pressure makes this boundary worth introducing, and what new failure mode does it create?”"
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-strangler-fig-decision",
+      "payload": {
+        "title": "Design lens",
+        "body": "Before choosing Strangler Fig, name the workload, the critical user path, the dominant bottleneck, the failure you are trying to absorb, and the trade-off you are willing to accept. If you cannot name those five things, the design is probably premature.",
+        "kind": "info"
+      }
+    },
+    {
+      "type": "image",
+      "id": "upgrade-image-strangler-fig",
+      "payload": {
+        "src": "/learning-visuals/strangler-fig.svg",
+        "alt": "Original NO CAP systems visual for Strangler Fig.",
+        "caption": "Strangler Fig: a compact system-thinking visual.",
+        "credit": "Original NO CAP visual.",
+        "source_url": "https://github.com/donnemartin/system-design-primer"
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "upgrade-mermaid-strangler-fig",
+      "payload": {
+        "code": "flowchart LR\n  A[Client] --> B[Gateway] --> C[Service] --> D[State] --> E[Outcome]",
+        "caption": "Strangler Fig: a simplified system view showing the primary flow and the main state boundaries.",
+        "alt_text": "Strangler Fig: a simplified system view showing the primary flow and the main state boundaries."
+      }
+    },
+    {
+      "type": "code",
+      "id": "upgrade-code-strangler-fig",
+      "payload": {
+        "language": "text",
+        "code": "// Pseudocode\nrequest = receive()\nresult = strangler_fig(request)\nreturn result\n\n// Production questions:\n// 1. What happens on timeout?\n// 2. Can this operation be retried safely?\n// 3. What is the bottleneck?",
+        "caption": "A minimal engineering sketch for reasoning about Strangler Fig."
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-strangler-fig-numbers",
+      "payload": {
+        "text": "Back-of-the-envelope reasoning",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-strangler-fig-numbers",
+      "payload": {
+        "text": "Numerical lens: write down traffic, payload size, read/write ratio, peak multiplier and durability target before choosing a component. The numbers should justify the architecture."
+      }
+    },
+    {
+      "type": "simulation",
+      "id": "upgrade-sim-strangler-fig",
+      "payload": {
+        "title": "Interactive thought experiment: Strangler Fig",
+        "description": "Change the variables below and predict what breaks first in Strangler Fig. The production lab can later reuse these same inputs.",
+        "variables": [
+          {
+            "name": "traffic",
+            "description": "Requests/events per second",
+            "default": "1000"
+          },
+          {
+            "name": "latency",
+            "description": "Dependency latency",
+            "default": "50ms"
+          },
+          {
+            "name": "failure_rate",
+            "description": "Injected failure rate",
+            "default": "0%"
+          }
+        ],
+        "placeholder_note": "Interactive controls are deterministic; use the linked Labs section when a dedicated lab exists."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-strangler-fig-hint",
+      "payload": {
+        "title": "Hint",
+        "body": "If you are stuck on Strangler Fig, start by drawing the request path and marking every network hop, stateful component, queue, cache and failure boundary. Then estimate where the system will saturate.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-strangler-fig-1",
+      "payload": {
+        "shape": "prediction",
+        "question": "You increase traffic by 10× in a system using Strangler Fig. What should you inspect first?",
+        "options": [
+          "The newest framework version",
+          "The dominant bottleneck and its saturation signal",
+          "Only the UI",
+          "Nothing; the architecture should absorb any traffic automatically"
+        ],
+        "answer_index": 1,
+        "rationale": "System design is a constraint-and-bottleneck exercise. Start with the resource or dependency that will saturate first, then choose the smallest change that removes that bottleneck.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-strangler-fig-2",
+      "payload": {
+        "shape": "mcq",
+        "question": "Which statement is the safest engineering habit when using Strangler Fig?",
+        "options": [
+          "Choose it because it is popular",
+          "Add it before measuring the problem",
+          "State the workload, failure mode and trade-off it is solving",
+          "Use the most distributed design possible"
+        ],
+        "answer_index": 2,
+        "rationale": "Good architecture starts from requirements, workload and failure assumptions. The component is the consequence of that reasoning, not the starting point.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "scenario",
+      "id": "upgrade-scenario-strangler-fig",
+      "payload": {
+        "prompt": "Production scenario: your system uses Strangler Fig, traffic suddenly spikes, and p99 latency doubles. What is your first move?",
+        "context": "You have dashboards for traffic, latency, errors and saturation. You can change the architecture, but every change has operational cost.",
+        "options": [
+          {
+            "id": "a",
+            "text": "Add more instances immediately",
+            "outcome": "This may help, but only if compute saturation is the bottleneck.",
+            "correct": false
+          },
+          {
+            "id": "b",
+            "text": "Inspect the bottleneck and its saturation signal first",
+            "outcome": "Correct: diagnose before scaling or introducing a new pattern.",
+            "correct": true
+          },
+          {
+            "id": "c",
+            "text": "Disable monitoring to reduce overhead",
+            "outcome": "This removes the evidence you need to diagnose the incident.",
+            "correct": false
+          }
+        ],
+        "rationale": "Measure the limiting resource or dependency first. A bottleneck can be compute, database I/O, network, cache misses, lock contention, downstream latency, or queue backlog.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-strangler-fig-interview",
+      "payload": {
+        "text": "Interview drill",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-strangler-fig-interview",
+      "payload": {
+        "text": "**Answer this without notes:** When would you choose Strangler Fig, and when would you intentionally avoid it? Mention at least one bottleneck it addresses, one failure mode it introduces, and one alternative. Then quantify the workload you are designing for."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "field-guide-strangler-fig",
+      "payload": {
+        "title": "Engineering lens",
+        "body": "A useful engineering lens for Strangler Fig: define the problem it solves, the simpler design that fails first, the constraint that forces you to introduce this concept, and the new failure modes the concept creates.",
+        "kind": "tip"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "numerical-lens-strangler-fig",
+      "payload": {
+        "text": "### Numerical sanity check\n\nBack-of-the-envelope reasoning beats fake precision. State your traffic, payload, concurrency and growth assumptions explicitly, then calculate enough to know whether the current architecture is orders of magnitude away from the target."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "field-question-strangler-fig",
+      "payload": {
+        "shape": "prediction",
+        "question": "Imagine the simplest version of a system using Strangler Fig. What breaks first as traffic grows by 10×, and what would you change before reaching 100×?",
+        "context": "Do not optimize for a memorized definition. Reason from the workload and failure mode.",
+        "options": [
+          "Scale the same component immediately.",
+          "Measure the current bottleneck and state the assumption that changed.",
+          "Add more technologies until throughput improves.",
+          "Choose the most popular architecture."
+        ],
+        "answer_index": 1,
+        "rationale": "Good system design starts with the bottleneck and the changed constraint. The most popular or complex choice is not automatically correct.",
+        "difficulty": "interview"
+      }
+    }
+  ],
+  "trade_offs": {
+    "pros": [
+      "Migration is incremental and reversible — each step can be rolled back independently.",
+      "Value is delivered continuously — each migrated slice is a shippable improvement.",
+      "Legacy keeps running, so the business is never blocked.",
+      "Team learns the new stack by migrating real code, not by maintaining parity in a vacuum.",
+      "Observability of the new system is built up gradually, with real traffic, before it takes over."
+    ],
+    "cons": [
+      "Running two systems in parallel costs money and operational complexity (monitoring both, deploying both, on-call for both).",
+      "Data may need to be synchronized between legacy and new (CDC, dual writes), which is its own complexity.",
+      "Routing façade must be reliable — it's now a critical single point of failure.",
+      "Migration can stall — 'we're 60% migrated' is a common plateau that's hard to push past."
+    ]
+  },
+  "failure_modes": [
+    "Routing façade itself fails — every request fails. The façade must be highly available.",
+    "Data divergence between legacy and new — writes go to both, but one lags; users see inconsistent state.",
+    "Migration stalls at 60-70% — the hardest endpoints are left for last and never get migrated.",
+    "Cross-cutting concerns (auth, logging) drift between legacy and new — debugging becomes harder.",
+    "Latency regression — new service adds an extra hop through the façade that wasn't there before.",
+    "The legacy system can't be safely turned off because nobody is sure what still depends on it."
+  ],
+  "common_mistakes": [
+    "Migrating write paths before read paths — writes have consistency and transaction concerns that reads don't.",
+    "Not building observability into the façade — you can't migrate safely if you can't compare error rates side-by-side.",
+    "Treating 'migrated' as binary — gradual, percentage-based rollout (1% → 10% → 50% → 100%) is much safer.",
+    "Forgetting to plan legacy decommissioning — the goal isn't 'migrate'; it's 'turn off the legacy.'",
+    "Not budgeting for the dual-running period — running two systems indefinitely is expensive.",
+    "Choosing the hardest slice first — start with reads and new features, save the gnarly write paths for when the pipeline is proven."
+  ],
+  "where_you_see_it": [
+    "Monolith-to-microservices migrations at almost every company that's done one successfully.",
+    "Amazon's migration from monolithic retail service to a service-oriented architecture (2001-2006).",
+    "Re-platforming on-prem apps to cloud — one service at a time, façade in front.",
+    "Replacing a vendor SaaS with an in-house build — façade routes between the two during transition.",
+    "Language migrations — e.g., rewriting a Python service in Go, endpoint by endpoint."
+  ],
+  "interview_prompts": [
+    "You have a 10-year-old monolith handling all of your company's traffic. How would you migrate it to microservices without taking the business offline?",
+    "What is Strangler Fig? Where does the name come from, and what are the key ingredients you need to apply it?",
+    "How do you handle data that needs to be read and written by both legacy and new services during migration?",
+    "How do you choose what to migrate first under Strangler Fig? What makes a good first slice?",
+    "When does Strangler Fig NOT make sense? When would you actually prefer a big-bang rewrite?"
+  ],
+  "real_system_mappings": [
+    {
+      "system": "Martin Fowler's original write-up (2004)",
+      "how": "Fowler coined the pattern while observing a client gradually replacing a legacy system via a routing façade. The article is the canonical reference cited in nearly every successful monolith-decomposition story."
+    },
+    {
+      "system": "Amazon retail platform migration (2001-2006)",
+      "how": "Amazon's well-known shift from a monolithic retail service to a service-oriented architecture followed Strangler Fig principles: services were extracted behind routing layers while the monolith kept serving everything else."
+    },
+    {
+      "system": "GitHub's gradual migration off Rails monolith",
+      "how": "GitHub extracted services (e.g., the pull-request UI, code search) incrementally behind routing, while the Rails monolith continued serving most of the application — a multi-year Strangler Fig migration."
+    }
+  ],
+  "status": "published",
+  "sources": [
+    {
+      "title": "System Design Primer",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Open source"
+    },
+    {
+      "title": "ByteByteGo — Scale from zero to millions",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "ByteByteGo"
+    },
+    {
+      "title": "System Design Tutorial",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "GeeksforGeeks"
+    },
+    {
+      "title": "System Design Roadmap",
+      "url": "https://roadmap.sh/system-design",
+      "publisher": "roadmap.sh"
+    },
+    {
+      "title": "Design Patterns reference",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Design Patterns reference",
+      "url": "https://learn.microsoft.com/en-us/azure/architecture/patterns/",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Design Patterns reference",
+      "url": "https://martinfowler.com/",
+      "publisher": "Reference"
+    }
+  ]
+}

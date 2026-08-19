@@ -1,36 +1,51 @@
 [
   {
     "term": "CAP Theorem",
-    "aliases": ["Brewer's Theorem"],
+    "aliases": [
+      "Brewer's Theorem"
+    ],
     "definition": "In a distributed system, you can provide at most two of three guarantees: Consistency, Availability, Partition tolerance. Under network partition, you must choose between C and A.",
     "concept_slug": "cap-theorem"
   },
   {
     "term": "Cache Aside",
-    "aliases": ["Lazy Loading", "Lazy Population"],
+    "aliases": [
+      "Lazy Loading",
+      "Lazy Population"
+    ],
     "definition": "A caching strategy where the application checks the cache first; on a miss, it fetches from the source, writes to the cache, and returns. The cache is not pre-populated.",
-    "concept_slug": "caching"
+    "concept_slug": "cache-aside"
   },
   {
     "term": "Load Balancer",
-    "aliases": ["LB"],
+    "aliases": [
+      "LB"
+    ],
     "definition": "A component that distributes incoming requests across multiple servers to maximize throughput, minimize response time, and avoid overload on any single server.",
-    "concept_slug": "load-balancing"
+    "concept_slug": "load-balancers"
   },
   {
     "term": "DNS",
-    "aliases": ["Domain Name System", "Domain Name Server"],
+    "aliases": [
+      "Domain Name System",
+      "Domain Name Server"
+    ],
     "definition": "A hierarchical, decentralized naming system that translates human-readable domain names (example.com) into IP addresses (93.184.216.34).",
     "concept_slug": "dns"
   },
   {
     "term": "CDN",
-    "aliases": ["Content Delivery Network", "Content Distribution Network"],
+    "aliases": [
+      "Content Delivery Network",
+      "Content Distribution Network"
+    ],
     "definition": "A geographically distributed network of proxy servers that serves cached content to users from the nearest edge location, reducing latency and origin load."
   },
   {
     "term": "SPOF",
-    "aliases": ["Single Point of Failure"],
+    "aliases": [
+      "Single Point of Failure"
+    ],
     "definition": "A component in a system whose failure causes the entire system to fail. Architecture review identifies and eliminates SPOFs through redundancy."
   },
   {
@@ -40,17 +55,23 @@
   },
   {
     "term": "Sharding",
-    "aliases": ["Horizontal Partitioning"],
+    "aliases": [
+      "Horizontal Partitioning"
+    ],
     "definition": "Splitting a large database into smaller, horizontally-partitioned pieces (shards) distributed across multiple servers. Each shard holds a subset of rows."
   },
   {
     "term": "Replication",
-    "aliases": ["Replica"],
+    "aliases": [
+      "Replica"
+    ],
     "definition": "Copying data from a primary database to one or more replica databases to improve read availability, scalability, and fault tolerance."
   },
   {
     "term": "Idempotency",
-    "aliases": ["Idempotent"],
+    "aliases": [
+      "Idempotent"
+    ],
     "definition": "A property of an operation where executing it once has the same effect as executing it multiple times. Critical for safe retries in distributed systems."
   },
   {
@@ -70,7 +91,9 @@
   },
   {
     "term": "Strong Consistency",
-    "aliases": ["Linearizability"],
+    "aliases": [
+      "Linearizability"
+    ],
     "definition": "A consistency model where all reads see the most recent write, as if there were a single copy of the data. Requires coordination, reducing availability under partition."
   },
   {
@@ -85,12 +108,16 @@
   },
   {
     "term": "MVC",
-    "aliases": ["Model-View-Controller"],
+    "aliases": [
+      "Model-View-Controller"
+    ],
     "definition": "A software architectural pattern that separates application logic into three interconnected components: Model (data), View (UI), Controller (input)."
   },
   {
     "term": "Microservice",
-    "aliases": ["Microservices"],
+    "aliases": [
+      "Microservices"
+    ],
     "definition": "An architectural style where an application is composed of small, independently-deployable services that communicate over a network. Opposite of monolith."
   }
 ]

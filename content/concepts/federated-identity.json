@@ -1,0 +1,426 @@
+{
+  "slug": "federated-identity",
+  "version": 4,
+  "title": "Federated Identity",
+  "phase": "security",
+  "area": "Security",
+  "estimated_minutes": 7,
+  "difficulty": "advanced",
+  "summary": "Federated identity lets a user authenticate with one identity provider and use that identity to access multiple services — without each service managing passwords. \"Sign in with Google\" and enterprise SSO (Okta, Azure AD) are federated identity. Standards: SAML (enterprise), OIDC (modern web), OAuth (delegated access). The benefit: one strong identity, many relying services; password fatigue and reuse disappear.",
+  "why_it_matters": "Before federation, every website had its own login — and users reused the same password everywhere, leading to cascading breaches when one site leaked. Federation fixes this: one provider (Google, Okta, your employer) authenticates the user once, and other services trust that provider's assertion. The user has one password (or, increasingly, no password — passkeys). The services never see the password. Federation is how enterprise SSO works, how \"social login\" works, and how B2B SaaS lets customers log in with their corporate identity. It's the foundation of modern identity.",
+  "prerequisites": [
+    "authentication",
+    "oauth"
+  ],
+  "related": [
+    "authentication",
+    "oauth",
+    "authorization",
+    "gatekeeper"
+  ],
+  "used_in": [
+    "\"Sign in with Google/GitHub/Microsoft\" buttons.",
+    "Enterprise SSO (Okta, Azure AD, Ping).",
+    "B2B SaaS that lets customers log in with their corporate identity."
+  ],
+  "blocks": [
+    {
+      "type": "prose",
+      "id": "intro",
+      "payload": {
+        "text": "Federated identity is the pattern where authentication is delegated to a trusted Identity Provider (IdP), and other services (Service Providers, SP, or Relying Parties, RP) trust the IdP's assertion instead of authenticating the user themselves.\n\nThe cast:\n- **Identity Provider (IdP)**: Google, Okta, Azure AD. Authenticates the user, issues identity assertions.\n- **Service Provider / Relying Party (SP / RP)**: your app. Trusts the IdP's assertion, grants access.\n- **User**: authenticates once with the IdP; accesses many SPs.\n\nThe flow: user tries to access an SP. The SP redirects to the IdP. The user authenticates with the IdP (or has an existing session). The IdP redirects back to the SP with an assertion (a signed token) saying \"this is user X.\" The SP trusts the assertion and grants access.\n\nThree standards implement this: SAML (enterprise, XML-based), OIDC (modern web, JWT-based), and OAuth (technically authorization, but often combined)."
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "sso-flow",
+      "payload": {
+        "code": "flowchart TD\n    N0[\"FEDERATED\"]\n    N1[\"SSO\"]\n    N2[\"FLOW\"]\n    N3[\"User\"]\n    N4[\"SP:\"]\n    N5[\"'log\"]\n    N6[\"in'\"]\n    N7[\"IdP:\"]\n    N8[\"redirect\"]\n    N9[\"with\"]\n    N10[\"SAML\"]\n    N11[\"request\"]\n    N12[\"OIDC\"]\n    N13[\"auth\"]\n    N14[\"if no session\"]\n    N15[\"authenticate\"]\n    N16[\"(if\"]\n    N17[\"session)\"]\n    N18[\"IdP\"]\n    N19[\"signed\"]\n    N20[\"assertion\"]\n    N21[\"(SAML)\"]\n    N22[\"token\"]\n    N23[\"(OIDC)\"]\n    N24[\"verifies\"]\n    N25[\"signature;\"]\n    N26[\"creates\"]\n    N27[\"local\"]\n    N28[\"session.\"]\n    N29[\"accesses\"]\n    N30[\"SP.\"]\n    N31[\"REPEATED\"]\n    N32[\"FOR\"]\n    N33[\"ANOTHER\"]\n    N34[\"SP2:\"]\n    N35[\"SP2\"]\n    N36[\"no re-auth — existing session!\"]\n    N37[\"(no\"]\n    N38[\"existing\"]\n    N39[\"session!)\"]\n    N40[\"user\"]\n    N41[\"logged\"]\n    N42[\"into\"]\n    N43[\"without\"]\n    N44[\"entering\"]\n    N45[\"password\"]\n    N46[\"again.\"]\n    N47[\"This\"]\n    N48[\"the\"]\n    N49[\"magic.\"]\n    N50[\"TRUST\"]\n    N51[\"MODEL\"]\n    N52[\"trusts\"]\n    N53[\"IdP's\"]\n    N54[\"signature,\"]\n    N55[\"not\"]\n    N56[\"directly.\"]\n    N57[\"must\"]\n    N58[\"verify\"]\n    N59[\"user,\"]\n    N60[\"issue\"]\n    N61[\"assertion,\"]\n    N62[\"sign\"]\n    N63[\"it.\"]\n    N64[\"validate\"]\n    N65[\"check\"]\n    N66[\"audience,\"]\n    N67[\"expiry.\"]\n    N68[\"Compromise\"]\n    N69[\"compromise\"]\n    N70[\"all\"]\n    N71[\"SPs.\"]\n    N72[\"High\"]\n    N73[\"value\"]\n    N74[\"target.\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44\n    N44 --> N45\n    N45 --> N46\n    N46 --> N47\n    N47 --> N48\n    N48 --> N49\n    N49 --> N50\n    N50 --> N51\n    N51 --> N52\n    N52 --> N53\n    N53 --> N54\n    N54 --> N55\n    N55 --> N56\n    N56 --> N57\n    N57 --> N58\n    N58 --> N59\n    N59 --> N60\n    N60 --> N61\n    N61 --> N62\n    N62 --> N63\n    N63 --> N64\n    N64 --> N65\n    N65 --> N66\n    N66 --> N67\n    N67 --> N68\n    N68 --> N69\n    N69 --> N70\n    N70 --> N71\n    N71 --> N72\n    N72 --> N73\n    N73 --> N74",
+        "caption": "User authenticates once with the IdP. Subsequent SP logins use the IdP's existing session — no re-authentication needed.",
+        "alt_text": "Three diagrams. Federated SSO flow: the user asks the SP to log them in, the SP redirects to the IdP with a SAML or OIDC auth request, the user authenticates with the IdP if no session exists, the IdP redirects back with a signed assertion (SAML) or ID token (OIDC), the SP verifies the signature and creates a local session, and the user accesses the SP. Repeated for another SP: the user asks SP2 to log them in, SP2 redirects to the IdP, and the IdP redirects back with an assertion using the existing session — no re-authentication. This is the SSO magic. Trust model: the SP trusts the IdP's signature, not the user directly; the IdP must verify the user, issue the assertion, and sign it; the SP must validate the signature, check audience, and check expiry. Compromise of the IdP equals compromise of all SPs — it's a high-value target."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "standards",
+      "payload": {
+        "text": "Three standards implement federated identity:\n\n**SAML 2.0** (enterprise, 2005): XML-based assertions, signed with XML signatures. Heavyweight but battle-tested. Used by Okta, Azure AD, Ping for enterprise SSO. Strength: mature, supported by every enterprise IdP. Weakness: XML signatures are notoriously easy to get wrong (XML signature wrapping attacks); hard to implement correctly.\n\n**OpenID Connect (OIDC)** (modern web, 2014): thin layer on OAuth 2.0. Adds an ID token (a JWT) that asserts the user's identity. Lightweight, JSON-based, easy to implement with modern libraries. The standard for consumer-facing SSO (Google, Microsoft, Apple).\n\n**OAuth 2.0** (technically authorization, often combined): OAuth provides delegated access (access tokens); OIDC adds identity (ID tokens). Most \"Sign in with X\" flows use OAuth + OIDC together.\n\nFor new systems, use OIDC. SAML is necessary for enterprise integrations with existing IdPs but should not be the first choice for new builds."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "trust-model",
+      "payload": {
+        "text": "Federation is a trust relationship: the SP trusts the IdP to authenticate users correctly and to assert their identity accurately. This trust is bilateral — the SP must be configured to trust a specific IdP, and the IdP must be configured to issue assertions for that SP.\n\nTrust configuration:\n- **IdP publishes its signing certificate**. The SP uses it to verify assertion signatures.\n- **SP registers a redirect URI / audience** with the IdP. The IdP only issues assertions for that audience.\n- **Optional: attribute mapping**. The IdP sends claims (email, name, groups); the SP maps them to local user attributes.\n\nThe IdP is a high-value target. If compromised, the attacker can impersonate any user to any SP that trusts the IdP. This is why enterprise IdPs (Okta, Azure AD) have such strict security: MFA for admins, hardware keys, anomaly detection, session monitoring.\n\nSPs must validate every assertion: signature valid, audience matches, expiry not passed, issuer trusted. Skipping any check creates vulnerabilities (assertion injection, replay attacks)."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "saml-vs-oidc",
+      "payload": {
+        "title": "SAML vs OIDC: the practical decision",
+        "body": "If you're integrating with an existing enterprise customer who already uses Okta or Azure AD, you'll likely need SAML — it's what those IdPs speak. If you're building a consumer product with \"Sign in with Google/Apple/Microsoft,\" use OIDC. If you're a B2B SaaS supporting both, build for OIDC and add SAML via a bridge (Auth0, WorkOS) — implementing SAML correctly from scratch is painful and bug-prone. The general trend: OIDC for new systems, SAML maintained for legacy enterprise integration, with bridges translating between them.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "benefits-risks",
+      "payload": {
+        "text": "Benefits of federated identity:\n\n- **One identity, many services**: users authenticate once with the IdP; SSO across all SPs.\n- **Stronger authentication**: the IdP can enforce MFA, hardware keys, anomaly detection — far stronger than most SPs would implement alone.\n- **Centralized revocation**: disable a user at the IdP; they lose access to all SPs.\n- **Reduced password fatigue**: one password (or no password, with passkeys) instead of one per service.\n- **Enterprise control**: employers can provision/deprovision employees across all SaaS from one place.\n\nRisks:\n\n- **IdP compromise = total compromise**. The IdP is the keys to the kingdom.\n- **Privacy**: the IdP sees every login across every SP. Some users object; some regulations limit data sharing.\n- **Vendor lock-in**: switching IdPs is hard once all SPs trust one.\n- **Outage propagation**: if the IdP is down, no one can log in to any SP. Critical dependency.\n\nMitigations: pick an IdP with strong security and high uptime (Google, Azure AD), enforce MFA on the IdP itself, and have a fallback for the rare IdP outage."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q1",
+      "payload": {
+        "question": "What's the key benefit of federated identity over per-service authentication?",
+        "shape": "mcq",
+        "options": [
+          "It's faster — federated login skips authentication.",
+          "The user has one strong identity at the IdP, used across many SPs. The SPs never see the password, and the IdP can enforce stronger authentication than each SP could alone.",
+          "It's required by GDPR.",
+          "It eliminates the need for authorization."
+        ],
+        "answer_index": 1,
+        "rationale": "Federated identity centralizes authentication at the IdP. The user authenticates once with the IdP, which can enforce MFA, hardware keys, anomaly detection — stronger than most SPs implement. SPs never see the password, so a breach of an SP doesn't compromise the password. The user has one identity (one password, or no password with passkeys) used across many SPs. The IdP can also revoke access across all SPs at once. The downsides are IdP compromise risk and outage propagation — mitigated by choosing a high-security, high-uptime IdP.",
+        "difficulty": "core"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q2",
+      "payload": {
+        "question": "Why is the IdP a high-value target in a federated identity system?",
+        "shape": "mcq",
+        "options": [
+          "It stores all the SPs' data.",
+          "If the IdP is compromised, the attacker can issue assertions for any user to any SP that trusts the IdP — compromising every SP at once.",
+          "It's usually running outdated software.",
+          "It's not — SPs have their own authentication."
+        ],
+        "answer_index": 1,
+        "rationale": "Every SP trusts the IdP's signed assertions. If the attacker compromises the IdP, they can issue assertions for any user to any SP — and the SPs will accept them because the signature is valid. This is total compromise: the attacker becomes any user to any SP. This is why IdPs like Okta and Azure AD enforce strict security: MFA for admins, hardware keys, anomaly detection, session monitoring, and rigorous audit logging. The trust model concentrates risk at the IdP — it must be defended accordingly.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q3",
+      "payload": {
+        "question": "You're building a new B2B SaaS and want to let customers log in with their corporate identity. Some customers use Okta (SAML); others use Google Workspace (OIDC). What's the practical approach?",
+        "shape": "mcq",
+        "options": [
+          "Build SAML and OIDC support yourself from scratch.",
+          "Use an identity platform (Auth0, WorkOS) that supports both protocols via a unified API. They handle the protocol details; you handle your app's logic.",
+          "Tell customers to use passwords instead.",
+          "Only support SAML; require OIDC customers to migrate."
+        ],
+        "answer_index": 1,
+        "rationale": "SAML and OIDC both have many footguns — XML signature wrapping attacks in SAML, redirect/state/PKCE issues in OIDC. Implementing both correctly from scratch is error-prone and a security risk. Identity platforms (Auth0, WorkOS, AWS Cognito) handle both protocols with a unified API: your app integrates once, and the platform translates to SAML or OIDC per customer. The cost is the platform fee; the benefit is correct, maintained, audited protocol handling. This is the standard pattern for B2B SaaS supporting multiple customer IdPs.",
+        "difficulty": "advanced"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-federated-identity-mental",
+      "payload": {
+        "text": "Engineering mental model",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-federated-identity-mental",
+      "payload": {
+        "text": "**Mental model.** Think of Federated Identity as a deliberate boundary in a system. The boundary exists because something becomes harder to manage when everything is done in one place: latency, scale, failure isolation, consistency, cost, or team ownership. The useful question is not “what does Federated Identity mean?” but “what pressure makes this boundary worth introducing, and what new failure mode does it create?”"
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-federated-identity-decision",
+      "payload": {
+        "title": "Design lens",
+        "body": "Before choosing Federated Identity, name the workload, the critical user path, the dominant bottleneck, the failure you are trying to absorb, and the trade-off you are willing to accept. If you cannot name those five things, the design is probably premature.",
+        "kind": "info"
+      }
+    },
+    {
+      "type": "image",
+      "id": "upgrade-image-federated-identity",
+      "payload": {
+        "src": "/learning-visuals/federated-identity.svg",
+        "alt": "Original NO CAP systems visual for Federated Identity.",
+        "caption": "Federated Identity: a compact system-thinking visual.",
+        "credit": "Original NO CAP visual.",
+        "source_url": "https://github.com/donnemartin/system-design-primer"
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "upgrade-mermaid-federated-identity",
+      "payload": {
+        "code": "flowchart LR\n  A[User] --> B[Identity] --> C[Token] --> D[Policy] --> E[Resource]",
+        "caption": "Federated Identity: a simplified system view showing the primary flow and the main state boundaries.",
+        "alt_text": "Federated Identity: a simplified system view showing the primary flow and the main state boundaries."
+      }
+    },
+    {
+      "type": "code",
+      "id": "upgrade-code-federated-identity",
+      "payload": {
+        "language": "http",
+        "code": "Authorization: Bearer <access-token>\n\nGET /v1/federated-identity\nHost: api.example.com",
+        "caption": "A minimal engineering sketch for reasoning about Federated Identity."
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-federated-identity-numbers",
+      "payload": {
+        "text": "Back-of-the-envelope reasoning",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-federated-identity-numbers",
+      "payload": {
+        "text": "Example: 10M requests/day ÷ 86,400 ≈ 116 requests/s average. Design for peak rather than average; a 10× peak is ≈ 1,160 requests/s."
+      }
+    },
+    {
+      "type": "simulation",
+      "id": "upgrade-sim-federated-identity",
+      "payload": {
+        "title": "Interactive thought experiment: Federated Identity",
+        "description": "Change the variables below and predict what breaks first in Federated Identity. The production lab can later reuse these same inputs.",
+        "variables": [
+          {
+            "name": "traffic",
+            "description": "Requests/events per second",
+            "default": "1000"
+          },
+          {
+            "name": "latency",
+            "description": "Dependency latency",
+            "default": "50ms"
+          },
+          {
+            "name": "failure_rate",
+            "description": "Injected failure rate",
+            "default": "0%"
+          }
+        ],
+        "placeholder_note": "Interactive controls are deterministic; use the linked Labs section when a dedicated lab exists."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-federated-identity-hint",
+      "payload": {
+        "title": "Hint",
+        "body": "If you are stuck on Federated Identity, start by drawing the request path and marking every network hop, stateful component, queue, cache and failure boundary. Then estimate where the system will saturate.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-federated-identity-1",
+      "payload": {
+        "shape": "prediction",
+        "question": "You increase traffic by 10× in a system using Federated Identity. What should you inspect first?",
+        "options": [
+          "The newest framework version",
+          "The dominant bottleneck and its saturation signal",
+          "Only the UI",
+          "Nothing; the architecture should absorb any traffic automatically"
+        ],
+        "answer_index": 1,
+        "rationale": "System design is a constraint-and-bottleneck exercise. Start with the resource or dependency that will saturate first, then choose the smallest change that removes that bottleneck.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-federated-identity-2",
+      "payload": {
+        "shape": "mcq",
+        "question": "Which statement is the safest engineering habit when using Federated Identity?",
+        "options": [
+          "Choose it because it is popular",
+          "Add it before measuring the problem",
+          "State the workload, failure mode and trade-off it is solving",
+          "Use the most distributed design possible"
+        ],
+        "answer_index": 2,
+        "rationale": "Good architecture starts from requirements, workload and failure assumptions. The component is the consequence of that reasoning, not the starting point.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "scenario",
+      "id": "upgrade-scenario-federated-identity",
+      "payload": {
+        "prompt": "Production scenario: your system uses Federated Identity, traffic suddenly spikes, and p99 latency doubles. What is your first move?",
+        "context": "You have dashboards for traffic, latency, errors and saturation. You can change the architecture, but every change has operational cost.",
+        "options": [
+          {
+            "id": "a",
+            "text": "Add more instances immediately",
+            "outcome": "This may help, but only if compute saturation is the bottleneck.",
+            "correct": false
+          },
+          {
+            "id": "b",
+            "text": "Inspect the bottleneck and its saturation signal first",
+            "outcome": "Correct: diagnose before scaling or introducing a new pattern.",
+            "correct": true
+          },
+          {
+            "id": "c",
+            "text": "Disable monitoring to reduce overhead",
+            "outcome": "This removes the evidence you need to diagnose the incident.",
+            "correct": false
+          }
+        ],
+        "rationale": "Measure the limiting resource or dependency first. A bottleneck can be compute, database I/O, network, cache misses, lock contention, downstream latency, or queue backlog.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-federated-identity-interview",
+      "payload": {
+        "text": "Interview drill",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-federated-identity-interview",
+      "payload": {
+        "text": "**Answer this without notes:** When would you choose Federated Identity, and when would you intentionally avoid it? Mention at least one bottleneck it addresses, one failure mode it introduces, and one alternative. Then quantify the workload you are designing for."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "field-guide-federated-identity",
+      "payload": {
+        "title": "Engineering lens",
+        "body": "For Federated Identity, define the trust boundary first. Identify who is allowed to perform each action, where credentials live, how they expire, and what a compromised credential can reach.",
+        "kind": "tip"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "numerical-lens-federated-identity",
+      "payload": {
+        "text": "### Numerical sanity check\n\nA practical blast-radius question: if one credential is compromised, how many users, services, records or regions could it affect? Prefer designs where that number is deliberately bounded."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "field-question-federated-identity",
+      "payload": {
+        "shape": "prediction",
+        "question": "What is the smallest trust boundary you would enforce for Federated Identity, and what would you log so a suspicious action can be investigated later?",
+        "context": "Do not optimize for a memorized definition. Reason from the workload and failure mode.",
+        "options": [
+          "Scale the same component immediately.",
+          "Measure the current bottleneck and state the assumption that changed.",
+          "Add more technologies until throughput improves.",
+          "Choose the most popular architecture."
+        ],
+        "answer_index": 1,
+        "rationale": "Good system design starts with the bottleneck and the changed constraint. The most popular or complex choice is not automatically correct.",
+        "difficulty": "interview"
+      }
+    }
+  ],
+  "trade_offs": {
+    "pros": [
+      "One identity across many services — no password fatigue.",
+      "IdP can enforce stronger authentication than each SP alone (MFA, hardware keys).",
+      "Centralized provisioning/deprovisioning (one place to revoke access).",
+      "SPs never see the password — SP breach doesn't compromise credentials."
+    ],
+    "cons": [
+      "IdP compromise = compromise of all SPs (concentrated risk).",
+      "IdP outage = no one can log in anywhere (critical dependency).",
+      "Vendor lock-in once SPs are configured to trust a specific IdP.",
+      "SAML is complex and bug-prone to implement correctly."
+    ]
+  },
+  "failure_modes": [
+    "IdP compromise — attacker can impersonate any user to any SP.",
+    "IdP outage — no logins across all SPs.",
+    "SP not validating assertion signature, audience, or expiry — assertion injection.",
+    "SAML XML signature wrapping attacks — classic SAML implementation bug."
+  ],
+  "common_mistakes": [
+    "Implementing SAML from scratch instead of using a library/platform.",
+    "Not validating the assertion audience (assertion from SP-A reused against SP-B).",
+    "Not checking assertion expiry — replay attacks with old assertions.",
+    "Treating OAuth as authentication without OIDC."
+  ],
+  "where_you_see_it": [
+    "Enterprise SSO: Okta, Azure AD, Ping Identity.",
+    "Consumer social login: Google, GitHub, Apple, Facebook.",
+    "B2B SaaS: Slack, Notion, Datadog supporting customer SSO."
+  ],
+  "interview_prompts": [
+    "What is federated identity? How does SSO work?",
+    "Compare SAML and OIDC. When would you use each?",
+    "Why is the IdP a high-value target, and how do you defend it?",
+    "What checks must an SP perform on every assertion?"
+  ],
+  "real_system_mappings": [
+    {
+      "system": "Okta",
+      "how": "Enterprise IdP supporting SAML and OIDC. Acts as the single authentication point for thousands of SaaS apps. When an employee leaves, disabling them in Okta revokes access across all apps at once."
+    },
+    {
+      "system": "Google Sign-In (OIDC)",
+      "how": "Consumer federated identity via OpenID Connect. Users authenticate with Google; third-party apps receive an ID token asserting the user's identity. The app trusts Google's signature."
+    }
+  ],
+  "status": "published",
+  "sources": [
+    {
+      "title": "System Design Primer",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Open source"
+    },
+    {
+      "title": "ByteByteGo — Scale from zero to millions",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "ByteByteGo"
+    },
+    {
+      "title": "System Design Tutorial",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "GeeksforGeeks"
+    },
+    {
+      "title": "System Design Roadmap",
+      "url": "https://roadmap.sh/system-design",
+      "publisher": "roadmap.sh"
+    },
+    {
+      "title": "Security reference",
+      "url": "https://www.rfc-editor.org/",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Security reference",
+      "url": "https://owasp.org/www-project-top-ten/",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Security reference",
+      "url": "https://oauth.net/2/",
+      "publisher": "Reference"
+    }
+  ]
+}

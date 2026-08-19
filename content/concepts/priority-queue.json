@@ -1,0 +1,411 @@
+{
+  "slug": "priority-queue",
+  "version": 3,
+  "title": "Priority Queue",
+  "phase": "cloud-architecture",
+  "area": "Cloud Architecture",
+  "estimated_minutes": 7,
+  "difficulty": "advanced",
+  "summary": "A priority queue processes messages by priority rather than arrival order. High-priority messages jump the queue ahead of low-priority ones, ensuring that critical workloads — premium users, payment failures, security alerts — get handled first even under sustained load. Implementation can be N separate FIFO queues polled in priority order, a single queue with a priority field and a heap-based consumer, or weighted fair queuing. The pattern trades FIFO simplicity for SLA-aware processing.",
+  "why_it_matters": "Under load, a FIFO queue means everyone waits in proportion to total queue depth — a free user's image resize blocks a paying user's payment retry. Priority queues fix this by letting critical messages jump ahead, ensuring SLA differentiation: premium customers get sub-second response even when the system is saturated with low-priority work. Without priority queues, you either over-provision for peak (expensive) or accept uniform degradation during incidents (poor customer experience for those who matter most).",
+  "prerequisites": [
+    "message-queues"
+  ],
+  "related": [
+    "queue-based-load-leveling",
+    "sequential-convoy"
+  ],
+  "used_in": [
+    "Customer support ticketing — premium SLAs processed first.",
+    "Payment / billing — retry failed payments with high priority.",
+    "Notification systems — security alerts ahead of marketing emails.",
+    "Job schedulers — urgent jobs ahead of background jobs.",
+    "Healthcare / emergency systems — triage by severity."
+  ],
+  "blocks": [
+    {
+      "type": "prose",
+      "id": "intro",
+      "payload": {
+        "text": "A FIFO queue is fair — every message waits its turn based on arrival time. But fairness isn't always what you want. A payment retry for a paying customer shouldn't wait behind 100,000 free-user image resizes. A security alert shouldn't wait behind a daily digest email. A priority queue solves this: messages are dequeued by priority, not by arrival order.\n\nThree common implementations:\n\n**1. Multiple queues, priority-ordered polling.** Maintain N queues (e.g., `critical`, `high`, `normal`, `low`). Consumers poll in priority order: drain `critical` first, then `high`, then `normal`, then `low`. Simple, works with off-the-shelf queue systems (just N queues). Risk: low-priority queues can starve — never get processed if high-priority is always non-empty. Mitigation: weighted scheduling (process N high-priority for every M low-priority).\n\n**2. Single queue with priority field and heap-based consumer.** All messages go to one queue, each with a `priority` field. The consumer uses a priority heap (or sorted structure) to always dequeue the highest priority first. More flexible (continuous priority values), but requires a broker that supports priority natively (RabbitMQ priority queues, ActiveMQ) or custom consumer logic.\n\n**3. Weighted fair queuing (WFQ).** Each priority gets a weight; consumers process messages proportional to weights. E.g., priority 1 gets 70% of capacity, priority 2 gets 20%, priority 3 gets 10%. Guarantees no queue starves, while still favoring high priority. More complex but fairer than strict priority.\n\nMost practical systems use option 1 (multiple queues, priority-ordered polling) because it works with any message broker and is easy to reason about.\n\nKey design questions:\n- **How many priority levels?** Typically 3-5 (e.g., critical, high, normal, low, background). Too many = hard to manage; too few = no differentiation.\n- **Strict priority or weighted?** Strict = low can starve; weighted = no starvation, less dramatic prioritization.\n- **Starvation prevention?** Aging — bump a message's priority after N minutes in queue. Or weighted scheduling.\n- **Per-customer or global?** Per-customer priority (premium users always jump ahead) is more complex; global priority (critical workloads first) is simpler."
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "topology",
+      "payload": {
+        "code": "flowchart TD\n    N0[\"Producer\"]\n    N1[\"publishes\"]\n    N2[\"one\"]\n    N3[\"queues\"]\n    N4[\"based\"]\n    N5[\"priority:\"]\n    N6[\"pri=critical\"]\n    N7[\"pri=normal\"]\n    N8[\"msg1\"]\n    N9[\"(pri\"]\n    N10[\"critical)\"]\n    N11[\"msg2\"]\n    N12[\"normal)\"]\n    N13[\"msg3\"]\n    N14[\"critical\"]\n    N15[\"high\"]\n    N16[\"normal\"]\n    N17[\"low\"]\n    N18[\"Consumer\"]\n    N19[\"(polls\"]\n    N20[\"drains\"]\n    N21[\"`critical`\"]\n    N22[\"first,\"]\n    N23[\"priority\"]\n    N24[\"order)\"]\n    N25[\"then\"]\n    N26[\"`high`,\"]\n    N27[\"`normal`,\"]\n    N28[\"`low`\"]\n    N29[\"Strict\"]\n    N30[\"risk:\"]\n    N31[\"starves\"]\n    N32[\"always\"]\n    N33[\"full\"]\n    N34[\"bump priority after N minutes\"]\n    N35[\"Mitigation:\"]\n    N36[\"aging\"]\n    N37[\"(bump\"]\n    N38[\"after\"]\n    N39[\"minutes)\"]\n    N40[\"weighted\"]\n    N41[\"scheduling\"]\n    N42[\"e.g., 8 critical : 4 high : 2 normal : 1 low\"]\n    N43[\"(e.g.,\"]\n    N44[\"low).\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44",
+        "caption": "Multiple queues polled in priority order: critical first, then high, normal, low. Strict priority risks starvation; mitigate with aging or weighted scheduling.",
+        "alt_text": "A diagram showing a producer publishing messages with priorities critical, normal, critical. Messages are routed to four queues based on priority: critical containing messages 1 and 3, high (empty), normal containing message 2, and low (empty). A consumer at the bottom polls the queues in priority order — draining critical first, then high, then normal, then low. The caption notes the risk of starvation: the low queue never gets processed if critical is always full. Mitigations include aging (bumping priority after N minutes) or weighted scheduling (for example, 8 critical to 4 high to 2 normal to 1 low)."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "starvation",
+      "payload": {
+        "text": "The defining risk of strict priority queues is **starvation**: low-priority messages may never be processed if higher-priority messages are always arriving. A real example: in a customer support system, if ‘premium’ tickets always jump ahead of ‘free’ tickets, free tickets may sit for hours or days during peak load.\n\nMitigations:\n\n**1. Aging** — boost a message's priority after it has waited N minutes. A low-priority message that has been waiting 30 minutes is treated as normal; one waiting 2 hours is treated as high. This guarantees every message eventually gets processed, while still favoring high-priority messages most of the time.\n\n**2. Weighted scheduling** — allocate consumer capacity proportionally: 70% to critical, 20% to high, 8% to normal, 2% to low. Critical gets most throughput, but low always gets some. No starvation, less aggressive prioritization than strict.\n\n**3. Capacity guarantees** — guarantee a minimum throughput per priority. E.g., ‘low gets at least 10 messages/second even if critical is backlogged.’ Requires weighted scheduling or dedicated consumers per queue.\n\n**4. Bounded backlog** — drop or expire messages that have been in queue too long. Acceptable for some workloads (notifications, telemetry), unacceptable for others (payments, orders).\n\n**5. Separate consumer pools per priority** — instead of one consumer pool polling all queues, run separate pools: 10 consumers for critical, 3 for high, 1 for normal, 1 for low. Critical gets guaranteed capacity; normal and low still progress. Operationally more complex but predictable.\n\nThe choice depends on the workload: if low-priority messages can be dropped (telemetry), use bounded backlog. If they can't (orders), use aging or weighted scheduling."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "sla",
+      "payload": {
+        "title": "Priority Queues Enable SLA Differentiation",
+        "body": "Priority queues are the operational foundation of tiered SLAs. ‘Premium customers get p99 < 1s; free customers get p99 < 10s.’ Without priority queues, all customers see the same degraded latency during load. With them, premium customers' messages jump the queue, and their SLA holds even when the system is saturated with free-tier work. This is how SaaS products offer meaningful paid tiers — the priority queue is the mechanism that backs the SLA contract.",
+        "kind": "key"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "when",
+      "payload": {
+        "text": "When to use a priority queue:\n\n- **SLA differentiation between customers** — premium vs free tiers, enterprise vs standard.\n- **Mixed workloads with different urgency** — user-triggered tasks (high) vs background tasks (low).\n- **Failure recovery** — payment retries, message redelivery with high priority so failures don't linger.\n- **Alerts and notifications** — security alerts ahead of marketing emails.\n- **Triage scenarios** — emergency room patients, security incidents, customer escalations.\n\nWhen NOT to use a priority queue:\n\n- **Uniform SLA across all messages.** A simple FIFO is simpler and sufficient.\n- **You only have one priority level.** No benefit; adds complexity.\n- **You can't meaningfully assign priorities at produce time.** If you don't know which messages matter, the queue can't either.\n- **Strict ordering required.** Priority queues break FIFO; if you need ordering within an entity, combine with Sequential Convoy (priority + partition).\n\nA common pattern: combine priority queues with Sequential Convoy. Partition by entity ID (for ordering), and have N priority levels within each partition. The consumer processes high-priority messages first, but within a priority, preserves per-entity ordering. This is how ticketing systems handle ‘premium customer ticket must jump the queue but tickets for the same customer must be processed in order.’"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q1",
+      "payload": {
+        "question": "You have a customer support system where premium users should get faster response than free users. During peak load, free users' tickets wait for hours. Which pattern, and how do you prevent free users from never being served?",
+        "shape": "mcq",
+        "options": [
+          "Use a FIFO queue — fairness is the right answer.",
+          "Use a priority queue with two priorities (premium, free), with strict priority. Free users may starve during peak; mitigate with aging (bump free tickets' priority after N minutes) or weighted scheduling (e.g., 80% premium / 20% free).",
+          "Use a separate ticketing system per tier; the free system will eventually catch up.",
+          "Process free tickets only during off-peak hours."
+        ],
+        "answer_index": 1,
+        "rationale": "A priority queue with two tiers (premium, free) directly addresses the requirement — premium tickets jump ahead of free tickets. But strict priority risks starvation: if premium tickets arrive continuously, free tickets wait indefinitely. The standard mitigations are aging (boost a free ticket's priority after N minutes of waiting — it eventually becomes as urgent as premium) or weighted scheduling (allocate consumer capacity proportionally, e.g., 80% to premium, 20% to free, so free always gets some throughput). Option (a) gives uniform latency — exactly what we don't want, since premium should be faster. Option (c) is over-engineering — a priority queue achieves the same with one system. Option (d) is poor UX — free users would wait all day for any ticket. Priority queue with starvation mitigation is the standard, correct answer.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q2",
+      "payload": {
+        "question": "What is the starvation problem in strict priority queues, and which mitigation guarantees every message eventually gets processed?",
+        "shape": "mcq",
+        "options": [
+          "Starvation = low-priority messages are processed too slowly; fix by adding more consumers.",
+          "Starvation = low-priority messages may never be processed if higher-priority messages keep arriving; aging (boost priority after N minutes) guarantees eventual processing.",
+          "Starvation = consumers crash under load; fix with circuit breakers.",
+          "Starvation = high-priority messages are processed too fast; fix with rate limiting."
+        ],
+        "answer_index": 1,
+        "rationale": "Starvation is the defining failure mode of strict priority queues: if high-priority messages arrive continuously, the consumer never gets to low-priority messages — they sit in queue indefinitely. Aging is the standard mitigation: a message's effective priority increases the longer it waits, so a low-priority message that has been waiting N minutes is treated as normal, and one waiting M minutes as high. Eventually every message reaches the top priority and gets processed. Weighted scheduling also prevents starvation (each priority gets a guaranteed minimum throughput). Option (a) doesn't solve starvation — more consumers may help, but if high-priority always has work, low still waits. Option (c) is unrelated — consumer crashes are a different problem. Option (d) misuses ‘starvation’ — the term refers to low-priority starvation, not high-priority speed."
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-priority-queue-mental",
+      "payload": {
+        "text": "Engineering mental model",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-priority-queue-mental",
+      "payload": {
+        "text": "**Mental model.** Think of Priority Queue as a deliberate boundary in a system. The boundary exists because something becomes harder to manage when everything is done in one place: latency, scale, failure isolation, consistency, cost, or team ownership. The useful question is not “what does Priority Queue mean?” but “what pressure makes this boundary worth introducing, and what new failure mode does it create?”"
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-priority-queue-decision",
+      "payload": {
+        "title": "Design lens",
+        "body": "Before choosing Priority Queue, name the workload, the critical user path, the dominant bottleneck, the failure you are trying to absorb, and the trade-off you are willing to accept. If you cannot name those five things, the design is probably premature.",
+        "kind": "info"
+      }
+    },
+    {
+      "type": "image",
+      "id": "upgrade-image-priority-queue",
+      "payload": {
+        "src": "/learning-visuals/priority-queue.svg",
+        "alt": "Original NO CAP systems visual for Priority Queue.",
+        "caption": "Priority Queue: a compact system-thinking visual.",
+        "credit": "Original NO CAP visual.",
+        "source_url": "https://github.com/donnemartin/system-design-primer"
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "upgrade-mermaid-priority-queue",
+      "payload": {
+        "code": "flowchart LR\n  A[Producer] --> Q[(Broker)] --> B[Consumer] --> X[Retry] --> O[Outcome]",
+        "caption": "Priority Queue: a simplified system view showing the primary flow and the main state boundaries.",
+        "alt_text": "Priority Queue: a simplified system view showing the primary flow and the main state boundaries."
+      }
+    },
+    {
+      "type": "code",
+      "id": "upgrade-code-priority-queue",
+      "payload": {
+        "language": "python",
+        "code": "message_id = queue.publish({\n    \"type\": \"priority-queue\",\n    \"key\": resource_id\n})\n# Consumer must be safe to retry.",
+        "caption": "A minimal engineering sketch for reasoning about Priority Queue."
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-priority-queue-numbers",
+      "payload": {
+        "text": "Back-of-the-envelope reasoning",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-priority-queue-numbers",
+      "payload": {
+        "text": "Numerical lens: write down traffic, payload size, read/write ratio, peak multiplier and durability target before choosing a component. The numbers should justify the architecture."
+      }
+    },
+    {
+      "type": "simulation",
+      "id": "upgrade-sim-priority-queue",
+      "payload": {
+        "title": "Interactive thought experiment: Priority Queue",
+        "description": "Change the variables below and predict what breaks first in Priority Queue. The production lab can later reuse these same inputs.",
+        "variables": [
+          {
+            "name": "producer_rate",
+            "description": "Messages produced per second",
+            "default": "1000"
+          },
+          {
+            "name": "consumer_count",
+            "description": "Concurrent consumers",
+            "default": "4"
+          },
+          {
+            "name": "processing_rate",
+            "description": "Messages processed per consumer per second",
+            "default": "300"
+          }
+        ],
+        "placeholder_note": "Interactive controls are deterministic; use the linked Labs section when a dedicated lab exists."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-priority-queue-hint",
+      "payload": {
+        "title": "Hint",
+        "body": "If you are stuck on Priority Queue, start by drawing the request path and marking every network hop, stateful component, queue, cache and failure boundary. Then estimate where the system will saturate.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-priority-queue-1",
+      "payload": {
+        "shape": "prediction",
+        "question": "You increase traffic by 10× in a system using Priority Queue. What should you inspect first?",
+        "options": [
+          "The newest framework version",
+          "The dominant bottleneck and its saturation signal",
+          "Only the UI",
+          "Nothing; the architecture should absorb any traffic automatically"
+        ],
+        "answer_index": 1,
+        "rationale": "System design is a constraint-and-bottleneck exercise. Start with the resource or dependency that will saturate first, then choose the smallest change that removes that bottleneck.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-priority-queue-2",
+      "payload": {
+        "shape": "mcq",
+        "question": "Which statement is the safest engineering habit when using Priority Queue?",
+        "options": [
+          "Choose it because it is popular",
+          "Add it before measuring the problem",
+          "State the workload, failure mode and trade-off it is solving",
+          "Use the most distributed design possible"
+        ],
+        "answer_index": 2,
+        "rationale": "Good architecture starts from requirements, workload and failure assumptions. The component is the consequence of that reasoning, not the starting point.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "scenario",
+      "id": "upgrade-scenario-priority-queue",
+      "payload": {
+        "prompt": "Production scenario: your system uses Priority Queue, traffic suddenly spikes, and p99 latency doubles. What is your first move?",
+        "context": "You have dashboards for traffic, latency, errors and saturation. You can change the architecture, but every change has operational cost.",
+        "options": [
+          {
+            "id": "a",
+            "text": "Add more instances immediately",
+            "outcome": "This may help, but only if compute saturation is the bottleneck.",
+            "correct": false
+          },
+          {
+            "id": "b",
+            "text": "Inspect the bottleneck and its saturation signal first",
+            "outcome": "Correct: diagnose before scaling or introducing a new pattern.",
+            "correct": true
+          },
+          {
+            "id": "c",
+            "text": "Disable monitoring to reduce overhead",
+            "outcome": "This removes the evidence you need to diagnose the incident.",
+            "correct": false
+          }
+        ],
+        "rationale": "Measure the limiting resource or dependency first. A bottleneck can be compute, database I/O, network, cache misses, lock contention, downstream latency, or queue backlog.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-priority-queue-interview",
+      "payload": {
+        "text": "Interview drill",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-priority-queue-interview",
+      "payload": {
+        "text": "**Answer this without notes:** When would you choose Priority Queue, and when would you intentionally avoid it? Mention at least one bottleneck it addresses, one failure mode it introduces, and one alternative. Then quantify the workload you are designing for."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "field-guide-priority-queue",
+      "payload": {
+        "title": "Engineering lens",
+        "body": "For Priority Queue, separate producer speed from consumer speed. The key design question is what happens when production temporarily exceeds processing capacity: queue it, shed it, slow producers down, or degrade the feature.",
+        "kind": "tip"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "numerical-lens-priority-queue",
+      "payload": {
+        "text": "### Numerical sanity check\n\nA simple queue sanity check: if producers create 8,000 messages/s and consumers process 6,000 messages/s, backlog grows at roughly 2,000 messages/s until the imbalance is corrected."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "field-question-priority-queue",
+      "payload": {
+        "shape": "prediction",
+        "question": "A downstream service slows down while Priority Queue keeps accepting traffic. Would you rather apply backpressure, queue more work, shed load, or degrade? Explain the trade-off.",
+        "context": "Do not optimize for a memorized definition. Reason from the workload and failure mode.",
+        "options": [
+          "Scale the same component immediately.",
+          "Measure the current bottleneck and state the assumption that changed.",
+          "Add more technologies until throughput improves.",
+          "Choose the most popular architecture."
+        ],
+        "answer_index": 1,
+        "rationale": "Good system design starts with the bottleneck and the changed constraint. The most popular or complex choice is not automatically correct.",
+        "difficulty": "interview"
+      }
+    }
+  ],
+  "trade_offs": {
+    "pros": [
+      "SLA differentiation — high-priority messages jump the queue.",
+      "Critical workloads (payment failures, security alerts) get fast response even under load.",
+      "Premium customers can be guaranteed better latency than free.",
+      "Multiple priority levels enable nuanced triage (critical / high / normal / low / background)."
+    ],
+    "cons": [
+      "Starvation risk — low-priority messages may wait indefinitely under sustained high-priority load.",
+      "More complex than FIFO — multiple queues, priority assignment logic, aging or weighted scheduling.",
+      "Requires careful priority assignment at produce time — wrong priority defeats the purpose.",
+      "Ordering within a priority is still FIFO — combine with Sequential Convoy for per-entity ordering."
+    ]
+  },
+  "failure_modes": [
+    "Starvation — low-priority messages never processed under sustained high-priority load.",
+    "Wrong priority assignment — every message marked critical, defeating differentiation.",
+    "Priority queue hotspots — one priority dominates, others idle.",
+    "Poison message in critical queue blocks subsequent critical messages — needs dead-letter handling per queue.",
+    "Aging bugs — wrong timing or priority bump thresholds cause unexpected re-ordering.",
+    "Weighted scheduling misconfiguration — weights don't match actual load distribution."
+  ],
+  "common_mistakes": [
+    "Using strict priority without aging or weighted scheduling — low-priority starves.",
+    "Assigning priority based on producer's intuition rather than objective criteria.",
+    "Too many priority levels — complexity without differentiation.",
+    "Not monitoring per-priority queue depth — silent starvation is invisible without metrics.",
+    "Treating priority as static — load conditions change; priorities should adapt (dynamic priority).",
+    "Forgetting to dead-letter per priority — a poison message in `critical` blocks the whole critical queue."
+  ],
+  "where_you_see_it": [
+    "Customer support systems (Zendesk, Salesforce) — premium SLAs processed first.",
+    "Payment processing systems — failed payment retries with high priority.",
+    "Notification systems (email, push) — security alerts ahead of marketing.",
+    "Job schedulers (Kubernetes priority classes, SLURM) — urgent jobs first.",
+    "Healthcare triage — patients by severity."
+  ],
+  "interview_prompts": [
+    "What is a priority queue, and when would you use one over a FIFO queue?",
+    "What is the starvation problem in strict priority queues, and how do you mitigate it?",
+    "How would you implement SLA differentiation for premium vs free customers using priority queues?",
+    "How does a priority queue interact with ordering requirements? How would you combine per-entity ordering with priority?",
+    "What are the trade-offs between strict priority and weighted fair queuing?"
+  ],
+  "real_system_mappings": [
+    {
+      "system": "RabbitMQ priority queues",
+      "how": "RabbitMQ supports priority queues natively via the `x-max-priority` queue argument. Messages are sorted by priority (1-255); the consumer always receives the highest-priority message first. Used for SLA-differentiated workloads in many on-prem message-driven systems."
+    },
+    {
+      "system": "AWS SQS with multiple queues + priority polling",
+      "how": "AWS SQS doesn't natively support priority, but the standard pattern is multiple queues (critical.fifo, normal.fifo, low.fifo) polled by a consumer in priority order. Used widely for tiered SLA workloads on AWS."
+    },
+    {
+      "system": "Kubernetes Priority Classes",
+      "how": "Kubernetes assigns PriorityClass to pods; the scheduler preempts lower-priority pods to schedule higher-priority ones. PriorityClasses range from cluster-autoscaler to system-critical to user-defined. A system-level implementation of the priority queue pattern for pod scheduling."
+    }
+  ],
+  "status": "published",
+  "sources": [
+    {
+      "title": "System Design Primer",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Open source"
+    },
+    {
+      "title": "ByteByteGo — Scale from zero to millions",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "ByteByteGo"
+    },
+    {
+      "title": "System Design Tutorial",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "GeeksforGeeks"
+    },
+    {
+      "title": "System Design Roadmap",
+      "url": "https://roadmap.sh/system-design",
+      "publisher": "roadmap.sh"
+    },
+    {
+      "title": "Cloud Architecture reference",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Cloud Architecture reference",
+      "url": "https://learn.microsoft.com/en-us/azure/architecture/",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Cloud Architecture reference",
+      "url": "https://aws.amazon.com/architecture/",
+      "publisher": "Reference"
+    }
+  ]
+}

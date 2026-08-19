@@ -1,0 +1,414 @@
+{
+  "slug": "consistent-hashing",
+  "version": 5,
+  "title": "Consistent Hashing",
+  "phase": "scaling-performance",
+  "area": "Scaling & Performance",
+  "estimated_minutes": 7,
+  "difficulty": "advanced",
+  "summary": "Consistent hashing is a distributed hashing technique that minimizes data movement when nodes are added or removed. With naive modulo hashing (hash(key) % N), removing one node re-maps almost every key. With consistent hashing, only the keys on the removed node need to move. This is how Cassandra, DynamoDB, and Redis Cluster distribute data.",
+  "why_it_matters": "If you hash keys directly across N servers and one server disappears, almost every key maps to a different server. That can invalidate almost the entire cache at once. Consistent hashing reduces the amount of data that must move when nodes join or leave — making it the backbone of every modern distributed database and cache.",
+  "prerequisites": [
+    "sharding"
+  ],
+  "related": [
+    "sharding",
+    "replication"
+  ],
+  "used_in": [
+    "Cassandra, DynamoDB, Redis Cluster, Memcached, Discord (for voice channels)."
+  ],
+  "blocks": [
+    {
+      "type": "prose",
+      "id": "intro",
+      "payload": {
+        "text": "**The problem:**\n\nSuppose you have 5 cache servers and distribute keys using `hash(key) % 5`. Server 0 gets keys where hash % 5 == 0, server 1 gets hash % 5 == 1, etc. This works fine.\n\nNow server 3 crashes. You now have 4 servers, so you re-hash with `hash(key) % 4`. **Almost every key now maps to a different server.** If you had 1M keys cached, ~750,000 of them just moved. Your cache is effectively invalidated.\n\nThis is the modulo hashing problem. It makes adding or removing nodes catastrophically expensive."
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "modulo-vs-consistent",
+      "payload": {
+        "code": "flowchart TD\n    N0[\"key\"]\n    N1[\"MODULO\"]\n    N2[\"HASHING:\"]\n    N3[\"hash(key)\"]\n    N4[\"A\"]\n    N5[\"hash(A)\"]\n    N6[\"Server\"]\n    N7[\"B\"]\n    N8[\"hash(B)\"]\n    N9[\"C\"]\n    N10[\"hash(C)\"]\n    N11[\"N=4\"]\n    N12[\"Remove\"]\n    N13[\"4):\"]\n    N14[\"moved!\"]\n    N15[\"(moved!)\"]\n    N16[\"Almost\"]\n    N17[\"every\"]\n    N18[\"maps.\"]\n    N19[\"Cache\"]\n    N20[\"effectively\"]\n    N21[\"wiped.\"]\n    N22[\"server\"]\n    N23[\"CONSISTENT\"]\n    N24[\"and\"]\n    N25[\"hash(server)\"]\n    N26[\"ring\"]\n    N27[\"Place\"]\n    N28[\"servers\"]\n    N29[\"ring:\"]\n    N30[\"S0,\"]\n    N31[\"S1,\"]\n    N32[\"S2,\"]\n    N33[\"S3,\"]\n    N34[\"Key\"]\n    N35[\"goes\"]\n    N36[\"the\"]\n    N37[\"NEXT\"]\n    N38[\"clockwise\"]\n    N39[\"ring.\"]\n    N40[\"S3:\"]\n    N41[\"to S4, the next clockwise\"]\n    N42[\"Only\"]\n    N43[\"keys\"]\n    N44[\"that\"]\n    N45[\"were\"]\n    N46[\"move\"]\n    N47[\"(to\"]\n    N48[\"S4,\"]\n    N49[\"next\"]\n    N50[\"clockwise).\"]\n    N51[\"All\"]\n    N52[\"other\"]\n    N53[\"stay\"]\n    N54[\"put.\"]\n    N55[\"move,\"]\n    N56[\"not\"]\n    N57[\"~all.\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44\n    N44 --> N45\n    N45 --> N46\n    N46 --> N47\n    N47 --> N48\n    N48 --> N49\n    N49 --> N50\n    N50 --> N51\n    N51 --> N52\n    N52 --> N53\n    N53 --> N54\n    N54 --> N55\n    N55 --> N56\n    N56 --> N57",
+        "caption": "Modulo hashing re-maps almost everything. Consistent hashing moves only keys on the removed node.",
+        "alt_text": "Two diagrams. Modulo hashing: with 5 servers, hash(key) mod 5 assigns keys to servers. When server 3 is removed, hash(key) mod 4 assigns almost every key to a different server — the cache is effectively wiped. Consistent hashing: servers are placed on a ring. A key goes to the next server clockwise on the ring. When a server is removed, only the keys that were on that server move (to the next clockwise server). All other keys stay put — only 1/N keys move."
+      }
+    },
+    {
+      "type": "prose",
+      "id": "how-it-works",
+      "payload": {
+        "text": "**How consistent hashing works:**\n\n1. **Ring**: Imagine a ring with positions 0 to 2^32 - 1 (the hash space).\n2. **Place servers**: hash each server's name/ID onto the ring. Server A goes to position hash('A'), server B to hash('B'), etc.\n3. **Place keys**: hash each key. The key goes to the **next server clockwise** from its position on the ring.\n4. **Remove a server**: only the keys between the removed server and the previous server move (they go to the next server clockwise). All other keys stay.\n5. **Add a server**: only the keys between the new server and the next server clockwise move. All other keys stay.\n\nThe key insight: adding or removing a node only affects the keys in that node's arc of the ring. With N nodes, approximately 1/N of the keys move — not all of them."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "virtual-nodes",
+      "payload": {
+        "title": "Virtual nodes (VNodes)",
+        "body": "If you place each server once on the ring, the distribution can be uneven (server A might get 40% of keys, server B only 10%). The fix: place each server multiple times at random positions — 'virtual nodes'. With 150 VNodes per server, the distribution is nearly uniform. This is what Cassandra and DynamoDB do.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "real-world",
+      "payload": {
+        "text": "**Real-world usage:**\n\n- **Cassandra**: each node owns a range of the ring. Data is replicated to the next N-1 nodes clockwise. Adding a node only moves data in the new node's range.\n- **DynamoDB**: uses consistent hashing internally to distribute partition data across nodes.\n- **Redis Cluster**: 16384 hash slots (not a ring, but the same idea: adding/removing a node only moves its slots).\n- **Discord**: uses consistent hashing to route voice channels to servers. When a server is added or removed, only the channels on that server move.\n- **CDNs**: use consistent hashing to route requests to edge caches."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q1",
+      "payload": {
+        "question": "You have 10 cache servers using hash(key) % 10 to distribute keys. You add an 11th server. How many keys need to move?",
+        "shape": "mcq",
+        "options": [
+          "About 1/10 (10%) — only the keys on the new server.",
+          "About 9/10 (90%) — almost every key re-maps because the modulo changed.",
+          "None — the hash function adapts.",
+          "All keys must move."
+        ],
+        "answer_index": 1,
+        "rationale": "With modulo hashing, changing N from 10 to 11 changes the modulo for almost every key. A key that was on server 2 (hash % 10 == 2) might now be on server 7 (hash % 11 == 7). On average, 10/11 of keys re-map — about 91%. This is why modulo hashing is catastrophic for scaling. Consistent hashing solves this: only the keys in the new server's arc of the ring move — about 1/11 (9%).",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q2",
+      "payload": {
+        "question": "In consistent hashing, why do we use virtual nodes (VNodes)?",
+        "shape": "mcq",
+        "options": [
+          "To increase the total number of servers.",
+          "To ensure even distribution of keys across servers (without VNodes, one server might get 40% of keys).",
+          "To improve read performance.",
+          "To reduce memory usage."
+        ],
+        "answer_index": 1,
+        "rationale": "If you place each server once on the ring, the distribution is uneven — one server might get 40% of keys, another only 10%. Virtual nodes solve this: place each server at multiple random positions on the ring (e.g., 150 VNodes per server). The more VNodes, the more uniform the distribution. This is what Cassandra (default 256 VNodes) and DynamoDB do. The trade-off: more VNodes means more memory for the routing table, but the improved balance is worth it.",
+        "difficulty": "advanced"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "q3",
+      "payload": {
+        "question": "In consistent hashing, when a server is removed, which keys need to move?",
+        "shape": "mcq",
+        "options": [
+          "All keys.",
+          "Only the keys that were assigned to the removed server (they go to the next server clockwise).",
+          "No keys move.",
+          "Half the keys move."
+        ],
+        "answer_index": 1,
+        "rationale": "In consistent hashing, each key is assigned to the next server clockwise on the ring. When a server is removed, only the keys that were assigned to that server need to move — they go to the next server clockwise (the one after the removed server). All other keys stay put. This is the key advantage of consistent hashing: adding or removing a node only affects approximately 1/N of the keys, not all of them.",
+        "difficulty": "core"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-consistent-hashing-mental",
+      "payload": {
+        "text": "Engineering mental model",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-consistent-hashing-mental",
+      "payload": {
+        "text": "**Mental model.** Think of Consistent Hashing as a deliberate boundary in a system. The boundary exists because something becomes harder to manage when everything is done in one place: latency, scale, failure isolation, consistency, cost, or team ownership. The useful question is not “what does Consistent Hashing mean?” but “what pressure makes this boundary worth introducing, and what new failure mode does it create?”"
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-consistent-hashing-decision",
+      "payload": {
+        "title": "Design lens",
+        "body": "Before choosing Consistent Hashing, name the workload, the critical user path, the dominant bottleneck, the failure you are trying to absorb, and the trade-off you are willing to accept. If you cannot name those five things, the design is probably premature.",
+        "kind": "info"
+      }
+    },
+    {
+      "type": "image",
+      "id": "upgrade-image-consistent-hashing",
+      "payload": {
+        "src": "/learning-visuals/consistent-hashing.svg",
+        "alt": "Original NO CAP systems visual for Consistent Hashing.",
+        "caption": "Consistent Hashing: a compact system-thinking visual.",
+        "credit": "Original NO CAP visual.",
+        "source_url": "https://github.com/donnemartin/system-design-primer"
+      }
+    },
+    {
+      "type": "mermaid",
+      "id": "upgrade-mermaid-consistent-hashing",
+      "payload": {
+        "code": "flowchart LR\n  A[Client] --> B[Gateway] --> C[Service] --> D[State] --> E[Outcome]",
+        "caption": "Consistent Hashing: a simplified system view showing the primary flow and the main state boundaries.",
+        "alt_text": "Consistent Hashing: a simplified system view showing the primary flow and the main state boundaries."
+      }
+    },
+    {
+      "type": "code",
+      "id": "upgrade-code-consistent-hashing",
+      "payload": {
+        "language": "text",
+        "code": "// Pseudocode\nrequest = receive()\nresult = consistent_hashing(request)\nreturn result\n\n// Production questions:\n// 1. What happens on timeout?\n// 2. Can this operation be retried safely?\n// 3. What is the bottleneck?",
+        "caption": "A minimal engineering sketch for reasoning about Consistent Hashing."
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-consistent-hashing-numbers",
+      "payload": {
+        "text": "Back-of-the-envelope reasoning",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-consistent-hashing-numbers",
+      "payload": {
+        "text": "Numerical lens: write down traffic, payload size, read/write ratio, peak multiplier and durability target before choosing a component. The numbers should justify the architecture."
+      }
+    },
+    {
+      "type": "simulation",
+      "id": "upgrade-sim-consistent-hashing",
+      "payload": {
+        "title": "Interactive thought experiment: Consistent Hashing",
+        "description": "Change the variables below and predict what breaks first in Consistent Hashing. The production lab can later reuse these same inputs.",
+        "variables": [
+          {
+            "name": "traffic",
+            "description": "Requests/events per second",
+            "default": "1000"
+          },
+          {
+            "name": "latency",
+            "description": "Dependency latency",
+            "default": "50ms"
+          },
+          {
+            "name": "failure_rate",
+            "description": "Injected failure rate",
+            "default": "0%"
+          }
+        ],
+        "placeholder_note": "Interactive controls are deterministic; use the linked Labs section when a dedicated lab exists."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "upgrade-callout-consistent-hashing-hint",
+      "payload": {
+        "title": "Hint",
+        "body": "If you are stuck on Consistent Hashing, start by drawing the request path and marking every network hop, stateful component, queue, cache and failure boundary. Then estimate where the system will saturate.",
+        "kind": "note"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-consistent-hashing-1",
+      "payload": {
+        "shape": "prediction",
+        "question": "You increase traffic by 10× in a system using Consistent Hashing. What should you inspect first?",
+        "options": [
+          "The newest framework version",
+          "The dominant bottleneck and its saturation signal",
+          "Only the UI",
+          "Nothing; the architecture should absorb any traffic automatically"
+        ],
+        "answer_index": 1,
+        "rationale": "System design is a constraint-and-bottleneck exercise. Start with the resource or dependency that will saturate first, then choose the smallest change that removes that bottleneck.",
+        "difficulty": "solid"
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "upgrade-quiz-consistent-hashing-2",
+      "payload": {
+        "shape": "mcq",
+        "question": "Which statement is the safest engineering habit when using Consistent Hashing?",
+        "options": [
+          "Choose it because it is popular",
+          "Add it before measuring the problem",
+          "State the workload, failure mode and trade-off it is solving",
+          "Use the most distributed design possible"
+        ],
+        "answer_index": 2,
+        "rationale": "Good architecture starts from requirements, workload and failure assumptions. The component is the consequence of that reasoning, not the starting point.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "scenario",
+      "id": "upgrade-scenario-consistent-hashing",
+      "payload": {
+        "prompt": "Production scenario: your system uses Consistent Hashing, traffic suddenly spikes, and p99 latency doubles. What is your first move?",
+        "context": "You have dashboards for traffic, latency, errors and saturation. You can change the architecture, but every change has operational cost.",
+        "options": [
+          {
+            "id": "a",
+            "text": "Add more instances immediately",
+            "outcome": "This may help, but only if compute saturation is the bottleneck.",
+            "correct": false
+          },
+          {
+            "id": "b",
+            "text": "Inspect the bottleneck and its saturation signal first",
+            "outcome": "Correct: diagnose before scaling or introducing a new pattern.",
+            "correct": true
+          },
+          {
+            "id": "c",
+            "text": "Disable monitoring to reduce overhead",
+            "outcome": "This removes the evidence you need to diagnose the incident.",
+            "correct": false
+          }
+        ],
+        "rationale": "Measure the limiting resource or dependency first. A bottleneck can be compute, database I/O, network, cache misses, lock contention, downstream latency, or queue backlog.",
+        "difficulty": "interview"
+      }
+    },
+    {
+      "type": "heading",
+      "id": "upgrade-heading-consistent-hashing-interview",
+      "payload": {
+        "text": "Interview drill",
+        "level": 2
+      }
+    },
+    {
+      "type": "prose",
+      "id": "upgrade-prose-consistent-hashing-interview",
+      "payload": {
+        "text": "**Answer this without notes:** When would you choose Consistent Hashing, and when would you intentionally avoid it? Mention at least one bottleneck it addresses, one failure mode it introduces, and one alternative. Then quantify the workload you are designing for."
+      }
+    },
+    {
+      "type": "callout",
+      "id": "field-guide-consistent-hashing",
+      "payload": {
+        "title": "Engineering lens",
+        "body": "A useful engineering lens for Consistent Hashing: define the problem it solves, the simpler design that fails first, the constraint that forces you to introduce this concept, and the new failure modes the concept creates.",
+        "kind": "tip"
+      }
+    },
+    {
+      "type": "prose",
+      "id": "numerical-lens-consistent-hashing",
+      "payload": {
+        "text": "### Numerical sanity check\n\nBack-of-the-envelope reasoning beats fake precision. State your traffic, payload, concurrency and growth assumptions explicitly, then calculate enough to know whether the current architecture is orders of magnitude away from the target."
+      }
+    },
+    {
+      "type": "quiz",
+      "id": "field-question-consistent-hashing",
+      "payload": {
+        "shape": "prediction",
+        "question": "Imagine the simplest version of a system using Consistent Hashing. What breaks first as traffic grows by 10×, and what would you change before reaching 100×?",
+        "context": "Do not optimize for a memorized definition. Reason from the workload and failure mode.",
+        "options": [
+          "Scale the same component immediately.",
+          "Measure the current bottleneck and state the assumption that changed.",
+          "Add more technologies until throughput improves.",
+          "Choose the most popular architecture."
+        ],
+        "answer_index": 1,
+        "rationale": "Good system design starts with the bottleneck and the changed constraint. The most popular or complex choice is not automatically correct.",
+        "difficulty": "interview"
+      }
+    }
+  ],
+  "trade_offs": {
+    "pros": [
+      "Minimal data movement on node add/remove (~1/N keys move, not ~all).",
+      "Scales horizontally — add/remove nodes without cache wipe.",
+      "Even distribution with virtual nodes.",
+      "No central coordinator needed (each node can compute the ring)."
+    ],
+    "cons": [
+      "More complex than modulo hashing.",
+      "Ring maintenance — nodes need to know the ring topology.",
+      "VNodes add memory overhead for routing tables.",
+      "Doesn't handle hot keys (a popular key still goes to one server)."
+    ]
+  },
+  "failure_modes": [
+    "Hot keys — even with consistent hashing, a viral key overloads its assigned server. Mitigate with replication + client-side caching.",
+    "Uneven distribution (without VNodes) — one server gets disproportionate load.",
+    "Ring topology changes during network partitions — split-brain."
+  ],
+  "common_mistakes": [
+    "Using modulo hashing for distributed caches. Use consistent hashing instead.",
+    "Not using virtual nodes — distribution is uneven without them.",
+    "Forgetting that consistent hashing doesn't solve hot keys — you still need replication."
+  ],
+  "where_you_see_it": [
+    "Cassandra (256 VNodes per node by default).",
+    "DynamoDB (internal partition distribution).",
+    "Redis Cluster (16384 hash slots).",
+    "Discord (voice channel routing).",
+    "CDNs (edge cache routing)."
+  ],
+  "interview_prompts": [
+    "What is consistent hashing? Why is it needed?",
+    "How does consistent hashing differ from modulo hashing?",
+    "What are virtual nodes, and why are they important?",
+    "How does Cassandra use consistent hashing for data distribution?"
+  ],
+  "real_system_mappings": [
+    {
+      "system": "Cassandra",
+      "how": "Each node owns VNodes on the ring. Data is replicated to the next N-1 nodes clockwise. Adding a node only moves data in the new node's VNode ranges. Default 256 VNodes per node."
+    },
+    {
+      "system": "Discord",
+      "how": "Uses consistent hashing to route voice channels to servers. When a server is added or removed, only the channels on that server move — not all channels."
+    }
+  ],
+  "status": "published",
+  "sources": [
+    {
+      "title": "System Design Primer",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Open source"
+    },
+    {
+      "title": "ByteByteGo — Scale from zero to millions",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "ByteByteGo"
+    },
+    {
+      "title": "System Design Tutorial",
+      "url": "https://www.geeksforgeeks.org/system-design/system-design-tutorial/",
+      "publisher": "GeeksforGeeks"
+    },
+    {
+      "title": "System Design Roadmap",
+      "url": "https://roadmap.sh/system-design",
+      "publisher": "roadmap.sh"
+    },
+    {
+      "title": "Scaling & Performance reference",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Scaling & Performance reference",
+      "url": "https://bytebytego.com/courses/system-design-interview/scale-from-zero-to-millions-of-users",
+      "publisher": "Reference"
+    },
+    {
+      "title": "Scaling & Performance reference",
+      "url": "https://highscalability.com/",
+      "publisher": "Reference"
+    }
+  ]
+}

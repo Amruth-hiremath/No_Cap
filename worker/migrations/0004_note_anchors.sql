@@ -1,0 +1,2 @@
+ALTER TABLE notes ADD COLUMN anchor_start INTEGER;
+ALTER TABLE notes ADD COLUMN anchor_end INTEGER;
