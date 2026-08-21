@@ -10,7 +10,8 @@ import { useStore } from '@/lib/store';
 import { getConceptSummary } from '@/lib/content-lite';
 import { formatDueLabel, formatInterval } from '@/lib/review-scheduler';
 import { cn } from '@/lib/utils';
-import type { AttemptRecord, ReviewItem } from '@/lib/types';
+import { loadConcept } from '@/lib/content-lazy';
+import type { AttemptRecord, ReviewItem, Concept } from '@/lib/types';
 
 type Phase = 'recall' | 'revealed' | 'graded';
 
@@ -27,6 +28,7 @@ export default function ReviewPage() {
   const [selected, setSelected] = useState<number | null>(null);
   const [completedCount, setCompletedCount] = useState(0);
 
+
   useEffect(() => {
     const now = new Date();
     const due = Object.values(review_items).filter((r) => new Date(r.due_at) <= now);
@@ -42,7 +44,24 @@ export default function ReviewPage() {
   }, [review_items]);
 
   const current = queueSnapshot[currentIdx];
-  const concept = current ? getConceptSummary(current.concept_slug) : null;
+  const [concept, setConcept] = useState<Concept | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+
+    if (!current) {
+      setConcept(null);
+      return;
+    }
+
+    void loadConcept(current.concept_slug).then((value) => {
+      if (alive) setConcept(value);
+    });
+
+    return () => {
+      alive = false;
+    };
+  }, [current?.concept_slug]);
   const quizBlock = concept?.blocks.find((b) => b.type === 'quiz');
   const isQuiz = quizBlock && quizBlock.type === 'quiz';
 

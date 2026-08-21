@@ -37,7 +37,15 @@ export default function HomePage() {
   const events = useStore((s) => s.events);
   const startConcept = useStore((s) => s.startConcept);
 
-  const eventsLite = useMemo(() => events.map((e) => ({ concept_slug: e.concept_slug, created_at: e.created_at })), [events]);
+  const eventsLite = useMemo(
+    () =>
+      events.flatMap((e) =>
+        e.concept_slug
+          ? [{ concept_slug: e.concept_slug, created_at: e.created_at }]
+          : []
+      ),
+    [events]
+  );
   const conceptCount = getAllConceptSummaries().length;
   const todaysConcept = pickDailyDoseSummary(mastery, review_items, eventsLite);
   const recommendations = getLiteRecommendations(mastery, review_items, lastVisited, 1);
@@ -141,7 +149,7 @@ export default function HomePage() {
               </div>
             </div>
             <div className="shrink-0">
-              <SessionStepperMini steps={['Recall','Learn','Visualize','Practice','Recall'].map((title) => ({ title }))} />
+              <SessionStepperMini steps={['Recall', 'Learn', 'Visualize', 'Practice', 'Recall'].map((title) => ({ title }))} />
             </div>
           </div>
         </Surface>

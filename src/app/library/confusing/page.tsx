@@ -16,11 +16,13 @@ import { useStore } from '@/lib/store';
 import { useHydrated } from '@/lib/useHydrated';
 import { getConceptSummary } from '@/lib/content-lite';
 import { MASTERY_STATE_META } from '@/lib/mastery';
-import type { Concept, MasteryState, MasteryRecord } from '@/lib/types';
+import type { MasteryState, MasteryRecord } from '@/lib/types';
+
+type ConceptSummary = NonNullable<ReturnType<typeof getConceptSummary>>;
 
 interface ConfusingItem {
   slug: string;
-  concept: Concept;
+  concept: ConceptSummary;
   state: MasteryState;
   masteryRecord?: MasteryRecord;
 }

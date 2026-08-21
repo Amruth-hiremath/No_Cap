@@ -1,0 +1,1 @@
+This folder contains the built output assets for the worker "nocap-worker" generated at 2026-08-21T15:31:39.089Z.

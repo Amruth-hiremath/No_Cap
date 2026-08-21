@@ -30,6 +30,8 @@ import { useStore } from '@/lib/store';
 import { cn } from '@/lib/utils';
 import { clearRenderedHighlights, wrapTextHighlight, scrollToText } from '@/lib/highlight-dom';
 import type { Concept, LessonBlock, MasteryState } from '@/lib/types';
+import { getAllConceptSummaries } from '@/lib/content-lite';
+import type { ConceptGraph, ConceptSummary } from '@/lib/content-graph';
 
 export function ConceptView({ concept, graph, readingMinutes }: { concept: Concept; graph: ConceptGraph; readingMinutes: number }) {
   const startConcept = useStore((s) => s.startConcept);
@@ -41,6 +43,7 @@ export function ConceptView({ concept, graph, readingMinutes }: { concept: Conce
   const getMasteryState = useStore((s) => s.getMasteryState);
   const toggleConfusing = useStore((s) => s.toggleConfusing);
   const isConfusing = useStore((s) => s.isConfusing);
+  const allConcepts = getAllConceptSummaries();
   // Focus mode hides the TOC for distraction-free reading.
   const focusMode = useStore((s) => s.focus_mode);
   const highlights = useStore((s) => s.highlights);
@@ -545,7 +548,7 @@ function ConceptLinkGroup({
 }: {
   icon: React.ReactNode;
   label: string;
-  concepts: Concept[];
+  concepts: ConceptSummary[];
   emptyText: string;
 }) {
   return (
