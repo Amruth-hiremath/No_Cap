@@ -129,7 +129,7 @@ export interface SimulationBlock {
   payload: {
     title: string;
     description: string;
-    /** v0.5 ships the interactive engine. v0.1 surfaces the prompt + intended variables. */
+    /** Interactive learning blocks are first-class content in the published curriculum. */
     variables?: { name: string; description: string; default?: string }[];
     placeholder_note?: string;
   };

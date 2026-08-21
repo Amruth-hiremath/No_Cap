@@ -1,7 +1,7 @@
 /* ═══════════════════════════════════════════════════════════════════
    NO CAP store — Zustand + localStorage.
 
-   v0.1 is local-only. State is shaped around explicit domain events
+   The client keeps a resilient device cache while signed-in state syncs through the production API. State is shaped around explicit domain events
    so the mastery lifecycle is explainable. No mutations inside render.
    ═══════════════════════════════════════════════════════════════════ */
 
@@ -52,7 +52,7 @@ interface StoreState {
   last_visited_concept: string | null;
   last_visited_positions: Record<string, number>;
   command_palette_open: boolean;
-  theme: 'system' | 'light' | 'dark' | 'sage' | 'sand' | 'slate' | 'forest' | 'charcoal' | 'clay' | 'olive' | 'mist';
+  theme: 'sage' | 'dark';
   /** Tracks concepts exposed this browser session to avoid duplicate writes. */
   exposed_session: string[];
 
@@ -111,7 +111,7 @@ interface StoreState {
   setCommandPaletteOpen: (open: boolean) => void;
 
   /* Theme */
-  setTheme: (theme: 'system' | 'light' | 'dark' | 'sage' | 'sand' | 'slate' | 'forest' | 'charcoal' | 'clay' | 'olive' | 'mist') => void;
+  setTheme: (theme: 'sage' | 'dark') => void;
   resetLearningProgress: () => void;
 
   /* Account */
@@ -237,7 +237,7 @@ export const useStore = create<StoreState>()(
       last_visited_concept: null,
       last_visited_positions: {},
       command_palette_open: false,
-      theme: 'system',
+      theme: 'sage',
       exposed_session: [],
       notes: [],
       highlights: [],
@@ -705,7 +705,13 @@ export const useStore = create<StoreState>()(
     }),
     {
       name: 'nocap-state-v0.2',
-      version: 2,
+      version: 3,
+      migrate: (persistedState) => {
+        const state = (persistedState ?? {}) as Partial<StoreState>;
+        const oldTheme = state.theme;
+        const theme = oldTheme === 'dark' || oldTheme === 'charcoal' ? 'dark' : 'sage';
+        return { ...state, theme } as StoreState;
+      },
       partialize: (s) => ({
         mastery: s.mastery,
         review_items: s.review_items,
@@ -736,12 +742,9 @@ export const useStore = create<StoreState>()(
 export function applyTheme(theme: StoreState['theme']) {
   if (typeof document === 'undefined') return;
   const root = document.documentElement;
-  let resolved = theme;
-  if (theme === 'system') {
-    resolved = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-  }
+  const resolved = theme === 'dark' ? 'dark' : 'sage';
   root.setAttribute('data-theme', resolved);
-  root.style.colorScheme = ['dark','charcoal'].includes(resolved) ? 'dark' : 'light';
+  root.style.colorScheme = resolved === 'dark' ? 'dark' : 'light';
 }
 
 export function userTimezoneLabel(): string {

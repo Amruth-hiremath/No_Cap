@@ -428,7 +428,7 @@ export function ConceptView({ concept, graph, readingMinutes }: { concept: Conce
               </>
             )}
 
-            {/* Cost note — v0.1 shows only metadata, calculator is v1.0 */}
+            {/* Cost note — advanced cost modelling is kept as an optional enrichment layer */}
             {concept.cost_metadata && (
               <>
                 <LessonSectionHeader

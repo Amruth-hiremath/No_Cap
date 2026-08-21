@@ -62,13 +62,13 @@ export default function AccountPage() {
         </div>
         <Surface variant="solid" className="account-card p-6">
           <div className="flex flex-wrap items-center justify-between gap-4">
-            <div><div className="text-sm font-semibold text-text-primary">Ready to connect?</div><div className="mt-1 text-xs leading-relaxed text-text-muted">The no-domain setup works through Cloudflare's free Pages + Worker URLs. GitHub is the simplest route.</div></div>
+            <div><div className="text-sm font-semibold text-text-primary">Ready to connect?</div><div className="mt-1 text-xs leading-relaxed text-text-muted">Connect an account to sync your learning across browsers and devices. GitHub and Google are supported.</div></div>
             <Link href="/login" className="inline-flex items-center gap-2 rounded-xl bg-accent px-4 py-2.5 text-sm font-semibold text-text-inverse hover:-translate-y-px transition-transform">Sign in <ArrowRight className="h-4 w-4" /></Link>
           </div>
         </Surface>
         <div className="grid gap-4 md:grid-cols-2">
           <Surface variant="solid" className="account-card p-5">
-            <div className="flex items-center gap-3"><div className="account-card-icon"><Cloud className="h-4 w-4" /></div><div><div className="text-sm font-semibold">Local first</div><div className="mt-1 text-xs text-text-muted">Core lessons and local learning remain available without an account.</div></div></div>
+            <div className="flex items-center gap-3"><div className="account-card-icon"><Cloud className="h-4 w-4" /></div><div><div className="text-sm font-semibold">Read first, sync when ready</div><div className="mt-1 text-xs text-text-muted">Explore the curriculum freely, then sign in to carry your learning history everywhere.</div></div></div>
           </Surface>
           <Surface variant="solid" className="account-card p-5">
             <div className="flex items-center gap-3"><div className="account-card-icon"><ShieldCheck className="h-4 w-4" /></div><div><div className="text-sm font-semibold">Private by design</div><div className="mt-1 text-xs text-text-muted">OAuth secrets stay on the backend. Your learning state belongs to your account.</div></div></div>
@@ -120,7 +120,7 @@ export default function AccountPage() {
 
       <div className="grid gap-4 md:grid-cols-2">
         <Surface variant="solid" className="account-card p-6"><div className="section-kicker">Identity</div><h2 className="mt-1 text-lg font-semibold">Connected provider</h2><div className="mt-4 flex items-center gap-3 rounded-2xl border border-border bg-surface-inset p-4"><div className="account-card-icon">{providerLabel === 'Google' ? <span className="text-sm font-bold">G</span> : <Github className="h-4 w-4" />}</div><div><div className="text-sm font-semibold">{providerLabel}</div><div className="text-xs text-text-muted">Used only for sign-in and basic profile information.</div></div></div></Surface>
-        <Surface variant="solid" className="account-card p-6 border-danger/20"><div className="section-kicker text-danger">Session</div><h2 className="mt-1 text-lg font-semibold">Sign out</h2><p className="mt-2 text-xs leading-relaxed text-text-muted">Your server data stays in the account. Account-owned local cache is cleared on sign out to prevent cross-account leakage.</p><Button variant="danger" className="mt-4" onClick={logout}><LogOut className="h-3.5 w-3.5" /> Sign out</Button></Surface>
+        <Surface variant="solid" className="account-card p-6 border-danger/20"><div className="section-kicker text-danger">Session</div><h2 className="mt-1 text-lg font-semibold">Sign out</h2><p className="mt-2 text-xs leading-relaxed text-text-muted">Your server data stays in the account. Device cache is cleared on sign out to prevent cross-account leakage.</p><Button variant="danger" className="mt-4" onClick={logout}><LogOut className="h-3.5 w-3.5" /> Sign out</Button></Surface>
       </div>
     </div>
   );

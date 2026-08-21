@@ -305,8 +305,8 @@ export default function LibraryPage() {
 
       {/* Footer hint */}
       <div className="flex items-center justify-between border-t border-border pt-4 text-[11px] text-text-muted">
-        <span>Everything here lives in this browser. No cloud sync in v0.1.</span>
-        <Badge variant="default">Local mode</Badge>
+        <span>Your reading library is ready to revisit anytime. Sign in to sync it across devices.</span>
+        <Badge variant="default">Sync available</Badge>
       </div>
     </div>
   );

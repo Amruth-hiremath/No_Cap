@@ -11,9 +11,8 @@ import { cn } from '@/lib/utils';
 import { authUrl, logoutCurrentUser } from '@/lib/api';
 
 const themeOptions = [
-  ['system', 'System', 'Device default'], ['light', 'Warm Paper', 'Editorial light'], ['sage', 'Sage', 'Soft green'], ['sand', 'Sand', 'Warm neutral'],
-  ['slate', 'Slate', 'Cool neutral'], ['forest', 'Forest', 'Deep green'], ['dark', 'Night', 'Warm dark'], ['charcoal', 'Charcoal', 'Neutral dark'],
-  ['clay', 'Clay', 'Terracotta'], ['olive', 'Olive', 'Quiet green'], ['mist', 'Mist', 'Soft grey'],
+  ['sage', 'Light Green', 'NO CAP default'],
+  ['dark', 'Dark', 'Low-light workspace'],
 ] as const;
 
 type Theme = typeof themeOptions[number][0];
@@ -70,7 +69,7 @@ export default function SettingsPage() {
           </section>
 
           <section id="learning" className="settings-section">
-            <div className="settings-section-head"><div className="settings-section-icon"><Focus className="h-4 w-4" /></div><div><h2>Learning</h2><p>Control focus mode and your local learning data.</p></div></div>
+            <div className="settings-section-head"><div className="settings-section-icon"><Focus className="h-4 w-4" /></div><div><h2>Learning</h2><p>Control focus mode and your reading experience.</p></div></div>
             <Surface variant="solid" className="settings-card p-5">
               <div className="settings-row"><div><div className="text-sm font-semibold text-text-primary">Focus mode</div><div className="mt-1 text-xs text-text-muted">Hide navigation and secondary chrome while reading a deep lesson.</div></div><button type="button" onClick={() => setFocusMode(!focusMode)} className={cn('focus-toggle', focusMode && 'focus-toggle--on')} role="switch" aria-checked={focusMode} aria-label="Toggle focus mode"><span className="focus-toggle__thumb" /></button></div>
               <div className="settings-hint"><WandSparkles className="h-3.5 w-3.5" /> Press <kbd>F</kbd> anywhere outside a text field.</div>
@@ -84,7 +83,7 @@ export default function SettingsPage() {
               {isAuthenticated ? (
                 <div className="flex flex-wrap items-center justify-between gap-4"><div className="flex min-w-0 items-center gap-3"><div className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-xl bg-accent-soft text-accent">{currentUser?.avatar_url ? <img src={currentUser.avatar_url} alt="" className="h-full w-full object-cover" /> : <span className="font-semibold">{currentUser?.name?.slice(0, 1) || 'N'}</span>}</div><div className="min-w-0"><div className="truncate text-sm font-semibold text-text-primary">{currentUser?.name || currentUser?.email}</div><div className="truncate text-xs text-text-muted">{currentUser?.email}</div></div></div><div className="flex items-center gap-2"><Badge variant="success"><span className="h-1.5 w-1.5 rounded-full bg-success" /> Cloud sync active</Badge><Link href="/account" className="settings-secondary-button">Account</Link></div></div>
               ) : (
-                <div><div className="flex items-start gap-3"><div className="settings-cloud-icon"><CloudOff className="h-4 w-4" /></div><div><div className="text-sm font-semibold text-text-primary">Local for now</div><p className="mt-1 text-xs leading-relaxed text-text-muted">Your learning stays on this device until you connect an account. GitHub is the easiest no-domain route.</p></div></div><div className="mt-4 grid gap-2 sm:grid-cols-2"><a href={authUrl('github')} className="provider-button provider-button--github"><Github className="h-4 w-4" /> Continue with GitHub</a><a href={authUrl('google')} className="provider-button"><Chrome className="h-4 w-4" /> Continue with Google</a></div><Link href="/settings/sync" className="mt-4 inline-flex items-center text-xs font-semibold text-accent hover:underline">See the no-domain setup steps →</Link></div>
+                <div><div className="flex items-start gap-3"><div className="settings-cloud-icon"><CloudOff className="h-4 w-4" /></div><div><div className="text-sm font-semibold text-text-primary">Sync your workspace</div><p className="mt-1 text-xs leading-relaxed text-text-muted">Sign in to sync progress, reviews, notes, highlights and bookmarks across devices.</p></div></div><div className="mt-4 grid gap-2 sm:grid-cols-2"><a href={authUrl('github')} className="provider-button provider-button--github"><Github className="h-4 w-4" /> Continue with GitHub</a><a href={authUrl('google')} className="provider-button"><Chrome className="h-4 w-4" /> Continue with Google</a></div><Link href="/settings/sync" className="mt-4 inline-flex items-center text-xs font-semibold text-accent hover:underline">See the no-domain setup steps →</Link></div>
               )}
             </Surface>
           </section>

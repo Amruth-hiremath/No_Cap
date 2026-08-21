@@ -1,11 +1,11 @@
 {
-  "name": "NO CAP \u2014 Design it. Break it. Scale it.",
+  "name": "NO CAP — Design it. Break it. Scale it.",
   "short_name": "NO CAP",
-  "description": "A system-design learning gym for learning, designing, breaking and mastering distributed systems.",
+  "description": "A system-design learning workspace for understanding, visualizing and practicing distributed systems.",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#faf7f2",
-  "theme_color": "#faf7f2",
+  "background_color": "#eef2eb",
+  "theme_color": "#4d6b4f",
   "orientation": "any",
   "icons": [
     {
@@ -21,8 +21,5 @@
       "purpose": "any maskable"
     }
   ],
-  "categories": [
-    "education",
-    "productivity"
-  ]
+  "categories": ["education", "productivity"]
 }

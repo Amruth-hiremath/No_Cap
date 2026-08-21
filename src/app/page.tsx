@@ -86,7 +86,7 @@ export default function HomePage() {
         <div className="home-hero__brand">
           <div className="home-hero__mark"><img src="/brand/no-cap-mark.svg" alt="" /></div>
           <div>
-            <div className="home-hero__eyebrow">System Design Gym</div>
+            <div className="home-hero__eyebrow">SYSTEM DESIGN WORKSPACE</div>
             <div className="home-hero__micro"><span>NO CAP</span><span className="home-hero__dot" /> <span>{conceptCount} concepts</span></div>
           </div>
         </div>
@@ -96,7 +96,7 @@ export default function HomePage() {
             Today
           </div>
           <h1 className="mt-2 max-w-3xl text-[clamp(2.1rem,5vw,3.5rem)] font-black leading-[0.98] tracking-[-0.045em] text-text-primary">
-            Build the mental models behind systems that scale.
+            Learn the primitives. Design the system. Break the bottlenecks.
           </h1>
           <p className="mt-4 max-w-2xl text-sm leading-6 text-text-secondary md:text-[15px]">
             Learn one idea deeply, visualize how it behaves, stress-test the trade-offs, then carry the insight into your next system design.
@@ -104,7 +104,7 @@ export default function HomePage() {
         </div>
       </header>
 
-      {/* Hero — Today's Dose (Liquid Glass — only one on screen) */}
+      {/* Today's learning session (Liquid Glass — only one on screen) */}
       {todaysConcept && (
         <Surface variant="liquid" className="p-6 md:p-8">
           <div className="flex flex-col gap-5 md:flex-row md:items-start md:justify-between">

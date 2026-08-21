@@ -3,7 +3,7 @@ import type { MetadataRoute } from 'next';
 export const dynamic = 'force-static';
 
 const SITE =
-  process.env.NEXT_PUBLIC_SITE_URL || 'https://YOUR-PROJECT.pages.dev';
+  process.env.NEXT_PUBLIC_SITE_URL || 'https://no-cap.pages.dev';
 
 export default function robots(): MetadataRoute.Robots {
   return {

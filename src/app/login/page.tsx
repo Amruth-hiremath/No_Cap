@@ -21,7 +21,7 @@ export default function LoginPage() {
             <a href={authUrl('github')} className="flex h-11 items-center justify-center gap-2 rounded-xl border border-border-strong bg-text-primary px-4 text-sm font-semibold text-text-inverse transition-all hover:-translate-y-px hover:bg-text-secondary"><Github className="h-4 w-4"/> Continue with GitHub</a>
           </div>
           <div className="mt-5 rounded-xl border border-accent/20 bg-accent-soft/35 p-3 text-xs leading-relaxed text-text-secondary"><ShieldCheck className="mr-1.5 inline h-3.5 w-3.5 text-accent"/> NO CAP uses secure server-side sessions. OAuth client secrets never ship to the browser.</div>
-          <p className="mt-5 text-center text-[11px] text-text-muted">You can continue locally without signing in. GitHub is the simplest no-domain sync option; Google may require verification for a public production app.</p>
+          <p className="mt-5 text-center text-[11px] text-text-muted">You can explore the full curriculum without an account. Sign in when you are ready to sync progress, reviews, notes and bookmarks across devices.</p>
         </div>
       </div>
     </div>

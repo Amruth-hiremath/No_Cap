@@ -18,7 +18,7 @@ export default function SyncSetupPage() {
   const user = useStore((s) => s.user);
   return (
     <div className="setup-page">
-      <div className="setup-hero"><div className="setup-brand"><span className="setup-brand__mark"><img src="/brand/no-cap-logo.png" alt="" /></span><span>NO CAP</span></div><div className="account-eyebrow">Setup guide</div><h1>Go from local to synced.</h1><p>This route is designed for ₹0/month and no custom domain. Use Cloudflare Pages + workers.dev, then connect OAuth and D1.</p></div>
+      <div className="setup-hero"><div className="setup-brand"><span className="setup-brand__mark"><img src="/brand/no-cap-logo.png" alt="" /></span><span>NO CAP</span></div><div className="account-eyebrow">Setup guide</div><h1>Connect your workspace.</h1><p>Your public workspace is live on Cloudflare. Connect OAuth and D1 to keep progress, notes and reviews synced across devices.</p></div>
 
       <div className="setup-grid">
         <div className="space-y-3">
@@ -28,7 +28,7 @@ export default function SyncSetupPage() {
         <div className="space-y-4">
           <Surface variant="solid" className="setup-card"><div className="section-kicker">What you need</div><div className="mt-3 space-y-2 text-xs text-text-secondary"><div className="setup-check"><Check className="h-3.5 w-3.5" /> Free Cloudflare account</div><div className="setup-check"><Check className="h-3.5 w-3.5" /> GitHub account (recommended for no-domain auth)</div><div className="setup-check"><Check className="h-3.5 w-3.5" /> Optional Google Cloud project for Google Sign-In</div><div className="setup-check"><Check className="h-3.5 w-3.5" /> Your Cloudflare account ID</div></div></Surface>
 
-          <Surface variant="solid" className="setup-card"><div className="section-kicker">Exact callback shape</div><p className="mt-2 text-xs leading-relaxed text-text-muted">The production callback should point at your Pages URL, not the Worker URL.</p><div className="mt-3 space-y-2 font-mono text-[11px] text-text-primary"><div className="code-line">https://YOUR-APP.pages.dev/auth/callback/github</div><div className="code-line">https://YOUR-APP.pages.dev/auth/callback/google</div></div></Surface>
+          <Surface variant="solid" className="setup-card"><div className="section-kicker">Exact callback shape</div><p className="mt-2 text-xs leading-relaxed text-text-muted">The production callback should point at your Pages URL, not the Worker URL.</p><div className="mt-3 space-y-2 font-mono text-[11px] text-text-primary"><div className="code-line">https://no-cap.pages.dev/auth/callback/github</div><div className="code-line">https://no-cap.pages.dev/auth/callback/google</div></div></Surface>
 
           <Surface variant="solid" className="setup-card border-warning/30"><div className="flex items-start gap-3"><div className="setup-warning-icon">!</div><div><div className="text-sm font-semibold text-text-primary">Important Google note</div><p className="mt-1 text-xs leading-relaxed text-text-muted">A completely public Google OAuth production app can require domain verification and a verified homepage. Without a domain, use Google in testing/personal-use mode for a small set of users; GitHub is the cleanest no-domain production path.</p></div></div></Surface>
 

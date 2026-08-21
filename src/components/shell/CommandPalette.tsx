@@ -76,7 +76,7 @@ const ACTIONS: ResultRow[] = [
   {
     type: 'action',
     title: 'Toggle theme',
-    subtitle: 'Light / Dark / System',
+    subtitle: 'Light Green / Dark',
     href: '__theme__',
     group: 'Actions',
     meta: 'T',
@@ -131,7 +131,7 @@ export function CommandPalette() {
       return;
     }
     if (row.href === '__theme__') {
-      const next = theme === 'light' ? 'dark' : theme === 'dark' ? 'system' : 'light';
+      const next = theme === 'sage' ? 'dark' : 'sage';
       setTheme(next);
       setOpen(false);
       return;
