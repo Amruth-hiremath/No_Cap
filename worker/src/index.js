@@ -84,13 +84,14 @@ function serializeCookie(
     `${name}=${value}`,
     `Max-Age=${maxAge}`,
     "Path=/",
-    `SameSite=Lax`,
+    `SameSite=${options.sameSite || "Lax"}`,
   ];
+
   if (options.httpOnly !== false) parts.push("HttpOnly");
   if (isSecureRequest(request)) parts.push("Secure");
+
   return parts.join("; ");
 }
-
 function expiredCookie(name, request) {
   return serializeCookie(name, "", request, 0);
 }
@@ -851,7 +852,7 @@ async function handleSyncState(
       learn_score: Number(record?.learn_score ?? 0), recall_score: Number(record?.recall_score ?? 0), apply_score: Number(record?.apply_score ?? 0), explain_score: Number(record?.explain_score ?? 0), interview_score: Number(record?.interview_score ?? 0), state: String(record?.state ?? "not_started")
     };
     const prev = currentMastery.get(slug);
-    const changed = !prev || Object.entries(next).some(([k,v]) => String(prev[k] ?? '') !== String(v));
+    const changed = !prev || Object.entries(next).some(([k, v]) => String(prev[k] ?? '') !== String(v));
     if (changed) operations.push(db.prepare("INSERT INTO mastery (user_id, concept_slug, learn_score, recall_score, apply_score, explain_score, interview_score, state, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now')) ON CONFLICT(user_id, concept_slug) DO UPDATE SET learn_score=excluded.learn_score, recall_score=excluded.recall_score, apply_score=excluded.apply_score, explain_score=excluded.explain_score, interview_score=excluded.interview_score, state=excluded.state, updated_at=datetime('now')").bind(userId, slug, ...Object.values(next)));
   }
 
@@ -859,7 +860,7 @@ async function handleSyncState(
   for (const [slug, item] of reviewEntries) {
     const next = { due_at: String(item?.due_at ?? new Date().toISOString()), interval_days: Number(item?.interval_days ?? 0.04), ease: Number(item?.ease ?? 2.5), repetitions: Number(item?.repetitions ?? 0), last_quality: item?.last_quality ?? null };
     const prev = currentReviews.get(slug);
-    const changed = !prev || Object.entries(next).some(([k,v]) => String(prev[k] ?? '') !== String(v ?? ''));
+    const changed = !prev || Object.entries(next).some(([k, v]) => String(prev[k] ?? '') !== String(v ?? ''));
     if (changed) operations.push(db.prepare("INSERT INTO review_items (user_id, concept_slug, due_at, interval_days, ease, repetitions, last_quality) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(user_id, concept_slug) DO UPDATE SET due_at=excluded.due_at, interval_days=excluded.interval_days, ease=excluded.ease, repetitions=excluded.repetitions, last_quality=excluded.last_quality").bind(userId, slug, ...Object.values(next)));
   }
 
@@ -873,11 +874,11 @@ async function handleSyncState(
   }
   if (operations.length) await db.batch(operations);
 
-  await syncCollection(db, "notes", body.notes, userId, ["concept_slug","block_id","title","body","selected_text","anchor_start","anchor_end","created_at","updated_at"], ["concept_slug","block_id","title","body","selected_text","anchor_start","anchor_end","created_at","updated_at"]);
-  await syncCollection(db, "highlights", body.highlights, userId, ["concept_slug","block_id","selected_text","color","created_at"], ["concept_slug","block_id","selected_text","color","created_at"]);
-  await syncCollection(db, "bookmarks", body.bookmarks, userId, ["concept_slug","block_id","label","created_at"], ["concept_slug","block_id","label","created_at"]);
-  await syncCollection(db, "workspace_notes", body.workspace_notes, userId, ["title","blocks_json","canvas_elements_json","created_at","updated_at"], ["title","blocks_json","canvas_elements_json","created_at","updated_at"]);
-  await syncCollection(db, "attempts", body.attempts, userId, ["type","ref_id","concept_slug","score","response_json","created_at"], ["type","ref_id","concept_slug","score","response_json","created_at"], "id", false);
+  await syncCollection(db, "notes", body.notes, userId, ["concept_slug", "block_id", "title", "body", "selected_text", "anchor_start", "anchor_end", "created_at", "updated_at"], ["concept_slug", "block_id", "title", "body", "selected_text", "anchor_start", "anchor_end", "created_at", "updated_at"]);
+  await syncCollection(db, "highlights", body.highlights, userId, ["concept_slug", "block_id", "selected_text", "color", "created_at"], ["concept_slug", "block_id", "selected_text", "color", "created_at"]);
+  await syncCollection(db, "bookmarks", body.bookmarks, userId, ["concept_slug", "block_id", "label", "created_at"], ["concept_slug", "block_id", "label", "created_at"]);
+  await syncCollection(db, "workspace_notes", body.workspace_notes, userId, ["title", "blocks_json", "canvas_elements_json", "created_at", "updated_at"], ["title", "blocks_json", "canvas_elements_json", "created_at", "updated_at"]);
+  await syncCollection(db, "attempts", body.attempts, userId, ["type", "ref_id", "concept_slug", "score", "response_json", "created_at"], ["type", "ref_id", "concept_slug", "score", "response_json", "created_at"], "id", false);
 
   const profile = await db
     .prepare("SELECT preferences_json FROM users WHERE id = ?")
