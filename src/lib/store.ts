@@ -709,7 +709,7 @@ export const useStore = create<StoreState>()(
       migrate: (persistedState) => {
         const state = (persistedState ?? {}) as Partial<StoreState>;
         const oldTheme = state.theme;
-        const theme = oldTheme === 'dark' || oldTheme === 'charcoal' ? 'dark' : 'sage';
+        const theme = oldTheme === 'dark' ? 'dark' : 'sage';
         return { ...state, theme } as StoreState;
       },
       partialize: (s) => ({
