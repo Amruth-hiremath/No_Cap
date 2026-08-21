@@ -19,6 +19,7 @@ export async function onRequest(context) {
   const headers = new Headers(request.headers);
   headers.delete('host');
   headers.set('x-nocap-forwarded-host', incoming.host);
+  headers.set('x-nocap-forwarded-origin', incoming.origin);
 
   const init = {
     method: request.method,
@@ -29,11 +30,14 @@ export async function onRequest(context) {
 
   const response = await fetch(upstreamUrl, init);
 
-  // Return the upstream response verbatim so Set-Cookie and redirects from
-  // the auth flow are attached to the Pages origin that the browser reached.
+  // Keep all response headers, including the session Set-Cookie header.
+  // The OAuth state itself is stored server-side in D1, so the callback does
+  // not depend on a cookie surviving the Pages -> Worker proxy hop.
+  const responseHeaders = new Headers(response.headers);
+  responseHeaders.set('Cache-Control', 'no-store');
   return new Response(response.body, {
     status: response.status,
     statusText: response.statusText,
-    headers: response.headers,
+    headers: responseHeaders,
   });
 }

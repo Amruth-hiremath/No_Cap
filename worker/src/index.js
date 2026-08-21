@@ -104,6 +104,7 @@ function redirectResponse(
 ) {
   const headers = corsHeaders(env, request);
   headers.set("Location", location);
+  headers.set("Cache-Control", "no-store");
   for (const cookie of cookies) headers.append("Set-Cookie", cookie);
   return new Response(null, { status: 302, headers });
 }
@@ -131,11 +132,21 @@ function providerConfig(env, provider) {
   };
 }
 
-function callbackUri(request, provider, env) {
+function publicOrigin(request, env) {
+  const forwarded = request.headers.get("x-nocap-forwarded-origin");
+  if (forwarded && /^https:\/\/[^/]+$/i.test(forwarded)) {
+    const configured = envValue(env, "FRONTEND_ORIGIN");
+    if (!configured || forwarded.replace(/\/$/, "") === configured.replace(/\/$/, "")) {
+      return forwarded.replace(/\/$/, "");
+    }
+  }
   const configured = envValue(env, "APP_ORIGIN");
-  if (configured) return `${configured.replace(/\/$/, "")}/auth/callback/${provider}`;
-  const current = new URL(request.url);
-  return `${current.origin}/auth/callback/${provider}`;
+  if (configured) return configured.replace(/\/$/, "");
+  return new URL(request.url).origin;
+}
+
+function callbackUri(request, provider, env) {
+  return `${publicOrigin(request, env)}/auth/callback/${provider}`;
 }
 
 function originAllowed(request, env) {
@@ -446,6 +457,13 @@ async function handleAuthLogin(
   const state = makeOAuthState(provider);
   const redirectUri = callbackUri(request, provider, env);
 
+  await env.DB.prepare(
+    "DELETE FROM oauth_states WHERE expires_at <= datetime('now')",
+  ).run();
+  await env.DB.prepare(
+    "INSERT INTO oauth_states (state, provider, expires_at) VALUES (?, ?, datetime('now', '+10 minutes'))",
+  ).bind(state, provider).run();
+
   const authUrl =
     provider === "github"
       ? new URL("https://github.com/login/oauth/authorize")
@@ -468,7 +486,6 @@ async function handleAuthLogin(
     authUrl.toString(),
     request,
     env,
-    [serializeCookie("oauth_state", state, request, 600)],
   );
 }
 
@@ -480,15 +497,23 @@ async function handleAuthCallback(
   const url = new URL(request.url);
   const code = url.searchParams.get("code");
   const state = url.searchParams.get("state");
-  const cookieState = getCookie(request, "oauth_state");
 
-  if (!code || !state || !cookieState) {
+  if (!code || !state) {
     return errorResponse("Invalid OAuth callback", 400, env, request);
   }
 
-  if (state !== cookieState || !state.startsWith(`${provider}.`)) {
-    return errorResponse("Invalid OAuth state", 400, env, request);
+  const stateRow = await env.DB
+    .prepare(
+      "SELECT state, provider FROM oauth_states WHERE state = ? AND provider = ? AND expires_at > datetime('now')",
+    )
+    .bind(state, provider)
+    .first();
+
+  if (!stateRow?.state) {
+    return errorResponse("Invalid or expired OAuth state", 400, env, request);
   }
+
+  await env.DB.prepare("DELETE FROM oauth_states WHERE state = ?").bind(state).run();
 
   const { clientId, clientSecret } = providerConfig(env, provider);
   if (!clientId || !clientSecret) {
@@ -557,8 +582,7 @@ async function handleAuthCallback(
       request,
       env,
       [
-        expiredCookie("oauth_state", request),
-        serializeCookie("nocap_session", sessionToken, request, 60 * 60 * 24 * 30),
+        serializeCookie("nocap_session", sessionToken, request, 60 * 60 * 24 * 30, { sameSite: "Lax" }),
       ],
     );
   } catch (error) {

@@ -84,7 +84,7 @@ export default function HomePage() {
     <div className="space-y-8">
       <header className="home-hero">
         <div className="home-hero__brand">
-          <div className="home-hero__mark"><img src="/brand/no-cap-mark.svg" alt="" /></div>
+          <div className="home-hero__mark"><img src="/brand/no-cap-mark.png" alt="" /></div>
           <div>
             <div className="home-hero__eyebrow">SYSTEM DESIGN WORKSPACE</div>
             <div className="home-hero__micro"><span>NO CAP</span><span className="home-hero__dot" /> <span>{conceptCount} concepts</span></div>

@@ -5,33 +5,48 @@ on:
     branches: [main]
   workflow_dispatch:
 
+concurrency:
+  group: nocap-production
+  cancel-in-progress: true
+
 jobs:
-  deploy:
+  verify-and-deploy-worker:
     runs-on: ubuntu-latest
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
-      - run: npm install --no-audit --no-fund
-      - run: npm run type-check
-      - run: npm run content:validate
-      - run: npm run build
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Type-check
+        run: npm run type-check
+
+      - name: Validate content
+        run: npm run content:validate
+
+      - name: Build static site
+        run: npm run build
         env:
-          NEXT_PUBLIC_API_BASE_URL: ${{ vars.NEXT_PUBLIC_API_BASE_URL }}
-      - uses: cloudflare/wrangler-action@v3
+          NEXT_PUBLIC_SITE_URL: https://no-cap.pages.dev
+          NEXT_PUBLIC_API_BASE_URL: ""
+
+      # The production Pages project is Git-integrated with this repository.
+      # Cloudflare Pages automatically builds/deploys the out/ artifact and
+      # the /functions proxy on pushes to main. This workflow only deploys
+      # the separate API Worker so there is a single source of truth.
+      - name: Deploy API Worker
+        uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           workingDirectory: worker
-          command: deploy
-      - uses: cloudflare/pages-action@v1
-        with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          projectName: nocap
-          directory: out
-          gitHubToken: ${{ secrets.GITHUB_TOKEN }}
+          command: deploy --config wrangler.toml

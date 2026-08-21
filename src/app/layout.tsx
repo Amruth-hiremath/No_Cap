@@ -16,7 +16,7 @@ export const metadata: Metadata = {
   metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL || 'https://no-cap.pages.dev'),
   openGraph: { title: 'NO CAP — System Design Workspace', description: 'Learn, visualize, practice and design real distributed systems.', type: 'website', siteName: 'NO CAP' },
   twitter: { card: 'summary_large_image', title: 'NO CAP — System Design Workspace', description: 'Learn system design by understanding, visualizing and designing it.' },
-  icons: { icon: '/icons/icon-192.png', shortcut: '/icons/icon-192.png', apple: '/icons/icon-180.png' },
+  icons: { icon: '/favicon.ico', shortcut: '/favicon.ico', apple: '/icons/icon-180.png' },
 };
 
 export const viewport: Viewport = {

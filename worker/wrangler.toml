@@ -10,13 +10,6 @@ database_id = "f785457d-dd32-4c4f-a3b3-ea64d1dba576"
 
 # The Worker uses the default workers.dev deployment when no custom route is configured.
 
-# Cron hooks are intentionally lightweight in v0.1.
-[triggers]
-crons = [
-  "0 0 * * *",
-  "0 1 * * *",
-  "0 15 * * SUN",
-]
 
 [observability]
 enabled = true

@@ -1,267 +1,105 @@
-# NO CAP — Deployment
+# NO CAP — Production Deployment
 
-## Goal
+## Architecture
 
-Deploy NO CAP at:
+- **Frontend:** Next.js static export on Cloudflare Pages
+- **API:** JavaScript Cloudflare Worker
+- **Database:** Cloudflare D1
+- **Auth:** Google + GitHub OAuth
+- **Browser API origin:** `https://no-cap.pages.dev`
+- **Worker origin:** your `workers.dev` URL
+- **Pages proxy:** `/auth/*` and `/v1/*` keep browser sessions first-party on the Pages origin
 
-```text
-https://YOUR-PROJECT.pages.dev
+Cloudflare Pages Git integration can automatically deploy the frontend when `main` changes. The GitHub Action in this repository validates/builds the site and deploys the separate Worker. NO CAP v0.x has no production cron workload, so no Cron Trigger is configured.
+
+## One-time setup
+
+### 1. Cloudflare
+```powershell
+npx wrangler login
+npx wrangler d1 create nocap --config worker/wrangler.toml
+```
+Copy the returned `database_id` into `worker/wrangler.toml`, then:
+```powershell
+npx wrangler d1 migrations apply nocap --remote --config worker/wrangler.toml
 ```
 
-with:
-
-```text
-Pages → Pages Functions → Worker → D1
+### 2. Worker secrets
+```powershell
+npx wrangler secret put GITHUB_CLIENT_ID --config worker/wrangler.toml
+npx wrangler secret put GITHUB_CLIENT_SECRET --config worker/wrangler.toml
+npx wrangler secret put GOOGLE_CLIENT_ID --config worker/wrangler.toml
+npx wrangler secret put GOOGLE_CLIENT_SECRET --config worker/wrangler.toml
+npx wrangler secret put FRONTEND_ORIGIN --config worker/wrangler.toml
+npx wrangler secret put APP_ORIGIN --config worker/wrangler.toml
 ```
 
-No custom domain is required.
+Set:
+- `FRONTEND_ORIGIN=https://no-cap.pages.dev`
+- `APP_ORIGIN=https://no-cap.pages.dev`
 
-## Current backend
+### 3. Deploy Worker
+```powershell
+npm run worker:deploy
+```
 
-The backend is a **JavaScript Cloudflare Worker**.
+### 4. Cloudflare Pages
+Connect the GitHub repository to the existing **no-cap** Pages project.
 
-There is intentionally no Python runtime in the release.
+- Production branch: `main`
+- Build command: `npm run build`
+- Output directory: `out`
+- Environment variable:
+  - `NO_CAP_API_URL=https://YOUR-WORKER.workers.dev`
+  - `NEXT_PUBLIC_SITE_URL=https://no-cap.pages.dev`
 
-You do not need:
+Do not configure the repository as an OpenNext/Workers Build project; this app is a static Pages deployment.
 
-- Python
-- uv
-- workers-py
-- pywrangler
-- Pyodide
-- WSL2
+### 5. OAuth callbacks
 
-Cloudflare recommends Wrangler directly for Worker development/deployment and supports D1 via Worker bindings. citeturn237632search2turn237632search3
+GitHub:
+`https://no-cap.pages.dev/auth/callback/github`
 
-## Preflight
+Google:
+`https://no-cap.pages.dev/auth/callback/google`
+
+The Worker derives the callback from the public Pages origin forwarded by the Pages proxy, so stale worker hostname URLs do not become OAuth redirect URIs.
+
+## Verification
 
 ```powershell
-npm install
+npm ci
 npm run type-check
 npm run content:validate
 npm run build
 npm run worker:check
 ```
 
-`worker:check` uses `wrangler deploy --dry-run` so the Worker is bundled and checked without being deployed. citeturn403647search0turn403647search1
-
-## Create D1
-
-```powershell
-npx wrangler d1 create nocap --config worker/wrangler.toml
-```
-
-Copy the returned database ID into:
-
-```text
-worker/wrangler.toml
-```
-
-Then:
-
-```powershell
-npx wrangler d1 migrations apply nocap --remote --config worker/wrangler.toml
-```
-
-The Worker binding is:
-
-```text
-env.DB
-```
-
-Cloudflare documents D1 bindings and prepared statements for Workers. citeturn237632search1turn237632search4
-
-## Worker secrets
-
-```powershell
-npx wrangler secret put GITHUB_CLIENT_ID --config worker/wrangler.toml
-npx wrangler secret put GITHUB_CLIENT_SECRET --config worker/wrangler.toml
-```
-
-Optional Google:
-
-```powershell
-npx wrangler secret put GOOGLE_CLIENT_ID --config worker/wrangler.toml
-npx wrangler secret put GOOGLE_CLIENT_SECRET --config worker/wrangler.toml
-```
-
-After the Pages hostname exists:
-
-```powershell
-npx wrangler secret put FRONTEND_ORIGIN --config worker/wrangler.toml
-npx wrangler secret put APP_ORIGIN --config worker/wrangler.toml
-```
-
-Both values should be:
-
-```text
-https://YOUR-PROJECT.pages.dev
-```
-
-## Deploy Worker
-
-```powershell
-npm run worker:deploy
-```
-
-This produces a `workers.dev` URL.
-
-## Deploy Pages
-
-Connect the GitHub repo to Cloudflare Pages.
-
-Use:
-
-```text
-Build command:
-npm run build
-
-Output directory:
-out
-```
-
-The repository contains:
-
-```text
-functions/[[path]].js
-```
-
-which proxies only:
-
-```text
-/auth/*
-/v1/*
-```
-
-to the Worker.
-
-Add this Pages environment variable:
-
-```text
-NO_CAP_API_URL=https://YOUR-WORKER.workers.dev
-```
-
-Do not set `NEXT_PUBLIC_API_BASE_URL` in production.
-
-## OAuth
-
-GitHub:
-
-```text
-https://YOUR-PROJECT.pages.dev/auth/callback/github
-```
-
-Google:
-
-```text
-https://YOUR-PROJECT.pages.dev/auth/callback/google
-```
-
-The callback URL must match the provider configuration exactly.
-
-## Local development
-
-Terminal 1:
-
-```powershell
-npm run dev
-```
-
-Terminal 2:
-
-```powershell
-npm run worker:dev
-```
-
-Frontend:
-
-```text
-http://localhost:3000
-```
-
-Worker:
-
-```text
-http://localhost:8787
-```
-
-The application automatically points to the local Worker during `next dev`.
-
-## No-domain launch
-
-Use the Pages `pages.dev` hostname and Worker `workers.dev` hostname.
-
-Add a custom domain later only when branding/SEO requirements justify it.
-
-## Production smoke test
-
-```text
-Open site
-→ Sign in
-→ complete onboarding
-→ read concept
-→ quiz
-→ note
-→ highlight
-→ bookmark
-→ Notes document
-→ Canvas
-→ refresh
-→ second device
-→ sign in
-→ verify sync
-→ sign out
-```
-
-## Troubleshooting
-
-### Worker command fails
-
-Run:
-
-```powershell
-npx wrangler --version
-npm run worker:check
-```
-
-If `worker:check` fails, do not install Python or uv. The current Worker is JavaScript and should be handled entirely through Node + Wrangler.
-
-### D1 error
-
-```powershell
-npx wrangler d1 migrations list nocap --remote --config worker/wrangler.toml
-```
-
-Verify the database ID in `worker/wrangler.toml`.
-
-### OAuth error
-
-Check:
-
-- provider callback URL
-- Worker secrets
-- `APP_ORIGIN`
-- `FRONTEND_ORIGIN`
-
-### Sync error
-
-Check the browser Network panel:
-
-```text
-/auth/me
-/v1/profile
-/v1/state
-/v1/state/sync
-```
-
-and inspect Worker logs with:
-
-```powershell
-npx wrangler tail nocap-worker
-```
-
-## Why JavaScript Worker?
-
-NO CAP's Worker is a thin API layer. It does not need Python-specific libraries, ML, NumPy, or server-side document processing.
-
-Keeping it in JavaScript removes the Pyodide/Wrangler/uv development dependency and uses Cloudflare's first-class Worker + D1 toolchain directly. This is the intended release architecture.
+Production smoke test:
+
+1. Open `https://no-cap.pages.dev`
+2. Sign in with GitHub
+3. Create a note
+4. Add a highlight
+5. Complete a quiz
+6. Refresh
+7. Confirm the state remains
+8. Repeat with Google if configured
+9. Check Worker health at `/v1/health`
+
+## Free-tier discipline
+
+The core curriculum is static and served by Pages. The committed `public/_routes.json` restricts Pages Functions invocation to `/auth/*` and `/v1/*`, so normal lesson reads do not hit the Worker/D1 path. Cloudflare documents this routing pattern for preserving the free static-request allocation. https://developers.cloudflare.com/pages/functions/routing/
+
+The app also:
+- lazy-loads heavy modules
+- avoids eager loading of all concepts
+- disables unnecessary route prefetching for large lesson libraries
+- batches and debounces sync
+- rate-limits auth/state APIs
+- writes only changed records to D1
+- avoids polling
+- does not cache authenticated API responses
+- keeps media lazy-loaded
+
+Hard platform quotas still apply; no architecture can guarantee unlimited traffic on a free plan.

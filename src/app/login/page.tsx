@@ -15,7 +15,7 @@ export default function LoginPage() {
             <div><div className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">NO CAP</div><div className="mt-0.5 text-sm text-text-muted">System design, without the fluff.</div></div>
           </div>
           <h1 className="mt-8 text-2xl font-semibold tracking-tight text-text-primary">Save your learning across devices.</h1>
-          <p className="mt-2 text-sm leading-relaxed text-text-secondary">Sync progress, reviews, notes, highlights and bookmarks. Your core lessons remain available locally too.</p>
+          <p className="mt-2 text-sm leading-relaxed text-text-secondary">Sync progress, reviews, notes, highlights and bookmarks. You can explore the curriculum before signing in. Your saved learning syncs once you connect an account.</p>
           <div className="mt-6 space-y-2.5">
             <a href={authUrl('google')} className="flex h-11 items-center justify-center gap-2 rounded-xl border border-border-strong bg-surface px-4 text-sm font-semibold text-text-primary transition-all hover:-translate-y-px hover:bg-surface-subtle"><Chrome className="h-4 w-4"/> Continue with Google</a>
             <a href={authUrl('github')} className="flex h-11 items-center justify-center gap-2 rounded-xl border border-border-strong bg-text-primary px-4 text-sm font-semibold text-text-inverse transition-all hover:-translate-y-px hover:bg-text-secondary"><Github className="h-4 w-4"/> Continue with GitHub</a>

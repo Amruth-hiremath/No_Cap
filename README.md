@@ -83,3 +83,9 @@ Run `npm audit` before production deployment. Do not use `npm audit fix --force`
 ### Deployment architecture
 
 NO CAP uses Next.js static export on Cloudflare Pages plus a very small TypeScript Worker backed by D1. Public lesson pages and static assets are served without invoking the Worker. Only authentication and authenticated user-state endpoints reach the Worker. This is deliberate: it keeps the core curriculum cheap to serve and protects the Workers Free request/CPU budget.
+
+
+## Production
+The public deployment uses Cloudflare Pages + a JavaScript Worker + D1. See `DEPLOYMENT.md`.
+
+OAuth state is stored server-side in D1 so the Pages-to-Worker proxy does not depend on a browser state cookie surviving the redirect.

@@ -49,7 +49,7 @@ function Brand({ expanded }: { expanded: boolean }) {
   return (
     <div className={cn('nocap-brand', !expanded && 'justify-center')}>
       <div className="nocap-brand__mark" aria-hidden>
-        <img src="/brand/no-cap-mark.svg" alt="" />
+        <img src="/brand/no-cap-mark.png" alt="" />
       </div>
       {expanded && <div className="min-w-0 animate-brand-reveal">
         <div className="truncate text-[14px] font-extrabold tracking-[-0.03em] text-text-primary">NO CAP</div>

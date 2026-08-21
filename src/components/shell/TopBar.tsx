@@ -40,7 +40,7 @@ export function TopBar() {
       ? 'Syncing'
       : status === 'offline'
         ? 'Offline'
-        : 'Sync available';
+        : 'Ready';
 
   return (
     <>
