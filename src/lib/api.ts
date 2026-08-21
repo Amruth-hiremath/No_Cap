@@ -1,4 +1,9 @@
-export const API_BASE = (process.env.NEXT_PUBLIC_API_BASE_URL || '').replace(/\/$/, '');
+import type { AuthProvider } from './types';
+
+const configuredApiBase = (process.env.NEXT_PUBLIC_API_BASE_URL || '').replace(/\/$/, '');
+export const API_BASE =
+  configuredApiBase ||
+  (process.env.NODE_ENV === 'development' ? 'http://localhost:8787' : '');
 
 // Production uses the same-origin Pages Function proxy by default. A separate
 // API host is still supported for local development or direct Worker testing.
@@ -15,7 +20,7 @@ export function authUrl(provider: 'google' | 'github'): string {
 export async function fetchCurrentUser() {
   const response = await fetch(apiUrl('/auth/me'), { credentials: 'include', cache: 'no-store' });
   if (!response.ok) throw new Error(`Auth request failed: ${response.status}`);
-  return response.json() as Promise<{ user: { id: number; email: string; name: string; avatar_url?: string; auth_provider: string; timezone: string; onboarding_completed: boolean } | null }>;
+  return response.json() as Promise<{ user: { id: number; email: string; name: string; avatar_url?: string; auth_provider: AuthProvider; timezone: string; onboarding_completed: boolean } | null }>;
 }
 
 export async function logoutCurrentUser() {

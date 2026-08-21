@@ -19,6 +19,8 @@ import type {
   Note,
   Highlight,
   Bookmark,
+  WorkspaceNote,
+  AuthProvider,
 } from './types';
 import { computeMasteryState } from './mastery';
 import { scheduleNextReview, qualityFromScore } from './review-scheduler';
@@ -26,7 +28,7 @@ import { scheduleNextReview, qualityFromScore } from './review-scheduler';
 interface StoreState {
   /* Identity */
   isAuthenticated: boolean;
-  user: { id: number; github_id?: string; email: string; name?: string; avatar_url?: string; auth_provider?: 'google' | 'github'; timezone: string; onboarding_completed?: boolean; goals?: string[]; weekly_minutes?: number } | null;
+  user: { id: number; github_id?: string; email: string; name?: string; avatar_url?: string; auth_provider?: AuthProvider; timezone: string; onboarding_completed?: boolean; goals?: string[]; weekly_minutes?: number } | null;
   auth_loaded: boolean;
 
   /* Mastery */
@@ -58,6 +60,7 @@ interface StoreState {
   notes: Note[];
   highlights: Highlight[];
   bookmarks: Bookmark[];
+  workspace_notes: WorkspaceNote[];
 
   /* Confusing concepts — concept slugs the user marked as confusing */
   confusing_concepts: string[];
@@ -86,6 +89,11 @@ interface StoreState {
   addBookmark: (concept_slug: string, label: string, block_id?: string) => void;
   removeBookmark: (id: string) => void;
   getBookmarksForConcept: (concept_slug: string) => Bookmark[];
+
+  /* Workspace notes */
+  createWorkspaceNote: (note: WorkspaceNote) => void;
+  updateWorkspaceNote: (note: WorkspaceNote) => void;
+  deleteWorkspaceNote: (id: string) => void;
 
   /* Confusing concepts */
   toggleConfusing: (concept_slug: string) => void;
@@ -234,6 +242,7 @@ export const useStore = create<StoreState>()(
       notes: [],
       highlights: [],
       bookmarks: [],
+      workspace_notes: [],
       confusing_concepts: [],
 
       /* ── startConcept: records exposure exactly once ───────────── */
@@ -527,6 +536,11 @@ export const useStore = create<StoreState>()(
       getBookmarksForConcept: (concept_slug) =>
         get().bookmarks.filter((b) => b.concept_slug === concept_slug),
 
+      /* ── Workspace notes ─────────────────────────────────────────── */
+      createWorkspaceNote: (note) => set((s) => ({ workspace_notes: [note, ...s.workspace_notes] })),
+      updateWorkspaceNote: (note) => set((s) => ({ workspace_notes: s.workspace_notes.some((n) => n.id === note.id) ? s.workspace_notes.map((n) => n.id === note.id ? note : n) : [note, ...s.workspace_notes] })),
+      deleteWorkspaceNote: (id) => set((s) => ({ workspace_notes: s.workspace_notes.filter((n) => n.id !== id) })),
+
       /* ── Confusing concepts ───────────────────────────────────────── */
       toggleConfusing: (concept_slug) =>
         set((s) => ({
@@ -666,6 +680,7 @@ export const useStore = create<StoreState>()(
           notes: [],
           highlights: [],
           bookmarks: [],
+          workspace_notes: [],
           confusing_concepts: [],
           exposed_session: [],
         }));
@@ -703,6 +718,7 @@ export const useStore = create<StoreState>()(
         notes: s.notes,
         highlights: s.highlights,
         bookmarks: s.bookmarks,
+        workspace_notes: s.workspace_notes,
         confusing_concepts: s.confusing_concepts,
         theme: s.theme,
         // exposed_session deliberately NOT persisted — we want a fresh

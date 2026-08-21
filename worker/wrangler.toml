@@ -1,0 +1,31 @@
+name = "nocap-worker"
+main = "src/index.js"
+compatibility_date = "2026-08-20"
+
+# D1 backing store
+[[d1_databases]]
+binding = "DB"
+database_name = "nocap"
+database_id = "f785457d-dd32-4c4f-a3b3-ea64d1dba576"
+
+# The Worker uses the default workers.dev deployment when no custom route is configured.
+
+# Cron hooks are intentionally lightweight in v0.1.
+[triggers]
+crons = [
+  "0 0 * * *",
+  "0 1 * * *",
+  "0 15 * * SUN",
+]
+
+[observability]
+enabled = true
+
+# Secrets:
+# GITHUB_CLIENT_ID
+# GITHUB_CLIENT_SECRET
+# GOOGLE_CLIENT_ID
+# GOOGLE_CLIENT_SECRET
+# FRONTEND_ORIGIN
+# APP_ORIGIN
+# ALLOWED_GITHUB_ID (optional)

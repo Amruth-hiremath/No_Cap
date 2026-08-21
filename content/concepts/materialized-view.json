@@ -35,9 +35,9 @@
       "type": "mermaid",
       "id": "topology",
       "payload": {
-        "code": "flowchart TD\n    N0[\"Source\"]\n    N1[\"Truth\"]\n    N2[\"write\"]\n    N3[\"model:\"]\n    N4[\"normalized,\"]\n    N5[\"transactional\"]\n    N6[\"Postgres\"]\n    N7[\"(Postgres)\"]\n    N8[\"orders,\"]\n    N9[\"customers,\"]\n    N10[\"products\"]\n    N11[\"events / CDC / batch refresh\"]\n    N12[\"changes\"]\n    N13[\"(events\"]\n    N14[\"CDC\"]\n    N15[\"batch\"]\n    N16[\"refresh)\"]\n    N17[\"Materialized\"]\n    N18[\"Views\"]\n    N19[\"orders_by_user\"]\n    N20[\"daily_revenue\"]\n    N21[\"search_index\"]\n    N22[\"(denormalized\"]\n    N23[\"(aggregated,\"]\n    N24[\"(Elasticsearch,\"]\n    N25[\"per\"]\n    N26[\"user\"]\n    N27[\"rows)\"]\n    N28[\"one\"]\n    N29[\"row\"]\n    N30[\"day)\"]\n    N31[\"full\"]\n    N32[\"text)\"]\n    N33[\"reads\"]\n    N34[\"fast\"]\n    N35[\"1 row\"]\n    N36[\"text\"]\n    N37[\"row)\"]\n    N38[\"(text)\"]\n    N39[\"refresh\"]\n    N40[\"lag\"]\n    N41[\"Trade\"]\n    N42[\"off:\"]\n    N43[\"each\"]\n    N44[\"view\"]\n    N45[\"adds\"]\n    N46[\"cost\"]\n    N47[\"(refresh)\"]\n    N48[\"and\"]\n    N49[\"staleness\"]\n    N50[\"(lag).\"]\n    N51[\"Choose\"]\n    N52[\"views\"]\n    N53[\"that\"]\n    N54[\"match\"]\n    N55[\"actual\"]\n    N56[\"query\"]\n    N57[\"patterns;\"]\n    N58[\"delete\"]\n    N59[\"unused\"]\n    N60[\"ones.\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44\n    N44 --> N45\n    N45 --> N46\n    N46 --> N47\n    N47 --> N48\n    N48 --> N49\n    N49 --> N50\n    N50 --> N51\n    N51 --> N52\n    N52 --> N53\n    N53 --> N54\n    N54 --> N55\n    N55 --> N56\n    N56 --> N57\n    N57 --> N58\n    N58 --> N59\n    N59 --> N60",
-        "caption": "Multiple materialized views of one source, each optimized for a different query pattern. Writes bear the cost of keeping views fresh.",
-        "alt_text": "A diagram showing a source of truth (Postgres with orders, customers, products) at the top, normalized and transactional. Below it, three materialized views are built from changes via events, CDC, or batch refresh. View one is orders_by_user, denormalized per-user rows for fast single-row reads. View two is daily_revenue, aggregated to one row per day for fast report reads. View three is search_index, an Elasticsearch index for full-text reads. The trade-off noted below: each view adds write cost (refresh) and staleness (lag); choose views that match actual query patterns and delete unused ones."
+        "code": "flowchart LR\n  Source[(Source data)] --> Build[Transform / aggregate]\n  Build --> View[(Materialized view)]\n  Query[Read request] --> View\n  Source -->|change| Build",
+        "caption": "Materialized View: shape storage around the access pattern.",
+        "alt_text": "Concept diagram: Materialized View"
       }
     },
     {
@@ -136,9 +136,9 @@
       "type": "mermaid",
       "id": "upgrade-mermaid-materialized-view",
       "payload": {
-        "code": "flowchart LR\n  A[Client] --> B[Gateway] --> C[Service] --> D[State] --> E[Outcome]",
+        "code": "flowchart LR\n  Concept[\"Materialized View\"] --> Risk[\"Reads are fast — pre-computed, often…\"]\n  Risk --> Mitigate[Mitigation / design choice]\n  Mitigate --> Outcome[Better system behavior]",
         "caption": "Materialized View: a simplified system view showing the primary flow and the main state boundaries.",
-        "alt_text": "Materialized View: a simplified system view showing the primary flow and the main state boundaries."
+        "alt_text": "Concept diagram: Materialized View"
       }
     },
     {

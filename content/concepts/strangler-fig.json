@@ -34,9 +34,9 @@
       "type": "mermaid",
       "id": "façade",
       "payload": {
-        "code": "flowchart TD\n    N0[\"Clients\"]\n    N1[\"Routing\"]\n    N2[\"Façade\"]\n    N3[\"decides:\"]\n    N4[\"new\"]\n    N5[\"old?\"]\n    N6[\"API gateway / proxy\"]\n    N7[\"(API\"]\n    N8[\"gateway\"]\n    N9[\"proxy)\"]\n    N10[\"orders\"]\n    N11[\"products\"]\n    N12[\"users\"]\n    N13[\"search...\"]\n    N14[\"migrated\"]\n    N15[\"still legacy\"]\n    N16[\"(migrated)\"]\n    N17[\"(still\"]\n    N18[\"legacy)\"]\n    N19[\"New\"]\n    N20[\"Svc\"]\n    N21[\"Legacy\"]\n    N22[\"Monolith\"]\n    N23[\"Go\"]\n    N24[\"still runs!\"]\n    N25[\"(Go)\"]\n    N26[\"runs!)\"]\n    N27[\"Over\"]\n    N28[\"time,\"]\n    N29[\"more\"]\n    N30[\"routes\"]\n    N31[\"migrate\"]\n    N32[\"left\"]\n    N33[\"legacy\"]\n    N34[\"shrinks\"]\n    N35[\"eventually\"]\n    N36[\"retired.\"]\n    N37[\"Migration\"]\n    N38[\"████████░░░░░░░░░░░░\"]\n    N39[\"~35%\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39",
-        "caption": "Routing façade splits traffic: migrated endpoints go to the new service; the rest still hit the legacy system. Migration proceeds incrementally and is reversible at any step.",
-        "alt_text": "A diagram showing clients at the top, then a routing façade (API gateway or proxy) that decides for each request whether to send it to the new service or the legacy monolith. Migrated endpoints like orders go to the new service written in Go, while products, users, and search still go to the legacy monolith which keeps running. A progress bar at the bottom shows about 35 percent migrated, with more routes migrating left over time and the legacy eventually being retired."
+        "code": "flowchart LR\n  Concept[\"Strangler Fig\"] --> Problem[Architecture problem] --> Pattern[Pattern]\n  Pattern --> Structure[Structure / roles]\n  Structure --> Outcome[Result]\n  Pattern --> Tradeoff[Trade-off]",
+        "caption": "Strangler Fig: apply a pattern to a recurring architectural pressure.",
+        "alt_text": "Concept diagram: Strangler Fig"
       }
     },
     {
@@ -135,9 +135,9 @@
       "type": "mermaid",
       "id": "upgrade-mermaid-strangler-fig",
       "payload": {
-        "code": "flowchart LR\n  A[Client] --> B[Gateway] --> C[Service] --> D[State] --> E[Outcome]",
+        "code": "flowchart LR\n  Concept[\"Strangler Fig\"] --> Risk[\"Migration is incremental and reversible —…\"]\n  Risk --> Mitigate[Mitigation / design choice]\n  Mitigate --> Outcome[Better system behavior]",
         "caption": "Strangler Fig: a simplified system view showing the primary flow and the main state boundaries.",
-        "alt_text": "Strangler Fig: a simplified system view showing the primary flow and the main state boundaries."
+        "alt_text": "Concept diagram: Strangler Fig"
       }
     },
     {

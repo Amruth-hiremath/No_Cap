@@ -35,9 +35,9 @@
       "type": "mermaid",
       "id": "flow",
       "payload": {
-        "code": "flowchart TD\n    N0[\"Producer\"]\n    N1[\"100\"]\n    N2[\"video\"]\n    N3[\"process\"]\n    N4[\"PUT\"]\n    N5[\"payload\"]\n    N6[\"object\"]\n    N7[\"storage\"]\n    N8[\"Object\"]\n    N9[\"Storage\"]\n    N10[\"Azure\"]\n    N11[\"Blob\"]\n    N12[\"GCS\"]\n    N13[\"12345.bin\"]\n    N14[\"returns\"]\n    N15[\"URL\"]\n    N16[\"key\"]\n    N17[\"~1 KB\"]\n    N18[\"Message:\"]\n    N19[\"small\"]\n    N20[\"(~1\"]\n    N21[\"KB)\"]\n    N22[\"'claim_check':\"]\n    N23[\"'s3:\"]\n    N24[\"bucket\"]\n    N25[\"12345',\"]\n    N26[\"'size':\"]\n    N27[\"104857600,\"]\n    N28[\"'content_type':\"]\n    N29[\"'video\"]\n    N30[\"mp4',\"]\n    N31[\"'sha256':\"]\n    N32[\"'abc123...'\"]\n    N33[\"publish\"]\n    N34[\"message\"]\n    N35[\"SQS / Kafka / Service Bus\"]\n    N36[\"Message\"]\n    N37[\"Queue\"]\n    N38[\"(SQS\"]\n    N39[\"Kafka\"]\n    N40[\"Service\"]\n    N41[\"Bus)\"]\n    N42[\"consumer\"]\n    N43[\"receives\"]\n    N44[\"fast\"]\n    N45[\"Consumer\"]\n    N46[\"fetch\"]\n    N47[\"uses\"]\n    N48[\"claim_check\"]\n    N49[\"from\"]\n    N50[\"holds\"]\n    N51[\"messages\"]\n    N52[\"stays\"]\n    N53[\"fast.\"]\n    N54[\"Large\"]\n    N55[\"payloads\"]\n    N56[\"live\"]\n    N57[\"storage.\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44\n    N44 --> N45\n    N45 --> N46\n    N46 --> N47\n    N47 --> N48\n    N48 --> N49\n    N49 --> N50\n    N50 --> N51\n    N51 --> N52\n    N52 --> N53\n    N53 --> N54\n    N54 --> N55\n    N55 --> N56\n    N56 --> N57",
-        "caption": "Claim Check: producer uploads large payload to object storage, queues a small message with a reference. Consumer fetches the payload using the reference.",
-        "alt_text": "A flow diagram with the producer at the top, holding a 100 MB video to process. Step one: the producer PUTs the payload to object storage (S3, Azure Blob, or GCS), storing it as payload-12345.bin and receiving back a URL and key. Step two: the producer publishes a small message — about 1 KB — to the message queue containing the claim check URL (s3://bucket/12345), the size, content type, and sha256 hash. Step three: the consumer receives the small message quickly. Step four: the consumer fetches the payload from storage using the claim check URL. The caption notes that the queue holds small messages and stays fast, while large payloads live in object storage."
+        "code": "flowchart LR\n  Message[Large message] --> Store[(Object store)]\n  Store --> Ref[Small claim-check reference]\n  Ref --> Queue[(Message queue)]\n  Queue --> Worker[Worker fetches object]",
+        "caption": "Claim Check: apply a pattern to a recurring architectural pressure.",
+        "alt_text": "Concept diagram: Claim Check"
       }
     },
     {
@@ -136,9 +136,9 @@
       "type": "mermaid",
       "id": "upgrade-mermaid-claim-check",
       "payload": {
-        "code": "flowchart LR\n  A[Client] --> B[Gateway] --> C[Service] --> D[State] --> E[Outcome]",
+        "code": "flowchart LR\n  Concept[\"Claim Check\"] --> Risk[\"Handles arbitrarily large payloads — no…\"]\n  Risk --> Mitigate[Mitigation / design choice]\n  Mitigate --> Outcome[Better system behavior]",
         "caption": "Claim Check: a simplified system view showing the primary flow and the main state boundaries.",
-        "alt_text": "Claim Check: a simplified system view showing the primary flow and the main state boundaries."
+        "alt_text": "Concept diagram: Claim Check"
       }
     },
     {

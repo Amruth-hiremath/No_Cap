@@ -5,7 +5,7 @@ import { TrendingUp, Brain, Target, Flame, Activity, ArrowRight, Clock } from 'l
 import { Surface, SectionHeader, EmptyState } from '@/components/ui/Surface';
 import { AccentRule } from '@/components/ui/AccentRule';
 import { Badge, MasteryBadge } from '@/components/ui/Badge';
-import { getAllConcepts, getConcept } from '@/lib/content';
+import { getAllConceptSummaries, getConceptSummary } from '@/lib/content-lite';
 import { useStore } from '@/lib/store';
 import { MASTERY_STATE_META, computeMasteryScore } from '@/lib/mastery';
 import { formatDueLabel } from '@/lib/review-scheduler';
@@ -26,7 +26,7 @@ export default function ProgressPage() {
   const events = useStore((s) => s.events);
   const streak = useStore((s) => s.streak);
   const reviewItems = useStore((s) => s.review_items);
-  const allConcepts = getAllConcepts();
+  const allConcepts = getAllConceptSummaries();
 
   const masteryValues = Object.values(mastery);
   const masteredCount = masteryValues.filter((m) => m.state === 'mastered').length;
@@ -315,7 +315,7 @@ export default function ProgressPage() {
               />
               <div className="mt-4 space-y-2">
                 {weakConcepts.map((m) => {
-                  const c = getConcept(m.concept_slug);
+                  const c = getConceptSummary(m.concept_slug);
                   if (!c) return null;
                   const score = computeMasteryScore(m);
                   return (

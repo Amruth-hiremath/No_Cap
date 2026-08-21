@@ -33,9 +33,9 @@
       "type": "mermaid",
       "id": "vertical-vs-horizontal",
       "payload": {
-        "code": "flowchart TD\n    N0[\"scale up\"]\n    N1[\"VERTICAL\"]\n    N2[\"(scale\"]\n    N3[\"up)\"]\n    N4[\"Server: 4 CPU, 16GB\"]\n    N5[\"[Server:\"]\n    N6[\"CPU,\"]\n    N7[\"16GB]\"]\n    N8[\"upgrade\"]\n    N9[\"Server: 32 CPU, 128GB\"]\n    N10[\"128GB]\"]\n    N11[\"Server: 128 CPU, 2TB\"]\n    N12[\"128\"]\n    N13[\"2TB]\"]\n    N14[\"ceiling\"]\n    N15[\"Pros:\"]\n    N16[\"simple,\"]\n    N17[\"code\"]\n    N18[\"changes.\"]\n    N19[\"Cons:\"]\n    N20[\"hard\"]\n    N21[\"ceiling,\"]\n    N22[\"downtime\"]\n    N23[\"upgrade,\"]\n    N24[\"single\"]\n    N25[\"point\"]\n    N26[\"failure.\"]\n    N27[\"scale out\"]\n    N28[\"HORIZONTAL\"]\n    N29[\"out)\"]\n    N30[\"Server A\"]\n    N31[\"Server B\"]\n    N32[\"[Server\"]\n    N33[\"add\"]\n    N34[\"more\"]\n    N35[\"A\"]\n    N36[\"B\"]\n    N37[\"C\"]\n    N38[\"D\"]\n    N39[\"E\"]\n    N40[\"F\"]\n    N41[\"[A]\"]\n    N42[\"[B]\"]\n    N43[\"[C]\"]\n    N44[\"[D]\"]\n    N45[\"[E]\"]\n    N46[\"[F]\"]\n    N47[\"downtime,\"]\n    N48[\"fault\"]\n    N49[\"tolerant.\"]\n    N50[\"requires\"]\n    N51[\"statelessness,\"]\n    N52[\"distributed\"]\n    N53[\"data,\"]\n    N54[\"load\"]\n    N55[\"balancing,\"]\n    N56[\"harder\"]\n    N57[\"debugging.\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44\n    N44 --> N45\n    N45 --> N46\n    N46 --> N47\n    N47 --> N48\n    N48 --> N49\n    N49 --> N50\n    N50 --> N51\n    N51 --> N52\n    N52 --> N53\n    N53 --> N54\n    N54 --> N55\n    N55 --> N56\n    N56 --> N57",
-        "caption": "Vertical scaling has a ceiling. Horizontal scaling does not — but it requires distributed systems.",
-        "alt_text": "Two diagrams. Vertical scaling: one server is upgraded from 4 CPUs to 32 to 128 — but there's a hard ceiling, and upgrades require downtime. Horizontal scaling: multiple servers are added behind a load balancer — no ceiling, no downtime, but requires statelessness and distributed data."
+        "code": "flowchart LR\n  Concept[\"Horizontal Scaling\"] --> Workload[Workload] --> Bottleneck[Bottleneck]\n  Bottleneck --> Optimize[Optimize / scale]\n  Optimize --> Capacity[Higher capacity]",
+        "caption": "Horizontal scaling adds independent application instances behind a traffic distributor.",
+        "alt_text": "Concept diagram: Horizontal Scaling"
       }
     },
     {
@@ -99,18 +99,18 @@
       "type": "mermaid",
       "id": "vertical-horizontal-comparison-b2",
       "payload": {
-        "code": "flowchart TB\n    subgraph V[Vertical Scaling — scale up]\n        V1[4 CPU / 16 GB<br/>$200/mo] --> V2[32 CPU / 128 GB<br/>$2k/mo]\n        V2 --> V3[128 CPU / 2 TB<br/>$20k/mo<br/>u-6tb1.metal ceiling]\n        VNote[Simple, no code changes.<br/>Hard ceiling, downtime to upgrade,<br/>single point of failure.]\n    end\n\n    subgraph H[Horizontal Scaling — scale out]\n        H1[1 node<br/>4 CPU] --> H2[3 nodes<br/>12 CPU total]\n        H2 --> H3[10 nodes<br/>40 CPU total]\n        H3 --> H4[100 nodes<br/>400 CPU total]\n        H3 --> H5[1000 nodes<br/>4,000 CPU total]\n        HNote[No ceiling, no downtime,<br/>fault-tolerant.<br/>Requires statelessness,<br/>distributed data, LB, monitoring.]\n    end\n\n    classDef v fill:#3a2e1e,stroke:#f59e0b,color:#fef3c7\n    classDef h fill:#1e3a5f,stroke:#3b82f6,color:#e0e7ff\n    classDef note fill:#2d1e3a,stroke:#a855f7,color:#f3e8ff\n    class V1,V2,V3 v\n    class H1,H2,H3,H4,H5 h\n    class VNote,HNote note",
+        "code": "flowchart LR\n  Concept[\"Horizontal Scaling\"] --> Risk[\"No hard ceiling — add more…\"]\n  Risk --> Mitigate[Mitigation / design choice]\n  Mitigate --> Outcome[Better system behavior]",
         "caption": "Vertical scaling has a hard ceiling and upgrade downtime. Horizontal scaling has no theoretical ceiling but introduces distributed-systems complexity.",
-        "alt_text": "Two scaling strategies compared. Vertical scaling: a single server is upgraded from 4 CPU/16 GB to 32 CPU/128 GB to 128 CPU/2 TB — at which point you hit the u-6tb1.metal ceiling. Simple, no code changes, but hard ceiling, downtime to upgrade, single point of failure. Horizontal scaling: 1 node becomes 3, then 10, then 100, then 1000 — no theoretical ceiling. Requires statelessness, distributed data, load balancers, and monitoring."
+        "alt_text": "Concept diagram: Horizontal Scaling"
       }
     },
     {
       "type": "mermaid",
       "id": "statelessness-flow-b2",
       "payload": {
-        "code": "flowchart TD\n    Req[Incoming request] --> LB[Load balancer]\n    LB --> Pick{Pick any backend}\n    Pick --> A[App server A]\n    Pick --> B[App server B]\n    Pick --> C[App server C]\n\n    A --> LocalState{Has local state?<br/>session, cache, file, lock}\n    LocalState -->|Yes| StickyNeeded[Need sticky sessions<br/>DEFEATS failover + scaling]\n    LocalState -->|No| Stateless[Stateless<br/>any backend serves any request]\n\n    Stateless --> ExternalState[Move state to shared stores]\n    ExternalState --> Sess[Session → Redis]\n    ExternalState --> Files[File uploads → S3 / R2]\n    ExternalState --> Cache[Cache → distributed cache<br/>Redis / Memcached]\n    ExternalState --> Locks[Distributed locks → etcd / Redis Redlock]\n    ExternalState --> Db[Database → shared / replicated / sharded]\n\n    classDef bad fill:#3a1e1e,stroke:#ef4444,color:#fee2e2\n    classDef ok fill:#1e3a5f,stroke:#3b82f6,color:#e0e7ff\n    classDef store fill:#1e3a1e,stroke:#22c55e,color:#dcfce7\n    class StickyNeeded bad\n    class Stateless,A,B,C,Pick,LB ok\n    class Sess,Files,Cache,Locks,Db,ExternalState store",
+        "code": "flowchart LR\n  Concept[\"Horizontal Scaling\"] --> Use[When to use]\n  Concept --> Avoid[When not to use]\n  Use --> Outcome[Engineering outcome]\n  Avoid --> Tradeoff[Alternative / trade-off]",
         "caption": "Statelessness requirement: every piece of per-request state must move off the app server to a shared store.",
-        "alt_text": "An incoming request hits the load balancer, which picks any backend. If the backend has local state (session, cache, file, lock), sticky sessions are needed — which defeats failover and scaling. If the backend is stateless, any backend can serve any request. To be stateless, all state must move to shared stores: sessions to Redis, file uploads to S3, caches to distributed cache, locks to etcd or Redis Redlock, database to a shared/replicated/sharded store."
+        "alt_text": "Concept diagram: Horizontal Scaling"
       }
     },
     {
@@ -128,9 +128,9 @@
       "type": "mermaid",
       "id": "db-scaling-path-b2",
       "payload": {
-        "code": "flowchart LR\n    L1[Single DB] -->|reads > 1 box can handle| L2\n    L2[+ Read replicas<br/>reads scale, writes don't] -->|writes > 1 primary| L3\n    L3[+ Sharding by key<br/>writes scale per shard] -->|queries span shards| L4\n    L4[+ Federation / functional split<br/>users DB / orders DB / sessions DB] -->|still single-region| L5\n    L5[+ Multi-region replication<br/>active-active or active-passive] --> Done[Truly global scale]\n\n    L2 -.cache hot reads.-> Cache[(Redis cache)]\n    L3 -.route by shard key.-> Router[Shard router]\n\n    classDef stage fill:#1e3a5f,stroke:#3b82f6,color:#e0e7ff\n    classDef helper fill:#3a2e1e,stroke:#f59e0b,color:#fef3c7\n    class L1,L2,L3,L4,L5,Done stage\n    class Cache,Router helper",
+        "code": "flowchart LR\n  Concept[\"Horizontal Scaling\"] --> Use[When to use]\n  Concept --> Avoid[When not to use]\n  Use --> Outcome[Engineering outcome]\n  Avoid --> Tradeoff[Alternative / trade-off]",
         "caption": "The canonical database scaling path — each step is a separate architectural decision, taken only when the previous step hits its ceiling.",
-        "alt_text": "A linear progression of database scaling steps: Single DB → read replicas (when reads exceed one box) → sharding by key (when writes exceed one primary) → federation / functional split (when queries span shards) → multi-region replication (when one region is not enough). Cache and shard router are helper components introduced along the way."
+        "alt_text": "Concept diagram: Horizontal Scaling"
       }
     },
     {
@@ -212,9 +212,9 @@
       "type": "mermaid",
       "id": "upgrade-mermaid-horizontal-scaling",
       "payload": {
-        "code": "flowchart LR\n  A[Client] --> B[Gateway] --> C[Service] --> D[State] --> E[Outcome]",
+        "code": "flowchart LR\n  Concept[\"Horizontal Scaling\"] --> Use[When to use]\n  Concept --> Avoid[When not to use]\n  Use --> Outcome[Engineering outcome]\n  Avoid --> Tradeoff[Alternative / trade-off]",
         "caption": "Horizontal Scaling: a simplified system view showing the primary flow and the main state boundaries.",
-        "alt_text": "Horizontal Scaling: a simplified system view showing the primary flow and the main state boundaries."
+        "alt_text": "Concept diagram: Horizontal Scaling"
       }
     },
     {

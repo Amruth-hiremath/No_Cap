@@ -37,9 +37,9 @@
       "type": "mermaid",
       "id": "streams",
       "payload": {
-        "code": "flowchart TD\n    N0[\"HTTP\"]\n    N1[\"over\"]\n    N2[\"TCP\"]\n    N3[\"head\"]\n    N4[\"line\"]\n    N5[\"blocking\"]\n    N6[\"1a\"]\n    N7[\"1b\"]\n    N8[\"1c\"]\n    N9[\"Stream\"]\n    N10[\"[1a][1b][1c]\"]\n    N11[\"LOST\"]\n    N12[\"2a\"]\n    N13[\"2b\"]\n    N14[\"2c\"]\n    N15[\"[2a][2b][2c]\"]\n    N16[\"3a\"]\n    N17[\"3b\"]\n    N18[\"3c\"]\n    N19[\"[3a][3b][3c]\"]\n    N20[\"Shared\"]\n    N21[\"byte\"]\n    N22[\"stream:\"]\n    N23[\"1b*\"]\n    N24[\"All\"]\n    N25[\"bytes\"]\n    N26[\"after\"]\n    N27[\"are\"]\n    N28[\"stuck\"]\n    N29[\"the\"]\n    N30[\"receiver's\"]\n    N31[\"kernel\"]\n    N32[\"buffer\"]\n    N33[\"until\"]\n    N34[\"retransmitted.\"]\n    N35[\"ALL\"]\n    N36[\"streams\"]\n    N37[\"stall.\"]\n    N38[\"QUIC\"]\n    N39[\"per\"]\n    N40[\"stream\"]\n    N41[\"reliability\"]\n    N42[\"[1a][1b*][1c]\"]\n    N43[\"lost;\"]\n    N44[\"only\"]\n    N45[\"stalls\"]\n    N46[\"still\"]\n    N47[\"flows\"]\n    N48[\"Independent\"]\n    N49[\"UDP\"]\n    N50[\"datagrams,\"]\n    N51[\"each\"]\n    N52[\"carrying\"]\n    N53[\"frames\"]\n    N54[\"for\"]\n    N55[\"one\"]\n    N56[\"with\"]\n    N57[\"sequence\"]\n    N58[\"numbers.\"]\n    N59[\"loss\"]\n    N60[\"blocks\"]\n    N61[\"Win:\"]\n    N62[\"independent\"]\n    N63[\"remove\"]\n    N64[\"cross\"]\n    N65[\"HOL\"]\n    N66[\"blocking.\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44\n    N44 --> N45\n    N45 --> N46\n    N46 --> N47\n    N47 --> N48\n    N48 --> N49\n    N49 --> N50\n    N50 --> N51\n    N51 --> N52\n    N52 --> N53\n    N53 --> N54\n    N54 --> N55\n    N55 --> N56\n    N56 --> N57\n    N57 --> N58\n    N58 --> N59\n    N59 --> N60\n    N60 --> N61\n    N61 --> N62\n    N62 --> N63\n    N63 --> N64\n    N64 --> N65\n    N65 --> N66",
-        "caption": "HTTP/2 over TCP: one lost packet stalls every multiplexed stream. HTTP/3 over QUIC: a lost packet stalls only one stream.",
-        "alt_text": "Two diagrams comparing HTTP/2 over TCP and HTTP/3 over QUIC. The first shows three streams multiplexed over one TCP byte stream. When stream 1's packet 1b is lost, all bytes after it — including data from streams 2 and 3 that already arrived — are stuck in the receiver's kernel buffer until 1b is retransmitted. Every stream stalls. The second shows HTTP/3 over QUIC with independent UDP datagrams per stream, each with its own sequence numbers. When stream 1's packet 1b is lost, only stream 1 stalls. Streams 2 and 3 continue to flow because their reliability is independent. The win is removing cross-stream head-of-line blocking."
+        "code": "flowchart LR\n  App[HTTP/3] --> QUIC[QUIC over UDP]\n  QUIC --> TLS[TLS 1.3 handshake]\n  QUIC --> Streams[Independent streams]\n  Streams --> Network[IP network]\n  Network --> Peer[Peer endpoint]",
+        "caption": "QUIC — The UDP Transport Powering HTTP/3: problem → mechanism → behavior → outcome.",
+        "alt_text": "Concept diagram: QUIC — The UDP Transport Powering HTTP/3"
       }
     },
     {
@@ -155,9 +155,9 @@
       "type": "mermaid",
       "id": "upgrade-mermaid-quic",
       "payload": {
-        "code": "flowchart LR\n  A[Client] --> B[Gateway] --> C[Service] --> D[State] --> E[Outcome]",
+        "code": "flowchart LR\n  Concept[\"QUIC — The UDP Transport Powering…\"] --> Risk[\"Per-stream independence eliminates cross-stream head-of-line blocking.\"]\n  Risk --> Mitigate[Mitigation / design choice]\n  Mitigate --> Outcome[Better system behavior]",
         "caption": "QUIC — The UDP Transport Powering HTTP/3: a simplified system view showing the primary flow and the main state boundaries.",
-        "alt_text": "QUIC — The UDP Transport Powering HTTP/3: a simplified system view showing the primary flow and the main state boundaries."
+        "alt_text": "Concept diagram: QUIC — The UDP Transport Powering HTTP/3"
       }
     },
     {

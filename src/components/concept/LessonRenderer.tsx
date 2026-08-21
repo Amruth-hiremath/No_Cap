@@ -1,11 +1,11 @@
 'use client';
 
 import { useState, useCallback, isValidElement, type ReactNode } from 'react';
+import dynamic from 'next/dynamic';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Surface } from '@/components/ui/Surface';
-import { DiagramRenderer } from './DiagramRenderer';
-import { MermaidBlock } from './MermaidBlock';
+const MermaidBlock = dynamic(() => import('./MermaidBlock').then((m) => m.MermaidBlock), { ssr: false, loading: () => <div className="mermaid-loading" aria-label="Loading diagram"><span className="unique-loader unique-loader--sm" /></div> });
 import { cn } from '@/lib/utils';
 import type {
   LessonBlock,
@@ -37,8 +37,6 @@ export function LessonBlockRenderer({ block }: { block: LessonBlock }) {
   switch (block.type) {
     case 'prose':
       return <ProseView block={block} />;
-    case 'diagram':
-      return <DiagramRenderer block={block} />;
     case 'mermaid':
       return <MermaidBlock code={block.payload.code} caption={block.payload.caption} alt_text={block.payload.alt_text} />;
     case 'image':
@@ -494,6 +492,8 @@ function ImageView({ block }: { block: ImageBlock }) {
           src={block.payload.src}
           alt={block.payload.alt}
           loading="lazy"
+          decoding="async"
+          fetchPriority="low"
           className="w-full"
           onError={(e) => {
             (e.currentTarget as HTMLImageElement).style.display = 'none';

@@ -34,9 +34,9 @@
       "type": "mermaid",
       "id": "spof-tree",
       "payload": {
-        "code": "flowchart TD\n    N0[\"Clients\"]\n    N1[\"single DNS provider\"]\n    N2[\"DNS\"]\n    N3[\"GSLB\"]\n    N4[\"SPOF?\"]\n    N5[\"(single\"]\n    N6[\"provider)\"]\n    N7[\"single LB, no failover\"]\n    N8[\"VIP\"]\n    N9[\"LB,\"]\n    N10[\"failover)\"]\n    N11[\"3 replicas — good\"]\n    N12[\"API\"]\n    N13[\"replicas\"]\n    N14[\"good)\"]\n    N15[\"single Redis, no failover\"]\n    N16[\"Cache\"]\n    N17[\"Redis,\"]\n    N18[\"single primary, no replica\"]\n    N19[\"primary,\"]\n    N20[\"replica)\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20",
-        "caption": "Request path with annotated SPOF candidates. Walk every hop and ask: 'if this one thing dies, does the system die?'",
-        "alt_text": "A vertical request-path diagram starting at clients at the top, going through DNS, a load balancer VIP, three API replicas in parallel, a cache, and a database at the bottom. Each hop is annotated with a question: 'SPOF?' — single DNS provider, single load balancer with no failover, single Redis cache with no failover, single database primary with no replica. The three API replicas in the middle are the one component that is NOT a single point of failure, illustrating that redundancy in some layers does not protect unredundant layers."
+        "code": "flowchart LR\n  System[System] --> SPOF[Single component with no redundancy]\n  SPOF --> Failure[Component fails]\n  Failure --> Outage[System outage]\n  Mitigation[Redundancy / replicas / failover] --> SPOF",
+        "caption": "Single Points of Failure: problem → mechanism → behavior → outcome.",
+        "alt_text": "Concept diagram: Single Points of Failure"
       }
     },
     {
@@ -135,9 +135,9 @@
       "type": "mermaid",
       "id": "upgrade-mermaid-single-points-of-failure",
       "payload": {
-        "code": "flowchart LR\n  A[Client] --> B[Gateway] --> C[Service] --> D[State] --> E[Outcome]",
+        "code": "flowchart LR\n  Concept[\"Single Points of Failure\"] --> Risk[\"Eliminating SPOFs directly increases availability —…\"]\n  Risk --> Mitigate[Mitigation / design choice]\n  Mitigate --> Outcome[Better system behavior]",
         "caption": "Single Points of Failure: a simplified system view showing the primary flow and the main state boundaries.",
-        "alt_text": "Single Points of Failure: a simplified system view showing the primary flow and the main state boundaries."
+        "alt_text": "Concept diagram: Single Points of Failure"
       }
     },
     {

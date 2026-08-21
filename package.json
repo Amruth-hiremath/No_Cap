@@ -2,7 +2,7 @@
   "name": "nocap",
   "version": "0.1.0",
   "private": true,
-  "description": "NO CAP - A personal system-design learning workbench",
+  "description": "NO CAP \u2014 a public system-design learning platform built for static-first, free-tier-efficient deployment",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
@@ -11,26 +11,27 @@
     "type-check": "tsc --noEmit",
     "content:validate": "node scripts/validate-content.js",
     "content:report": "node scripts/content-report.js",
-    "content:generate": "python3 scripts/generate-stubs.py",
-    "worker:dev": "cd worker && wrangler dev",
-    "worker:deploy": "cd worker && wrangler deploy",
+    "worker:dev": "wrangler dev --config worker/wrangler.toml",
+    "worker:deploy": "wrangler deploy --config worker/wrangler.toml",
     "db:migrate": "cd worker && wrangler d1 migrations apply nocap --local",
     "db:migrate:prod": "cd worker && wrangler d1 migrations apply nocap --remote",
-    "verify": "npm run type-check && npm run content:validate && npm run build"
+    "verify": "npm run type-check && npm run worker:check && npm run content:validate && npm run build",
+    "worker:types": "wrangler types worker/worker-configuration.d.ts --config worker/wrangler.toml",
+    "worker:type-check": "echo Worker uses plain JavaScript; run npm run worker:check for Wrangler bundling validation",
+    "worker:check": "wrangler deploy --dry-run --outdir worker/.wrangler-dry-run --config worker/wrangler.toml"
   },
   "dependencies": {
     "clsx": "^2.1.1",
-    "flexsearch": "^0.7.43",
     "lucide-react": "^0.460.0",
     "mermaid": "^11.16.1",
     "next": "^16.3.1",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "react-markdown": "^10.1.0",
-    "rehype-raw": "^7.0.0",
     "remark-gfm": "^4.0.1",
     "tailwind-merge": "^2.5.0",
-    "zustand": "^5.0.0"
+    "zustand": "^5.0.0",
+    "@excalidraw/excalidraw": "0.18.1"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.0.0",
@@ -49,6 +50,10 @@
     "sharp": "^0.35.0",
     "esbuild": "^0.25.0",
     "undici": "^6.28.0",
-    "ws": "^8.18.0"
+    "ws": "^8.18.0",
+    "@excalidraw/mermaid-to-excalidraw": "2.2.2",
+    "@mermaid-js/parser": "1.2.0",
+    "nanoid": "5.1.16",
+    "lodash-es": "4.18.0"
   }
 }

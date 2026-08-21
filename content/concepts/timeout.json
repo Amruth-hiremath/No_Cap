@@ -34,9 +34,9 @@
       "type": "mermaid",
       "id": "no-timeout",
       "payload": {
-        "code": "flowchart TD\n    N0[\"WITHOUT\"]\n    N1[\"TIMEOUTS\"]\n    N2[\"Request\"]\n    N3[\"query\"]\n    N4[\"hangs\"]\n    N5[\"OS default\"]\n    N6[\"Thread\"]\n    N7[\"blocks\"]\n    N8[\"60s\"]\n    N9[\"(OS\"]\n    N10[\"default)\"]\n    N11[\"1000\"]\n    N12[\"concurrent\"]\n    N13[\"requests\"]\n    N14[\"pool\"]\n    N15[\"exhausted\"]\n    N16[\"Service\"]\n    N17[\"dies\"]\n    N18[\"for\"]\n    N19[\"60s.\"]\n    N20[\"WITH\"]\n    N21[\"has\"]\n    N22[\"500ms\"]\n    N23[\"deadline.\"]\n    N24[\"Hangs\"]\n    N25[\"later,\"]\n    N26[\"abort\"]\n    N27[\"retry\"]\n    N28[\"fallback.\"]\n    N29[\"freed\"]\n    N30[\"500ms.\"]\n    N31[\"stays\"]\n    N32[\"up;\"]\n    N33[\"only\"]\n    N34[\"slow\"]\n    N35[\"queries\"]\n    N36[\"fail.\"]\n    N37[\"DEADLINE\"]\n    N38[\"PROPAGATION\"]\n    N39[\"Client\"]\n    N40[\"deadline:\"]\n    N41[\"1000ms\"]\n    N42[\"900ms\"]\n    N43[\"left\"]\n    N44[\"deadline minus elapsed\"]\n    N45[\"700ms\"]\n    N46[\"(deadline\"]\n    N47[\"minus\"]\n    N48[\"elapsed)\"]\n    N49[\"DB:\"]\n    N50[\"600ms\"]\n    N51[\"Each\"]\n    N52[\"hop\"]\n    N53[\"uses\"]\n    N54[\"its\"]\n    N55[\"share;\"]\n    N56[\"overruns\"]\n    N57[\"the\"]\n    N58[\"original\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44\n    N44 --> N45\n    N45 --> N46\n    N46 --> N47\n    N47 --> N48\n    N48 --> N49\n    N49 --> N50\n    N50 --> N51\n    N51 --> N52\n    N52 --> N53\n    N53 --> N54\n    N54 --> N55\n    N55 --> N56\n    N56 --> N57\n    N57 --> N58",
-        "caption": "Without timeouts, one slow dependency exhausts the thread pool. With timeouts, only the slow request fails. Deadlines propagate so the total latency stays bounded.",
-        "alt_text": "Three diagrams. Without timeouts: a database query hangs, the calling thread blocks for the OS default of sixty seconds, one thousand concurrent requests exhaust the thread pool in one second, and the service dies for a full minute. With timeouts: the query has a five hundred millisecond deadline, the thread is freed after that time, and only the slow request fails. Deadline propagation: the client deadline of one thousand milliseconds is split across service A, B, and the database, each using only its share so the total latency stays bounded."
+        "code": "flowchart LR\n  Caller[Caller] --> Timer[Deadline / timeout]\n  Timer --> Service[Downstream service]\n  Service -->|responds before deadline| Success[Success]\n  Timer -->|deadline exceeded| Abort[Stop waiting / fallback]",
+        "caption": "Timeouts: apply a pattern to a recurring architectural pressure.",
+        "alt_text": "Concept diagram: Timeouts"
       }
     },
     {
@@ -159,9 +159,9 @@
       "type": "mermaid",
       "id": "upgrade-mermaid-timeout",
       "payload": {
-        "code": "flowchart LR\n  A[Request] --> B[Failure] --> C[Guard] --> D[Fallback] --> E[Recovery]",
+        "code": "flowchart LR\n  Concept[\"Timeouts\"] --> Risk[\"Prevents cascading failures — one slow…\"]\n  Risk --> Mitigate[Mitigation / design choice]\n  Mitigate --> Outcome[Better system behavior]",
         "caption": "Timeouts: a simplified system view showing the primary flow and the main state boundaries.",
-        "alt_text": "Timeouts: a simplified system view showing the primary flow and the main state boundaries."
+        "alt_text": "Concept diagram: Timeouts"
       }
     },
     {

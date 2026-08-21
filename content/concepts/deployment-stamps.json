@@ -33,9 +33,9 @@
       "type": "mermaid",
       "id": "topology",
       "payload": {
-        "code": "flowchart TD\n    N0[\"Routing\"]\n    N1[\"Layer\"]\n    N2[\"global,\"]\n    N3[\"highly\"]\n    N4[\"available\"]\n    N5[\"DNS / GSLB /     │     (the one cross-stamp SPOF\"]\n    N6[\"(DNS\"]\n    N7[\"GSLB\"]\n    N8[\"(the\"]\n    N9[\"one\"]\n    N10[\"cross\"]\n    N11[\"stamp\"]\n    N12[\"SPOF)\"]\n    N13[\"API\"]\n    N14[\"gateway)\"]\n    N15[\"Stamp\"]\n    N16[\"app\"]\n    N17[\"servers\"]\n    N18[\"database\"]\n    N19[\"cache\"]\n    N20[\"queues\"]\n    N21[\"config\"]\n    N22[\"users\"]\n    N23[\"1000\"]\n    N24[\"1001\"]\n    N25[\"2000\"]\n    N26[\"2001\"]\n    N27[\"3000\"]\n    N28[\"tenant A, B\"]\n    N29[\"tenant C, D\"]\n    N30[\"tenant E, F\"]\n    N31[\"(tenant\"]\n    N32[\"Each\"]\n    N33[\"stamp:\"]\n    N34[\"independent\"]\n    N35[\"deploy,\"]\n    N36[\"failure,\"]\n    N37[\"scale.\"]\n    N38[\"Bad\"]\n    N39[\"deploy\"]\n    N40[\"only\"]\n    N41[\"tenants\"]\n    N42[\"affected.\"]\n    N43[\"Roll\"]\n    N44[\"back\"]\n    N45[\"just\"]\n    N46[\"#2.\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44\n    N44 --> N45\n    N45 --> N46",
-        "caption": "Deployment Stamps: a routing layer directs users to one of N independent stamps. Each stamp has bounded blast radius.",
-        "alt_text": "A diagram with a routing layer at the top — DNS, GSLB, or API gateway — that is global and highly available, noted as the one cross-stamp single point of failure. The routing layer directs users to three stamps below. Each stamp contains app servers, database, cache, queues, and config. Stamp one serves users 1-1000 (tenants A and B), stamp two serves users 1001-2000 (tenants C and D), and stamp three serves users 2001-3000 (tenants E and F). The caption notes that each stamp has independent deploy, failure, and scale: a bad deploy on stamp two affects only tenants C and D, and rollback is just stamp two."
+        "code": "flowchart LR\n  Region[Region] --> StampA[Deployment stamp A]\n  Region --> StampB[Deployment stamp B]\n  StampA --> Isolate[Failure isolation]\n  StampB --> Isolate",
+        "caption": "Deployment Stamps: apply a pattern to a recurring architectural pressure.",
+        "alt_text": "Concept diagram: Deployment Stamps"
       }
     },
     {
@@ -134,9 +134,9 @@
       "type": "mermaid",
       "id": "upgrade-mermaid-deployment-stamps",
       "payload": {
-        "code": "flowchart LR\n  A[Client] --> B[Gateway] --> C[Service] --> D[State] --> E[Outcome]",
+        "code": "flowchart LR\n  Concept[\"Deployment Stamps\"] --> Risk[\"Bounded blast radius — failure of…\"]\n  Risk --> Mitigate[Mitigation / design choice]\n  Mitigate --> Outcome[Better system behavior]",
         "caption": "Deployment Stamps: a simplified system view showing the primary flow and the main state boundaries.",
-        "alt_text": "Deployment Stamps: a simplified system view showing the primary flow and the main state boundaries."
+        "alt_text": "Concept diagram: Deployment Stamps"
       }
     },
     {

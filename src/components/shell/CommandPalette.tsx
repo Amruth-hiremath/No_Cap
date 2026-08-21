@@ -12,7 +12,7 @@ import {
   Zap,
 } from 'lucide-react';
 import { useStore } from '@/lib/store';
-import { universalSearch, getAllConcepts, getGlossary } from '@/lib/content';
+import { universalSearchLite, getAllConceptSummaries, getGlossaryLite } from '@/lib/content-lite';
 import { cn } from '@/lib/utils';
 
 interface ResultRow {
@@ -56,6 +56,14 @@ const ACTIONS: ResultRow[] = [
     href: '/roadmap',
     group: 'Actions',
     meta: 'M',
+  },
+  {
+    type: 'action',
+    title: 'Open Notes',
+    subtitle: 'Block editor + infinite canvas',
+    href: '/notes',
+    group: 'Actions',
+    meta: 'N',
   },
   {
     type: 'action',
@@ -137,7 +145,7 @@ export function CommandPalette() {
       // Default: show recent concept + actions
       return [
         ...ACTIONS,
-        ...getAllConcepts().slice(0, 3).map((c) => ({
+        ...getAllConceptSummaries().slice(0, 3).map((c) => ({
           type: 'concept' as const,
           title: c.title,
           subtitle: c.summary,
@@ -147,7 +155,7 @@ export function CommandPalette() {
         })),
       ];
     }
-    const searchResults = universalSearch(query).map((r) => ({
+    const searchResults = universalSearchLite(query).map((r) => ({
       type: r.type,
       title: r.title,
       subtitle: r.subtitle,
@@ -288,7 +296,7 @@ export function CommandPalette() {
               actions
             </span>
           </div>
-          <span className="hidden sm:inline">{getGlossary().length} glossary · {getAllConcepts().length} concepts</span>
+          <span className="hidden sm:inline">{getGlossaryLite().length} glossary · {getAllConceptSummaries().length} concepts</span>
         </div>
       </div>
     </div>

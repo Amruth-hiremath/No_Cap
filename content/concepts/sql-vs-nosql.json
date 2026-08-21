@@ -32,9 +32,9 @@
       "type": "mermaid",
       "id": "sql-vs-nosql",
       "payload": {
-        "code": "flowchart TD\n    N0[\"relational\"]\n    N1[\"SQL\"]\n    N2[\"(relational)\"]\n    N3[\"users\"]\n    N4[\"orders\"]\n    N5[\"items\"]\n    N6[\"PK\"]\n    N7[\"(PK)\"]\n    N8[\"user_id\"]\n    N9[\"name\"]\n    N10[\"order_id\"]\n    N11[\"email\"]\n    N12[\"total\"]\n    N13[\"Strict\"]\n    N14[\"schema.\"]\n    N15[\"JOIN\"]\n    N16[\"across\"]\n    N17[\"tables.\"]\n    N18[\"ACID\"]\n    N19[\"transactions.\"]\n    N20[\"Vertical\"]\n    N21[\"scale.\"]\n    N22[\"document store example\"]\n    N23[\"NoSQL\"]\n    N24[\"(document\"]\n    N25[\"store\"]\n    N26[\"example)\"]\n    N27[\"document\"]\n    N28[\"(document)\"]\n    N29[\"_id:\"]\n    N30[\"'order_42',\"]\n    N31[\"user:\"]\n    N32[\"id:\"]\n    N33[\"name:\"]\n    N34[\"'Ada'\"]\n    N35[\"items:\"]\n    N36[\"name:'Book',qty:1\"]\n    N37[\"{name:'Book',qty:1},\"]\n    N38[\"name:'Pen', qty:2\"]\n    N39[\"{name:'Pen',\"]\n    N40[\"qty:2}\"]\n    N41[\"total:\"]\n    N42[\"Flexible\"]\n    N43[\"JOINs.\"]\n    N44[\"Eventually\"]\n    N45[\"consistent.\"]\n    N46[\"Horizontal\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44\n    N44 --> N45\n    N45 --> N46",
-        "caption": "SQL normalizes data across tables. NoSQL denormalizes into self-contained documents.",
-        "alt_text": "Two diagrams. In SQL, data is normalized across multiple tables — users, orders, items — with primary and foreign keys linking them. JOINs combine data across tables. The schema is strict, transactions are ACID, and scaling is typically vertical. In NoSQL (document store), a single order document contains the user info and items nested inside — a self-contained unit. The schema is flexible, there are no JOINs, consistency is eventual, and scaling is horizontal."
+        "code": "flowchart LR\n  Workload[Access pattern] --> Rel[Relational SQL joins + ACID]\n  Workload --> Doc[Document flexible records]\n  Workload --> KV[Key-value fast lookup]\n  Workload --> Wide[Wide-column high write scale]\n  Workload --> Graph[Graph relationship-heavy]",
+        "caption": "Choose the storage model from access patterns and consistency needs.",
+        "alt_text": "Concept diagram: SQL vs NoSQL"
       }
     },
     {
@@ -187,9 +187,9 @@
       "type": "mermaid",
       "id": "decision-flowchart-b2",
       "payload": {
-        "code": "flowchart TD\n    Start[Need to store data] --> Q1{Need multi-row<br/>ACID transactions?}\n    Q1 -->|Yes — payments, bookings, inventory| SQL[PostgreSQL<br/>ACID + JOINs + constraints]\n    Q1 -->|No| Q2{Need massive write<br/>throughput or time-series?}\n    Q2 -->|Yes — logs, events, metrics| WC[Cassandra / ScyllaDB<br/>wide-column, AP, tunable consistency]\n    Q2 -->|No| Q3{Need sub-ms reads<br/>on simple keys?}\n    Q3 -->|Yes — cache, counters, rate limits| KV[Redis / DynamoDB<br/>key-value, in-memory or single-digit ms]\n    Q3 -->|No| Q4{Need flexible schema<br/>or nested documents?}\n    Q4 -->|Yes — content, profiles, catalogs| DOC[MongoDB / Couchbase<br/>document store, JSON-native]\n    Q4 -->|No| Q5{Need graph traversal<br/>or relationship queries?}\n    Q5 -->|Yes — social, recommendations, fraud| GRAPH[Neo4j / Dgraph<br/>graph DB, edge-native]\n    Q5 -->|No| DEFAULT[PostgreSQL<br/>with jsonb for flexibility<br/>start simple, migrate if needed]\n\n    classDef sql fill:#1e3a5f,stroke:#3b82f6,color:#e0e7ff\n    classDef nosql fill:#3a2e1e,stroke:#f59e0b,color:#fef3c7\n    classDef default fill:#1e3a1e,stroke:#22c55e,color:#dcfce7\n    class SQL,DEFAULT sql\n    class WC,KV,DOC,GRAPH nosql",
+        "code": "flowchart LR\n  Concept[\"SQL vs NoSQL\"] --> Risk[\"SQL: ACID, JOINs, mature ecosystem, strong…\"]\n  Risk --> Mitigate[Mitigation / design choice]\n  Mitigate --> Outcome[Better system behavior]",
         "caption": "When to use which database — a decision flowchart by workload characteristics.",
-        "alt_text": "A decision flowchart. Start: need to store data. If multi-row ACID transactions needed (payments, bookings, inventory) → PostgreSQL. Otherwise, if massive write throughput or time-series needed (logs, events, metrics) → Cassandra/ScyllaDB wide-column. Otherwise, if sub-millisecond reads on simple keys needed (cache, counters, rate limits) → Redis/DynamoDB key-value. Otherwise, if flexible schema or nested documents needed (content, profiles, catalogs) → MongoDB/Couchbase document. Otherwise, if graph traversal needed (social, recommendations, fraud) → Neo4j/Dgraph graph. Otherwise, default → PostgreSQL with jsonb for flexibility (start simple, migrate if needed)."
+        "alt_text": "Concept diagram: SQL vs NoSQL"
       }
     },
     {
@@ -262,9 +262,9 @@
       "type": "mermaid",
       "id": "upgrade-mermaid-sql-vs-nosql",
       "payload": {
-        "code": "flowchart LR\n  A[Client] --> B[Service] --> C[Data layer] --> D[Replication] --> E[Durability]",
+        "code": "flowchart LR\n  Concept[\"SQL vs NoSQL\"] --> Use[When to use]\n  Concept --> Avoid[When not to use]\n  Use --> Outcome[Engineering outcome]\n  Avoid --> Tradeoff[Alternative / trade-off]",
         "caption": "SQL vs NoSQL: a simplified system view showing the primary flow and the main state boundaries.",
-        "alt_text": "SQL vs NoSQL: a simplified system view showing the primary flow and the main state boundaries."
+        "alt_text": "Concept diagram: SQL vs NoSQL"
       }
     },
     {

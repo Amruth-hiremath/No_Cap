@@ -1,8 +1,8 @@
 // NO CAP PWA service worker
-// v0.1: app-shell cache + stale-while-revalidate for content.
-// User state stays in localStorage (no network sync needed in v0.1).
+// v0.2: small app-shell cache + stale-while-revalidate for static assets.
+// Authenticated state is server-synced; API routes are never cached.
 
-const CACHE_VERSION = 'nocap-v0.1-';
+const CACHE_VERSION = 'nocap-v0.3-static-';
 const SHELL_CACHE = CACHE_VERSION + 'shell';
 const CONTENT_CACHE = CACHE_VERSION + 'content';
 
@@ -60,6 +60,9 @@ self.addEventListener('fetch', (event) => {
     );
     return;
   }
+
+  // Never cache auth/API responses; authenticated state must always be fresh.
+  if (url.pathname.startsWith('/auth/') || url.pathname.startsWith('/v1/')) return;
 
   // Static assets: stale-while-revalidate
   event.respondWith(

@@ -34,9 +34,9 @@
       "type": "mermaid",
       "id": "pattern",
       "payload": {
-        "code": "flowchart TD\n    N0[\"all deps healthy\"]\n    N1[\"NORMAL\"]\n    N2[\"FLOW\"]\n    N3[\"(all\"]\n    N4[\"deps\"]\n    N5[\"healthy)\"]\n    N6[\"auth, catalog, recommend, search, reviews\"]\n    N7[\"User\"]\n    N8[\"API\"]\n    N9[\"[auth,\"]\n    N10[\"catalog,\"]\n    N11[\"recommend,\"]\n    N12[\"search,\"]\n    N13[\"reviews]\"]\n    N14[\"all\"]\n    N15[\"green\"]\n    N16[\"rich\"]\n    N17[\"homepage.\"]\n    N18[\"recommend svc down\"]\n    N19[\"DEGRADED\"]\n    N20[\"(recommend\"]\n    N21[\"svc\"]\n    N22[\"down)\"]\n    N23[\"auth ✓, catalog ✓, recommend ✗, search ✓, reviews ✓\"]\n    N24[\"[auth\"]\n    N25[\"catalog\"]\n    N26[\"recommend\"]\n    N27[\"search\"]\n    N28[\"reviews\"]\n    N29[\"fails\"]\n    N30[\"fallback\"]\n    N31[\"cached\"]\n    N32[\"'popular\"]\n    N33[\"titles'\"]\n    N34[\"user\"]\n    N35[\"sees\"]\n    N36[\"working\"]\n    N37[\"homepage,\"]\n    N38[\"minus\"]\n    N39[\"personalization.\"]\n    N40[\"CIRCUIT\"]\n    N41[\"BREAKER\"]\n    N42[\"FALLBACK\"]\n    N43[\"cache / default / null\"]\n    N44[\"open\"]\n    N45[\"call\"]\n    N46[\"(cache\"]\n    N47[\"default\"]\n    N48[\"null)\"]\n    N49[\"immediately.\"]\n    N50[\"Fallback\"]\n    N51[\"must\"]\n    N52[\"be:\"]\n    N53[\"fast,\"]\n    N54[\"dependency\"]\n    N55[\"free,\"]\n    N56[\"tested.\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44\n    N44 --> N45\n    N45 --> N46\n    N46 --> N47\n    N47 --> N48\n    N48 --> N49\n    N49 --> N50\n    N50 --> N51\n    N51 --> N52\n    N52 --> N53\n    N53 --> N54\n    N54 --> N55\n    N55 --> N56",
-        "caption": "Each dependency has a fallback. A failed dependency returns a degraded experience, not an error page.",
-        "alt_text": "Three diagrams. Normal flow: a user request hits the API, which calls auth, catalog, recommendation, search, and reviews — all green — producing a rich homepage. Degraded flow: the recommendation service is down, so the API falls back to cached popular titles; the user still sees a working homepage minus personalization. Circuit breaker plus fallback: when the breaker is open, the system immediately calls a fallback — cache, default, or null — that is fast, dependency-free, and tested."
+        "code": "flowchart LR\n  Request[Request] --> Full[Full response]\n  Dependency[Dependency fails] --> Fallback[Degraded response]\n  Fallback --> Cached[Cached / stale data]\n  Fallback --> Partial[Partial features]\n  Fallback --> User[Still useful to user]",
+        "caption": "Graceful Degradation: apply a pattern to a recurring architectural pressure.",
+        "alt_text": "Concept diagram: Graceful Degradation"
       }
     },
     {
@@ -142,9 +142,9 @@
       "type": "mermaid",
       "id": "upgrade-mermaid-graceful-degradation",
       "payload": {
-        "code": "flowchart LR\n  A[Client] --> B[Gateway] --> C[Service] --> D[State] --> E[Outcome]",
+        "code": "flowchart LR\n  Concept[\"Graceful Degradation\"] --> Risk[\"Keeps the product usable during dependency…\"]\n  Risk --> Mitigate[Mitigation / design choice]\n  Mitigate --> Outcome[Better system behavior]",
         "caption": "Graceful Degradation: a simplified system view showing the primary flow and the main state boundaries.",
-        "alt_text": "Graceful Degradation: a simplified system view showing the primary flow and the main state boundaries."
+        "alt_text": "Concept diagram: Graceful Degradation"
       }
     },
     {

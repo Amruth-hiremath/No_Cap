@@ -32,9 +32,9 @@
       "type": "mermaid",
       "id": "sharding",
       "payload": {
-        "code": "flowchart TD\n    N0[\"single primary\"]\n    N1[\"WITHOUT\"]\n    N2[\"SHARDING\"]\n    N3[\"(single\"]\n    N4[\"primary)\"]\n    N5[\" Primary DB \"]\n    N6[\"All\"]\n    N7[\"writes\"]\n    N8[\"Primary\"]\n    N9[\"reads\"]\n    N10[\"Ceiling:\"]\n    N11[\"one\"]\n    N12[\"machine's\"]\n    N13[\"write\"]\n    N14[\"capacity.\"]\n    N15[\"multiple primaries\"]\n    N16[\"WITH\"]\n    N17[\"(multiple\"]\n    N18[\"primaries)\"]\n    N19[\" Shard Router \"]\n    N20[\"Write\"]\n    N21[\"request\"]\n    N22[\"Shard\"]\n    N23[\"Router\"]\n    N24[\"Shard 1\"]\n    N25[\"Shard 2\"]\n    N26[\"Shard 3\"]\n    N27[\"[Shard\"]\n    N28[\"users\"]\n    N29[\"Repl 1\"]\n    N30[\"Repl 2\"]\n    N31[\"Repl 3\"]\n    N32[\"[Repl\"]\n    N33[\"Each\"]\n    N34[\"shard:\"]\n    N35[\"own\"]\n    N36[\"primary\"]\n    N37[\"replicas.\"]\n    N38[\"Writes\"]\n    N39[\"scale:\"]\n    N40[\"throughput.\"]\n    N41[\"Reads\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41",
-        "caption": "Sharding distributes data across multiple databases, scaling both reads and writes.",
-        "alt_text": "Two diagrams. Without sharding: all writes go to one primary database, which has a ceiling at one machine's write capacity. With sharding: a shard router distributes write requests across three shards, each holding a subset of users. Each shard has its own primary and replicas. Both writes and reads scale by 3x."
+        "code": "flowchart LR\n  Key[Partition key] --> Hash[Partitioning function]\n  Hash --> S1[Shard 1]\n  Hash --> S2[Shard 2]\n  Hash --> S3[Shard N]\n  S1 --> D1[(Data subset)]\n  S2 --> D2[(Data subset)]\n  S3 --> D3[(Data subset)]",
+        "caption": "Sharding partitions data across independent database partitions.",
+        "alt_text": "Concept diagram: Sharding"
       }
     },
     {
@@ -98,27 +98,27 @@
       "type": "mermaid",
       "id": "shard-key-selection-b2",
       "payload": {
-        "code": "flowchart TD\n    Q[Common query patterns?] --> Q1{Per-user lookups?}\n    Q1 -->|Yes| Q2{High write volume?}\n    Q2 -->|Yes| HK[Hash user_id<br/>distributes writes evenly<br/>enables per-user queries]\n    Q2 -->|No| RR[Range on user_id<br/>enables range scans<br/>risk: hot newest shard]\n    Q1 -->|No| Q3{Time-series data?}\n    Q3 -->|Yes| TT[Hash on composite key<br/>(tenant_id, timestamp)<br/>spreads writes by tenant]\n    Q3 -->|No| Q4{Geo-distributed?}\n    Q4 -->|Yes| Geo[Hash on tenant_id<br/>+ region pinning<br/>data residency compliance]\n    Q4 -->|No| Bad[BAD shard keys:<br/>timestamp alone, country, last_name,<br/>auto-increment id, status field]\n\n    HK --> Valid[Good shard key<br/>even distribution + query locality]\n    RR --> Warn[Caution<br/>range queries OK but writes hot on newest shard]\n    TT --> Valid\n    Geo --> Valid\n\n    classDef good fill:#1e3a1e,stroke:#22c55e,color:#dcfce7\n    classDef warn fill:#3a2e1e,stroke:#f59e0b,color:#fef3c7\n    classDef bad fill:#3a1e1e,stroke:#ef4444,color:#fee2e2\n    class HK,TT,Geo,Valid good\n    class RR,Warn warn\n    class Bad bad",
+        "code": "flowchart LR\n  Concept[\"Sharding\"] --> Risk[\"Scales both reads AND writes (unlike…\"]\n  Risk --> Mitigate[Mitigation / design choice]\n  Mitigate --> Outcome[Better system behavior]",
         "caption": "Shard key selection flowchart — the right key depends on query patterns and write volume.",
-        "alt_text": "A decision flowchart. Starting from common query patterns: if per-user lookups, check if write volume is high — if yes, hash on user_id (distributes writes evenly, enables per-user queries); if no, range on user_id (enables range scans but risks hot newest shard). If not per-user lookups, check if time-series data — if yes, hash on composite (tenant_id, timestamp) to spread writes by tenant. If not, check if geo-distributed — if yes, hash on tenant_id with region pinning for data residency. Bad shard keys to avoid: timestamp alone, country, last_name, auto-increment id, status field."
+        "alt_text": "Concept diagram: Sharding"
       }
     },
     {
       "type": "mermaid",
       "id": "consistent-hash-ring-b2",
       "payload": {
-        "code": "flowchart TD\n    subgraph Ring[Consistent Hash Ring]\n        direction TB\n        N0[Node A<br/>hash=0x10] --- N1[Node B<br/>hash=0x40]\n        N1 --- N2[Node C<br/>hash=0x80]\n        N2 --- N3[Node D<br/>hash=0xC0]\n        N3 --- N0\n        K1[Key X<br/>hash=0x25] -.owned by.-> N1\n        K2[Key Y<br/>hash=0x95] -.owned by.-> N3\n        K3[Key Z<br/>hash=0x60] -.owned by.-> N2\n    end\n\n    Add[Add Node E<br/>hash=0x70] --> Ring\n    Move[Only keys between 0x60 and 0x70<br/>move from C to E<br/>~12.5% of keys]\n\n    WithoutCH[Without consistent hashing:<br/>adding a node re-maps ~ALL keys<br/>massive data movement]\n\n    classDef node fill:#1e3a5f,stroke:#3b82f6,color:#e0e7ff\n    classDef key fill:#1e3a1e,stroke:#22c55e,color:#dcfce7\n    classDef io fill:#3a2e1e,stroke:#f59e0b,color:#fef3c7\n    class N0,N1,N2,N3 node\n    class K1,K2,K3 key\n    class Add,Move,WithoutCH io",
-        "caption": "Consistent hashing: adding a node only moves the keys in the new node's ring range — not all keys.",
-        "alt_text": "A consistent hash ring with four nodes (A at hash 0x10, B at 0x40, C at 0x80, D at 0xC0). Three keys are shown: X at 0x25 owned by B, Y at 0x95 owned by D, Z at 0x60 owned by C. Adding Node E at hash 0x70 only requires moving keys between 0x60 and 0x70 from C to E — about 12.5% of keys. Without consistent hashing, adding a node would require re-mapping nearly all keys (massive data movement)."
+        "code": "flowchart LR\n  Concept[\"Sharding\"] --> Use[When to use]\n  Concept --> Avoid[When not to use]\n  Use --> Outcome[Engineering outcome]\n  Avoid --> Tradeoff[Alternative / trade-off]",
+        "caption": "The partitioning function maps records to shards.",
+        "alt_text": "Concept diagram: Sharding"
       }
     },
     {
       "type": "mermaid",
       "id": "cross-shard-query-b2",
       "payload": {
-        "code": "flowchart TD\n    App[App server] -->|SELECT COUNT orders WHERE status='shipped'| Router[Shard router]\n    Router --> F1[Shard 1<br/>count=4,221]\n    Router --> F2[Shard 2<br/>count=3,892]\n    Router --> F3[Shard 3<br/>count=5,108]\n    Router --> F4[Shard 4<br/>count=4,567]\n    Router --> F5[Shard 5<br/>count=3,944]\n    F1 --> Agg[Aggregate<br/>sum=21,732]\n    F2 --> Agg\n    F3 --> Agg\n    F4 --> Agg\n    F5 --> Agg\n    Agg --> App2[App receives total<br/>latency = slowest shard + agg]\n\n    Router -.if JOIN needed.-> DistTx[Distributed 2PC transaction<br/>SLOW: prepare + commit on every shard<br/>often blocks]\n    Router -.if pagination.-> Paginate[OFFSET 1000 LIMIT 20<br/>across N shards =\n  fetch 1000+20 from each,\n  merge-sort, take 20<br/>O(N * offset) reads]\n\n    classDef slow fill:#3a1e1e,stroke:#ef4444,color:#fee2e2\n    classDef normal fill:#1e3a5f,stroke:#3b82f6,color:#e0e7ff\n    class DistTx,Paginate slow\n    class Router,F1,F2,F3,F4,F5,Agg,App,App2 normal",
+        "code": "flowchart LR\n  Concept[\"Sharding\"] --> Use[When to use]\n  Concept --> Avoid[When not to use]\n  Use --> Outcome[Engineering outcome]\n  Avoid --> Tradeoff[Alternative / trade-off]",
         "caption": "Cross-shard queries fan out to every shard and aggregate. JOINs require distributed 2PC; pagination becomes O(N * offset).",
-        "alt_text": "An app server queries 'SELECT COUNT orders WHERE status=shipped' through the shard router. The router fans out to all 5 shards, each returns its local count. The router aggregates (sums) the counts and returns the total to the app. Latency equals the slowest shard plus aggregation. If a JOIN is needed across shards, it requires a distributed 2PC transaction (prepare + commit on every shard, often blocking, very slow). If pagination is needed (OFFSET 1000 LIMIT 20), the router must fetch 1000+20 rows from each shard, merge-sort them, and return 20 — O(N * offset) reads."
+        "alt_text": "Concept diagram: Sharding"
       }
     },
     {
@@ -200,9 +200,9 @@
       "type": "mermaid",
       "id": "upgrade-mermaid-sharding",
       "payload": {
-        "code": "flowchart LR\n K[Partition key] --> S{Shard router}\n S --> A[(Shard A)]\n S --> B[(Shard B)]\n S --> C[(Shard C)]",
+        "code": "flowchart LR\n  Concept[\"Sharding\"] --> Use[When to use]\n  Concept --> Avoid[When not to use]\n  Use --> Outcome[Engineering outcome]\n  Avoid --> Tradeoff[Alternative / trade-off]",
         "caption": "Sharding partitions a logical dataset across independent storage partitions using a routing key.",
-        "alt_text": "Sharding partitions a logical dataset across independent storage partitions using a routing key."
+        "alt_text": "Concept diagram: Sharding"
       }
     },
     {

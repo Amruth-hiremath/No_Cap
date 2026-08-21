@@ -35,9 +35,9 @@
       "type": "mermaid",
       "id": "tcp-vs-udp",
       "payload": {
-        "code": "flowchart TD\n    N0[\"TCP\"]\n    N1[\"UDP\"]\n    N2[\"Client\"]\n    N3[\"SYN\"]\n    N4[\"Server\"]\n    N5[\"DATA\"]\n    N6[\"maybe arrives\"]\n    N7[\"ACK\"]\n    N8[\"(maybe\"]\n    N9[\"arrives)\"]\n    N10[\"(no\"]\n    N11[\"handshake,\"]\n    N12[\"ack,\"]\n    N13[\"order)\"]\n    N14[\"Header:\"]\n    N15[\"bytes\"]\n    N16[\"stateful\"]\n    N17[\"stateless\"]\n    N18[\"Connection:\"]\n    N19[\"yes\"]\n    N20[\"(stateful)\"]\n    N21[\"(stateless)\"]\n    N22[\"Reliability:\"]\n    N23[\"none\"]\n    N24[\"Order:\"]\n    N25[\"order\"]\n    N26[\"delivery\"]\n    N27[\"datagrams\"]\n    N28[\"may\"]\n    N29[\"arrive\"]\n    N30[\"any\"]\n    N31[\"order,\"]\n    N32[\"not\"]\n    N33[\"all\"]\n    N34[\"window\"]\n    N35[\"Flow\"]\n    N36[\"control:\"]\n    N37[\"(window)\"]\n    N38[\"Congestion\"]\n    N39[\"Head\"]\n    N40[\"line\"]\n    N41[\"blocking:\"]\n    N42[\"Setup\"]\n    N43[\"latency:\"]\n    N44[\"RTT\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44",
-        "caption": "TCP vs UDP at a glance. UDP trades every TCP guarantee for one property: speed and no head-of-line blocking.",
-        "alt_text": "A side-by-side comparison of TCP and UDP. On the TCP side, a connection requires a SYN, SYN-ACK, ACK handshake, then data with acknowledgements back. On the UDP side, the client simply sends datagrams and the server may or may not receive them, with no handshake or acks. Below, a property table: TCP has a 20-plus byte header, UDP 8 bytes. TCP is connection-oriented, reliable, in-order, with flow and congestion control and head-of-line blocking. UDP is connectionless, unreliable, unordered, with none of those. TCP setup latency is one round trip; UDP is zero."
+        "code": "flowchart LR\n  Sender[Sender] --> Packet[UDP datagram]\n  Packet --> Network[Best-effort network]\n  Network --> Receiver[Receiver]\n  Network -.packet may be lost / reordered.-> Receiver\n  Receiver --> App[Application decides recovery]",
+        "caption": "UDP sends datagrams without establishing a connection.",
+        "alt_text": "Concept diagram: UDP — User Datagram Protocol"
       }
     },
     {
@@ -194,9 +194,9 @@
       "type": "mermaid",
       "id": "udp-use-cases-b2",
       "payload": {
-        "code": "flowchart LR\n    subgraph DNS[DNS Lookup]\n        D1[Resolver] -->|1 datagram query| D2[Authoritative]\n        D2 -->|1 datagram response| D1\n    end\n    subgraph VoIP[Voice / Video Call]\n        V1[Sender] -->|60 fps frame<br/>20ms audio chunks| V2[Receiver]\n        V2 -.interpolates from<br/>whatever arrives.-> V1\n    end\n    subgraph Game[Online Game]\n        G1[Client] -->|position update 60 Hz| G2[Server]\n        G2 -->|world state 20 Hz| G1\n        G1 -.stale updates silently dropped.-> G1\n    end\n    subgraph QUIC[HTTP/3 over QUIC]\n        Q1[Browser] -->|per-stream reliable frames| Q2[Server]\n        Q2 -->|0-RTT resume<br/>connection migration| Q1\n    end\n\n    classDef app fill:#1e3a5f,stroke:#3b82f6,color:#e0e7ff\n    class D1,D2,V1,V2,G1,G2,Q1,Q2 app",
+        "code": "flowchart LR\n  Concept[\"UDP — User Datagram Protocol\"] --> Risk[\"No handshake — zero setup latency,…\"]\n  Risk --> Mitigate[Mitigation / design choice]\n  Mitigate --> Outcome[Better system behavior]",
         "caption": "Four canonical UDP workloads — each chooses UDP because late data is worse than missing data.",
-        "alt_text": "Four sub-diagrams of UDP use cases. DNS: resolver sends one datagram query, authoritative server sends one datagram response — no handshake. Voice/video: sender sends 60 fps video frames and 20ms audio chunks; receiver interpolates from whatever arrives. Online game: client sends position updates at 60 Hz, server sends world state at 20 Hz, stale updates are silently dropped. HTTP/3 over QUIC: browser sends per-stream reliable frames; server resumes with 0-RTT and supports connection migration across networks."
+        "alt_text": "Concept diagram: UDP — User Datagram Protocol"
       }
     },
     {
@@ -278,9 +278,9 @@
       "type": "mermaid",
       "id": "upgrade-mermaid-udp",
       "payload": {
-        "code": "flowchart LR\n  A[Client] --> B[Gateway] --> C[Service] --> D[State] --> E[Outcome]",
+        "code": "flowchart LR\n  Concept[\"UDP — User Datagram Protocol\"] --> Use[When to use]\n  Concept --> Avoid[When not to use]\n  Use --> Outcome[Engineering outcome]\n  Avoid --> Tradeoff[Alternative / trade-off]",
         "caption": "UDP — User Datagram Protocol: a simplified system view showing the primary flow and the main state boundaries.",
-        "alt_text": "UDP — User Datagram Protocol: a simplified system view showing the primary flow and the main state boundaries."
+        "alt_text": "Concept diagram: UDP — User Datagram Protocol"
       }
     },
     {

@@ -34,9 +34,9 @@
       "type": "mermaid",
       "id": "synthetic-vs-internal",
       "payload": {
-        "code": "flowchart TD\n    N0[\"inside the VPC\"]\n    N1[\"INTERNAL\"]\n    N2[\"HEALTH\"]\n    N3[\"CHECK\"]\n    N4[\"(inside\"]\n    N5[\"the\"]\n    N6[\"VPC)\"]\n    N7[\"Kubelet\"]\n    N8[\"GET\"]\n    N9[\"health\"]\n    N10[\"200\"]\n    N11[\"'Container\"]\n    N12[\"healthy.'\"]\n    N13[\"But:\"]\n    N14[\"DNS\"]\n    N15[\"broken\"]\n    N16[\"externally?\"]\n    N17[\"Load\"]\n    N18[\"balancer\"]\n    N19[\"misconfigured?\"]\n    N20[\"TLS\"]\n    N21[\"cert\"]\n    N22[\"expired?\"]\n    N23[\"Region\"]\n    N24[\"route\"]\n    N25[\"flapping?\"]\n    N26[\"Internal\"]\n    N27[\"check\"]\n    N28[\"still\"]\n    N29[\"says\"]\n    N30[\"200.\"]\n    N31[\"False\"]\n    N32[\"positive.\"]\n    N33[\"from global probes\"]\n    N34[\"EXTERNAL\"]\n    N35[\"SYNTHETIC\"]\n    N36[\"(from\"]\n    N37[\"global\"]\n    N38[\"probes)\"]\n    N39[\"45ms\"]\n    N40[\"Probe\"]\n    N41[\"Tokyo\"]\n    N42[\"https:\"]\n    N43[\"api.x.com\"]\n    N44[\"(45ms)\"]\n    N45[\"35ms\"]\n    N46[\"(35ms)\"]\n    N47[\"timeout!\"]\n    N48[\"Ireland\"]\n    N49[\"504\"]\n    N50[\"(timeout!)\"]\n    N51[\"Detects\"]\n    N52[\"problem\"]\n    N53[\"users\"]\n    N54[\"see,\"]\n    N55[\"region.\"]\n    N56[\"Pages\"]\n    N57[\"call\"]\n    N58[\"immediately.\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44\n    N44 --> N45\n    N45 --> N46\n    N46 --> N47\n    N47 --> N48\n    N48 --> N49\n    N49 --> N50\n    N50 --> N51\n    N51 --> N52\n    N52 --> N53\n    N53 --> N54\n    N54 --> N55\n    N55 --> N56\n    N56 --> N57\n    N57 --> N58",
-        "caption": "Internal health checks miss the network path. External synthetics probe the full path the user takes.",
-        "alt_text": "Two diagrams. Internal health check: the kubelet calls GET slash health and gets 200 OK, saying the container is healthy. But this misses external problems: DNS broken externally, load balancer misconfigured, TLS cert expired, or region route flapping. The internal check still returns 200 — a false positive. External synthetic monitoring: probes in Tokyo, Northern Virginia, and Ireland call the public URL. Tokyo and Northern Virginia return 200 with low latency; Ireland returns 504 with a timeout. This detects the problem users actually see, by region, and pages on-call immediately."
+        "code": "flowchart LR\n  User[User request] --> Check[Availability check]\n  Check --> Metric[Success / uptime metric]\n  Metric --> Alert[Alert on breach]\n  Alert --> Incident[Incident response]",
+        "caption": "Availability Monitoring: turn running-system behavior into observable signals.",
+        "alt_text": "Concept diagram: Availability Monitoring"
       }
     },
     {
@@ -142,9 +142,9 @@
       "type": "mermaid",
       "id": "upgrade-mermaid-availability-monitoring",
       "payload": {
-        "code": "flowchart LR\n  A[Signal] --> B[Collector] --> C[Store] --> D[Rule] --> E[Alert]",
+        "code": "flowchart LR\n  Concept[\"Availability Monitoring\"] --> Risk[\"Catches external issues that internal health…\"]\n  Risk --> Mitigate[Mitigation / design choice]\n  Mitigate --> Outcome[Better system behavior]",
         "caption": "Availability Monitoring: a simplified system view showing the primary flow and the main state boundaries.",
-        "alt_text": "Availability Monitoring: a simplified system view showing the primary flow and the main state boundaries."
+        "alt_text": "Concept diagram: Availability Monitoring"
       }
     },
     {

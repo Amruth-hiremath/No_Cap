@@ -32,9 +32,9 @@
       "type": "mermaid",
       "id": "eda-vs-request",
       "payload": {
-        "code": "flowchart TD\n    N0[\"tightly coupled\"]\n    N1[\"REQUEST\"]\n    N2[\"RESPONSE\"]\n    N3[\"(tightly\"]\n    N4[\"coupled)\"]\n    N5[\"User Service\"]\n    N6[\"Email Service\"]\n    N7[\"[User\"]\n    N8[\"Service]\"]\n    N9[\"[Email\"]\n    N10[\"Analytics\"]\n    N11[\"[Analytics]\"]\n    N12[\"Recommendation\"]\n    N13[\"[Recommendation]\"]\n    N14[\"Adding\"]\n    N15[\"new\"]\n    N16[\"consumer\"]\n    N17[\"modifying\"]\n    N18[\"the\"]\n    N19[\"producer.\"]\n    N20[\"loosely coupled\"]\n    N21[\"EVENT\"]\n    N22[\"DRIVEN\"]\n    N23[\"(loosely\"]\n    N24[\"Event: UserCreated\"]\n    N25[\"[Event:\"]\n    N26[\"UserCreated]\"]\n    N27[\"Email\"]\n    N28[\"[Email]\"]\n    N29[\"subscribe\"]\n    N30[\"event.\"]\n    N31[\"Producer\"]\n    N32[\"unchanged.\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32",
-        "caption": "EDA decouples producers from consumers. New consumers don't require producer changes.",
-        "alt_text": "Two diagrams. In request-response, the user service directly calls email, analytics, and recommendation services. Adding a new consumer means modifying the producer. In event-driven architecture, the user service emits a UserCreated event to a broker, which routes it to all subscribers. Adding a new consumer just means subscribing — the producer is unchanged."
+        "code": "flowchart LR\n  Producer[Service emits event] --> Bus[(Event bus)]\n  Bus --> ConsumerA[Consumer A]\n  Bus --> ConsumerB[Consumer B]\n  Bus --> ConsumerC[Consumer C]\n  ConsumerA --> StateA[(Independent state)]\n  ConsumerB --> StateB[(Independent state)]",
+        "caption": "Event-driven systems communicate through facts that other services consume.",
+        "alt_text": "Concept diagram: Event-Driven Architecture"
       }
     },
     {
@@ -133,9 +133,9 @@
       "type": "mermaid",
       "id": "upgrade-mermaid-event-driven-architecture",
       "payload": {
-        "code": "flowchart LR\n S[Service] --> B[(Broker)]\n B --> A[Consumer A]\n B --> C[Consumer B]\n B --> D[Consumer C]",
+        "code": "flowchart LR\n  Concept[\"Event-Driven Architecture\"] --> Risk[\"Loose coupling — add/remove consumers without…\"]\n  Risk --> Mitigate[Mitigation / design choice]\n  Mitigate --> Outcome[Better system behavior]",
         "caption": "An event-driven architecture publishes facts and lets independent consumers react asynchronously.",
-        "alt_text": "An event-driven architecture publishes facts and lets independent consumers react asynchronously."
+        "alt_text": "Concept diagram: Event-Driven Architecture"
       }
     },
     {

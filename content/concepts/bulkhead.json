@@ -31,9 +31,9 @@
       "type": "mermaid",
       "id": "bulkhead",
       "payload": {
-        "code": "flowchart TD\n    N0[\"shared pool\"]\n    N1[\"WITHOUT\"]\n    N2[\"BULKHEAD\"]\n    N3[\"(shared\"]\n    N4[\"pool)\"]\n    N5[\" Thread Pool (100) \"]\n    N6[\"100\"]\n    N7[\"slow!\"]\n    N8[\"Incoming\"]\n    N9[\"Thread\"]\n    N10[\"Pool\"]\n    N11[\"(100)\"]\n    N12[\"Service\"]\n    N13[\"(slow!)\"]\n    N14[\"fast\"]\n    N15[\"(fast)\"]\n    N16[\"consumes\"]\n    N17[\"all\"]\n    N18[\"threads.\"]\n    N19[\"Services\"]\n    N20[\"and\"]\n    N21[\"are\"]\n    N22[\"starved.\"]\n    N23[\"entire\"]\n    N24[\"service\"]\n    N25[\"down.\"]\n    N26[\"separate pools\"]\n    N27[\"WITH\"]\n    N28[\"(separate\"]\n    N29[\"pools)\"]\n    N30[\" Pool A (30) \"]\n    N31[\"30\"]\n    N32[\"slow\"]\n    N33[\"(30)\"]\n    N34[\"(slow)\"]\n    N35[\" Pool B (30) \"]\n    N36[\" Pool C (40) \"]\n    N37[\"40\"]\n    N38[\"(40)\"]\n    N39[\"A's\"]\n    N40[\"pool\"]\n    N41[\"saturates,\"]\n    N42[\"but\"]\n    N43[\"continue\"]\n    N44[\"working\"]\n    N45[\"normally.\"]\n    N46[\"only\"]\n    N47[\"degraded.\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44\n    N44 --> N45\n    N45 --> N46\n    N46 --> N47",
-        "caption": "Without bulkheads, one slow service starves everything. With bulkheads, each service is isolated.",
-        "alt_text": "Two diagrams. Without a bulkhead: all three downstream services share one pool of 100 threads. When service A becomes slow, it consumes all 100 threads, and services B and C are starved — the entire service is down. With a bulkhead: each service has its own pool (30 for A, 30 for B, 40 for C). When service A saturates its pool, only A is degraded — services B and C continue working normally."
+        "code": "flowchart LR\n  Traffic[Traffic] --> PoolA[Pool A]\n  Traffic --> PoolB[Pool B]\n  PoolA --> DepA[Dependency A]\n  PoolB --> DepB[Dependency B]\n  PoolA -.failure isolated.-> PoolB",
+        "caption": "Bulkhead: apply a pattern to a recurring architectural pressure.",
+        "alt_text": "Concept diagram: Bulkhead"
       }
     },
     {
@@ -125,9 +125,9 @@
       "type": "mermaid",
       "id": "upgrade-mermaid-bulkhead",
       "payload": {
-        "code": "flowchart LR\n  A[Client] --> B[Gateway] --> C[Service] --> D[State] --> E[Outcome]",
+        "code": "flowchart LR\n  Concept[\"Bulkhead\"] --> Risk[\"Isolates failures — one broken downstream…\"]\n  Risk --> Mitigate[Mitigation / design choice]\n  Mitigate --> Outcome[Better system behavior]",
         "caption": "Bulkhead: a simplified system view showing the primary flow and the main state boundaries.",
-        "alt_text": "Bulkhead: a simplified system view showing the primary flow and the main state boundaries."
+        "alt_text": "Concept diagram: Bulkhead"
       }
     },
     {

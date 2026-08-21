@@ -90,7 +90,7 @@ export function MessageQueueLab() {
   const capacity = consumerCount * processingRate;
   const backlog = tickProduced - tickProcessed;
   const tone = queueTone(queueDepth, backlog);
-  const delaySecs = capacity > 0 ? Math.min(999, queueDepth / capacity) : null;
+  const delaySecs = capacity > 0 ? Math.min(999, queueDepth / capacity) : queueDepth > 0 ? 999 : 0;
   const utilPct = capacity > 0 ? Math.min(100, Math.round((tickProcessed / capacity) * 100)) : 0;
 
   function handleReset() {
@@ -138,7 +138,7 @@ export function MessageQueueLab() {
     return (
       <>
         Queue depth is {Math.round(queueDepth)} messages. Consumers are processing at {tickProcessed}/s of
-        a {capacity}/s capacity. Processing delay ≈ {delaySecs === null ? '∞' : delaySecs.toFixed(1)}s.
+        a {capacity}/s capacity. Processing delay ≈ {Number.isFinite(delaySecs) ? `${delaySecs.toFixed(1)}s` : '∞'}.
       </>
     );
   }, [queueDepth, tickProduced, tickProcessed, capacity, backlog, delaySecs]);
@@ -336,7 +336,7 @@ export function MessageQueueLab() {
           <MetricRow
             label="Processing delay"
             value={
-              delaySecs === Infinity || !isFinite(delaySecs) ? '∞' : `${delaySecs.toFixed(1)}s`
+              !Number.isFinite(delaySecs) ? '∞' : `${delaySecs.toFixed(1)}s`
             }
             tone={delaySecs > 5 ? 'danger' : delaySecs > 1 ? 'warning' : 'success'}
           />

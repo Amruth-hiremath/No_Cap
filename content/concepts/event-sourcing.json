@@ -35,9 +35,9 @@
       "type": "mermaid",
       "id": "topology",
       "payload": {
-        "code": "flowchart TD\n    N0[\"Command\"]\n    N1[\"Bus\"]\n    N2[\"validates, applies, emits\"]\n    N3[\"(validates,\"]\n    N4[\"applies,\"]\n    N5[\"emits)\"]\n    N6[\"Event\"]\n    N7[\"Store\"]\n    N8[\"append\"]\n    N9[\"only\"]\n    N10[\"log\"]\n    N11[\"e1\"]\n    N12[\"source of truth\"]\n    N13[\"OrderCreated\"]\n    N14[\"(e1)\"]\n    N15[\"(source\"]\n    N16[\"truth)\"]\n    N17[\"e2\"]\n    N18[\"PaymentReceived\"]\n    N19[\"(e2)\"]\n    N20[\"e3\"]\n    N21[\"OrderShipped\"]\n    N22[\"(e3)\"]\n    N23[\"e4\"]\n    N24[\"OrderDelivered\"]\n    N25[\"(e4)\"]\n    N26[\"stream\"]\n    N27[\"replay\"]\n    N28[\"Projection:\"]\n    N29[\"current\"]\n    N30[\"state\"]\n    N31[\"daily_revenue\"]\n    N32[\"audit_trail\"]\n    N33[\"orders tab\"]\n    N34[\"analytics\"]\n    N35[\"compliance\"]\n    N36[\"(orders\"]\n    N37[\"tab)\"]\n    N38[\"(analytics)\"]\n    N39[\"(compliance)\"]\n    N40[\"Replaying\"]\n    N41[\"e1..e4\"]\n    N42[\"reconstructs\"]\n    N43[\"Order\"]\n    N44[\"42's\"]\n    N45[\"state.\"]\n    N46[\"Different\"]\n    N47[\"projections\"]\n    N48[\"different\"]\n    N49[\"views\"]\n    N50[\"the\"]\n    N51[\"same\"]\n    N52[\"events.\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44\n    N44 --> N45\n    N45 --> N46\n    N46 --> N47\n    N47 --> N48\n    N48 --> N49\n    N49 --> N50\n    N50 --> N51\n    N51 --> N52",
-        "caption": "Event Sourcing: commands emit events to an append-only log; multiple projections derive different views by replaying events.",
-        "alt_text": "A diagram with three layers. At the top is the Command Bus, which validates, applies, and emits events. Below it is the Event Store — an append-only log that is the source of truth — containing OrderCreated event 1, PaymentReceived event 2, OrderShipped event 3, and OrderDelivered event 4. Below that, the event stream is consumed by three projections: current state (the orders table), daily_revenue (analytics), and audit_trail (compliance). Replaying events 1 through 4 reconstructs Order-42's current state. Different projections provide different views of the same events."
+        "code": "flowchart LR\n  Command[Command] --> Event[Domain event]\n  Event --> Log[(Append-only event log)]\n  Log --> Projection[Projection / read model]\n  Log --> Replay[Replay] --> Rebuild[Rebuild state]",
+        "caption": "Event Sourcing: decouple producers from asynchronous work.",
+        "alt_text": "Concept diagram: Event Sourcing"
       }
     },
     {
@@ -136,9 +136,9 @@
       "type": "mermaid",
       "id": "upgrade-mermaid-event-sourcing",
       "payload": {
-        "code": "flowchart LR\n  A[Producer] --> Q[(Broker)] --> B[Consumer] --> X[Retry] --> O[Outcome]",
+        "code": "flowchart LR\n  Concept[\"Event Sourcing\"] --> Risk[\"Perfect audit trail — every state…\"]\n  Risk --> Mitigate[Mitigation / design choice]\n  Mitigate --> Outcome[Better system behavior]",
         "caption": "Event Sourcing: a simplified system view showing the primary flow and the main state boundaries.",
-        "alt_text": "Event Sourcing: a simplified system view showing the primary flow and the main state boundaries."
+        "alt_text": "Concept diagram: Event Sourcing"
       }
     },
     {

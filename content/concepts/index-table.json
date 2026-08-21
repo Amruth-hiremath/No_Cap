@@ -33,9 +33,9 @@
       "type": "mermaid",
       "id": "topology",
       "payload": {
-        "code": "flowchart TD\n    N0[\"users\"]\n    N1[\"maintained on every write\"]\n    N2[\"Primary\"]\n    N3[\"table\"]\n    N4[\"(users):\"]\n    N5[\"Index\"]\n    N6[\"tables\"]\n    N7[\"(maintained\"]\n    N8[\"every\"]\n    N9[\"write):\"]\n    N10[\"PK:\"]\n    N11[\"user_id\"]\n    N12[\"users_by_email\"]\n    N13[\"data:\"]\n    N14[\"email\"]\n    N15[\"'alice@example'\"]\n    N16[\"email:\"]\n    N17[\"'alice@example.com'\"]\n    N18[\"SK:\"]\n    N19[\"username:\"]\n    N20[\"'alice'\"]\n    N21[\"phone:\"]\n    N22[\"555\"]\n    N23[\"0100'\"]\n    N24[\"tenant_id:\"]\n    N25[\"'acme'\"]\n    N26[\"users_by_username\"]\n    N27[\"created_at:\"]\n    N28[\"2024\"]\n    N29[\"username\"]\n    N30[\"users_by_tenant\"]\n    N31[\"tenant_id\"]\n    N32[\"created_at\"]\n    N33[\"user_id:\"]\n    N34[\"Lookup\"]\n    N35[\"query\"]\n    N36[\"get\"]\n    N37[\"users[user_id]\"]\n    N38[\"1\"]\n    N39[\"N\"]\n    N40[\"Two\"]\n    N41[\"O(1)\"]\n    N42[\"lookups\"]\n    N43[\"instead\"]\n    N44[\"O(N)\"]\n    N45[\"full\"]\n    N46[\"scan.\"]\n    N47[\"Every\"]\n    N48[\"write\"]\n    N49[\"must\"]\n    N50[\"also\"]\n    N51[\"update\"]\n    N52[\"all\"]\n    N53[\"index\"]\n    N54[\"amplification.\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44\n    N44 --> N45\n    N45 --> N46\n    N46 --> N47\n    N47 --> N48\n    N48 --> N49\n    N49 --> N50\n    N50 --> N51\n    N51 --> N52\n    N52 --> N53\n    N53 --> N54",
-        "caption": "Primary table with three index tables, one per access pattern. Each write updates the primary table and every index — write amplification is the cost.",
-        "alt_text": "A diagram showing a primary users table with primary key user_id equals 42 and data including email, username, phone, tenant_id, and created_at. To the right are three index tables: users_by_email with primary key email and sort key user_id; users_by_username with primary key username and sort key user_id; users_by_tenant with primary key tenant_id, sort key created_at, and user_id attribute. The lookup flow is described as: query users_by_email to get user_id, then get users by user_id — two O(1) lookups instead of O(N) full scan. The trade-off is that every write to users must also update all three index tables, causing write amplification."
+        "code": "flowchart LR\n  Query[Lookup requirement] --> Index[(Index table)]\n  Index --> Key[Primary lookup key]\n  Key --> Main[(Main data)]\n  Index -->|narrow candidate set| Main",
+        "caption": "Index Table: shape storage around the access pattern.",
+        "alt_text": "Concept diagram: Index Table"
       }
     },
     {
@@ -134,9 +134,9 @@
       "type": "mermaid",
       "id": "upgrade-mermaid-index-table",
       "payload": {
-        "code": "flowchart LR\n  A[Client] --> B[Service] --> C[Data layer] --> D[Replication] --> E[Durability]",
+        "code": "flowchart LR\n  Concept[\"Index Table\"] --> Risk[\"Enables O(1) lookups by attributes other…\"]\n  Risk --> Mitigate[Mitigation / design choice]\n  Mitigate --> Outcome[Better system behavior]",
         "caption": "Index Table: a simplified system view showing the primary flow and the main state boundaries.",
-        "alt_text": "Index Table: a simplified system view showing the primary flow and the main state boundaries."
+        "alt_text": "Concept diagram: Index Table"
       }
     },
     {

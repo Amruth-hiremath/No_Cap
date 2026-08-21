@@ -34,9 +34,9 @@
       "type": "mermaid",
       "id": "utilization",
       "payload": {
-        "code": "flowchart TD\n    N0[\"Request\"]\n    N1[\"path\"]\n    N2[\"utilization\"]\n    N3[\"under\"]\n    N4[\"load:\"]\n    N5[\"Stage\"]\n    N6[\"Utilization\"]\n    N7[\"Status\"]\n    N8[\"Load\"]\n    N9[\"balancer\"]\n    N10[\"35%\"]\n    N11[\"CPU\"]\n    N12[\"API\"]\n    N13[\"(CPU)\"]\n    N14[\"62%\"]\n    N15[\"mem\"]\n    N16[\"(mem)\"]\n    N17[\"40%\"]\n    N18[\"Redis\"]\n    N19[\"Cache\"]\n    N20[\"(Redis)\"]\n    N21[\"55%\"]\n    N22[\"95%\"]\n    N23[\"BOTTLENECK\"]\n    N24[\"disk\"]\n    N25[\"88%\"]\n    N26[\"near\"]\n    N27[\"saturation\"]\n    N28[\"Network\"]\n    N29[\"30%\"]\n    N30[\"Result\"]\n    N31[\"Throughput\"]\n    N32[\"capped\"]\n    N33[\"~DB\"]\n    N34[\"limit.\"]\n    N35[\"Adding\"]\n    N36[\"servers\"]\n    N37[\"will\"]\n    N38[\"NOT\"]\n    N39[\"help.\"]\n    N40[\"Fix\"]\n    N41[\"the\"]\n    N42[\"DB:\"]\n    N43[\"add\"]\n    N44[\"read\"]\n    N45[\"replicas,\"]\n    N46[\"optimize\"]\n    N47[\"queries,\"]\n    N48[\"missing\"]\n    N49[\"indexes,\"]\n    N50[\"denormalize\"]\n    N51[\"hot\"]\n    N52[\"reads.\"]\n    N53[\"Then\"]\n    N54[\"measure\"]\n    N55[\"bottleneck\"]\n    N56[\"move.\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44\n    N44 --> N45\n    N45 --> N46\n    N46 --> N47\n    N47 --> N48\n    N48 --> N49\n    N49 --> N50\n    N50 --> N51\n    N51 --> N52\n    N52 --> N53\n    N53 --> N54\n    N54 --> N55\n    N55 --> N56",
-        "caption": "Per-stage utilization under load. The highest-utilization stage is the bottleneck; widening anything else is wasted effort.",
-        "alt_text": "A table of per-stage utilization under load: load balancer 35%, API CPU 62%, API memory 40%, cache 55%, database CPU 95% (marked as the bottleneck), database disk I/O 88%, network 30%. The conclusion states that throughput is capped at the database CPU limit, so adding API servers will not help; the fix is to address the database by adding read replicas, optimizing queries, or adding indexes, and then to re-measure because the bottleneck will move."
+        "code": "flowchart LR\n  Concept[\"Bottleneck Identification\"] --> Prompt[Interview prompt] --> Requirements[Clarify requirements]\n  Requirements --> Estimate[Estimate scale]\n  Estimate --> Architecture[Draw architecture]\n  Architecture --> DeepDive[Deep dive + trade-offs]",
+        "caption": "Bottleneck Identification: identify the bottleneck before adding capacity.",
+        "alt_text": "Concept diagram: Bottleneck Identification"
       }
     },
     {
@@ -135,9 +135,9 @@
       "type": "mermaid",
       "id": "upgrade-mermaid-bottleneck-identification",
       "payload": {
-        "code": "flowchart LR\n  A[Client] --> B[Gateway] --> C[Service] --> D[State] --> E[Outcome]",
+        "code": "flowchart LR\n  Concept[\"Bottleneck Identification\"] --> Risk[\"Measurement-driven optimization avoids wasted effort on…\"]\n  Risk --> Mitigate[Mitigation / design choice]\n  Mitigate --> Outcome[Better system behavior]",
         "caption": "Bottleneck Identification: a simplified system view showing the primary flow and the main state boundaries.",
-        "alt_text": "Bottleneck Identification: a simplified system view showing the primary flow and the main state boundaries."
+        "alt_text": "Concept diagram: Bottleneck Identification"
       }
     },
     {

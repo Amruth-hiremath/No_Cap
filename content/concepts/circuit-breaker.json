@@ -33,9 +33,9 @@
       "type": "mermaid",
       "id": "states",
       "payload": {
-        "code": "flowchart TD\n    N0[\"failures\"]\n    N1[\"threshold\"]\n    N2[\"CLOSED\"]\n    N3[\"OPEN\"]\n    N4[\"normal\"]\n    N5[\"failing\"]\n    N6[\"(normal)\"]\n    N7[\"(failing)\"]\n    N8[\"cooldown\"]\n    N9[\"expires\"]\n    N10[\"probe\"]\n    N11[\"succeeds\"]\n    N12[\"HALF\"]\n    N13[\"testing\"]\n    N14[\"(testing)\"]\n    N15[\"fails\"]\n    N16[\"back\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16",
-        "caption": "Circuit breaker state machine: Closed → Open → Half-Open → Closed/Open.",
-        "alt_text": "A state machine diagram. In the Closed state, requests flow normally and failures are counted. When failures exceed a threshold, the breaker transitions to Open — requests fail immediately without calling the downstream. After a cooldown period, it transitions to Half-Open — a few probe requests are allowed through. If probes succeed, the breaker returns to Closed. If probes fail, it goes back to Open."
+        "code": "flowchart LR\n  Client[Caller] --> CB{Circuit breaker}\n  CB -->|closed| Service[Downstream service]\n  Service -->|errors/timeouts| CB\n  CB -->|open| Fallback[Fail fast / fallback]\n  CB -->|half-open| Probe[Trial request]\n  Probe --> Service",
+        "caption": "Circuit Breaker: apply a pattern to a recurring architectural pressure.",
+        "alt_text": "Concept diagram: Circuit Breaker"
       }
     },
     {
@@ -134,9 +134,9 @@
       "type": "mermaid",
       "id": "upgrade-mermaid-circuit-breaker",
       "payload": {
-        "code": "stateDiagram-v2\n [*] --> Closed\n Closed --> Open: failures exceed threshold\n Open --> HalfOpen: cooldown\n HalfOpen --> Closed: probe succeeds\n HalfOpen --> Open: probe fails",
+        "code": "flowchart LR\n  Concept[\"Circuit Breaker\"] --> Risk[\"Prevents cascading failures — one broken…\"]\n  Risk --> Mitigate[Mitigation / design choice]\n  Mitigate --> Outcome[Better system behavior]",
         "caption": "A circuit breaker stops repeatedly calling a failing dependency and later probes for recovery.",
-        "alt_text": "A circuit breaker stops repeatedly calling a failing dependency and later probes for recovery."
+        "alt_text": "Concept diagram: Circuit Breaker"
       }
     },
     {

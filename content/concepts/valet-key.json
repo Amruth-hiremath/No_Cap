@@ -33,9 +33,9 @@
       "type": "mermaid",
       "id": "flow",
       "payload": {
-        "code": "flowchart TD\n    N0[\"Client\"]\n    N1[\"POST\"]\n    N2[\"uploads\"]\n    N3[\"(metadata,\"]\n    N4[\"Application\"]\n    N5[\"request\"]\n    N6[\"presigned\"]\n    N7[\"URL)\"]\n    N8[\"Service\"]\n    N9[\"URL\"]\n    N10[\"(PUT,\"]\n    N11[\"bucket\"]\n    N12[\"key,\"]\n    N13[\"min\"]\n    N14[\"expiry)\"]\n    N15[\"(checks\"]\n    N16[\"auth,\"]\n    N17[\"limits,\"]\n    N18[\"quota)\"]\n    N19[\"bytes don't touch app server\"]\n    N20[\"PUT\"]\n    N21[\"file\"]\n    N22[\"directly\"]\n    N23[\"(bytes\"]\n    N24[\"don't\"]\n    N25[\"touch\"]\n    N26[\"app\"]\n    N27[\"server)\"]\n    N28[\"S3 / Azure Blob / GCS\"]\n    N29[\"Object\"]\n    N30[\"Store\"]\n    N31[\"(S3\"]\n    N32[\"Azure\"]\n    N33[\"Blob\"]\n    N34[\"GCS)\"]\n    N35[\"optional\"]\n    N36[\"(optional)\"]\n    N37[\"event\"]\n    N38[\"notification\"]\n    N39[\"App\"]\n    N40[\"processes\"]\n    N41[\"upload,\"]\n    N42[\"records\"]\n    N43[\"metadata\"]\n    N44[\"file bytes\"]\n    N45[\"Result:\"]\n    N46[\"server\"]\n    N47[\"bandwidth\"]\n    N48[\"~few\"]\n    N49[\"(metadata),\"]\n    N50[\"not\"]\n    N51[\"(file\"]\n    N52[\"bytes).\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44\n    N44 --> N45\n    N45 --> N46\n    N46 --> N47\n    N47 --> N48\n    N48 --> N49\n    N49 --> N50\n    N50 --> N51\n    N51 --> N52",
-        "caption": "Valet Key flow: the app authorizes with a presigned URL; the client moves bytes directly to the object store. The app stays out of the data path.",
-        "alt_text": "A sequence diagram with four participants: client, application service, object store, and the app again. Step one: the client posts upload metadata to the application service and requests a presigned URL. The service checks authorization, limits, and quota. Step two: the service returns a presigned URL allowing PUT to one bucket key for 15 minutes. Step three: the client PUTs the file directly to the object store — bytes do not touch the application server. Step four: optional event notification from the object store back to the app, which processes the upload and records metadata. The caption notes that the application server bandwidth is only a few kilobytes of metadata, not gigabytes of file bytes."
+        "code": "flowchart LR\n  App[Application] --> Token[Short-lived signed URL]\n  Token --> Object[(Object storage)]\n  Client[Client] --> Object\n  App -.controls permission + expiry.-> Token",
+        "caption": "Valet Key: identity and policy protect a downstream resource.",
+        "alt_text": "Concept diagram: Valet Key"
       }
     },
     {
@@ -133,9 +133,9 @@
       "type": "mermaid",
       "id": "upgrade-mermaid-valet-key",
       "payload": {
-        "code": "flowchart LR\n  A[Client] --> B[Gateway] --> C[Service] --> D[State] --> E[Outcome]",
+        "code": "flowchart LR\n  Concept[\"Valet Key\"] --> Risk[\"Application server bandwidth cost drops dramatically…\"]\n  Risk --> Mitigate[Mitigation / design choice]\n  Mitigate --> Outcome[Better system behavior]",
         "caption": "Valet Key: a simplified system view showing the primary flow and the main state boundaries.",
-        "alt_text": "Valet Key: a simplified system view showing the primary flow and the main state boundaries."
+        "alt_text": "Concept diagram: Valet Key"
       }
     },
     {

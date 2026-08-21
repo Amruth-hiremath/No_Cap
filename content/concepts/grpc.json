@@ -35,9 +35,9 @@
       "type": "mermaid",
       "id": "four-rpc-types",
       "payload": {
-        "code": "flowchart TD\n    N0[\"gRPC\"]\n    N1[\"FOUR\"]\n    N2[\"RPC\"]\n    N3[\"TYPES\"]\n    N4[\"request -> response, like a normal function\"]\n    N5[\"UNARY\"]\n    N6[\"(request\"]\n    N7[\"response,\"]\n    N8[\"like\"]\n    N9[\"normal\"]\n    N10[\"function)\"]\n    N11[\"Client\"]\n    N12[\"request\"]\n    N13[\"Server\"]\n    N14[\"response\"]\n    N15[\"request -> stream of responses\"]\n    N16[\"SERVER\"]\n    N17[\"STREAMING\"]\n    N18[\"stream\"]\n    N19[\"responses)\"]\n    N20[\"message\"]\n    N21[\"end\"]\n    N22[\"(end)\"]\n    N23[\"e.g., subscribe to log lines, paginated result, live prices\"]\n    N24[\"(e.g.,\"]\n    N25[\"subscribe\"]\n    N26[\"log\"]\n    N27[\"lines,\"]\n    N28[\"paginated\"]\n    N29[\"result,\"]\n    N30[\"live\"]\n    N31[\"prices)\"]\n    N32[\"stream of requests -> single response\"]\n    N33[\"CLIENT\"]\n    N34[\"(stream\"]\n    N35[\"requests\"]\n    N36[\"single\"]\n    N37[\"response)\"]\n    N38[\"e.g., upload chunks, batch insert\"]\n    N39[\"upload\"]\n    N40[\"chunks,\"]\n    N41[\"batch\"]\n    N42[\"insert)\"]\n    N43[\"stream <-> stream\"]\n    N44[\"BIDIRECTIONAL\"]\n    N45[\"stream)\"]\n    N46[\"full duplex over one HTTP/2 stream\"]\n    N47[\"(full\"]\n    N48[\"duplex\"]\n    N49[\"over\"]\n    N50[\"one\"]\n    N51[\"HTTP\"]\n    N52[\"e.g., chat, real-time sync, collaborative editing\"]\n    N53[\"chat,\"]\n    N54[\"real\"]\n    N55[\"time\"]\n    N56[\"sync,\"]\n    N57[\"collaborative\"]\n    N58[\"editing)\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44\n    N44 --> N45\n    N45 --> N46\n    N46 --> N47\n    N47 --> N48\n    N48 --> N49\n    N49 --> N50\n    N50 --> N51\n    N51 --> N52\n    N52 --> N53\n    N53 --> N54\n    N54 --> N55\n    N55 --> N56\n    N56 --> N57\n    N57 --> N58",
-        "caption": "gRPC's four RPC types. Unary is a normal call; the other three are streaming variants that HTTP/1.1 REST cannot express.",
-        "alt_text": "A diagram of gRPC's four RPC types. Type one, unary: client sends a request, server sends a response. Type two, server streaming: client sends a request, server sends a stream of multiple messages then ends. Examples include subscribing to log lines, paginated results, live prices. Type three, client streaming: client sends a stream of requests, server sends a single response. Examples include uploading chunks and batch inserts. Type four, bidirectional streaming: client and server exchange messages in both directions over one HTTP/2 stream. Examples include chat, real-time sync, collaborative editing."
+        "code": "flowchart LR\n  Client[Service client] --> Stub[gRPC stub]\n  Stub --> HTTP2[HTTP/2 + protobuf]\n  HTTP2 --> Server[Service server]\n  Server --> Logic[Business logic]\n  Logic --> Response[protobuf response]",
+        "caption": "gRPC gives services a typed RPC contract over HTTP/2.",
+        "alt_text": "Concept diagram: gRPC — Google's RPC Framework"
       }
     },
     {
@@ -160,9 +160,9 @@
       "type": "mermaid",
       "id": "upgrade-mermaid-grpc",
       "payload": {
-        "code": "flowchart LR\n  A[Client] --> B[Gateway] --> C[Service] --> D[State] --> E[Outcome]",
+        "code": "flowchart LR\n  Concept[\"gRPC — Google's RPC Framework\"] --> Risk[\"HTTP/2 multiplexing gives high concurrency on…\"]\n  Risk --> Mitigate[Mitigation / design choice]\n  Mitigate --> Outcome[Better system behavior]",
         "caption": "gRPC — Google's RPC Framework: a simplified system view showing the primary flow and the main state boundaries.",
-        "alt_text": "gRPC — Google's RPC Framework: a simplified system view showing the primary flow and the main state boundaries."
+        "alt_text": "Concept diagram: gRPC — Google's RPC Framework"
       }
     },
     {

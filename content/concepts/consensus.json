@@ -35,9 +35,9 @@
       "type": "mermaid",
       "id": "raft-phases",
       "payload": {
-        "code": "flowchart TD\n    N0[\"RAFT\"]\n    N1[\"Three\"]\n    N2[\"node\"]\n    N3[\"roles,\"]\n    N4[\"term\"]\n    N5[\"based\"]\n    N6[\"leadership\"]\n    N7[\"start state\"]\n    N8[\"Follower\"]\n    N9[\"(start\"]\n    N10[\"state)\"]\n    N11[\"randomized 150-300ms\"]\n    N12[\"election\"]\n    N13[\"timeout\"]\n    N14[\"expires\"]\n    N15[\"one\"]\n    N16[\"(randomized\"]\n    N17[\"150\"]\n    N18[\"300ms)\"]\n    N19[\"RequestVote RPCs\"]\n    N20[\"Candidate\"]\n    N21[\"(RequestVote\"]\n    N22[\"RPCs)\"]\n    N23[\"candidate\"]\n    N24[\"gets\"]\n    N25[\"majority\"]\n    N26[\"votes\"]\n    N27[\"becomes\"]\n    N28[\"Leader\"]\n    N29[\"for\"]\n    N30[\"AppendEntries heartbeats\"]\n    N31[\"(AppendEntries\"]\n    N32[\"heartbeats)\"]\n    N33[\"leader\"]\n    N34[\"receives\"]\n    N35[\"write\"]\n    N36[\"AppendEntries\"]\n    N37[\"followers\"]\n    N38[\"ack\"]\n    N39[\"commit\"]\n    N40[\"reply\"]\n    N41[\"client\"]\n    N42[\"fails:\"]\n    N43[\"stop\"]\n    N44[\"receiving\"]\n    N45[\"heartbeats,\"]\n    N46[\"fires\"]\n    N47[\"one,\"]\n    N48[\"new\"]\n    N49[\"begins.\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44\n    N44 --> N45\n    N45 --> N46\n    N46 --> N47\n    N47 --> N48\n    N48 --> N49",
-        "caption": "Raft lifecycle: followers, candidate, leader. Terms monotonically increase; leader failures trigger re-election.",
-        "alt_text": "A diagram of the Raft consensus algorithm lifecycle. Three nodes start as followers. When the election timeout (a randomized 150 to 300 millisecond delay) expires on one node, it becomes a candidate, increments the term, and sends RequestVote RPCs to the others. If it wins a majority, it becomes the leader for that term and sends AppendEntries heartbeats to keep authority. When the leader receives a write, it replicates via AppendEntries to followers, waits for a majority ack, then commits and replies to the client. If the leader fails, followers stop receiving heartbeats, an election timeout fires on one, and a new term begins. Terms monotonically increase to prevent split-brain."
+        "code": "flowchart LR\n  Proposal[Client proposal] --> Leaders[Consensus participants]\n  Leaders --> Quorum[Majority / quorum agrees]\n  Quorum --> Log[Replicated log]\n  Log --> Apply[Apply committed command]\n  Apply --> State[Consistent state]",
+        "caption": "Consensus lets distributed nodes agree on an ordered decision despite failures.",
+        "alt_text": "Concept diagram: Consensus (Paxos / Raft)"
       }
     },
     {
@@ -160,9 +160,9 @@
       "type": "mermaid",
       "id": "upgrade-mermaid-consensus",
       "payload": {
-        "code": "flowchart LR\n C[Client] --> L[Leader]\n L --> F1[Follower]\n L --> F2[Follower]\n F1 --> Q[Quorum]\n F2 --> Q\n Q --> L",
+        "code": "flowchart LR\n  Concept[\"Consensus (Paxos / Raft)\"] --> Risk[\"Safety is absolute — once a…\"]\n  Risk --> Mitigate[Mitigation / design choice]\n  Mitigate --> Outcome[Better system behavior]",
         "caption": "Consensus protocols coordinate replicated state so a cluster can agree on a value or log order despite failures.",
-        "alt_text": "Consensus protocols coordinate replicated state so a cluster can agree on a value or log order despite failures."
+        "alt_text": "Concept diagram: Consensus (Paxos / Raft)"
       }
     },
     {

@@ -5,7 +5,8 @@ import Link from 'next/link';
 import { BookText, Search, ArrowRight } from 'lucide-react';
 import { Surface, EmptyState } from '@/components/ui/Surface';
 import { AccentRule } from '@/components/ui/AccentRule';
-import { getGlossary, getConcept } from '@/lib/content';
+import { getGlossary } from '@/lib/glossary';
+import { getConceptSummary } from '@/lib/content-lite';
 
 export default function GlossaryPage() {
   const [query, setQuery] = useState('');
@@ -72,7 +73,7 @@ export default function GlossaryPage() {
                 </div>
                 <div className="grid gap-2 md:grid-cols-2">
                   {entries.map((e) => {
-                    const linkedConcept = e.concept_slug ? getConcept(e.concept_slug) : null;
+                    const linkedConcept = e.concept_slug ? getConceptSummary(e.concept_slug) : null;
                     return (
                       <Surface key={e.term} variant="solid" className="p-4">
                         <div className="flex items-center gap-2">

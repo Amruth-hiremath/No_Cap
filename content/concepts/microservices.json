@@ -33,9 +33,9 @@
       "type": "mermaid",
       "id": "monolith-vs-microservices",
       "payload": {
-        "code": "flowchart TD\n    N0[\"MONOLITH\"]\n    N1[\"MICROSERVICES\"]\n    N2[\"Client\"]\n    N3[\"API Gateway\"]\n    N4[\"[API\"]\n    N5[\"Gateway]\"]\n    N6[\"Auth\"]\n    N7[\"Cart\"]\n    N8[\"Catalog\"]\n    N9[\"Payments\"]\n    N10[\"Monolith\"]\n    N11[\"[Auth]\"]\n    N12[\"[Cart]\"]\n    N13[\"[Catalog]\"]\n    N14[\"[Payments]\"]\n    N15[\"DB\"]\n    N16[\"[DB]\"]\n    N17[\"Each\"]\n    N18[\"service:\"]\n    N19[\"independently\"]\n    N20[\"deployable\"]\n    N21[\"owns\"]\n    N22[\"its\"]\n    N23[\"own\"]\n    N24[\"communicates\"]\n    N25[\"over\"]\n    N26[\"network\"]\n    N27[\"one\"]\n    N28[\"team\"]\n    N29[\"One\"]\n    N30[\"deployable,\"]\n    N31[\"Many\"]\n    N32[\"deployables,\"]\n    N33[\"DB,\"]\n    N34[\"team.\"]\n    N35[\"many\"]\n    N36[\"DBs,\"]\n    N37[\"teams.\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37",
-        "caption": "Monolith: one deployable, one DB, one team. Microservices: many deployables, many DBs, many teams — communicating over the network.",
-        "alt_text": "A side-by-side comparison. On the left, a monolith: a single application containing Auth, Cart, Catalog, and Payments modules, all sharing one database, deployed as one unit. On the right, microservices: each module is its own service with its own database, fronted by an API Gateway that routes traffic. Each service is independently deployable, owns its data, and communicates with others over the network."
+        "code": "flowchart LR\n  Client[Client] --> Gateway[API gateway]\n  Gateway --> UserSvc[User service]\n  Gateway --> OrderSvc[Order service]\n  Gateway --> PaymentSvc[Payment service]\n  OrderSvc --> Events[(Event bus)]\n  PaymentSvc --> Events\n  UserSvc --> Data1[(User data)]\n  OrderSvc --> Data2[(Order data)]",
+        "caption": "Microservices: route traffic between the edge and application services.",
+        "alt_text": "Concept diagram: Microservices"
       }
     },
     {
@@ -155,9 +155,9 @@
       "type": "mermaid",
       "id": "upgrade-mermaid-microservices",
       "payload": {
-        "code": "flowchart LR\n  A[Client] --> B[Gateway] --> C[Service] --> D[State] --> E[Outcome]",
+        "code": "flowchart LR\n  Concept[\"Microservices\"] --> Risk[\"Independent deployability — ship one service…\"]\n  Risk --> Mitigate[Mitigation / design choice]\n  Mitigate --> Outcome[Better system behavior]",
         "caption": "Microservices: a simplified system view showing the primary flow and the main state boundaries.",
-        "alt_text": "Microservices: a simplified system view showing the primary flow and the main state boundaries."
+        "alt_text": "Concept diagram: Microservices"
       }
     },
     {

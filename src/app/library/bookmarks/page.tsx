@@ -15,7 +15,7 @@ import { Surface, EmptyState } from '@/components/ui/Surface';
 import { AccentRule } from '@/components/ui/AccentRule';
 import { useStore } from '@/lib/store';
 import { useHydrated } from '@/lib/useHydrated';
-import { getConcept } from '@/lib/content';
+import { getConceptSummary } from '@/lib/content-lite';
 import type { Bookmark } from '@/lib/types';
 
 /* ── Relative time helper ─────────────────────────────────────── */
@@ -51,7 +51,7 @@ export default function BookmarksPage() {
     let list = bookmarks.slice();
     if (q) {
       list = list.filter((b) => {
-        const concept = getConcept(b.concept_slug);
+        const concept = getConceptSummary(b.concept_slug);
         const conceptTitle = (concept?.title ?? b.concept_slug).toLowerCase();
         return (
           b.label.toLowerCase().includes(q) ||
@@ -176,7 +176,7 @@ function BookmarkRow({
   onCancelConfirm: () => void;
   onConfirmRemove: () => void;
 }) {
-  const concept = getConcept(b.concept_slug);
+  const concept = getConceptSummary(b.concept_slug);
   const conceptTitle = concept?.title ?? b.concept_slug;
   const href = `/concepts/${b.concept_slug}${b.block_id ? `#${b.block_id}` : ''}`;
 

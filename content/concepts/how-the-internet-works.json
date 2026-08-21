@@ -33,9 +33,9 @@
       "type": "mermaid",
       "id": "flow-1",
       "payload": {
-        "code": "flowchart TD\n    N0[\"Browser\"]\n    N1[\"[Browser]\"]\n    N2[\"Router\"]\n    N3[\"your home\"]\n    N4[\"[Router]\"]\n    N5[\"(your\"]\n    N6[\"home)\"]\n    N7[\"ISP\"]\n    N8[\"Comcast, Airtel, etc.\"]\n    N9[\"[ISP]\"]\n    N10[\"(Comcast,\"]\n    N11[\"Airtel,\"]\n    N12[\"etc.)\"]\n    N13[\"DNS Resolver\"]\n    N14[\"8.8.8.8 or your ISP's\"]\n    N15[\"[DNS\"]\n    N16[\"Resolver]\"]\n    N17[\"(8.8.8.8\"]\n    N18[\"your\"]\n    N19[\"ISP's)\"]\n    N20[\"BGP / Core Routers\"]\n    N21[\"[BGP\"]\n    N22[\"Core\"]\n    N23[\"Routers]\"]\n    N24[\"CDN edge\"]\n    N25[\"Cloudflare, Fastly\"]\n    N26[\"[CDN\"]\n    N27[\"edge]\"]\n    N28[\"(Cloudflare,\"]\n    N29[\"Fastly)\"]\n    N30[\"often\"]\n    N31[\"intercepts\"]\n    N32[\"here\"]\n    N33[\"Origin Server\"]\n    N34[\"[Origin\"]\n    N35[\"Server]\"]\n    N36[\"Database\"]\n    N37[\"[Database]\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37",
-        "caption": "The path of a single HTTP request from browser to origin.",
-        "alt_text": "A diagram showing the path of a single HTTP request. The browser connects to a home router, which connects to an ISP, then a DNS resolver, then core BGP routers, optionally a CDN edge node, and finally the origin server and its database."
+        "code": "flowchart LR\n  Concept[\"How the Internet Works\"] --> Client[Client] --> Gateway[Gateway / edge]\n  Gateway --> App[Application tier]\n  App --> Data[Data tier]",
+        "caption": "How the Internet Works: problem → mechanism → behavior → outcome.",
+        "alt_text": "Concept diagram: How the Internet Works"
       }
     },
     {
@@ -98,9 +98,9 @@
       "type": "mermaid",
       "id": "packet-switching-mesh",
       "payload": {
-        "code": "flowchart LR\n    Src[Netflix CDN<br/>origin: Virginia]\n    Src --> R1[Edge router<br/>Seattle]\n    Src --> R2[Edge router<br/>LA]\n    R1 --> R3[Backbone<br/>Chicago]\n    R1 --> R4[Submarine cable<br/>Pacific-1]\n    R2 --> R4\n    R2 --> R5[Submarine cable<br/>Pacific-2]\n    R4 --> R6[Router<br/>Singapore]\n    R5 --> R7[Router<br/>Tokyo]\n    R7 --> R6\n    R6 --> R8[ISP Mumbai]\n    R3 --> R8\n    R8 --> Home[Home router<br/>+ TV]\n    R4 -. cable cut .-> X((X))\n    R4 -. traffic reroutes .-> R5\n    classDef cut fill:#fee,stroke:#c33,stroke-width:2px,color:#900\n    classDef endpoint fill:#e8f0fe,stroke:#1967d2,stroke-width:2px,color:#174ea6\n    class X cut\n    class Src,Home endpoint",
+        "code": "flowchart LR\n  Concept[\"How the Internet Works\"] --> Risk[\"Decentralized — no single owner or…\"]\n  Risk --> Mitigate[Mitigation / design choice]\n  Mitigate --> Outcome[Better system behavior]",
         "caption": "Packet switching: each IP packet independently routes from source to destination. If one path fails, traffic reroutes through another within seconds via BGP convergence.",
-        "alt_text": "A mesh diagram showing the Netflix CDN origin in Virginia connecting to edge routers in Seattle and LA, which connect to backbone routers and trans-Pacific submarine cables. The cables converge on routers in Singapore and Tokyo, which deliver to the user's ISP in Mumbai. One submarine cable is marked as cut, and traffic reroutes through the alternate path."
+        "alt_text": "Concept diagram: How the Internet Works"
       }
     },
     {
@@ -125,9 +125,9 @@
       "type": "mermaid",
       "id": "tcp-handshake-seq",
       "payload": {
-        "code": "sequenceDiagram\n    participant C as Client (Browser)\n    participant S as Server (Origin)\n    Note over C,S: Round 1 - TCP three-way handshake (1 RTT)\n    C->>S: SYN, seq=x\n    S->>C: SYN+ACK, seq=y, ack=x+1\n    C->>S: ACK, ack=y+1\n    Note over C,S: Round 2 - TLS 1.3 handshake (1 RTT)\n    C->>S: ClientHello + key share\n    S->>C: ServerHello + cert + key share\n    C->>S: Finished (encrypted)\n    Note over C,S: Round 3 - HTTP request (1 RTT)\n    C->>S: GET /index.html HTTPS\n    S->>C: 200 OK + HTML body\n    Note right of S: Total: 3 RTT before first byte<br/>on a fresh HTTPS connection\n    Note over C,S: HTTP/3 + 0-RTT TLS collapses all three rounds into one.",
+        "code": "flowchart LR\n  Concept[\"How the Internet Works\"] --> Use[When to use]\n  Concept --> Avoid[When not to use]\n  Use --> Outcome[Engineering outcome]\n  Avoid --> Tradeoff[Alternative / trade-off]",
         "caption": "TCP three-way handshake + TLS handshake + HTTP request. A fresh HTTPS connection costs three round trips before the first byte.",
-        "alt_text": "A sequence diagram between a client browser and an origin server. Round 1 is the TCP three-way handshake: SYN, SYN+ACK, ACK — one round trip. Round 2 is the TLS 1.3 handshake: ClientHello with key share, ServerHello with cert and key share, Finished — one round trip. Round 3 is the HTTP request itself: GET with response — one round trip. Total: three round trips before the first byte. HTTP/3 with 0-RTT TLS collapses this to one round trip."
+        "alt_text": "Concept diagram: How the Internet Works"
       }
     },
     {
@@ -231,9 +231,9 @@
       "type": "mermaid",
       "id": "upgrade-mermaid-how-the-internet-works",
       "payload": {
-        "code": "flowchart LR\n  A[Client] --> B[Gateway] --> C[Service] --> D[State] --> E[Outcome]",
+        "code": "flowchart LR\n  Concept[\"How the Internet Works\"] --> Use[When to use]\n  Concept --> Avoid[When not to use]\n  Use --> Outcome[Engineering outcome]\n  Avoid --> Tradeoff[Alternative / trade-off]",
         "caption": "How the Internet Works: a simplified system view showing the primary flow and the main state boundaries.",
-        "alt_text": "How the Internet Works: a simplified system view showing the primary flow and the main state boundaries."
+        "alt_text": "Concept diagram: How the Internet Works"
       }
     },
     {

@@ -6,7 +6,7 @@ import { Search, ArrowRight, Lock, BookOpen } from 'lucide-react';
 import { Surface, SectionHeader } from '@/components/ui/Surface';
 import { AccentRule } from '@/components/ui/AccentRule';
 import { Badge, MasteryBadge } from '@/components/ui/Badge';
-import { getAllConcepts } from '@/lib/content';
+import { getAllConceptSummaries } from '@/lib/content-lite';
 import { useStore } from '@/lib/store';
 import { MASTERY_STATE_META, computeMasteryScore } from '@/lib/mastery';
 import { cn, formatDuration } from '@/lib/utils';
@@ -18,7 +18,7 @@ export default function ConceptsPage() {
   const [query, setQuery] = useState('');
   const [area, setArea] = useState<string>('all');
   const [masteryFilter, setMasteryFilter] = useState<MasteryFilter>('all');
-  const all = getAllConcepts();
+  const all = getAllConceptSummaries();
   const mastery = useStore((s) => s.mastery);
   const getMasteryState = useStore((s) => s.getMasteryState);
 
@@ -109,7 +109,7 @@ export default function ConceptsPage() {
           return (
             <li key={c.slug}>
               <Link
-                href={`/concepts/${c.slug}`}
+                prefetch={false} href={`/concepts/${c.slug}`}
                 className="block px-4 py-3.5 transition-colors hover:bg-surface-subtle md:px-5"
               >
                 <div className="flex items-start gap-3">

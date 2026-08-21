@@ -33,9 +33,9 @@
       "type": "mermaid",
       "id": "request-vs-async",
       "payload": {
-        "code": "flowchart TD\n    N0[\"slow, fragile\"]\n    N1[\"fast, resilient\"]\n    N2[\"SYNCHRONOUS\"]\n    N3[\"(slow,\"]\n    N4[\"fragile)\"]\n    N5[\"ASYNC\"]\n    N6[\"(fast,\"]\n    N7[\"resilient)\"]\n    N8[\"User\"]\n    N9[\"API\"]\n    N10[\"inserts\"]\n    N11[\"row\"]\n    N12[\"enqueues\"]\n    N13[\"jobs\"]\n    N14[\"800ms\"]\n    N15[\"~10ms\"]\n    N16[\"sends\"]\n    N17[\"email\"]\n    N18[\"(800ms)\"]\n    N19[\"returns\"]\n    N20[\"200\"]\n    N21[\"(~10ms)\"]\n    N22[\"1.5s\"]\n    N23[\"generates\"]\n    N24[\"PDF\"]\n    N25[\"(1.5s)\"]\n    N26[\"Job Queue / Broker\"]\n    N27[\"300ms\"]\n    N28[\"calls\"]\n    N29[\"analytics\"]\n    N30[\"(300ms)\"]\n    N31[\"[Job\"]\n    N32[\"Queue\"]\n    N33[\"Broker]\"]\n    N34[\"~2.6s\"]\n    N35[\"(~2.6s)\"]\n    N36[\"consume\"]\n    N37[\"Worker Pool\"]\n    N38[\"[Worker\"]\n    N39[\"Pool]\"]\n    N40[\"Email\"]\n    N41[\"Analytics\"]\n    N42[\"[Email]\"]\n    N43[\"[PDF]\"]\n    N44[\"[Analytics]\"]\n    N45[\"retries on failure\"]\n    N46[\"(retries\"]\n    N47[\"failure)\"]\n    N48[\"waits\"]\n    N49[\"2.6s.\"]\n    N50[\"~10ms.\"]\n    N51[\"SendGrid\"]\n    N52[\"outage\"]\n    N53[\"signup\"]\n    N54[\"fails.\"]\n    N55[\"job\"]\n    N56[\"retries\"]\n    N57[\"later.\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44\n    N44 --> N45\n    N45 --> N46\n    N46 --> N47\n    N47 --> N48\n    N48 --> N49\n    N49 --> N50\n    N50 --> N51\n    N51 --> N52\n    N52 --> N53\n    N53 --> N54\n    N54 --> N55\n    N55 --> N56\n    N56 --> N57",
-        "caption": "Synchronous vs async: the user-facing request returns immediately; workers handle slow work and retries.",
-        "alt_text": "A side-by-side comparison. On the left, a synchronous flow: the API handler inserts a row, sends an email (800 milliseconds), generates a PDF (1.5 seconds), and calls an analytics service (300 milliseconds), then returns 200 — the user waits about 2.6 seconds. If SendGrid is down, signup fails entirely. On the right, an async flow: the API inserts the row, enqueues three jobs, and returns 200 in about 10 milliseconds. A worker pool consumes the jobs, each running at its own pace with retries on failure."
+        "code": "flowchart LR\n  Request[User request] --> Queue[(Job queue)]\n  Queue --> Worker[Background worker]\n  Worker --> External[Slow / long task]\n  Worker --> Result[(Persisted result)]",
+        "caption": "Background Jobs: decouple producers from asynchronous work.",
+        "alt_text": "Concept diagram: Background Jobs"
       }
     },
     {
@@ -148,9 +148,9 @@
       "type": "mermaid",
       "id": "upgrade-mermaid-background-jobs",
       "payload": {
-        "code": "flowchart LR\n  A[Client] --> B[Gateway] --> C[Service] --> D[State] --> E[Outcome]",
+        "code": "flowchart LR\n  Concept[\"Background Jobs\"] --> Risk[\"Fast user-facing requests — slow work…\"]\n  Risk --> Mitigate[Mitigation / design choice]\n  Mitigate --> Outcome[Better system behavior]",
         "caption": "Background Jobs: a simplified system view showing the primary flow and the main state boundaries.",
-        "alt_text": "Background Jobs: a simplified system view showing the primary flow and the main state boundaries."
+        "alt_text": "Concept diagram: Background Jobs"
       }
     },
     {

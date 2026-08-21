@@ -5,7 +5,11 @@ import { useEffect, useState } from 'react';
 
 export function PageTransition({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  const [key, setKey] = useState(pathname);
-  useEffect(() => setKey(pathname), [pathname]);
-  return <div key={key} className="route-page">{children}</div>;
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    setBusy(true);
+    const id = window.setTimeout(() => setBusy(false), 180);
+    return () => window.clearTimeout(id);
+  }, [pathname]);
+  return <div className="route-transition-wrap">{busy && <div className="route-progress" aria-hidden />}<div className="route-page">{children}</div></div>;
 }

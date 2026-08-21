@@ -1,0 +1,41 @@
+/*
+  Security + caching defaults for the Cloudflare Pages deployment.
+  Static assets are immutable by content hash in a production build.
+*/
+/*
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: camera=(), microphone=(), geolocation=()
+  Cross-Origin-Opener-Policy: same-origin-allow-popups
+  X-Frame-Options: SAMEORIGIN
+*/
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable
+
+/icons/*
+  Cache-Control: public, max-age=31536000, immutable
+
+/brand/*
+  Cache-Control: public, max-age=31536000, immutable
+
+/content/*
+  Cache-Control: public, max-age=3600, stale-while-revalidate=86400
+
+
+/_next/static/*
+  Cache-Control: public, max-age=31536000, immutable
+
+/*.svg
+  Cache-Control: public, max-age=604800, stale-while-revalidate=86400
+
+/*.webp
+  Cache-Control: public, max-age=604800, stale-while-revalidate=86400
+
+/*.png
+  Cache-Control: public, max-age=604800, stale-while-revalidate=86400
+
+/learning-visuals/*
+  Cache-Control: public, max-age=31536000, immutable
+
+/functions/*
+  Cache-Control: no-store

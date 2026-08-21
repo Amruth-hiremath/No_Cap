@@ -1,11 +1,12 @@
 'use client';
 
-import { Chrome, Cloud, CloudOff, Focus, Github, Monitor, Moon, Palette, RotateCcw, ShieldCheck, Sun, WandSparkles } from 'lucide-react';
+import { Chrome, Cloud, CloudOff, Download, Focus, Github, Monitor, Moon, Palette, RotateCcw, ShieldCheck, Sun, WandSparkles } from 'lucide-react';
 import Link from 'next/link';
 import { Surface } from '@/components/ui/Surface';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { useStore } from '@/lib/store';
+import { useEffect, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { authUrl, logoutCurrentUser } from '@/lib/api';
 
@@ -24,6 +25,19 @@ export default function SettingsPage() {
   const setFocusMode = useStore((s) => s.setFocusMode);
   const isAuthenticated = useStore((s) => s.isAuthenticated);
   const currentUser = useStore((s) => s.user);
+  const [sidebarAutoPeek, setSidebarAutoPeek] = useState(true);
+
+  useEffect(() => {
+    try { setSidebarAutoPeek(localStorage.getItem('nocap-sidebar-auto-peek') !== '0'); } catch {}
+  }, []);
+
+  const setSidebarMode = (value: boolean) => {
+    setSidebarAutoPeek(value);
+    try {
+      localStorage.setItem('nocap-sidebar-auto-peek', value ? '1' : '0');
+      window.dispatchEvent(new Event('nocap:sidebar-mode'));
+    } catch {}
+  };
 
   return (
     <div className="settings-page">
@@ -60,6 +74,7 @@ export default function SettingsPage() {
             <Surface variant="solid" className="settings-card p-5">
               <div className="settings-row"><div><div className="text-sm font-semibold text-text-primary">Focus mode</div><div className="mt-1 text-xs text-text-muted">Hide navigation and secondary chrome while reading a deep lesson.</div></div><button type="button" onClick={() => setFocusMode(!focusMode)} className={cn('focus-toggle', focusMode && 'focus-toggle--on')} role="switch" aria-checked={focusMode} aria-label="Toggle focus mode"><span className="focus-toggle__thumb" /></button></div>
               <div className="settings-hint"><WandSparkles className="h-3.5 w-3.5" /> Press <kbd>F</kbd> anywhere outside a text field.</div>
+              <div className="settings-row mt-3 border-t border-border pt-4"><div><div className="text-sm font-semibold text-text-primary">Auto-hide sidebar</div><div className="mt-1 text-xs text-text-muted">Keep a slim navigation rail and expand it only when your pointer reaches the edge, like a browser side tab.</div></div><button type="button" onClick={() => setSidebarMode(!sidebarAutoPeek)} className={cn('focus-toggle', sidebarAutoPeek && 'focus-toggle--on')} role="switch" aria-checked={sidebarAutoPeek} aria-label="Toggle auto-hide sidebar"><span className="focus-toggle__thumb" /></button></div>
             </Surface>
           </section>
 
@@ -78,7 +93,10 @@ export default function SettingsPage() {
             <div className="settings-section-head"><div className="settings-section-icon"><RotateCcw className="h-4 w-4" /></div><div><h2>Data</h2><p>Reset learning signals without destroying your study library.</p></div></div>
             <Surface variant="solid" className="settings-card p-5">
               <div className="settings-row"><div><div className="text-sm font-semibold text-text-primary">Reset learning progress</div><div className="mt-1 text-xs leading-relaxed text-text-muted">Clears mastery, review queue, attempts, streak and learning history. Notes, highlights, bookmarks and confusing items remain.</div></div><Button variant="danger" size="sm" onClick={() => { if (window.confirm('Reset all learning progress? This cannot be undone.')) useStore.getState().resetLearningProgress(); }}>Reset</Button></div>
-              {isAuthenticated && <div className="mt-4 border-t border-border pt-4"><Button variant="ghost" size="sm" onClick={async () => { await logoutCurrentUser().catch(() => undefined); useStore.getState().signOut(); }}>Sign out</Button></div>}
+              <div className="mt-4 border-t border-border pt-4">
+                <div className="flex flex-wrap items-center justify-between gap-3"><div><div className="text-sm font-semibold text-text-primary">Backup your workspace</div><div className="mt-1 text-xs text-text-muted">Download a portable JSON backup of progress, notes, highlights, bookmarks and settings.</div></div><Button variant="ghost" size="sm" onClick={() => { const s = useStore.getState(); const payload = { exported_at: new Date().toISOString(), version: 2, state: { mastery: s.mastery, review_items: s.review_items, attempts: s.attempts, streak: s.streak, notes: s.notes, highlights: s.highlights, bookmarks: s.bookmarks, workspace_notes: s.workspace_notes, confusing_concepts: s.confusing_concepts, theme: s.theme } }; const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' }); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `nocap-backup-${new Date().toISOString().slice(0,10)}.json`; a.click(); URL.revokeObjectURL(url); }}><Download className="h-3.5 w-3.5"/> Export backup</Button></div>
+                {isAuthenticated && <div className="mt-4"><Button variant="ghost" size="sm" onClick={async () => { await logoutCurrentUser().catch(() => undefined); useStore.getState().signOut(); }}>Sign out</Button></div>}
+              </div>
             </Surface>
           </section>
         </div>

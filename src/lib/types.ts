@@ -5,6 +5,8 @@
 
 /* ── Difficulty & Phase ──────────────────────────────────────────── */
 
+export type AuthProvider = 'google' | 'github';
+
 export type Difficulty = 'core' | 'advanced' | 'expert';
 
 export type QuizDifficulty = 'warmup' | 'solid' | 'hard' | 'interview' | 'staff';
@@ -13,7 +15,6 @@ export type QuizDifficulty = 'warmup' | 'solid' | 'hard' | 'interview' | 'staff'
 
 export type BlockType =
   | 'prose'
-  | 'diagram'
   | 'flow'
   | 'table'
   | 'code'
@@ -30,32 +31,6 @@ export interface ProseBlock {
   type: 'prose';
   id: string;
   payload: { text: string };
-}
-
-export interface DiagramNode {
-  id: string;
-  label: string;
-  kind?: 'default' | 'client' | 'service' | 'datastore' | 'cache' | 'external' | 'decision';
-}
-
-export interface DiagramEdge {
-  from: string;
-  to: string;
-  label?: string;
-  kind?: 'default' | 'async' | 'sync' | 'failover';
-}
-
-export interface DiagramBlock {
-  type: 'diagram';
-  id: string;
-  payload: {
-    ascii: string;
-    caption?: string;
-    alt_text?: string;
-    nodes?: DiagramNode[];
-    edges?: DiagramEdge[];
-    direction?: 'TB' | 'LR';
-  };
 }
 
 export interface FlowBlock {
@@ -204,7 +179,6 @@ export interface VideoBlock {
 
 export type LessonBlock =
   | ProseBlock
-  | DiagramBlock
   | FlowBlock
   | TableBlock
   | CodeBlock
@@ -386,6 +360,31 @@ export interface Highlight {
   selected_text: string;
   color: 'amber' | 'green' | 'rust' | 'info';
   created_at: string;
+}
+
+
+export type NoteBlockType =
+  | 'text' | 'heading1' | 'heading2' | 'bullet' | 'numbered' | 'checklist'
+  | 'quote' | 'callout' | 'code' | 'divider' | 'toggle' | 'table';
+
+export interface NoteBlock {
+  id: string;
+  type: NoteBlockType;
+  content: string;
+  language?: string;
+  checked?: boolean;
+  collapsed?: boolean;
+  callout_tone?: 'info' | 'tip' | 'warning' | 'important';
+  table?: string[][];
+}
+
+export interface WorkspaceNote {
+  id: string;
+  title: string;
+  blocks: NoteBlock[];
+  canvas_elements: unknown[];
+  created_at: string;
+  updated_at: string;
 }
 
 export interface Bookmark {

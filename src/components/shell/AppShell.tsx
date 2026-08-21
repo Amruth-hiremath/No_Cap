@@ -3,7 +3,8 @@
 import { Sidebar } from './Sidebar';
 import { TopBar } from './TopBar';
 import { BottomNav } from './BottomNav';
-import { CommandPalette } from './CommandPalette';
+import dynamic from 'next/dynamic';
+const CommandPalette = dynamic(() => import('./CommandPalette').then((m) => m.CommandPalette), { ssr: false, loading: () => null });
 import { FocusOverlay } from './FocusOverlay';
 import { useStore } from '@/lib/store';
 import { useKeyboardShortcuts } from '@/lib/useKeyboardShortcuts';
@@ -49,14 +50,12 @@ export function AppShell({ children }: AppShellProps) {
       {focusMode ? (
         <FocusOverlay>{children}</FocusOverlay>
       ) : (
-        <div className="flex min-h-screen">
+        <div className="min-h-screen">
           <Sidebar />
-          <div className="flex min-w-0 flex-1 flex-col">
-            <TopBar />
-            <main className="flex-1">
-              <div key={pathname} className="route-enter mx-auto w-full max-w-6xl px-4 py-7 md:px-7 md:py-9">{children}</div>
-            </main>
-          </div>
+          <TopBar />
+          <main className="min-h-screen pl-0 md:pl-[86px] pt-24">
+            <div key={pathname} className="route-enter mx-auto w-full max-w-7xl px-4 py-7 md:px-8 md:py-10">{children}</div>
+          </main>
         </div>
       )}
       <CommandPalette />

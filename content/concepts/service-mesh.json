@@ -36,9 +36,9 @@
       "type": "mermaid",
       "id": "two-planes",
       "payload": {
-        "code": "flowchart TD\n    N0[\"CONTROL\"]\n    N1[\"PLANE\"]\n    N2[\"Istiod / Linkerd control-plane\"]\n    N3[\"(Istiod\"]\n    N4[\"Linkerd\"]\n    N5[\"control\"]\n    N6[\"plane)\"]\n    N7[\"accepts\"]\n    N8[\"config\"]\n    N9[\"from\"]\n    N10[\"operators\"]\n    N11[\"issues\"]\n    N12[\"rotates\"]\n    N13[\"mTLS\"]\n    N14[\"certs\"]\n    N15[\"pushes\"]\n    N16[\"data\"]\n    N17[\"plane\"]\n    N18[\"proxies\"]\n    N19[\"aggregates\"]\n    N20[\"telemetry\"]\n    N21[\"push / xDS\"]\n    N22[\"report\"]\n    N23[\"(push\"]\n    N24[\"xDS)\"]\n    N25[\"(report)\"]\n    N26[\"DATA\"]\n    N27[\"Envoy / linkerd2-proxy sidecars in every pod\"]\n    N28[\"(Envoy\"]\n    N29[\"linkerd2\"]\n    N30[\"proxy\"]\n    N31[\"sidecars\"]\n    N32[\"every\"]\n    N33[\"pod)\"]\n    N34[\"Pod\"]\n    N35[\"app\"]\n    N36[\"all\"]\n    N37[\"inter\"]\n    N38[\"pod\"]\n    N39[\"traffic\"]\n    N40[\"mTLS'd\"]\n    N41[\"traced\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41",
-        "caption": "Service mesh architecture: control plane configures, data plane (proxies) executes. Every pod-to-pod call is intercepted, encrypted, retried, traced — without app code.",
-        "alt_text": "A diagram with two layers. The top layer is the control plane — Istiod or Linkerd control-plane — which accepts config from operators, issues and rotates mutual TLS certificates, pushes config to data-plane proxies, and aggregates telemetry. Below it is the data plane — Envoy or linkerd2-proxy sidecars running in every pod. Four pods are shown, each containing an app and a proxy. The pods communicate with each other via mTLS and are traced. The control plane pushes config and certs down via xDS; the data plane reports telemetry up. All inter-pod traffic is mutually TLS-encrypted and traced without the app code knowing."
+        "code": "flowchart LR\n  AppA[Service A] --> SideA[Proxy sidecar]\n  SideA --> Mesh[Service mesh control]\n  Mesh --> SideB[Proxy sidecar]\n  SideB --> AppB[Service B]\n  Mesh --> Policy[mTLS / retries / telemetry]",
+        "caption": "Service Mesh: apply a pattern to a recurring architectural pressure.",
+        "alt_text": "Concept diagram: Service Mesh"
       }
     },
     {
@@ -137,9 +137,9 @@
       "type": "mermaid",
       "id": "upgrade-mermaid-service-mesh",
       "payload": {
-        "code": "flowchart LR\n  A[Client] --> B[Gateway] --> C[Service] --> D[State] --> E[Outcome]",
+        "code": "flowchart LR\n  Concept[\"Service Mesh\"] --> Risk[\"Uniform cross-cutting concerns (mTLS, retries, circuit…\"]\n  Risk --> Mitigate[Mitigation / design choice]\n  Mitigate --> Outcome[Better system behavior]",
         "caption": "Service Mesh: a simplified system view showing the primary flow and the main state boundaries.",
-        "alt_text": "Service Mesh: a simplified system view showing the primary flow and the main state boundaries."
+        "alt_text": "Concept diagram: Service Mesh"
       }
     },
     {

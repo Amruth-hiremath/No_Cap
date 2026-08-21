@@ -34,9 +34,9 @@
       "type": "mermaid",
       "id": "strategies",
       "payload": {
-        "code": "flowchart TD\n    N0[\"lazy loading\"]\n    N1[\"CACHE\"]\n    N2[\"ASIDE\"]\n    N3[\"(lazy\"]\n    N4[\"loading)\"]\n    N5[\"Read:\"]\n    N6[\"Cache\"]\n    N7[\"MISS\"]\n    N8[\"write\"]\n    N9[\"return\"]\n    N10[\"Write:\"]\n    N11[\"invalidate\"]\n    N12[\"Pros:\"]\n    N13[\"cache\"]\n    N14[\"only\"]\n    N15[\"holds\"]\n    N16[\"what's\"]\n    N17[\"read.\"]\n    N18[\"Fault\"]\n    N19[\"tolerant.\"]\n    N20[\"Cons:\"]\n    N21[\"stale\"]\n    N22[\"data\"]\n    N23[\"window.\"]\n    N24[\"Stampede\"]\n    N25[\"miss.\"]\n    N26[\"WRITE\"]\n    N27[\"THROUGH\"]\n    N28[\"synchronously\"]\n    N29[\"App\"]\n    N30[\"(synchronously)\"]\n    N31[\"HIT\"]\n    N32[\"always\"]\n    N33[\"fresh.\"]\n    N34[\"reads.\"]\n    N35[\"must write to both\"]\n    N36[\"higher\"]\n    N37[\"latency\"]\n    N38[\"(must\"]\n    N39[\"both).\"]\n    N40[\"write-back\"]\n    N41[\"BEHIND\"]\n    N42[\"(write\"]\n    N43[\"back)\"]\n    N44[\"immediately\"]\n    N45[\"asynchronously, batched\"]\n    N46[\"(asynchronously,\"]\n    N47[\"batched)\"]\n    N48[\"very\"]\n    N49[\"fast\"]\n    N50[\"writes.\"]\n    N51[\"load\"]\n    N52[\"smoothed.\"]\n    N53[\"loss\"]\n    N54[\"crashes\"]\n    N55[\"before\"]\n    N56[\"flush.\"]\n    N57[\"REFRESH\"]\n    N58[\"AHEAD\"]\n    N59[\"proactively\"]\n    N60[\"refreshes\"]\n    N61[\"popular\"]\n    N62[\"items\"]\n    N63[\"BEFORE\"]\n    N64[\"they\"]\n    N65[\"expire.\"]\n    N66[\"never\"]\n    N67[\"wastes\"]\n    N68[\"resources\"]\n    N69[\"nobody\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44\n    N44 --> N45\n    N45 --> N46\n    N46 --> N47\n    N47 --> N48\n    N48 --> N49\n    N49 --> N50\n    N50 --> N51\n    N51 --> N52\n    N52 --> N53\n    N53 --> N54\n    N54 --> N55\n    N55 --> N56\n    N56 --> N57\n    N57 --> N58\n    N58 --> N59\n    N59 --> N60\n    N60 --> N61\n    N61 --> N62\n    N62 --> N63\n    N63 --> N64\n    N64 --> N65\n    N65 --> N66\n    N66 --> N67\n    N67 --> N68\n    N68 --> N69",
-        "caption": "Four caching strategies: cache-aside, write-through, write-behind, refresh-ahead.",
-        "alt_text": "Four diagrams. Cache aside: on read, check cache, miss, fetch from DB, write to cache, return. On write, update DB and invalidate cache. Pros: cache only holds what's read, fault-tolerant. Cons: stale data window, stampede on miss. Write through: write to cache and DB synchronously. Pros: cache always fresh. Cons: higher write latency. Write behind: write to cache and return immediately, DB updated asynchronously. Pros: very fast writes. Cons: data loss if cache crashes. Refresh ahead: cache proactively refreshes popular items before they expire. Pros: popular items never miss. Cons: wastes resources."
+        "code": "flowchart LR\n  Request[Read request] --> Cache{Cache lookup}\n  Cache -->|hit| Fast[Return cached value]\n  Cache -->|miss| DB[Read database]\n  DB --> Fill[Populate cache]\n  Fill --> Fast\n  Write[Write] --> Strategy{Write policy}\n  Strategy --> WT[Write-through]\n  Strategy --> WB[Write-behind]\n  Strategy --> CA[Cache-aside invalidation]",
+        "caption": "Cache-aside keeps the application in control of reads and cache population.",
+        "alt_text": "Concept diagram: Caching Strategies"
       }
     },
     {
@@ -149,9 +149,9 @@
       "type": "mermaid",
       "id": "cache-hierarchy-diagram",
       "payload": {
-        "code": "flowchart TD\n    User[User browser<br/>cache TTL: 1 year for hashed assets] --> CDN[CDN edge PoP<br/>~330 sites globally<br/>TTL: minutes-hours<br/>latency: 10ms]\n    CDN --> App[App server<br/>in-process cache<br/>TTL: seconds<br/>latency: 0.01ms]\n    App --> Redis[(Distributed cache<br/>Redis cluster<br/>TTL: minutes<br/>latency: 1ms)]\n    App --> DB[(Database<br/>+ buffer pool + OS page cache<br/>latency: 10-100ms)]\n    Redis --> DB\n    Notes[Each layer serves ~90% of its requests.<br/>1000 user requests → 100 CDN misses → 10 app misses → 1 DB hit.<br/>DB sees 0.1% of original load.]\n    classDef user fill:#e8f0fe,stroke:#1967d2,color:#174ea6\n    classDef cache fill:#e6f4ea,stroke:#188038,color:#0d652d\n    classDef db fill:#fef7e0,stroke:#f9ab00,color:#b06000\n    class User user\n    class CDN,App,Redis cache\n    class DB db",
+        "code": "flowchart LR\n  Concept[\"Caching Strategies\"] --> Risk[\"Dramatically reduces latency — cache hits…\"]\n  Risk --> Mitigate[Mitigation / design choice]\n  Mitigate --> Outcome[Better system behavior]",
         "caption": "Layered cache hierarchy. Each layer is faster, smaller, and serves ~90% of its incoming requests — so a small cache can carry a 1000x-larger database.",
-        "alt_text": "A diagram of cache hierarchy. User browser cache (TTL 1 year for hashed assets) connects to CDN edge (330 PoPs, minutes-hours TTL, 10ms latency). CDN connects to app server in-process cache (TTL seconds, 0.01ms latency). App server connects to Redis distributed cache (TTL minutes, 1ms latency). Redis and app server both connect to the database (with buffer pool and OS page cache, 10-100ms latency). Each layer serves ~90% of its requests, so 1000 user requests become 100 CDN misses, 10 app misses, 1 DB hit. DB sees 0.1% of original load."
+        "alt_text": "Concept diagram: Caching Strategies"
       }
     },
     {
@@ -165,9 +165,9 @@
       "type": "mermaid",
       "id": "cache-stampede-diagram",
       "payload": {
-        "code": "flowchart TD\n    TTL[Popular key's<br/>TTL expires at T=0] --> Q[Within 100ms, 1000 requests arrive]\n    Q --> M1[Request 1: MISS - fetch from DB]\n    Q --> M2[Request 2: MISS - fetch from DB]\n    Q --> M3[Request 3: MISS - fetch from DB]\n    Q --> Mn[Request N: MISS - fetch from DB]\n    M1 --> DB1[(Database<br/>gets 1000 queries<br/>in 100ms)]\n    M2 --> DB1\n    M3 --> DB1\n    Mn --> DB1\n    DB1 --> Crash{DB<br/>saturated?}\n    Crash -->|Yes| Down[System down<br/>cascading failure]\n    Crash -->|No| Recov[Survives<br/>but slow]\n    DB1 --> Mitigation{Mitigation<br/>in place?}\n    Mitigation -->|Lock| Lock[Cache lock:<br/>only req 1 fetches,<br/>others wait]\n    Mitigation -->|Jitter| Jitter[Probabilistic early<br/>expiration: TTL + jitter<br/>spreads misses over time]\n    Mitigation -->|Refresh-ahead| RA[Refresh-ahead:<br/>refresh before expiry<br/>no miss ever happens]\n    classDef problem fill:#fee,stroke:#c33,color:#900\n    classDef mitigation fill:#e6f4ea,stroke:#188038,color:#0d652d\n    class Down problem\n    class Lock,Jitter,RA mitigation",
+        "code": "flowchart LR\n  Concept[\"Caching Strategies\"] --> Use[When to use]\n  Concept --> Avoid[When not to use]\n  Use --> Outcome[Engineering outcome]\n  Avoid --> Tradeoff[Alternative / trade-off]",
         "caption": "Cache stampede: when a popular key expires, N concurrent requests all miss simultaneously, hammering the DB. Three mitigations: cache locking, probabilistic TTL jitter, refresh-ahead.",
-        "alt_text": "A flowchart of cache stampede. A popular key's TTL expires. Within 100ms, 1000 requests arrive. All 1000 see a MISS and fetch from the DB simultaneously. The DB gets 1000 queries in 100ms — it may saturate (system down, cascading failure) or barely survive but slow. Mitigations: cache lock (only the first request fetches, others wait), probabilistic early expiration with jitter (TTL is randomized so misses spread out over time), refresh-ahead (refresh before expiry so no miss ever happens)."
+        "alt_text": "Concept diagram: Caching Strategies"
       }
     },
     {
@@ -271,9 +271,9 @@
       "type": "mermaid",
       "id": "upgrade-mermaid-caching-strategies",
       "payload": {
-        "code": "flowchart LR\n U[Client] --> A[Application]\n A -->|hit| C[(Cache)]\n A -->|miss| D[(Database)]\n D --> C\n C --> A",
+        "code": "flowchart LR\n  Concept[\"Caching Strategies\"] --> Use[When to use]\n  Concept --> Avoid[When not to use]\n  Use --> Outcome[Engineering outcome]\n  Avoid --> Tradeoff[Alternative / trade-off]",
         "caption": "Cache-aside keeps the application in control: a cache hit is fast, while a miss loads from the database and populates the cache.",
-        "alt_text": "Cache-aside keeps the application in control: a cache hit is fast, while a miss loads from the database and populates the cache."
+        "alt_text": "Concept diagram: Caching Strategies"
       }
     },
     {

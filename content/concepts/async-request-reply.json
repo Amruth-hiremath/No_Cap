@@ -35,9 +35,9 @@
       "type": "mermaid",
       "id": "async-flow",
       "payload": {
-        "code": "flowchart TD\n    N0[\"Client\"]\n    N1[\"API\"]\n    N2[\"server\"]\n    N3[\"Queue\"]\n    N4[\"Worker\"]\n    N5[\"POST\"]\n    N6[\"jobs\"]\n    N7[\"persist\"]\n    N8[\"job\"]\n    N9[\"record\"]\n    N10[\" params \"]\n    N11[\"params\"]\n    N12[\"job_id\"]\n    N13[\"uuid()\"]\n    N14[\"msg\"]\n    N15[\"job_id, params\"]\n    N16[\"enqueue(job_id,\"]\n    N17[\"params)\"]\n    N18[\"[msg]\"]\n    N19[\"id\"]\n    N20[\"202\"]\n    N21[\"Accepted\"]\n    N22[\"return\"]\n    N23[\"Location:\"]\n    N24[\"{id}\"]\n    N25[\" job_id \"]\n    N26[\"pop\"]\n    N27[\"process\"]\n    N28[\"update\"]\n    N29[\"state\"]\n    N30[\"GET\"]\n    N31[\"pending\"]\n    N32[\"running\"]\n    N33[\"(worker\"]\n    N34[\"updates\"]\n    N35[\"succeeded\"]\n    N36[\" result_url \"]\n    N37[\"result_url\"]\n    N38[\"progresses)\"]\n    N39[\"200\"]\n    N40[\"with\"]\n    N41[\"body\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41",
-        "caption": "Three-phase async flow: 202 with job_id, poll for status, retrieve result when ready.",
-        "alt_text": "A sequence diagram of asynchronous request-reply. The client POSTs to a /jobs endpoint. The API server persists a job record with a unique job_id, enqueues a message onto a queue, and returns HTTP 202 Accepted with the job_id. The client then polls GET /jobs/{id} to check status: pending, then running, then succeeded. A worker pulls the message from the queue, processes the job, and updates the job record at each stage. When the status is succeeded, the client fetches the result via a result URL. The job_id is the correlation ID that ties all stages together."
+        "code": "sequenceDiagram\n  participant C as Client\n  participant A as API\n  participant Q as Queue\n  participant W as Worker\n  participant S as Status store\n  C->>A: Submit request\n  A->>Q: Enqueue job\n  A-->>C: Job ID\n  Q->>W: Process\n  W->>S: Persist result\n  C->>A: Poll / callback with Job ID\n  A-->>C: Completed result",
+        "caption": "Async Request-Reply: decouple producers from asynchronous work.",
+        "alt_text": "Concept diagram: Async Request-Reply"
       }
     },
     {
@@ -160,9 +160,9 @@
       "type": "mermaid",
       "id": "upgrade-mermaid-async-request-reply",
       "payload": {
-        "code": "flowchart LR\n  A[Producer] --> B[Broker] --> C[Consumer] --> D[Retry] --> E[Outcome]",
+        "code": "flowchart LR\n  Concept[\"Async Request-Reply\"] --> Risk[\"Decouples request lifetime from work duration…\"]\n  Risk --> Mitigate[Mitigation / design choice]\n  Mitigate --> Outcome[Better system behavior]",
         "caption": "Async Request-Reply: a simplified system view showing the primary flow and the main state boundaries.",
-        "alt_text": "Async Request-Reply: a simplified system view showing the primary flow and the main state boundaries."
+        "alt_text": "Concept diagram: Async Request-Reply"
       }
     },
     {

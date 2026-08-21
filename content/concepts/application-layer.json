@@ -31,9 +31,9 @@
       "type": "mermaid",
       "id": "stateless-tier",
       "payload": {
-        "code": "flowchart TD\n    N0[\"Client\"]\n    N1[\"Load Balancer\"]\n    N2[\"[Load\"]\n    N3[\"Balancer]\"]\n    N4[\"App\"]\n    N5[\"[App]\"]\n    N6[\"stateless\"]\n    N7[\"application\"]\n    N8[\"layer\"]\n    N9[\"logic + orchestration, no session state\"]\n    N10[\"(logic\"]\n    N11[\"orchestration,\"]\n    N12[\"session\"]\n    N13[\"state)\"]\n    N14[\"Postgres\"]\n    N15[\"Redis\"]\n    N16[\"S3\"]\n    N17[\"Stripe API\"]\n    N18[\"[Postgres]\"]\n    N19[\"[Redis]\"]\n    N20[\"[S3]\"]\n    N21[\"[Stripe\"]\n    N22[\"API]\"]\n    N23[\"^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\"]\n    N24[\"State\"]\n    N25[\"lives\"]\n    N26[\"HERE,\"]\n    N27[\"not\"]\n    N28[\"the\"]\n    N29[\"app\"]\n    N30[\"tier.\"]\n    N31[\"Any\"]\n    N32[\"instance\"]\n    N33[\"can\"]\n    N34[\"serve\"]\n    N35[\"any\"]\n    N36[\"request.\"]\n    N37[\"dies,\"]\n    N38[\"routes\"]\n    N39[\"elsewhere\"]\n    N40[\"data\"]\n    N41[\"lost.\"]\n    N42[\"scale:\"]\n    N43[\"add\"]\n    N44[\"more\"]\n    N45[\"instances,\"]\n    N46[\"nothing\"]\n    N47[\"else\"]\n    N48[\"changes.\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44\n    N44 --> N45\n    N45 --> N46\n    N46 --> N47\n    N47 --> N48",
-        "caption": "Stateless application tier in front of stateful backing stores. Any instance can handle any request.",
-        "alt_text": "A diagram showing clients hitting a load balancer, which distributes requests across three stateless application servers. The application servers all share the same backing stores: Postgres for relational data, Redis for cache and sessions, S3 for files, and a Stripe API for payments. State lives in the backing stores, not in the app tier. Any application instance can serve any request, and if one dies, the load balancer routes elsewhere with no data lost."
+        "code": "flowchart LR\n  Client[Client] --> API[Application layer]\n  API --> Business[Business logic]\n  Business --> Data[Data access]\n  Data --> DB[(Database)]",
+        "caption": "Application Layer: route traffic between the edge and application services.",
+        "alt_text": "Concept diagram: Application Layer"
       }
     },
     {
@@ -153,9 +153,9 @@
       "type": "mermaid",
       "id": "upgrade-mermaid-application-layer",
       "payload": {
-        "code": "flowchart LR\n  A[Client] --> B[Gateway] --> C[Service] --> D[State] --> E[Outcome]",
+        "code": "flowchart LR\n  Concept[\"Application Layer\"] --> Risk[\"Stateless app servers enable horizontal scaling,…\"]\n  Risk --> Mitigate[Mitigation / design choice]\n  Mitigate --> Outcome[Better system behavior]",
         "caption": "Application Layer: a simplified system view showing the primary flow and the main state boundaries.",
-        "alt_text": "Application Layer: a simplified system view showing the primary flow and the main state boundaries."
+        "alt_text": "Concept diagram: Application Layer"
       }
     },
     {

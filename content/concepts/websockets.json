@@ -35,9 +35,9 @@
       "type": "mermaid",
       "id": "upgrade",
       "payload": {
-        "code": "flowchart TD\n    N0[\"WebSocket\"]\n    N1[\"Upgrade\"]\n    N2[\"Handshake\"]\n    N3[\"Client\"]\n    N4[\"Server\"]\n    N5[\"HTTP\"]\n    N6[\"GET\"]\n    N7[\"chat\"]\n    N8[\"Upgrade:\"]\n    N9[\"websocket\"]\n    N10[\"Connection:\"]\n    N11[\"Sec\"]\n    N12[\"Key:\"]\n    N13[\"dGhlIHNhbXBsZQ\"]\n    N14[\"Version:\"]\n    N15[\"101\"]\n    N16[\"Switching\"]\n    N17[\"Protocols\"]\n    N18[\"server derives from key\"]\n    N19[\"Accept:\"]\n    N20[\"s3pPLMBiT...\"]\n    N21[\"(server\"]\n    N22[\"derives\"]\n    N23[\"from\"]\n    N24[\"key)\"]\n    N25[\"Now\"]\n    N26[\"full\"]\n    N27[\"duplex\"]\n    N28[\"channel\"]\n    N29[\"frame:\"]\n    N30[\"'hi'\"]\n    N31[\"'howdy'\"]\n    N32[\"'msg\"]\n    N33[\"'bye'\"]\n    N34[\"CLOSE\"]\n    N35[\"Cost:\"]\n    N36[\"round\"]\n    N37[\"trip\"]\n    N38[\"upgrade,\"]\n    N39[\"then\"]\n    N40[\"near\"]\n    N41[\"zero\"]\n    N42[\"per\"]\n    N43[\"message\"]\n    N44[\"overhead.\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44",
-        "caption": "WebSocket starts as an HTTP request, upgrades to a full-duplex binary channel. After upgrade, either side sends frames whenever it wants.",
-        "alt_text": "A sequence diagram of the WebSocket upgrade handshake. The client sends an HTTP GET request to /chat with the Upgrade: websocket header, Connection: Upgrade header, a Sec-WebSocket-Key, and version 13. The server responds with HTTP 101 Switching Protocols and a Sec-WebSocket-Accept value derived from the key. From then on, the connection is a full-duplex WebSocket channel. The client and server exchange frames freely: client sends hi, server sends howdy and msg 2, client sends bye, server closes. The cost is one HTTP round trip to upgrade, then near-zero per-message overhead."
+        "code": "sequenceDiagram\n  participant C as Browser\n  participant S as Server\n  C->>S: HTTP Upgrade\n  S-->>C: 101 Switching Protocols\n  loop Realtime session\n    C->>S: Message\n    S-->>C: Message / event\n  end\n  C->>S: Close",
+        "caption": "WebSockets upgrade HTTP into a persistent bidirectional channel.",
+        "alt_text": "Concept diagram: WebSockets — Full-Duplex Real-Time Over TCP"
       }
     },
     {
@@ -160,9 +160,9 @@
       "type": "mermaid",
       "id": "upgrade-mermaid-websockets",
       "payload": {
-        "code": "sequenceDiagram\n participant C as Client\n participant S as Server\n C->>S: HTTP upgrade\n S-->>C: 101 Switching Protocols\n C<<->>S: bidirectional messages",
+        "code": "flowchart LR\n  Concept[\"WebSockets — Full-Duplex Real-Time Over TCP\"] --> Risk[\"True full-duplex, low-latency bidirectional communication over…\"]\n  Risk --> Mitigate[Mitigation / design choice]\n  Mitigate --> Outcome[Better system behavior]",
         "caption": "WebSockets upgrade an HTTP connection into a long-lived bidirectional channel.",
-        "alt_text": "WebSockets upgrade an HTTP connection into a long-lived bidirectional channel."
+        "alt_text": "Concept diagram: WebSockets — Full-Duplex Real-Time Over TCP"
       }
     },
     {

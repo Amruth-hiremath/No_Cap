@@ -35,9 +35,9 @@
       "type": "mermaid",
       "id": "mvcc-versioning",
       "payload": {
-        "code": "flowchart TD\n    N0[\"MVCC:\"]\n    N1[\"writers\"]\n    N2[\"create\"]\n    N3[\"new\"]\n    N4[\"versions,\"]\n    N5[\"not\"]\n    N6[\"overwrite\"]\n    N7[\"snapshot\"]\n    N8[\"Transaction\"]\n    N9[\"starts\"]\n    N10[\"(snapshot).\"]\n    N11[\"Reads\"]\n    N12[\"balance.\"]\n    N13[\"Writes\"]\n    N14[\"reads\"]\n    N15[\"balance\"]\n    N16[\"again\"]\n    N17[\"30.\"]\n    N18[\"Time\"]\n    N19[\"acct\"]\n    N20[\"bal\"]\n    N21[\"100\"]\n    N22[\"begins\"]\n    N23[\"commits\"]\n    N24[\"created\"]\n    N25[\"150\"]\n    N26[\"(snapshot)\"]\n    N27[\"Storage:\"]\n    N28[\"xmin\"]\n    N29[\"xmax\"]\n    N30[\"NULL\"]\n    N31[\"old version\"]\n    N32[\"current\"]\n    N33[\"(old\"]\n    N34[\"version)\"]\n    N35[\"(current)\"]\n    N36[\"A's\"]\n    N37[\"doesn't\"]\n    N38[\"see\"]\n    N39[\"B's\"]\n    N40[\"version\"]\n    N41[\"(xmin\"]\n    N42[\"committed\"]\n    N43[\"10).\"]\n    N44[\"keeps\"]\n    N45[\"reading\"]\n    N46[\"100.\"]\n    N47[\"write\"]\n    N48[\"didn't\"]\n    N49[\"block\"]\n    N50[\"read\"]\n    N51[\"saw\"]\n    N52[\"the\"]\n    N53[\"old\"]\n    N54[\"version.\"]\n    N55[\"wasn't\"]\n    N56[\"blocked\"]\n    N57[\"held\"]\n    N58[\"lock.\"]\n    N59[\"VACUUM\"]\n    N60[\"later\"]\n    N61[\"removes\"]\n    N62[\"once\"]\n    N63[\"active\"]\n    N64[\"transaction\"]\n    N65[\"can\"]\n    N66[\"it.\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44\n    N44 --> N45\n    N45 --> N46\n    N46 --> N47\n    N47 --> N48\n    N48 --> N49\n    N49 --> N50\n    N50 --> N51\n    N51 --> N52\n    N52 --> N53\n    N53 --> N54\n    N54 --> N55\n    N55 --> N56\n    N56 --> N57\n    N57 --> N58\n    N58 --> N59\n    N59 --> N60\n    N60 --> N61\n    N61 --> N62\n    N62 --> N63\n    N63 --> N64\n    N64 --> N65\n    N65 --> N66",
-        "caption": "MVCC: each transaction sees a snapshot; writers create new row versions instead of overwriting in place.",
-        "alt_text": "A timeline diagram showing MVCC. Transaction A starts at time 10 and takes a snapshot. Transaction B starts at time 20 and writes balance=150, creating a new row version (xmin=20, xmax=NULL). The old version (xmin=1, bal=100, xmax=20) is preserved. B commits at time 25. Transaction A reads balance again at time 30 and still sees balance=100, because its snapshot at time 10 predates B's commit at time 25. A's read was never blocked by B's write, and B's write was never blocked by A's read. VACUUM later removes the old version once no active transaction can see it."
+        "code": "flowchart LR\n  Writer[Writer] --> Versioned[(Versioned rows)]\n  ReaderA[Reader A] --> SnapshotA[Snapshot A]\n  ReaderB[Reader B] --> SnapshotB[Snapshot B]\n  Versioned --> SnapshotA\n  Versioned --> SnapshotB\n  SnapshotA --> Isolation[Non-blocking consistent reads]",
+        "caption": "MVCC: shape storage around the access pattern.",
+        "alt_text": "Concept diagram: MVCC"
       }
     },
     {
@@ -177,9 +177,9 @@
       "type": "mermaid",
       "id": "upgrade-mermaid-mvcc",
       "payload": {
-        "code": "flowchart LR\n  A[Client] --> B[Gateway] --> C[Service] --> D[State] --> E[Outcome]",
+        "code": "flowchart LR\n  Concept[\"MVCC\"] --> Risk[\"Readers never block writers, writers never…\"]\n  Risk --> Mitigate[Mitigation / design choice]\n  Mitigate --> Outcome[Better system behavior]",
         "caption": "MVCC: a simplified system view showing the primary flow and the main state boundaries.",
-        "alt_text": "MVCC: a simplified system view showing the primary flow and the main state boundaries."
+        "alt_text": "Concept diagram: MVCC"
       }
     },
     {

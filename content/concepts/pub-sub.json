@@ -32,9 +32,9 @@
       "type": "mermaid",
       "id": "pubsub-vs-queue",
       "payload": {
-        "code": "flowchart TD\n    N0[\"each message → one consumer\"]\n    N1[\"WORK\"]\n    N2[\"QUEUE\"]\n    N3[\"(each\"]\n    N4[\"message\"]\n    N5[\"one\"]\n    N6[\"consumer)\"]\n    N7[\" Queue \"]\n    N8[\"gets msg 1\"]\n    N9[\"Producer\"]\n    N10[\"Queue\"]\n    N11[\"Consumer\"]\n    N12[\"(gets\"]\n    N13[\"msg\"]\n    N14[\"gets msg 2\"]\n    N15[\"gets msg 3\"]\n    N16[\"Messages\"]\n    N17[\"are\"]\n    N18[\"distributed\"]\n    N19[\"across\"]\n    N20[\"consumers.\"]\n    N21[\"each message → ALL subscribers\"]\n    N22[\"PUB\"]\n    N23[\"SUB\"]\n    N24[\"ALL\"]\n    N25[\"subscribers)\"]\n    N26[\" Topic \"]\n    N27[\"gets msg 1, 2, 3\"]\n    N28[\"Topic\"]\n    N29[\"Subscriber\"]\n    N30[\"Each\"]\n    N31[\"subscriber\"]\n    N32[\"gets\"]\n    N33[\"copy\"]\n    N34[\"every\"]\n    N35[\"message.\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35",
-        "caption": "Work queue: one consumer per message. Pub/sub: all subscribers get each message.",
-        "alt_text": "Two diagrams. In a work queue, a producer sends messages to a queue, and each message goes to exactly one consumer — messages are distributed across consumers. In pub/sub, a producer sends messages to a topic, and every subscriber gets a copy of every message. The key difference: work queue distributes work, pub/sub broadcasts events."
+        "code": "flowchart LR\n  Publisher[Publisher] --> Topic[(Topic)]\n  Topic --> SubA[Subscriber A]\n  Topic --> SubB[Subscriber B]\n  Topic --> SubC[Subscriber C]",
+        "caption": "Publish-subscribe fans one event out to multiple independent subscribers.",
+        "alt_text": "Concept diagram: Publish/Subscribe (Pub/Sub)"
       }
     },
     {
@@ -133,9 +133,9 @@
       "type": "mermaid",
       "id": "upgrade-mermaid-pub-sub",
       "payload": {
-        "code": "flowchart LR\n  A[Client] --> B[Gateway] --> C[Service] --> D[State] --> E[Outcome]",
+        "code": "flowchart LR\n  Concept[\"Publish/Subscribe (Pub/Sub)\"] --> Risk[\"Broadcasts events to all subscribers —…\"]\n  Risk --> Mitigate[Mitigation / design choice]\n  Mitigate --> Outcome[Better system behavior]",
         "caption": "Publish/Subscribe (Pub/Sub): a simplified system view showing the primary flow and the main state boundaries.",
-        "alt_text": "Publish/Subscribe (Pub/Sub): a simplified system view showing the primary flow and the main state boundaries."
+        "alt_text": "Concept diagram: Publish/Subscribe (Pub/Sub)"
       }
     },
     {

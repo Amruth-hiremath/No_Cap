@@ -38,9 +38,9 @@
       "type": "mermaid",
       "id": "diagram-layers",
       "payload": {
-        "code": "flowchart TD\n    N0[\"clients\"]\n    N1[\"Users\"]\n    N2[\"(clients)\"]\n    N3[\"CDN\"]\n    N4[\"Load\"]\n    N5[\"Balancer\"]\n    N6[\"traffic\"]\n    N7[\"enters\"]\n    N8[\"here\"]\n    N9[\"Application\"]\n    N10[\"Layer\"]\n    N11[\"stateless\"]\n    N12[\"services\"]\n    N13[\"service A, service B, ...\"]\n    N14[\"(service\"]\n    N15[\"service\"]\n    N16[\"...)\"]\n    N17[\"Cache\"]\n    N18[\"Queue\"]\n    N19[\"state\"]\n    N20[\"lives\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20",
-        "caption": "A typical web system: clients → edge → app → stateful stores. Every box is a design decision.",
-        "alt_text": "A typical web system architecture diagram. Users connect through a CDN and load balancer to a layer of stateless application services. The services read from and write to a cache, a database, and a message queue. Every box represents a design decision with trade-offs."
+        "code": "flowchart LR\n  Concept[\"What is System Design\"] --> Problem[System requirement] --> Design[System design]\n  Design --> Components[Components + data flows]\n  Components --> Tradeoffs[Trade-offs]\n  Tradeoffs --> System[Working system]",
+        "caption": "What is System Design: problem → mechanism → behavior → outcome.",
+        "alt_text": "Concept diagram: What is System Design"
       }
     },
     {
@@ -142,9 +142,9 @@
       "type": "mermaid",
       "id": "decision-areas-b2",
       "payload": {
-        "code": "flowchart LR\n    Req[Requirements<br/>scale, latency, consistency, cost, budget] --> Decide\n    subgraph Decide[5 Decision Areas]\n        direction TB\n        Comp[1. Components<br/>services, queues, caches, stores]\n        Comm[2. Communication<br/>sync RPC vs async queue vs stream]\n        Data[3. Data<br/>SQL, KV, document, wide-column, object]\n        Fail[4. Failure<br/>replicas, fallbacks, circuit breakers]\n        Scal[5. Scale<br/>stateless nodes, shards, regions]\n        Comp --> Comm --> Data --> Fail --> Scal\n    end\n    Decide --> ToF[Trade-offs<br/>explicit, defensible]\n    ToF --> Arch[Concrete architecture]\n    Arch -.feedback.-> Req\n\n    classDef area fill:#1e3a5f,stroke:#3b82f6,color:#e0e7ff\n    classDef io fill:#3a2e1e,stroke:#f59e0b,color:#fef3c7\n    class Comp,Comm,Data,Fail,Scal area\n    class Req,ToF,Arch io",
+        "code": "flowchart LR\n  Concept[\"What is System Design\"] --> Risk[\"Forces explicit reasoning about scale, reliability,…\"]\n  Risk --> Mitigate[Mitigation / design choice]\n  Mitigate --> Outcome[Better system behavior]",
         "caption": "The five decision areas, fed by requirements, output as a concrete architecture with explicit trade-offs.",
-        "alt_text": "A flowchart. Requirements (scale, latency, consistency, cost, budget) flow into a subgraph labelled '5 Decision Areas' containing five sequential nodes: 1. Components, 2. Communication, 3. Data, 4. Failure, 5. Scale. The subgraph outputs Trade-offs (explicit, defensible), which produces a Concrete architecture. A dotted feedback arrow returns from Architecture back to Requirements — signifying that design is iterative."
+        "alt_text": "Concept diagram: What is System Design"
       }
     },
     {
@@ -219,9 +219,9 @@
       "type": "mermaid",
       "id": "upgrade-mermaid-what-is-system-design",
       "payload": {
-        "code": "flowchart LR\n  A[Client] --> B[Gateway] --> C[Service] --> D[State] --> E[Outcome]",
+        "code": "flowchart LR\n  Concept[\"What is System Design\"] --> Use[When to use]\n  Concept --> Avoid[When not to use]\n  Use --> Outcome[Engineering outcome]\n  Avoid --> Tradeoff[Alternative / trade-off]",
         "caption": "What is System Design: a simplified system view showing the primary flow and the main state boundaries.",
-        "alt_text": "What is System Design: a simplified system view showing the primary flow and the main state boundaries."
+        "alt_text": "Concept diagram: What is System Design"
       }
     },
     {

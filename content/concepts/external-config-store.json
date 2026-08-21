@@ -32,9 +32,9 @@
       "type": "mermaid",
       "id": "topology",
       "payload": {
-        "code": "flowchart TD\n    N0[\"External\"]\n    N1[\"Config\"]\n    N2[\"Store\"]\n    N3[\"(etcd\"]\n    N4[\"Consul\"]\n    N5[\"LaunchDarkly\"]\n    N6[\"AppConfig)\"]\n    N7[\"versioned\"]\n    N8[\"who, when\"]\n    N9[\"audited\"]\n    N10[\"(who,\"]\n    N11[\"when)\"]\n    N12[\"watch\"]\n    N13[\"stream\"]\n    N14[\"updates\"]\n    N15[\"push\"]\n    N16[\"poll\"]\n    N17[\"App\"]\n    N18[\"reads\"]\n    N19[\"config\"]\n    N20[\"startup,\"]\n    N21[\"subscribes\"]\n    N22[\"uses\"]\n    N23[\"live\"]\n    N24[\"Operators\"]\n    N25[\"update\"]\n    N26[\"once\"]\n    N27[\"all\"]\n    N28[\"apps\"]\n    N29[\"see\"]\n    N30[\"seconds.\"]\n    N31[\"redeploy.\"]\n    N32[\"rebuild.\"]\n    N33[\"Rollback\"]\n    N34[\"flip\"]\n    N35[\"the\"]\n    N36[\"value\"]\n    N37[\"back.\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37",
-        "caption": "External Config Store: operators push config once, all running instances pick it up via polling or streaming. Behavioral changes without redeployment.",
-        "alt_text": "A diagram showing an External Config Store at the top — etcd, Consul, LaunchDarkly, or AWS AppConfig — that is versioned, audited, and supports watch or stream updates. Two application instances are shown below, both pulling or subscribing to config. The caption notes that operators update config once and all apps see it in seconds, with no redeploy or rebuild; rollback is just flipping the value back."
+        "code": "flowchart LR\n  Service[Application] --> Config[(Config store)]\n  Config --> Feature[Feature flags]\n  Config --> Secrets[Configuration / endpoints]\n  Service --> Runtime[Runtime behavior]",
+        "caption": "External Config Store: apply a pattern to a recurring architectural pressure.",
+        "alt_text": "Concept diagram: External Config Store"
       }
     },
     {
@@ -132,9 +132,9 @@
       "type": "mermaid",
       "id": "upgrade-mermaid-external-config-store",
       "payload": {
-        "code": "flowchart LR\n  A[Client] --> B[Service] --> C[Data layer] --> D[Replication] --> E[Durability]",
+        "code": "flowchart LR\n  Concept[\"External Config Store\"] --> Risk[\"Behavioral changes without redeployment — seconds…\"]\n  Risk --> Mitigate[Mitigation / design choice]\n  Mitigate --> Outcome[Better system behavior]",
         "caption": "External Config Store: a simplified system view showing the primary flow and the main state boundaries.",
-        "alt_text": "External Config Store: a simplified system view showing the primary flow and the main state boundaries."
+        "alt_text": "Concept diagram: External Config Store"
       }
     },
     {

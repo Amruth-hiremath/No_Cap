@@ -33,9 +33,9 @@
       "type": "mermaid",
       "id": "topology",
       "payload": {
-        "code": "flowchart TD\n    N0[\"Producer:\"]\n    N1[\"acct=A\"]\n    N2[\"acct=B\"]\n    N3[\"acct=C\"]\n    N4[\"msg1\"]\n    N5[\"(acct\"]\n    N6[\"msg2\"]\n    N7[\"msg3\"]\n    N8[\"msg4\"]\n    N9[\"msg5\"]\n    N10[\"key\"]\n    N11[\"hash(key)\"]\n    N12[\"partitions\"]\n    N13[\"Partitioned\"]\n    N14[\"Queue\"]\n    N15[\"Topic\"]\n    N16[\" msg1(A), msg3(A), msg5(A) \"]\n    N17[\"A\"]\n    N18[\"partition\"]\n    N19[\"msg1(A),\"]\n    N20[\"msg3(A),\"]\n    N21[\"msg5(A)\"]\n    N22[\"A's\"]\n    N23[\"messages,\"]\n    N24[\" msg4(C)                       \"]\n    N25[\"C\"]\n    N26[\"msg4(C)\"]\n    N27[\"order\"]\n    N28[\" msg2(B)                       \"]\n    N29[\"B\"]\n    N30[\"msg2(B)\"]\n    N31[\" (empty)                      \"]\n    N32[\"empty\"]\n    N33[\"(empty)\"]\n    N34[\"Cons.0\"]\n    N35[\"Cons.1\"]\n    N36[\"Cons.2\"]\n    N37[\"Cons.3\"]\n    N38[\"idle\"]\n    N39[\"m1,m3,\"]\n    N40[\"Each\"]\n    N41[\"consumer\"]\n    N42[\"processes\"]\n    N43[\"its\"]\n    N44[\"strictly\"]\n    N45[\"order.\"]\n    N46[\"different keys\"]\n    N47[\"Different\"]\n    N48[\"(different\"]\n    N49[\"keys)\"]\n    N50[\"process\"]\n    N51[\"parallel.\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44\n    N44 --> N45\n    N45 --> N46\n    N46 --> N47\n    N47 --> N48\n    N48 --> N49\n    N49 --> N50\n    N50 --> N51",
-        "caption": "Sequential Convoy: messages with the same key go to the same partition, processed in order; different keys go to different partitions, processed in parallel.",
-        "alt_text": "A diagram showing a producer sending five messages with keys A, B, A, C, A. A hash function distributes them across a partitioned queue with four partitions. Partition zero contains messages one, three, and five for account A. Partition one contains message four for account C. Partition two contains message two for account B. Partition three is empty. Each partition has a dedicated consumer that processes its messages strictly in order: consumer zero processes A's messages one, three, five in sequence; consumer one processes C's message four; consumer two processes B's message two. The caption notes that each consumer processes its partition in order, while different partitions process in parallel."
+        "code": "flowchart LR\n  Jobs[Queued jobs] --> Leader[First / leader job]\n  Leader --> Next[Next job waits]\n  Next --> Serial[Serial convoy processing]\n  Serial --> Bottleneck[Head-of-line blocking]",
+        "caption": "Sequential Convoy: apply a pattern to a recurring architectural pressure.",
+        "alt_text": "Concept diagram: Sequential Convoy"
       }
     },
     {
@@ -133,9 +133,9 @@
       "type": "mermaid",
       "id": "upgrade-mermaid-sequential-convoy",
       "payload": {
-        "code": "flowchart LR\n  A[Client] --> B[Gateway] --> C[Service] --> D[State] --> E[Outcome]",
+        "code": "flowchart LR\n  Concept[\"Sequential Convoy\"] --> Risk[\"Per-key ordering preserved while enabling parallelism…\"]\n  Risk --> Mitigate[Mitigation / design choice]\n  Mitigate --> Outcome[Better system behavior]",
         "caption": "Sequential Convoy: a simplified system view showing the primary flow and the main state boundaries.",
-        "alt_text": "Sequential Convoy: a simplified system view showing the primary flow and the main state boundaries."
+        "alt_text": "Concept diagram: Sequential Convoy"
       }
     },
     {

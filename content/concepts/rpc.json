@@ -33,9 +33,9 @@
       "type": "mermaid",
       "id": "flow",
       "payload": {
-        "code": "flowchart TD\n    N0[\"CLIENT\"]\n    N1[\"SERVER\"]\n    N2[\"42\"]\n    N3[\"result\"]\n    N4[\"stub.getUser(42)\"]\n    N5[\"looks\"]\n    N6[\"local\"]\n    N7[\"Client Stub\"]\n    N8[\"[Client\"]\n    N9[\"Stub]\"]\n    N10[\"marshal\"]\n    N11[\"args\"]\n    N12[\"(42)\"]\n    N13[\"Server Skeleton\"]\n    N14[\"send\"]\n    N15[\"request\"]\n    N16[\"over\"]\n    N17[\"transport\"]\n    N18[\"[Server\"]\n    N19[\"Skeleton]\"]\n    N20[\"wait\"]\n    N21[\"for\"]\n    N22[\"response\"]\n    N23[\"unmarshal\"]\n    N24[\"call\"]\n    N25[\"getUser(42)\"]\n    N26[\"impl\"]\n    N27[\"return\"]\n    N28[\"now\"]\n    N29[\"scope\"]\n    N30[\"i32 id\"]\n    N31[\"User\"]\n    N32[\" rpc GetUser(i32 id) returns (User); \"]\n    N33[\"IDL:\"]\n    N34[\"service\"]\n    N35[\"UserService\"]\n    N36[\"rpc\"]\n    N37[\"GetUser(i32\"]\n    N38[\"id)\"]\n    N39[\"returns\"]\n    N40[\"(User);\"]\n    N41[\"Codegen\"]\n    N42[\"from\"]\n    N43[\"IDL\"]\n    N44[\"produces\"]\n    N45[\"both\"]\n    N46[\"stubs.\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44\n    N44 --> N45\n    N45 --> N46",
-        "caption": "RPC hides marshalling and transport behind generated stubs that look like local function calls.",
-        "alt_text": "A flow diagram of an RPC call. The client calls result equals stub dot get user of 42, which looks like a local function. The client stub marshals the argument 42 and sends it over the transport. The server skeleton unmarshals 42, calls the get user implementation, marshals the result, and sends it back. The client stub unmarshals the result and returns it, so result is in scope locally. The interface definition language declares the service, and code generation produces both stubs."
+        "code": "flowchart LR\n  Concept[\"RPC — Remote Procedure Call\"] --> API[API contract]",
+        "caption": "RPC — Remote Procedure Call: problem → mechanism → behavior → outcome.",
+        "alt_text": "Concept diagram: RPC — Remote Procedure Call"
       }
     },
     {
@@ -158,9 +158,9 @@
       "type": "mermaid",
       "id": "upgrade-mermaid-rpc",
       "payload": {
-        "code": "flowchart LR\n  A[Client] --> B[Gateway] --> C[Service] --> D[State] --> E[Outcome]",
+        "code": "flowchart LR\n  Concept[\"RPC — Remote Procedure Call\"] --> Risk[\"Typed, code-generated stubs catch interface errors…\"]\n  Risk --> Mitigate[Mitigation / design choice]\n  Mitigate --> Outcome[Better system behavior]",
         "caption": "RPC — Remote Procedure Call: a simplified system view showing the primary flow and the main state boundaries.",
-        "alt_text": "RPC — Remote Procedure Call: a simplified system view showing the primary flow and the main state boundaries."
+        "alt_text": "Concept diagram: RPC — Remote Procedure Call"
       }
     },
     {

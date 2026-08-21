@@ -7,7 +7,7 @@ import { AccentRule } from '@/components/ui/AccentRule';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { useStore } from '@/lib/store';
-import { getConcept } from '@/lib/content';
+import { getConceptSummary } from '@/lib/content-lite';
 import { formatDueLabel, formatInterval } from '@/lib/review-scheduler';
 import { cn } from '@/lib/utils';
 import type { AttemptRecord, ReviewItem } from '@/lib/types';
@@ -42,7 +42,7 @@ export default function ReviewPage() {
   }, [review_items]);
 
   const current = queueSnapshot[currentIdx];
-  const concept = current ? getConcept(current.concept_slug) : null;
+  const concept = current ? getConceptSummary(current.concept_slug) : null;
   const quizBlock = concept?.blocks.find((b) => b.type === 'quiz');
   const isQuiz = quizBlock && quizBlock.type === 'quiz';
 
@@ -335,7 +335,7 @@ function ConfidenceOnlyReview({
 
 function RecentAttemptRow({ attempt }: { attempt: AttemptRecord }) {
   const pct = Math.round(attempt.score * 100);
-  const concept = getConcept(attempt.concept_slug);
+  const concept = getConceptSummary(attempt.concept_slug);
   return (
     <li className="flex items-center gap-3 py-2 text-sm">
       <span

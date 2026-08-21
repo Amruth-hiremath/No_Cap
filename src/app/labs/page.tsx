@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { FlaskConical, ArrowRight, Activity, HardDrive, Inbox, Database, ShieldCheck } from 'lucide-react';
+import { FlaskConical, ArrowRight, Activity, HardDrive, Inbox, Database, ShieldCheck, Globe2, ShieldAlert, Hash, Calculator, ServerCog } from 'lucide-react';
 import { Surface } from '@/components/ui/Surface';
 import { AccentRule } from '@/components/ui/AccentRule';
 import { Badge } from '@/components/ui/Badge';
@@ -61,10 +61,13 @@ const LABS: LabMeta[] = [
     title: 'Rate Limiter',
     description:
       'Protect a service from being overwhelmed. Compare token-bucket, leaky-bucket, and fixed-window under a real traffic spike.',
-    icon: ShieldCheck,
-    topic: 'Protection',
-    est: '5 min',
+    icon: ShieldCheck, topic: 'Protection', est: '5 min',
   },
+  { slug: 'cdn', number: '06', title: 'CDN Traffic', description: 'Tune edge hit rate and see origin load, latency, and regional fan-out move together.', icon: Globe2, topic: 'Edge', est: '5 min' },
+  { slug: 'circuit-breaker', number: '07', title: 'Circuit Breaker', description: 'Watch retries amplify an outage, then open the breaker and fail fast before the cascade grows.', icon: ShieldAlert, topic: 'Reliability', est: '5 min' },
+  { slug: 'consistent-hashing', number: '08', title: 'Consistent Hashing', description: 'Add and remove nodes from a ring and estimate how many keys need to move.', icon: Hash, topic: 'Partitioning', est: '5 min' },
+  { slug: 'capacity', number: '09', title: 'Capacity Planning', description: 'Turn traffic, peak multipliers, and payload size into QPS and bandwidth estimates.', icon: Calculator, topic: 'Estimation', est: '4 min' },
+  { slug: 'sharding', number: '10', title: 'Sharding', description: 'Increase shard count and introduce key skew to see why hot partitions become bottlenecks.', icon: ServerCog, topic: 'Databases', est: '6 min' },
 ];
 
 export const metadata = {
@@ -86,7 +89,7 @@ export default function LabsIndexPage() {
         </h1>
         <AccentRule className="mt-3" />
         <p className="mt-3 max-w-2xl text-sm text-text-secondary">
-          Five interactive simulations. Tune the dials, trigger failures, and watch the
+          Ten interactive simulations. Tune the dials, trigger failures, and watch the
           trade-offs play out in real time. No setup, no terminal — just you and the system.
         </p>
       </header>

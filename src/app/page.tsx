@@ -11,16 +11,13 @@ import {
   Flame,
   CheckCircle2,
 } from 'lucide-react';
-import { Surface, EmptyState } from '@/components/ui/Surface';
+import { Surface } from '@/components/ui/Surface';
 import { AccentRule } from '@/components/ui/AccentRule';
 import { Badge, MasteryBadge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { useStore } from '@/lib/store';
-import { getAllConcepts, getConcept } from '@/lib/content';
+import { getAllConceptSummaries, getConceptSummary, pickDailyDoseSummary, getLiteRecommendations } from '@/lib/content-lite';
 import { formatDueLabel } from '@/lib/review-scheduler';
-import { buildDailyDose } from '@/lib/daily-session';
-import { getRecommendations } from '@/lib/recommendations';
-import { computeMasteryScore } from '@/lib/mastery';
 
 export default function HomePage() {
   const [mounted, setMounted] = useState(false);
@@ -34,45 +31,42 @@ export default function HomePage() {
   const mastery = useStore((s) => s.mastery);
   const review_items = useStore((s) => s.review_items);
   const dueReviews = useMemo(() => {
-    const now = new Date();
-
-    return Object.values(review_items).filter(
-      (r) => new Date(r.due_at) <= now
-    );
+    const now = Date.now();
+    return Object.values(review_items).filter((r) => Date.parse(r.due_at) <= now);
   }, [review_items]);
   const events = useStore((s) => s.events);
   const startConcept = useStore((s) => s.startConcept);
 
-  const session = buildDailyDose(mastery, review_items);
-  const todaysConcept = getConcept(session.concept_slug);
-  const recommendations = getRecommendations({ mastery, review_items, last_visited_concept: lastVisited }, 1);
+  const eventsLite = useMemo(() => events.map((e) => ({ concept_slug: e.concept_slug, created_at: e.created_at })), [events]);
+  const conceptCount = getAllConceptSummaries().length;
+  const todaysConcept = pickDailyDoseSummary(mastery, review_items, eventsLite);
+  const recommendations = getLiteRecommendations(mastery, review_items, lastVisited, 1);
 
   const reviewConcepts = dueReviews
     .slice(0, 3)
-    .map((r) => getConcept(r.concept_slug))
+    .map((r) => getConceptSummary(r.concept_slug))
     .filter(Boolean);
 
-  const continueConcept = lastVisited ? getConcept(lastVisited) : null;
+  const continueConcept = lastVisited ? getConceptSummary(lastVisited) : null;
 
-  // 7-day momentum (real)
-  const momentum = (() => {
+  // 7-day momentum, computed only when the event history changes.
+  const momentum = useMemo(() => {
+    const formatter = new Intl.DateTimeFormat('en-CA', { timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone, year: 'numeric', month: '2-digit', day: '2-digit' });
     const days: { date: string; count: number }[] = [];
-    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    const today = Date.now();
     for (let i = 6; i >= 0; i--) {
-      const d = new Date(Date.now() - i * 86_400_000);
-      const key = new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' }).format(d);
-      const count = events.filter((e) => {
-        const ed = new Date(e.created_at);
-        const ek = new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' }).format(ed);
-        return ek === key;
-      }).length;
+      const d = new Date(today - i * 86_400_000);
+      const key = formatter.format(d);
+      let count = 0;
+      for (const event of events) {
+        if (formatter.format(new Date(event.created_at)) === key) count += 1;
+      }
       days.push({ date: key, count });
     }
     return days;
-  })();
+  }, [events]);
   const maxMomentum = Math.max(1, ...momentum.map((m) => m.count));
 
-  const allConcepts = getAllConcepts();
   const masteredCount = Object.values(mastery).filter((m) => m.state === 'mastered').length;
   const inProgressCount = Object.values(mastery).filter((m) =>
     ['exposed', 'understood', 'practiced', 'applied', 'review_due'].includes(m.state)
@@ -80,18 +74,26 @@ export default function HomePage() {
 
   return (
     <div className="space-y-8">
-      <header>
-        <div className="flex items-center gap-2 text-[11px] font-medium uppercase tracking-[0.14em] text-text-muted">
-          <Sparkles className="h-3 w-3 text-accent" />
-          Today
+      <header className="home-hero">
+        <div className="home-hero__brand">
+          <div className="home-hero__mark"><img src="/brand/no-cap-mark.svg" alt="" /></div>
+          <div>
+            <div className="home-hero__eyebrow">System Design Gym</div>
+            <div className="home-hero__micro"><span>NO CAP</span><span className="home-hero__dot" /> <span>{conceptCount} concepts</span></div>
+          </div>
         </div>
-        <h1 className="mt-1 text-3xl font-bold tracking-tight text-text-primary">
-          What should I learn next?
-        </h1>
-        <AccentRule className="mt-3" />
-        <p className="mt-3 max-w-2xl text-sm text-text-secondary">
-          One concept. One mental model. One quick check. Then move on with your day.
-        </p>
+        <div className="mt-5">
+          <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-text-muted">
+            <Sparkles className="h-3 w-3 text-accent" />
+            Today
+          </div>
+          <h1 className="mt-2 max-w-3xl text-[clamp(2.1rem,5vw,3.5rem)] font-black leading-[0.98] tracking-[-0.045em] text-text-primary">
+            Build the mental models behind systems that scale.
+          </h1>
+          <p className="mt-4 max-w-2xl text-sm leading-6 text-text-secondary md:text-[15px]">
+            Learn one idea deeply, visualize how it behaves, stress-test the trade-offs, then carry the insight into your next system design.
+          </p>
+        </div>
       </header>
 
       {/* Hero — Today's Dose (Liquid Glass — only one on screen) */}
@@ -139,7 +141,7 @@ export default function HomePage() {
               </div>
             </div>
             <div className="shrink-0">
-              <SessionStepperMini steps={session.steps} />
+              <SessionStepperMini steps={['Recall','Learn','Visualize','Practice','Recall'].map((title) => ({ title }))} />
             </div>
           </div>
         </Surface>
@@ -282,7 +284,7 @@ export default function HomePage() {
           </div>
           <div className="mt-2 flex items-baseline gap-2">
             <span className="tnum text-3xl font-bold text-text-primary">{masteredCount}</span>
-            <span className="text-sm text-text-muted">/ {allConcepts.length} mastered</span>
+            <span className="text-sm text-text-muted">/ {conceptCount} mastered</span>
           </div>
           <p className="mt-1 text-xs text-text-muted">
             {inProgressCount} in progress
@@ -327,12 +329,12 @@ export default function HomePage() {
   );
 }
 
-function SessionStepperMini({ steps }: { steps: { id: string; title: string; kind: string }[] }) {
+function SessionStepperMini({ steps }: { steps: { title: string }[] }) {
   return (
     <div className="hidden md:block">
       <ol className="space-y-1.5 border-l border-border pl-3">
         {steps.map((s, i) => (
-          <li key={s.id} className="flex items-center gap-2 text-[11px]">
+          <li key={`${s.title}-${i}`} className="flex items-center gap-2 text-[11px]">
             <span className="tnum w-4 text-text-muted">{String(i + 1).padStart(2, '0')}</span>
             <span className="text-text-secondary">{s.title}</span>
           </li>

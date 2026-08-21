@@ -33,9 +33,9 @@
       "type": "mermaid",
       "id": "rest-mapping",
       "payload": {
-        "code": "flowchart TD\n    N0[\"RESOURCE:\"]\n    N1[\"users\"]\n    N2[\"GET\"]\n    N3[\"fetch\"]\n    N4[\"user\"]\n    N5[\"POST\"]\n    N6[\"create\"]\n    N7[\"new\"]\n    N8[\"PUT\"]\n    N9[\"replace\"]\n    N10[\"PATCH\"]\n    N11[\"partially\"]\n    N12[\"update\"]\n    N13[\"DELETE\"]\n    N14[\"delete\"]\n    N15[\"posts\"]\n    N16[\"NESTED\"]\n    N17[\"RESOURCES:\"]\n    N18[\"101\"]\n    N19[\"comments\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19",
-        "caption": "REST maps HTTP verbs to CRUD operations on resource URLs.",
-        "alt_text": "A diagram showing how REST maps HTTP verbs to operations on a resource URL. GET /users/42 fetches user 42. POST /users creates a new user. PUT /users/42 replaces user 42. PATCH partially updates. DELETE removes. Nested resources like /users/42/posts/101/comments express relationships."
+        "code": "flowchart LR\n  Client[Client] --> Resource[Resource URL]\n  Client --> Method[HTTP method]\n  Method --> API[REST endpoint]\n  API --> State[Resource state]\n  State --> Response[Representation + status code]",
+        "caption": "REST — Representational State Transfer: problem → mechanism → behavior → outcome.",
+        "alt_text": "Concept diagram: REST — Representational State Transfer"
       }
     },
     {
@@ -134,9 +134,9 @@
       "type": "mermaid",
       "id": "upgrade-mermaid-rest",
       "payload": {
-        "code": "flowchart LR\n  A[Client] --> B[Gateway] --> C[Service] --> D[State] --> E[Outcome]",
+        "code": "flowchart LR\n  Concept[\"REST — Representational State Transfer\"] --> Risk[\"Simple and widely understood — every…\"]\n  Risk --> Mitigate[Mitigation / design choice]\n  Mitigate --> Outcome[Better system behavior]",
         "caption": "REST — Representational State Transfer: a simplified system view showing the primary flow and the main state boundaries.",
-        "alt_text": "REST — Representational State Transfer: a simplified system view showing the primary flow and the main state boundaries."
+        "alt_text": "Concept diagram: REST — Representational State Transfer"
       }
     },
     {

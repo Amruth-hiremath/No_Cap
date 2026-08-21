@@ -35,9 +35,9 @@
       "type": "mermaid",
       "id": "async-queue-flow",
       "payload": {
-        "code": "flowchart TD\n    N0[\"Web\"]\n    N1[\"tier\"]\n    N2[\"Broker\"]\n    N3[\"Worker\"]\n    N4[\"pool\"]\n    N5[\"in-flight\"]\n    N6[\"POST\"]\n    N7[\"order\"]\n    N8[\"worker\"]\n    N9[\"(in\"]\n    N10[\"flight)\"]\n    N11[\"msg, idem_key\"]\n    N12[\"enqueue(msg,\"]\n    N13[\"idem_key)\"]\n    N14[\"process\"]\n    N15[\" QUEUE \"]\n    N16[\"QUEUE\"]\n    N17[\"charge\"]\n    N18[\"card\"]\n    N19[\"idle\"]\n    N20[\"HTTP\"]\n    N21[\"202\"]\n    N22[\"(idle)\"]\n    N23[\"Accepted\"]\n    N24[\"visibility_timeout\"]\n    N25[\"30s\"]\n    N26[\"delete msg\"]\n    N27[\"ack()\"]\n    N28[\"(delete\"]\n    N29[\"msg)\"]\n    N30[\"redeliver\"]\n    N31[\"ack\"]\n    N32[\" DEAD LETTER QUEUE \"]\n    N33[\"DEAD\"]\n    N34[\"LETTER\"]\n    N35[\"after\"]\n    N36[\"max_retries\"]\n    N37[\"poison msgs land here; paged to a human\"]\n    N38[\"(poison\"]\n    N39[\"msgs\"]\n    N40[\"land\"]\n    N41[\"here;\"]\n    N42[\"paged\"]\n    N43[\"human)\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43",
-        "caption": "End-to-end async flow: enqueue -> visibility timeout -> ack or redeliver -> dead-letter on exhaustion.",
-        "alt_text": "A flow diagram of asynchronous queue processing. A web server receives a POST request, enqueues a message onto a queue, and immediately returns HTTP 202 Accepted. A pool of worker processes pulls messages from the queue and processes them. When a worker finishes, it sends an acknowledgement to the broker, which deletes the message. If the worker crashes or does not acknowledge within a visibility timeout, the broker redelivers the message to another worker. After a configurable number of failed attempts, the message is moved to a dead-letter queue for human inspection."
+        "code": "flowchart LR\n  Request[Fast request path] --> Queue[(Queue)]\n  Queue --> Worker[Async worker]\n  Worker --> Slow[Slow operation]\n  Slow --> Result[Notify / persist result]",
+        "caption": "Message Queues (Async): decouple producers from asynchronous work.",
+        "alt_text": "Concept diagram: Message Queues (Async)"
       }
     },
     {
@@ -160,9 +160,9 @@
       "type": "mermaid",
       "id": "upgrade-mermaid-message-queues-async",
       "payload": {
-        "code": "flowchart LR\n  A[Producer] --> Q[(Broker)] --> B[Consumer] --> X[Retry] --> O[Outcome]",
+        "code": "flowchart LR\n  Concept[\"Message Queues (Async)\"] --> Risk[\"Smooths traffic spikes — producers write…\"]\n  Risk --> Mitigate[Mitigation / design choice]\n  Mitigate --> Outcome[Better system behavior]",
         "caption": "Message Queues (Async): a simplified system view showing the primary flow and the main state boundaries.",
-        "alt_text": "Message Queues (Async): a simplified system view showing the primary flow and the main state boundaries."
+        "alt_text": "Concept diagram: Message Queues (Async)"
       }
     },
     {

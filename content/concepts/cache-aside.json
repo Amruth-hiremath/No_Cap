@@ -40,9 +40,9 @@
       "type": "mermaid",
       "id": "flow",
       "payload": {
-        "code": "flowchart TD\n    N0[\"READ\"]\n    N1[\"FLOW\"]\n    N2[\"App\"]\n    N3[\"Cache\"]\n    N4[\"[App]\"]\n    N5[\"[Cache]\"]\n    N6[\"fast, ~1ms\"]\n    N7[\"HIT?\"]\n    N8[\"YES\"]\n    N9[\"Return\"]\n    N10[\"(fast,\"]\n    N11[\"~1ms)\"]\n    N12[\"miss\"]\n    N13[\"(miss)\"]\n    N14[\"Database\"]\n    N15[\"[Database]\"]\n    N16[\"TTL=300s\"]\n    N17[\"fetch\"]\n    N18[\"write\"]\n    N19[\"cache\"]\n    N20[\"(TTL\"]\n    N21[\"300s)\"]\n    N22[\"slow, ~50ms\"]\n    N23[\"(slow,\"]\n    N24[\"~50ms)\"]\n    N25[\"WRITE\"]\n    N26[\"update source of truth\"]\n    N27[\"(update\"]\n    N28[\"source\"]\n    N29[\"truth)\"]\n    N30[\"DELETE key\"]\n    N31[\"invalidate\"]\n    N32[\"(DELETE\"]\n    N33[\"key)\"]\n    N34[\"Next\"]\n    N35[\"read:\"]\n    N36[\"MISS\"]\n    N37[\"from\"]\n    N38[\"repopulate\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38",
-        "caption": "Cache aside: first read misses and populates; subsequent reads hit. Writes invalidate.",
-        "alt_text": "Two diagrams. Read flow: the app checks the cache. If HIT, return in 1ms. If MISS, fetch from the database (50ms), write to cache with a 5-minute TTL, and return. Write flow: the app updates the database (source of truth), then invalidates the cache entry. The next read will miss and re-populate from the database."
+        "code": "flowchart LR\n  App[Application] --> Cache{Key present?}\n  Cache -->|hit| Return[Return value]\n  Cache -->|miss| DB[(Database)]\n  DB --> Set[Set cache]\n  Set --> Return\n  Write[Data change] --> Invalidate[Invalidate / refresh key]",
+        "caption": "Cache-aside populates the cache after a miss.",
+        "alt_text": "Concept diagram: Cache Aside (Lazy Loading)"
       }
     },
     {
@@ -113,9 +113,9 @@
       "type": "mermaid",
       "id": "hit-miss-flow",
       "payload": {
-        "code": "flowchart TD\n    Read[App: get_user 42] --> Get1[cache.get 'user:42']\n    Get1 --> Hit{Hit?}\n    Hit -->|YES - 1ms total| Return1[Deserialize + return<br/>HIT path: ~1ms]\n    Hit -->|MISS| DB[db.fetch_user 42<br/>~50ms]\n    DB --> Set[cache.set 'user:42', value, TTL=300s<br/>~1ms]\n    Set --> Return2[Return value<br/>MISS path: ~52ms]\n    Set -.->|set fails silently| Silent{Set OK?}\n    Silent -->|No - Redis down| Warn[Next reads will MISS too<br/>alarm and degrade to DB-only path]\n    Silent -->|Yes| OK[Cache populated]\n    classDef fast fill:#e6f4ea,stroke:#188038,color:#0d652d\n    classDef slow fill:#fff4e5,stroke:#cc7a00,color:#995500\n    classDef problem fill:#fee,stroke:#c33,color:#900\n    class Return1 fast\n    class Return2 slow\n    class Warn problem",
+        "code": "flowchart LR\n  Concept[\"Cache Aside (Lazy Loading)\"] --> Risk[\"Lazy population — cache only holds…\"]\n  Risk --> Mitigate[Mitigation / design choice]\n  Mitigate --> Outcome[Better system behavior]",
         "caption": "Cache aside HIT and MISS paths. HIT is a single Redis call (~1ms). MISS adds a DB fetch and a cache.set (~52ms). Silent set failures cause cascading misses.",
-        "alt_text": "A flowchart of cache aside. App calls get_user(42), which calls cache.get. If hit, deserialize and return - 1ms total (HIT path). If miss, fetch from DB (50ms), then cache.set with TTL (1ms), then return - 52ms total (MISS path). If the cache.set fails silently (Redis down), next reads will also miss - alarm and degrade to DB-only path."
+        "alt_text": "Concept diagram: Cache Aside (Lazy Loading)"
       }
     },
     {
@@ -129,9 +129,9 @@
       "type": "mermaid",
       "id": "write-invalidation-seq",
       "payload": {
-        "code": "sequenceDiagram\n    participant App\n    participant DB\n    participant Cache\n    Note over App: Pattern 2 - update DB then invalidate cache\n    App->>DB: UPDATE user SET bio='new' WHERE id=42\n    DB-->>App: OK (write committed)\n    App->>Cache: DEL 'user:42'\n    Cache-->>App: OK (1 key deleted)\n    Note over App,Cache: Cache now empty - next read will MISS and repopulate\n    Note over App,Cache: If DEL fails, TTL is the safety net:\n    Note over App,Cache: stale data served until TTL expires, then corrected\n    Note over App,Cache: ---\n    Note over App,Cache: Anti-pattern 4 - delete cache then update DB\n    App->>Cache: DEL 'user:42'\n    Note over App: Between DEL and DB UPDATE,\n    Note over App: a concurrent read can MISS,\n    Note over App: fetch OLD value from DB,\n    Note over App: and SET it back into cache.\n    App->>DB: UPDATE user SET bio='new' WHERE id=42\n    Note over Cache: Cache now holds OLD value\n    Note over Cache: written by the concurrent reader.\n    Note over Cache: DB has NEW value. Diverged!\n    Note over Cache: Stuck until TTL expires.",
+        "code": "flowchart LR\n  Concept[\"Cache Aside (Lazy Loading)\"] --> Use[When to use]\n  Concept --> Avoid[When not to use]\n  Use --> Outcome[Engineering outcome]\n  Avoid --> Tradeoff[Alternative / trade-off]",
         "caption": "Write invalidation sequence. Pattern 2 (update DB then DEL cache) is safe — failed deletes are bounded by TTL. Anti-pattern 4 (DEL cache then update DB) has a race condition: a concurrent read can repopulate the cache with the OLD value.",
-        "alt_text": "A sequence diagram. Pattern 2: app updates DB first (committed), then deletes the cache key. Next read will miss and repopulate. If DEL fails, TTL is the safety net. Anti-pattern 4: app deletes the cache key first, then updates the DB. Between the delete and the DB update, a concurrent read can miss, fetch the OLD value from the DB, and SET it back into the cache. Now the cache holds the OLD value and the DB holds the NEW value — diverged, stuck until TTL expires."
+        "alt_text": "Concept diagram: Cache Aside (Lazy Loading)"
       }
     },
     {
@@ -251,9 +251,9 @@
       "type": "mermaid",
       "id": "upgrade-mermaid-cache-aside",
       "payload": {
-        "code": "flowchart LR\n  A[Request] --> B[Lookup] --> C[Cache] --> D[Origin] --> E[Response]",
+        "code": "flowchart LR\n  Concept[\"Cache Aside (Lazy Loading)\"] --> Use[When to use]\n  Concept --> Avoid[When not to use]\n  Use --> Outcome[Engineering outcome]\n  Avoid --> Tradeoff[Alternative / trade-off]",
         "caption": "Cache Aside (Lazy Loading): a simplified system view showing the primary flow and the main state boundaries.",
-        "alt_text": "Cache Aside (Lazy Loading): a simplified system view showing the primary flow and the main state boundaries."
+        "alt_text": "Concept diagram: Cache Aside (Lazy Loading)"
       }
     },
     {

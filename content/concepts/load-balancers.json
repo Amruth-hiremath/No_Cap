@@ -38,9 +38,9 @@
       "type": "mermaid",
       "id": "lb-architecture",
       "payload": {
-        "code": "flowchart TD\n    N0[\"Clients\"]\n    N1[\"[Clients]\"]\n    N2[\"Load\"]\n    N3[\"Balancer\"]\n    N4[\"S1\"]\n    N5[\"S2\"]\n    N6[\"S3\"]\n    N7[\"[S1]\"]\n    N8[\"[S2]\"]\n    N9[\"[S3]\"]\n    N10[\"shared — S1/S2/S3 are stateless\"]\n    N11[\"Database\"]\n    N12[\"(shared\"]\n    N13[\"are\"]\n    N14[\"stateless)\"]\n    N15[\"The\"]\n    N16[\"the\"]\n    N17[\"single\"]\n    N18[\"entry\"]\n    N19[\"point.\"]\n    N20[\"dies,\"]\n    N21[\"stops\"]\n    N22[\"sending\"]\n    N23[\"traffic\"]\n    N24[\"it.\"]\n    N25[\"scale:\"]\n    N26[\"add\"]\n    N27[\"S4,\"]\n    N28[\"S5,\"]\n    N29[\"distributes\"]\n    N30[\"across\"]\n    N31[\"all.\"]\n    N32[\"stop new connections\"]\n    N33[\"deploy:\"]\n    N34[\"drain\"]\n    N35[\"(stop\"]\n    N36[\"new\"]\n    N37[\"connections),\"]\n    N38[\"update\"]\n    N39[\"S1,\"]\n    N40[\"add.\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40",
-        "caption": "A load balancer distributes traffic across a pool of stateless servers sharing one database.",
-        "alt_text": "A diagram of a load balancer in front of three stateless servers. Clients connect to the load balancer, which distributes requests across S1, S2, and S3. All three servers share a single database, so any server can handle any request. If S1 dies, the load balancer stops sending traffic to it. To scale, add more servers. To deploy, drain one server at a time."
+        "code": "flowchart LR\n  Users[Clients] --> LB[Load Balancer]\n  LB --> S1[App server 1]\n  LB --> S2[App server 2]\n  LB --> S3[App server N]\n  S1 --> DB[(Data tier)]\n  S2 --> DB\n  S3 --> DB\n  LB --> Health[Health checks + routing policy]",
+        "caption": "A load balancer distributes incoming requests across healthy backends.",
+        "alt_text": "Concept diagram: Load Balancers"
       }
     },
     {
@@ -70,9 +70,9 @@
       "type": "mermaid",
       "id": "l4-l7",
       "payload": {
-        "code": "flowchart TD\n    N0[\"transport layer\"]\n    N1[\"LOAD\"]\n    N2[\"BALANCING\"]\n    N3[\"(transport\"]\n    N4[\"layer)\"]\n    N5[\"L4 LB\"]\n    N6[\"Server A\"]\n    N7[\"Client\"]\n    N8[\"[L4\"]\n    N9[\"LB]\"]\n    N10[\"[Server\"]\n    N11[\"Server B\"]\n    N12[\"The\"]\n    N13[\"sees\"]\n    N14[\"TCP\"]\n    N15[\"packets.\"]\n    N16[\"Forwards\"]\n    N17[\"bytes.\"]\n    N18[\"Fast.\"]\n    N19[\"Opaque.\"]\n    N20[\"HTTP\"]\n    N21[\"parsing.\"]\n    N22[\"L4 mode\"]\n    N23[\"Examples:\"]\n    N24[\"AWS\"]\n    N25[\"NLB,\"]\n    N26[\"HAProxy\"]\n    N27[\"(L4\"]\n    N28[\"mode)\"]\n    N29[\"application layer\"]\n    N30[\"(application\"]\n    N31[\"L7 LB\"]\n    N32[\"API Server A\"]\n    N33[\"[L7\"]\n    N34[\"api\"]\n    N35[\"[API\"]\n    N36[\"Server\"]\n    N37[\"CDN / static servers\"]\n    N38[\"static\"]\n    N39[\"[CDN\"]\n    N40[\"servers]\"]\n    N41[\"Admin Server (IP-restricted)\"]\n    N42[\"IP-restricted\"]\n    N43[\"admin\"]\n    N44[\"[Admin\"]\n    N45[\"(IP\"]\n    N46[\"restricted)]\"]\n    N47[\"parses\"]\n    N48[\"HTTP.\"]\n    N49[\"Routes\"]\n    N50[\"path,\"]\n    N51[\"header,\"]\n    N52[\"cookie.\"]\n    N53[\"Slower.\"]\n    N54[\"Flexible.\"]\n    N55[\"Can\"]\n    N56[\"terminate\"]\n    N57[\"TLS.\"]\n    N58[\"ALB,\"]\n    N59[\"NGINX,\"]\n    N60[\"Envoy\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44\n    N44 --> N45\n    N45 --> N46\n    N46 --> N47\n    N47 --> N48\n    N48 --> N49\n    N49 --> N50\n    N50 --> N51\n    N51 --> N52\n    N52 --> N53\n    N53 --> N54\n    N54 --> N55\n    N55 --> N56\n    N56 --> N57\n    N57 --> N58\n    N58 --> N59\n    N59 --> N60",
-        "caption": "L4 load balancing forwards TCP bytes. L7 parses HTTP and routes by content.",
-        "alt_text": "Two diagrams. L4 load balancing: the LB sees TCP packets and forwards bytes to server A or B. It doesn't parse HTTP. Fast and opaque. Examples include AWS NLB and HAProxy. L7 load balancing: the LB parses HTTP and routes by path — /api goes to API servers, /static goes to CDN, /admin goes to admin servers. Slower but flexible, can terminate TLS. Examples include AWS ALB and NGINX."
+        "code": "flowchart LR\n  Concept[\"Load Balancers\"] --> Risk[\"Horizontal scaling — add more servers…\"]\n  Risk --> Mitigate[Mitigation / design choice]\n  Mitigate --> Outcome[Better system behavior]",
+        "caption": "A load balancer distributes incoming requests across healthy backends.",
+        "alt_text": "Concept diagram: Load Balancers"
       }
     },
     {
@@ -137,18 +137,18 @@
       "type": "mermaid",
       "id": "l4-l7-comparison-b2",
       "payload": {
-        "code": "flowchart TB\n    Client[Client HTTPS request] --> LB\n\n    subgraph L4[L4 — Transport Layer]\n        LB4[L4 LB<br/>sees TCP bytes only] --> B1[Backend 1]\n        LB4 --> B2[Backend 2]\n        Note4[Routes by 4-tuple<br/>src IP+port, dst IP+port<br/>No TLS termination<br/>~millions of conn/sec]\n    end\n\n    subgraph L7[L7 — Application Layer]\n        LB7[L7 LB<br/>parses HTTP, terminates TLS] --> Path1{/api/* → API servers}\n        LB7 --> Path2{/static/* → CDN/object store}\n        LB7 --> Path3{/admin/* → admin pool<br/>IP-allowlist}\n        Note7[Routes by URL, headers, cookies<br/>TLS termination here<br/>~100K req/sec per node]\n    end\n\n    Client -.or.-> LB7\n\n    classDef l4 fill:#1e3a5f,stroke:#3b82f6,color:#e0e7ff\n    classDef l7 fill:#3a2e1e,stroke:#f59e0b,color:#fef3c7\n    classDef note fill:#2d1e3a,stroke:#a855f7,color:#f3e8ff\n    class LB4,B1,B2 l4\n    class LB7,Path1,Path2,Path3 l7\n    class Note4,Note7 note",
+        "code": "flowchart LR\n  Concept[\"Load Balancers\"] --> Use[When to use]\n  Concept --> Avoid[When not to use]\n  Use --> Outcome[Engineering outcome]\n  Avoid --> Tradeoff[Alternative / trade-off]",
         "caption": "L4 LBs forward TCP bytes by 4-tuple (fast, opaque). L7 LBs parse HTTP and route by path/headers (slower, flexible).",
-        "alt_text": "Two load balancer types compared. L4: the load balancer sees TCP packets only and forwards bytes to Backend 1 or Backend 2, routing by source/destination IP+port — no TLS termination, millions of connections per second. L7: the load balancer parses HTTP and terminates TLS, then routes by URL path: /api goes to API servers, /static to CDN, /admin to admin pool with IP allowlist — slower but flexible."
+        "alt_text": "Concept diagram: Load Balancers"
       }
     },
     {
       "type": "mermaid",
       "id": "health-check-flow-b2",
       "payload": {
-        "code": "flowchart TD\n    LB[Load Balancer] -->|every 5s: GET /health| B1[Backend 1]\n    LB -->|every 5s: GET /health| B2[Backend 2]\n    LB -->|every 5s: GET /health| B3[Backend 3]\n\n    B1 -->|200 OK| LB\n    B2 -->|200 OK| LB\n    B3 -->|timeout / 5xx| LB\n\n    LB --> Count{Consecutive<br/>failures >= threshold?}\n    Count -->|No| Healthy[Backend stays in rotation]\n    Count -->|Yes<br/>e.g. 3 in a row| Unhealthy[Mark UNHEALTHY<br/>stop sending traffic]\n    Unhealthy --> Recheck[Continue probing<br/>every 30s instead of 5s]\n    Recheck --> Recover{Recovers?}\n    Recover -->|2 successes in a row| Healthy\n    Recover -->|Still failing| Recheck\n\n    classDef ok fill:#1e3a5f,stroke:#3b82f6,color:#e0e7ff\n    classDef bad fill:#3a1e1e,stroke:#ef4444,color:#fee2e2\n    classDef warn fill:#3a2e1e,stroke:#f59e0b,color:#fef3c7\n    class B1,B2,Healthy,Recover ok\n    class B3,Unhealthy bad\n    class Count,Recheck warn",
+        "code": "flowchart LR\n  Concept[\"Load Balancers\"] --> Use[When to use]\n  Concept --> Avoid[When not to use]\n  Use --> Outcome[Engineering outcome]\n  Avoid --> Tradeoff[Alternative / trade-off]",
         "caption": "Active health check flow with consecutive-failure threshold and recovery hysteresis.",
-        "alt_text": "A load balancer polls each backend every 5 seconds with GET /health. Backends 1 and 2 return 200 OK. Backend 3 times out. The LB counts consecutive failures; if it crosses a threshold (e.g., 3 in a row), the backend is marked UNHEALTHY and removed from rotation. The LB continues probing every 30 seconds; recovery requires 2 consecutive successes before the backend rejoins the rotation."
+        "alt_text": "Concept diagram: Load Balancers"
       }
     },
     {
@@ -284,9 +284,9 @@
       "type": "mermaid",
       "id": "upgrade-mermaid-load-balancers",
       "payload": {
-        "code": "flowchart LR\n U[Clients] --> LB[Load Balancer]\n LB --> A[API 1]\n LB --> B[API 2]\n LB --> C[API 3]\n H[Health checks] --> LB",
+        "code": "flowchart LR\n  Concept[\"Load Balancers\"] --> Use[When to use]\n  Concept --> Avoid[When not to use]\n  Use --> Outcome[Engineering outcome]\n  Avoid --> Tradeoff[Alternative / trade-off]",
         "caption": "A load balancer spreads traffic across healthy replicas and can remove failed instances from rotation.",
-        "alt_text": "A load balancer spreads traffic across healthy replicas and can remove failed instances from rotation."
+        "alt_text": "Concept diagram: Load Balancers"
       }
     },
     {

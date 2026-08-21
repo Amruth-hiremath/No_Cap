@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { ArrowRight, Check, Cloud, Target, Timer, Map, FlaskConical, RotateCcw, Library, Sparkles } from 'lucide-react';
+import { ArrowRight, Check, Cloud, Target, Timer, Map, FlaskConical, RotateCcw, Library, Sparkles, type LucideIcon } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { updateProfile } from '@/lib/api';
 import { useStore } from '@/lib/store';
@@ -20,7 +20,7 @@ export default function OnboardingPage() {
   useEffect(() => { if (user?.onboarding_completed) router.replace('/'); }, [user?.onboarding_completed, router]);
   const firstName = user?.name?.split(' ')[0] || 'there';
 
-  const steps = useMemo(() => [
+  const steps: { eyebrow: string; title: string; body: string; icon: LucideIcon }[] = useMemo(() => [
     { eyebrow: 'Welcome', title: `Let’s build your system-design edge, ${firstName}.`, body: 'NO CAP turns system design into a repeatable loop: learn, visualize, design, break, review.', icon: Target },
     { eyebrow: 'Your focus', title: 'What are you optimizing for?', body: 'Pick the outcomes that should influence your Daily Dose and recommendations.', icon: Cloud },
     { eyebrow: 'Your pace', title: 'How much time feels realistic?', body: 'This is used to keep Daily Dose sessions practical, not punishing.', icon: Timer },
@@ -55,17 +55,19 @@ export default function OnboardingPage() {
           )}
           {step === 3 && (
             <div className="mt-7 grid gap-2 sm:grid-cols-2">
-              {[
+              {([
                 ['Today', 'Your guided daily session.', Target],
                 ['Roadmap', 'The full curriculum and dependencies.', Map],
                 ['Labs', 'Interactive system behavior.', FlaskConical],
                 ['Review', 'Spaced repetition and mastery.', RotateCcw],
                 ['Library', 'Notes, highlights and bookmarks.', Library],
                 ['Learn', 'Deep, visual technical lessons.', Sparkles],
-              ].map(([label, copy, Icon]) => {
-                const TourIcon = Icon as typeof Sparkles;
-                return <div key={String(label)} className="flex items-start gap-3 rounded-2xl border border-border bg-surface p-3 transition-transform hover:-translate-y-px"><div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-accent-soft text-accent"><TourIcon className="h-4 w-4"/></div><div><div className="text-sm font-semibold text-text-primary">{label}</div><div className="mt-0.5 text-xs leading-relaxed text-text-muted">{copy}</div></div></div>;
-              })}
+              ] as const).map(([label, copy, TourIcon]) => (
+                <div key={label} className="flex items-start gap-3 rounded-2xl border border-border bg-surface p-3 transition-transform hover:-translate-y-px">
+                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-accent-soft text-accent"><TourIcon className="h-4 w-4" /></div>
+                  <div><div className="text-sm font-semibold text-text-primary">{label}</div><div className="mt-0.5 text-xs leading-relaxed text-text-muted">{copy}</div></div>
+                </div>
+              ))}
             </div>
           )}
           <div className="mt-8 flex items-center justify-between border-t border-border pt-5">

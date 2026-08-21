@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from 'next';
 import './globals.css';
+import '@excalidraw/excalidraw/index.css';
 import { AppShell } from '@/components/shell/AppShell';
 import { ThemeBootstrap } from '@/components/shell/ThemeBootstrap';
 
@@ -10,7 +11,11 @@ export const metadata: Metadata = {
   manifest: '/manifest.json',
   applicationName: 'NO CAP',
   authors: [{ name: 'NO CAP' }],
-  keywords: ['system design', 'learning', 'interview prep', 'architecture', 'distributed systems'],
+  keywords: ['system design', 'system design course', 'system design interview', 'distributed systems', 'software architecture', 'scalability', 'backend architecture'],
+  category: 'education',
+  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL || 'https://YOUR-PROJECT.pages.dev'),
+  openGraph: { title: 'NO CAP — System Design Gym', description: 'Learn, visualize, practice and design real distributed systems.', type: 'website', siteName: 'NO CAP' },
+  twitter: { card: 'summary_large_image', title: 'NO CAP — System Design Gym', description: 'Learn system design by understanding, visualizing and designing it.' },
   icons: { icon: '/icons/icon-192.png', apple: '/icons/icon-192.png' },
 };
 

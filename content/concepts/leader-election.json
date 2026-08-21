@@ -34,9 +34,9 @@
       "type": "mermaid",
       "id": "raft-election",
       "payload": {
-        "code": "flowchart TD\n    N0[\"term-based, randomized timeouts\"]\n    N1[\"Raft\"]\n    N2[\"leader\"]\n    N3[\"election\"]\n    N4[\"(term\"]\n    N5[\"based,\"]\n    N6[\"randomized\"]\n    N7[\"timeouts)\"]\n    N8[\"healthy\"]\n    N9[\"cluster:\"]\n    N10[\"AppendEntries\"]\n    N11[\"Leader\"]\n    N12[\"heartbeats\"]\n    N13[\"Follower\"]\n    N14[\"term 1\"]\n    N15[\"crashes\"]\n    N16[\"gone,\"]\n    N17[\"followers\"]\n    N18[\"stop\"]\n    N19[\"receiving\"]\n    N20[\"heartbeats:\"]\n    N21[\"crashed\"]\n    N22[\"(crashed)\"]\n    N23[\"timeout\"]\n    N24[\"expires\"]\n    N25[\"150-300ms\"]\n    N26[\"(150\"]\n    N27[\"300ms)\"]\n    N28[\"one\"]\n    N29[\"node\"]\n    N30[\"term=2\"]\n    N31[\"RequestVote(term\"]\n    N32[\"Candidate\"]\n    N33[\"term 2\"]\n    N34[\"vote\"]\n    N35[\"yes\"]\n    N36[\"majority\"]\n    N37[\"votes\"]\n    N38[\"received\"]\n    N39[\"becomes\"]\n    N40[\"for\"]\n    N41[\"term\"]\n    N42[\"sends\"]\n    N43[\"assert\"]\n    N44[\"leadership\"]\n    N45[\"new\"]\n    N46[\"leader:\"]\n    N47[\"Note:\"]\n    N48[\"any\"]\n    N49[\"RPC\"]\n    N50[\"carrying\"]\n    N51[\"higher\"]\n    N52[\"forces\"]\n    N53[\"the\"]\n    N54[\"recipient\"]\n    N55[\"step\"]\n    N56[\"down.\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44\n    N44 --> N45\n    N45 --> N46\n    N46 --> N47\n    N47 --> N48\n    N48 --> N49\n    N49 --> N50\n    N50 --> N51\n    N51 --> N52\n    N52 --> N53\n    N53 --> N54\n    N54 --> N55\n    N55 --> N56",
-        "caption": "Raft election: randomized timeouts trigger candidate state; majority vote wins leadership; terms prevent split-brain.",
-        "alt_text": "A diagram of Raft leader election. Initially, in term 1, a leader sends AppendEntries heartbeats to followers. When the leader crashes, followers stop receiving heartbeats. After a randomized election timeout (150 to 300 milliseconds) expires on one follower, it becomes a candidate, increments the term to 2, and sends RequestVote RPCs. If a majority votes yes, it becomes the leader for term 2 and resumes heartbeats. Any RPC carrying a higher term forces the recipient to step down — this prevents two leaders from existing in different terms (split-brain)."
+        "code": "flowchart LR\n  Nodes[Cluster nodes] --> Vote[Vote / election protocol]\n  Vote --> Leader[Leader elected]\n  Leader --> Writes[Coordinate writes / commands]\n  Nodes --> Followers[Follower state]\n  Followers -->|leader fails| Vote",
+        "caption": "Leader election chooses one coordinator from several peers.",
+        "alt_text": "Concept diagram: Leader Election"
       }
     },
     {
@@ -159,9 +159,9 @@
       "type": "mermaid",
       "id": "upgrade-mermaid-leader-election",
       "payload": {
-        "code": "flowchart LR\n N1[Node A] <-->|vote| N2[Node B]\n N2 <-->|vote| N3[Node C]\n N1 --> L[Leader]",
-        "caption": "Leader election selects one coordinator for operations that benefit from a single authority.",
-        "alt_text": "Leader election selects one coordinator for operations that benefit from a single authority."
+        "code": "flowchart LR\n  Concept[\"Leader Election\"] --> Risk[\"Single-writer simplicity — the leader acts…\"]\n  Risk --> Mitigate[Mitigation / design choice]\n  Mitigate --> Outcome[Better system behavior]",
+        "caption": "Leader election chooses one coordinator from several peers.",
+        "alt_text": "Concept diagram: Leader Election"
       }
     },
     {

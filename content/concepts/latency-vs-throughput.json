@@ -30,9 +30,9 @@
       "type": "mermaid",
       "id": "latency-vs-throughput",
       "payload": {
-        "code": "flowchart TD\n    N0[\"per request\"]\n    N1[\"LATENCY\"]\n    N2[\"(per\"]\n    N3[\"request)\"]\n    N4[\"Client\"]\n    N5[\"sends\"]\n    N6[\"request\"]\n    N7[\"Server\"]\n    N8[\"responds\"]\n    N9[\"50ms\"]\n    N10[\"Latency\"]\n    N11[\"aggregate\"]\n    N12[\"THROUGHPUT\"]\n    N13[\"(aggregate)\"]\n    N14[\"handles\"]\n    N15[\"10,000\"]\n    N16[\"requests\"]\n    N17[\"second\"]\n    N18[\"Throughput\"]\n    N19[\"RPS\"]\n    N20[\"RELATIONSHIP:\"]\n    N21[\"concurrency\"]\n    N22[\"latency\"]\n    N23[\"Little's Law\"]\n    N24[\"(Little's\"]\n    N25[\"Law)\"]\n    N26[\"increase\"]\n    N27[\"throughput:\"]\n    N28[\"faster per request\"]\n    N29[\"reduce\"]\n    N30[\"(faster\"]\n    N31[\"per\"]\n    N32[\"more parallel requests\"]\n    N33[\"(more\"]\n    N34[\"parallel\"]\n    N35[\"requests)\"]\n    N36[\"both\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36",
-        "caption": "Latency is per-request; throughput is aggregate. Little's Law connects them.",
-        "alt_text": "A diagram explaining latency versus throughput. Latency is the time from when a client sends a request to when the server responds — say, 50 milliseconds. Throughput is how many requests complete per second — say, 10,000 requests per second. They are related by Little's Law: throughput equals concurrency divided by latency. To increase throughput, you can reduce latency, increase concurrency, or both."
+        "code": "flowchart LR\n  R[Request] --> L[Latency per request]\n  R --> W[Concurrent requests]\n  W --> T[Throughput = concurrency / latency]\n  L --> T\n  T --> E[More work completed per second]",
+        "caption": "Latency and throughput are different measurements of system behavior.",
+        "alt_text": "Concept diagram: Latency vs Throughput"
       }
     },
     {
@@ -103,9 +103,9 @@
       "type": "mermaid",
       "id": "littles-law-diagram",
       "payload": {
-        "code": "flowchart LR\n    subgraph Inputs\n        L[Concurrency L<br/>in-flight requests]\n        W[Latency W<br/>seconds per request]\n    end\n    subgraph Output\n        T[Throughput<br/>L / W = req/s]\n    end\n    L --> T\n    W --> T\n    T --> Insight1[10 concurrent, 50ms = 200 RPS]\n    T --> Insight2[100 concurrent, 50ms = 2,000 RPS]\n    T --> Insight3[100 concurrent, 5ms = 20,000 RPS]\n    classDef input fill:#e8f0fe,stroke:#1967d2,color:#174ea6\n    classDef output fill:#fef7e0,stroke:#f9ab00,color:#b06000\n    classDef insight fill:#f3e8fd,stroke:#9334c6,color:#681da8\n    class L,W input\n    class T output\n    class Insight1,Insight2,Insight3 insight",
+        "code": "flowchart LR\n  Concept[\"Latency vs Throughput\"] --> Risk[\"Latency optimizations (caching, indexing) often improve…\"]\n  Risk --> Mitigate[Mitigation / design choice]\n  Mitigate --> Outcome[Better system behavior]",
         "caption": "Little's Law: throughput = concurrency / latency. Three numerical examples show how each variable moves the result.",
-        "alt_text": "A diagram of Little's Law. Two inputs (concurrency L and latency W) produce throughput (L / W). Three examples: 10 concurrent at 50ms gives 200 RPS; 100 concurrent at 50ms gives 2000 RPS; 100 concurrent at 5ms gives 20000 RPS."
+        "alt_text": "Concept diagram: Latency vs Throughput"
       }
     },
     {
@@ -119,9 +119,9 @@
       "type": "mermaid",
       "id": "percentile-distribution",
       "payload": {
-        "code": "flowchart LR\n    subgraph Distribution[Latency distribution - long right tail]\n        direction TB\n        P50[p50 median: 10ms<br/>50% of requests]\n        P90[p90: 12ms<br/>40% of requests]\n        P95[p95: 15ms<br/>5% of requests]\n        P99[p99: 1000ms<br/>1% of requests - tail]\n        P999[p99.9: 5000ms<br/>0.1% - backend noise]\n    end\n    subgraph UserImpact[User impact per session - 20 requests]\n        U1[Sees p50: 100% of users]\n        U2[Sees p95: 64% of users]\n        U3[Sees p99: 18% of users]\n        U4[Sees p99.9: 2% of users]\n    end\n    P50 --> U1\n    P95 --> U2\n    P99 --> U3\n    P999 --> U4\n    classDef typical fill:#e6f4ea,stroke:#188038,color:#0d652d\n    classDef tail fill:#fee,stroke:#c33,color:#900\n    class P50,P90,P95 typical\n    class P99,P999 tail\n    class U3,U4 tail",
+        "code": "flowchart LR\n  Concept[\"Latency vs Throughput\"] --> Use[When to use]\n  Concept --> Avoid[When not to use]\n  Use --> Outcome[Engineering outcome]\n  Avoid --> Tradeoff[Alternative / trade-off]",
         "caption": "Latency distributions have a long right tail. Average (20ms) and p50 (10ms) hide it. A user making 20 requests/session has an 18% chance of seeing the p99 latency — so the tail matters even when it's rare.",
-        "alt_text": "A diagram of a latency distribution with a long right tail. P50 is 10ms (50% of requests), p90 is 12ms (40%), p95 is 15ms (5%), p99 is 1000ms (1% — the tail), p99.9 is 5000ms (0.1% — backend noise). The user impact per 20-request session: 100% see p50, 64% see p95, 18% see p99, 2% see p99.9. The tail is rare per-request but experienced regularly per-session."
+        "alt_text": "Concept diagram: Latency vs Throughput"
       }
     },
     {
@@ -225,9 +225,9 @@
       "type": "mermaid",
       "id": "upgrade-mermaid-latency-vs-throughput",
       "payload": {
-        "code": "flowchart LR\n  A[Client] --> B[Gateway] --> C[Service] --> D[State] --> E[Outcome]",
+        "code": "flowchart LR\n  Concept[\"Latency vs Throughput\"] --> Use[When to use]\n  Concept --> Avoid[When not to use]\n  Use --> Outcome[Engineering outcome]\n  Avoid --> Tradeoff[Alternative / trade-off]",
         "caption": "Latency vs Throughput: a simplified system view showing the primary flow and the main state boundaries.",
-        "alt_text": "Latency vs Throughput: a simplified system view showing the primary flow and the main state boundaries."
+        "alt_text": "Concept diagram: Latency vs Throughput"
       }
     },
     {

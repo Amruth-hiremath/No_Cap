@@ -34,9 +34,9 @@
       "type": "mermaid",
       "id": "topology",
       "payload": {
-        "code": "flowchart TD\n    N0[\"Global\"]\n    N1[\"Users\"]\n    N2[\"Routing\"]\n    N3[\"latency\"]\n    N4[\"based\"]\n    N5[\"DNS,\"]\n    N6[\"anycast,\"]\n    N7[\"geo\"]\n    N8[\"DNS\"]\n    N9[\"must be HA, multi-region itself\"]\n    N10[\"Layer\"]\n    N11[\"(must\"]\n    N12[\"HA,\"]\n    N13[\"multi\"]\n    N14[\"region\"]\n    N15[\"itself)\"]\n    N16[\"Region\"]\n    N17[\"east\"]\n    N18[\"◀═════▶\"]\n    N19[\"west\"]\n    N20[\"tokyo\"]\n    N21[\"async\"]\n    N22[\"app\"]\n    N23[\"repl.\"]\n    N24[\"cache\"]\n    N25[\"queues\"]\n    N26[\"America\"]\n    N27[\"Europe\"]\n    N28[\"Asia\"]\n    N29[\"users\"]\n    N30[\"All\"]\n    N31[\"regions\"]\n    N32[\"active\"]\n    N33[\"simultaneously.\"]\n    N34[\"failure\"]\n    N35[\"routing\"]\n    N36[\"layer\"]\n    N37[\"redirects\"]\n    N38[\"its\"]\n    N39[\"another\"]\n    N40[\"region.\"]\n    N41[\"Replication\"]\n    N42[\"lag\"]\n    N43[\"eventual\"]\n    N44[\"consistency\"]\n    N45[\"across\"]\n    N46[\"regions.\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44\n    N44 --> N45\n    N45 --> N46",
-        "caption": "Geodes: multiple active regions, each serving nearby users, with data replication between them. Region failure shifts users to other regions.",
-        "alt_text": "A diagram with global users at the top, going through a routing layer using latency-based DNS, anycast, or geo-DNS. The routing layer must itself be highly available and multi-region. Below the routing layer are three active regions: us-east, eu-west, and ap-tokyo. Each region contains app, database, cache, and queues. The regions replicate data asynchronously between each other, indicated by bidirectional arrows. Each region serves users in its geography — North America, Europe, Asia. The caption notes that all regions are active simultaneously, a region failure causes the routing layer to redirect its users to another region, and replication lag results in eventual consistency across regions."
+        "code": "flowchart LR\n  GlobalUsers[Global users] --> Geo[Geographic cells]\n  Geo --> CellA[Geo A]\n  Geo --> CellB[Geo B]\n  Geo --> CellC[Geo C]\n  CellA --> LocalState[Local state / capacity]",
+        "caption": "Geodes: apply a pattern to a recurring architectural pressure.",
+        "alt_text": "Concept diagram: Geodes"
       }
     },
     {
@@ -135,9 +135,9 @@
       "type": "mermaid",
       "id": "upgrade-mermaid-geodes",
       "payload": {
-        "code": "flowchart LR\n  A[Client] --> B[Gateway] --> C[Service] --> D[State] --> E[Outcome]",
+        "code": "flowchart LR\n  Concept[\"Geodes\"] --> Risk[\"Low latency for global users —…\"]\n  Risk --> Mitigate[Mitigation / design choice]\n  Mitigate --> Outcome[Better system behavior]",
         "caption": "Geodes: a simplified system view showing the primary flow and the main state boundaries.",
-        "alt_text": "Geodes: a simplified system view showing the primary flow and the main state boundaries."
+        "alt_text": "Concept diagram: Geodes"
       }
     },
     {

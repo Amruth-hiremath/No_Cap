@@ -24,8 +24,9 @@ import { QuizBlock } from '@/components/concept/QuizCard';
 import { ScenarioCard } from '@/components/concept/ScenarioCard';
 import { LessonBlockRenderer } from '@/components/concept/LessonRenderer';
 import { useStore } from '@/lib/store';
-import { getConcept } from '@/lib/content';
-import { buildDailyDose } from '@/lib/daily-session';
+import { loadConcept } from '@/lib/content-lazy';
+import { pickDailyDoseSummary } from '@/lib/content-lite';
+import { buildDailyDoseForConcept } from '@/lib/daily-session-client';
 import { cn } from '@/lib/utils';
 import type { DailyDoseStep, MasteryState, Concept, LessonBlock, QuizBlock as QuizBlockType, ScenarioBlock as ScenarioBlockType } from '@/lib/types';
 
@@ -52,8 +53,17 @@ export default function DailyDosePage() {
   const setFocusMode = useStore((s) => s.setFocusMode);
   const getMasteryState = useStore((s) => s.getMasteryState);
 
-  const session = useMemo(() => buildDailyDose(mastery, review_items), [mastery, review_items]);
-  const concept = getConcept(session.concept_slug);
+  const events = useStore((s) => s.events);
+  const selectedSummary = useMemo(() => pickDailyDoseSummary(mastery, review_items, events.map((e) => ({ concept_slug: e.concept_slug, created_at: e.created_at }))), [mastery, review_items, events]);
+  const [concept, setConcept] = useState<Concept | null>(null);
+  useEffect(() => { let alive = true; if (!selectedSummary) { setConcept(null); return; } void loadConcept(selectedSummary.slug).then((value) => { if (alive) setConcept(value); }); return () => { alive = false; }; }, [selectedSummary?.slug]);
+  const session = useMemo(() => {
+    if (!concept || !selectedSummary) return { date: '', concept_slug: '', steps: [] as DailyDoseStep[] };
+    const record = mastery[concept.slug];
+    const review = Boolean(review_items[concept.slug] && new Date(review_items[concept.slug].due_at) <= new Date());
+    const weak = Boolean(record && ((record.recall_score < 0.6) || (record.apply_score < 0.5)));
+    return buildDailyDoseForConcept(concept, weak, review, events.map((e) => ({ concept_slug: e.concept_slug, created_at: e.created_at })));
+  }, [concept, selectedSummary, mastery, review_items, events]);
   const [activeIdx, setActiveIdx] = useState(0);
   const [completed, setCompleted] = useState<Set<string>>(new Set());
 
@@ -257,7 +267,7 @@ function StepContent({
         : concept.blocks.find((b) =>
             step.kind === 'mental_model'
               ? b.type === 'prose'
-              : b.type === 'diagram' || b.type === 'flow'
+              : b.type === 'mermaid' || b.type === 'flow'
           )) as LessonBlock | undefined;
       if (!block) {
         return (

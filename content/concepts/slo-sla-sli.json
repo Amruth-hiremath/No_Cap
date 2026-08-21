@@ -34,9 +34,9 @@
       "type": "mermaid",
       "id": "error-budget",
       "payload": {
-        "code": "flowchart TD\n    N0[\"impossible\"]\n    N1[\"100.0%\"]\n    N2[\"perfect\"]\n    N3[\"(impossible)\"]\n    N4[\"99.9%\"]\n    N5[\"SLO\"]\n    N6[\"target\"]\n    N7[\"error\"]\n    N8[\"budget\"]\n    N9[\"0.1% allowed failures\"]\n    N10[\"(0.1%\"]\n    N11[\"allowed\"]\n    N12[\"failures)\"]\n    N13[\"99.5%\"]\n    N14[\"SLA\"]\n    N15[\"contract\"]\n    N16[\"floor\"]\n    N17[\"safety\"]\n    N18[\"margin\"]\n    N19[\"don't burn budget here\"]\n    N20[\"(don't\"]\n    N21[\"burn\"]\n    N22[\"here)\"]\n    N23[\"99.0%\"]\n    N24[\"breach\"]\n    N25[\"refund\"]\n    N26[\"day\"]\n    N27[\"window.\"]\n    N28[\"Budget\"]\n    N29[\"0.1%\"]\n    N30[\"30d\"]\n    N31[\"43min\"]\n    N32[\"downtime.\"]\n    N33[\"tracking:\"]\n    N34[\"green:\"]\n    N35[\"deploying\"]\n    N36[\"freely\"]\n    N37[\"yellow:\"]\n    N38[\"only\"]\n    N39[\"safe\"]\n    N40[\"changes\"]\n    N41[\"red:\"]\n    N42[\"freeze;\"]\n    N43[\"focus\"]\n    N44[\"reliability\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44",
-        "caption": "SLA < SLO < 100%. The gap between SLO and 100% is the error budget; the gap between SLA and SLO is the safety margin.",
-        "alt_text": "A vertical scale from one hundred percent down. The SLO target at ninety-nine point nine percent defines the error budget of zero point one percent allowed failures. Below that, the SLA contract floor at ninety-nine point five percent defines a safety margin that should never be burned. Below that, ninety-nine percent is the SLA breach threshold that triggers refunds. Over a thirty-day window, the zero point one percent error budget equals about forty-three minutes of allowed downtime. Budget tracking is green when deploying freely, yellow when only safe changes are allowed, and red when there's a freeze to focus on reliability."
+        "code": "flowchart LR\n  UserExperience[User experience] --> SLI[Service level indicator]\n  SLI --> SLO[Service level objective]\n  SLO --> SLA[Service level agreement]\n  SLA --> Commitment[External commitment / consequence]",
+        "caption": "SLO / SLA / SLI: turn running-system behavior into observable signals.",
+        "alt_text": "Concept diagram: SLO / SLA / SLI"
       }
     },
     {
@@ -159,9 +159,9 @@
       "type": "mermaid",
       "id": "upgrade-mermaid-slo-sla-sli",
       "payload": {
-        "code": "flowchart LR\n  A[Client] --> B[Gateway] --> C[Service] --> D[State] --> E[Outcome]",
+        "code": "flowchart LR\n  Concept[\"SLO / SLA / SLI\"] --> Risk[\"Quantifies reliability — \"is the service…\"]\n  Risk --> Mitigate[Mitigation / design choice]\n  Mitigate --> Outcome[Better system behavior]",
         "caption": "SLO / SLA / SLI: a simplified system view showing the primary flow and the main state boundaries.",
-        "alt_text": "SLO / SLA / SLI: a simplified system view showing the primary flow and the main state boundaries."
+        "alt_text": "Concept diagram: SLO / SLA / SLI"
       }
     },
     {

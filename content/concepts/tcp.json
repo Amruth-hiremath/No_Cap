@@ -34,9 +34,9 @@
       "type": "mermaid",
       "id": "handshake",
       "payload": {
-        "code": "flowchart TD\n    N0[\"Connection Setup\"]\n    N1[\"Three\"]\n    N2[\"Way\"]\n    N3[\"Handshake\"]\n    N4[\"(Connection\"]\n    N5[\"Setup)\"]\n    N6[\"Client\"]\n    N7[\"Server\"]\n    N8[\"1\"]\n    N9[\"SYN,\"]\n    N10[\"seq\"]\n    N11[\"(1)\"]\n    N12[\"picks\"]\n    N13[\"random\"]\n    N14[\"2\"]\n    N15[\"SYN\"]\n    N16[\"ACK,\"]\n    N17[\"ack\"]\n    N18[\"(2)\"]\n    N19[\"its\"]\n    N20[\"own\"]\n    N21[\"seq,\"]\n    N22[\"acks\"]\n    N23[\"client's\"]\n    N24[\"3\"]\n    N25[\"(3)\"]\n    N26[\"server's\"]\n    N27[\"data\"]\n    N28[\"can\"]\n    N29[\"now\"]\n    N30[\"flow\"]\n    N31[\"Four-Way Fin\"]\n    N32[\"Teardown\"]\n    N33[\"(Four\"]\n    N34[\"Fin)\"]\n    N35[\"FIN\"]\n    N36[\"ACK\"]\n    N37[\"TIME_WAIT 2*MSL before close\"]\n    N38[\"(TIME_WAIT\"]\n    N39[\"2*MSL\"]\n    N40[\"before\"]\n    N41[\"close)\"]\n    N42[\"Latency\"]\n    N43[\"cost:\"]\n    N44[\"RTT\"]\n    N45[\"first\"]\n    N46[\"byte.\"]\n    N47[\"TLS 1.2: 2 RTT; TLS 1.3: 1 RTT\"]\n    N48[\"TLS\"]\n    N49[\"adds\"]\n    N50[\"another\"]\n    N51[\"top\"]\n    N52[\"(TLS\"]\n    N53[\"1.2:\"]\n    N54[\"RTT;\"]\n    N55[\"1.3:\"]\n    N56[\"RTT).\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44\n    N44 --> N45\n    N45 --> N46\n    N46 --> N47\n    N47 --> N48\n    N48 --> N49\n    N49 --> N50\n    N50 --> N51\n    N51 --> N52\n    N52 --> N53\n    N53 --> N54\n    N54 --> N55\n    N55 --> N56",
-        "caption": "TCP three-way handshake and four-way teardown. The handshake alone costs one round-trip before any application data can be sent.",
-        "alt_text": "A sequence diagram of the TCP three-way handshake between a client and a server. Step one: the client sends SYN with a random sequence number x. Step two: the server responds with SYN-ACK containing its own sequence number y and an acknowledgement of x plus one. Step three: the client sends ACK acknowledging y plus one. Only then can data flow. The teardown is a four-way FIN exchange with a TIME_WAIT state lasting two times the maximum segment lifetime. The handshake costs one round trip before the first byte; TLS adds one or two more round trips on top."
+        "code": "sequenceDiagram\n  participant C as Client\n  participant S as Server\n  C->>S: SYN\n  S-->>C: SYN-ACK\n  C->>S: ACK\n  Note over C,S: Connection established\n  C->>S: Ordered byte stream\n  S-->>C: ACKs + retransmission if needed\n  C->>S: FIN\n  S-->>C: FIN/ACK",
+        "caption": "TCP establishes a reliable connection before application data flows.",
+        "alt_text": "Concept diagram: TCP — Transmission Control Protocol"
       }
     },
     {
@@ -142,9 +142,9 @@
       "type": "mermaid",
       "id": "handshake-sequence",
       "payload": {
-        "code": "sequenceDiagram\n    participant C as Client\n    participant S as Server\n    Note over C: pick ISN x (random)\n    C->>S: SYN, seq=x\n    Note right of S: pick ISN y (random)\n    S->>C: SYN+ACK, seq=y, ack=x+1\n    Note left of C: server's SYN seen\n    C->>S: ACK, ack=y+1\n    Note over C,S: 1 RTT elapsed - data can now flow\n    C->>S: GET /api/users (seq=x+1)\n    S->>C: 200 OK + body (seq=y+1)\n    Note over C,S: Teardown: 4-way FIN exchange\n    C->>S: FIN, seq=m\n    S->>C: ACK, ack=m+1\n    Note right of S: half-closed: server can still send\n    S->>C: FIN, seq=n\n    C->>S: ACK, ack=n+1\n    Note left of C: TIME_WAIT 2*MSL (~60-120s)\n    Note over C,S: TIME_WAIT catches stray FIN retransmissions<br/>so a delayed packet can't corrupt a future conn<br/>with the same 4-tuple",
+        "code": "flowchart LR\n  Concept[\"TCP — Transmission Control Protocol\"] --> Risk[\"Reliability built in — the application…\"]\n  Risk --> Mitigate[Mitigation / design choice]\n  Mitigate --> Outcome[Better system behavior]",
         "caption": "TCP three-way handshake and four-way teardown. The handshake costs one RTT before data flows. TIME_WAIT on the closer side lasts 2×MSL (typically 60-120s) to absorb stray retransmissions.",
-        "alt_text": "Sequence diagram of TCP handshake and teardown. The client picks a random ISN x and sends SYN. The server picks random ISN y and sends SYN+ACK with ack=x+1. The client sends ACK with ack=y+1. One RTT has elapsed and data can flow. After data exchange, teardown is a four-way FIN exchange: client sends FIN, server ACKs (now half-closed), server sends FIN, client ACKs. The client enters TIME_WAIT for 2xMSL (~60-120 seconds) to catch stray retransmissions so they can't corrupt a future connection with the same 4-tuple."
+        "alt_text": "Concept diagram: TCP — Transmission Control Protocol"
       }
     },
     {
@@ -158,9 +158,9 @@
       "type": "mermaid",
       "id": "head-of-line-blocking",
       "payload": {
-        "code": "flowchart TD\n    subgraph HTTP2[TCP connection carrying HTTP/2 streams]\n        direction LR\n        S1[Stream 1: GET /api/users]\n        S2[Stream 2: GET /api/orders]\n        S3[Stream 3: GET /api/products]\n        S4[Stream 4: GET /api/reviews]\n        S5[Stream 5: GET /api/cart]\n    end\n    Loss[TCP segment for<br/>stream 3 lost in network]\n    Loss --> S3\n    Buf1[Streams 4,5 data<br/>arrived at receiver<br/>BUT blocked in kernel buffer]\n    Buf2[Stream 1,2 data<br/>also blocked if they<br/>arrive after the loss]\n    S3 --> Buf1\n    S4 -.->|data arrived but stuck| Buf1\n    S5 -.->|data arrived but stuck| Buf1\n    S3 -.->|waiting for retransmit| Buf2\n    Retx[Retransmission<br/>1 RTT later]\n    Retx --> Drain[All streams unblock at once]\n    Buf1 --> Drain\n    Buf2 --> Drain\n    classDef lost fill:#fee,stroke:#c33,color:#900\n    classDef stuck fill:#fff4e5,stroke:#cc7a00,color:#995500\n    classDef ok fill:#e6f4ea,stroke:#188038,color:#0d652d\n    class Loss lost\n    class Buf1,Buf2 stuck\n    class Drain ok",
+        "code": "flowchart LR\n  Concept[\"TCP — Transmission Control Protocol\"] --> Use[When to use]\n  Concept --> Avoid[When not to use]\n  Use --> Outcome[Engineering outcome]\n  Avoid --> Tradeoff[Alternative / trade-off]",
         "caption": "TCP head-of-line blocking on an HTTP/2 connection. A single lost segment for stream 3 stalls all multiplexed streams — even streams whose data already arrived — until stream 3's segment is retransmitted.",
-        "alt_text": "A flowchart showing TCP head-of-line blocking on an HTTP/2 connection. Five streams are multiplexed over one TCP connection. A segment belonging to stream 3 is lost in the network. Data from streams 4 and 5 arrives at the receiver but is stuck in the kernel buffer waiting for stream 3's retransmission. After one retransmission RTT, all streams unblock at once. This is the failure mode that motivated HTTP/3's move to QUIC over UDP, where streams are independent."
+        "alt_text": "Concept diagram: TCP — Transmission Control Protocol"
       }
     },
     {
@@ -264,9 +264,9 @@
       "type": "mermaid",
       "id": "upgrade-mermaid-tcp",
       "payload": {
-        "code": "sequenceDiagram\n participant C as Client\n participant S as Server\n C->>S: SYN\n S-->>C: SYN-ACK\n C->>S: ACK\n C->>S: Data\n S-->>C: ACK",
+        "code": "flowchart LR\n  Concept[\"TCP — Transmission Control Protocol\"] --> Use[When to use]\n  Concept --> Avoid[When not to use]\n  Use --> Outcome[Engineering outcome]\n  Avoid --> Tradeoff[Alternative / trade-off]",
         "caption": "TCP starts with a three-way handshake before reliable, ordered byte-stream delivery.",
-        "alt_text": "TCP starts with a three-way handshake before reliable, ordered byte-stream delivery."
+        "alt_text": "Concept diagram: TCP — Transmission Control Protocol"
       }
     },
     {

@@ -37,9 +37,9 @@
       "type": "mermaid",
       "id": "automatic-vs-manual",
       "payload": {
-        "code": "flowchart TD\n    N0[\"fast, risky\"]\n    N1[\"AUTOMATIC\"]\n    N2[\"FAILOVER\"]\n    N3[\"(fast,\"]\n    N4[\"risky)\"]\n    N5[\"Health\"]\n    N6[\"checker\"]\n    N7[\"detects\"]\n    N8[\"primary\"]\n    N9[\"down.\"]\n    N10[\"Controller\"]\n    N11[\"promotes\"]\n    N12[\"replica\"]\n    N13[\"primary.\"]\n    N14[\"DNS/LB/VIP\"]\n    N15[\"Traffic\"]\n    N16[\"redirected\"]\n    N17[\"(DNS\"]\n    N18[\"VIP).\"]\n    N19[\"Time\"]\n    N20[\"recover:\"]\n    N21[\"seconds\"]\n    N22[\"minutes.\"]\n    N23[\"Risk:\"]\n    N24[\"false\"]\n    N25[\"positive\"]\n    N26[\"split\"]\n    N27[\"brain.\"]\n    N28[\"slow, safe\"]\n    N29[\"MANUAL\"]\n    N30[\"(slow,\"]\n    N31[\"safe)\"]\n    N32[\"call\"]\n    N33[\"engineer\"]\n    N34[\"paged.\"]\n    N35[\"not a network partition\"]\n    N36[\"Verifies\"]\n    N37[\"really\"]\n    N38[\"down\"]\n    N39[\"(not\"]\n    N40[\"network\"]\n    N41[\"partition).\"]\n    N42[\"Promotes\"]\n    N43[\"replica,\"]\n    N44[\"redirects\"]\n    N45[\"traffic.\"]\n    N46[\"15min\"]\n    N47[\"hours.\"]\n    N48[\"longer\"]\n    N49[\"outage.\"]\n    N50[\"stateful\"]\n    N51[\"DATABASE\"]\n    N52[\"(stateful)\"]\n    N53[\"Primary\"]\n    N54[\"writes\"]\n    N55[\"WAL\"]\n    N56[\"Replicas\"]\n    N57[\"A,B,C.\"]\n    N58[\"most caught up\"]\n    N59[\"dies.\"]\n    N60[\"Promote\"]\n    N61[\"(most\"]\n    N62[\"caught\"]\n    N63[\"up).\"]\n    N64[\"now\"]\n    N65[\"B,C\"]\n    N66[\"follow\"]\n    N67[\"data\"]\n    N68[\"loss\"]\n    N69[\"was\"]\n    N70[\"behind\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44\n    N44 --> N45\n    N45 --> N46\n    N46 --> N47\n    N47 --> N48\n    N48 --> N49\n    N49 --> N50\n    N50 --> N51\n    N51 --> N52\n    N52 --> N53\n    N53 --> N54\n    N54 --> N55\n    N55 --> N56\n    N56 --> N57\n    N57 --> N58\n    N58 --> N59\n    N59 --> N60\n    N60 --> N61\n    N61 --> N62\n    N62 --> N63\n    N63 --> N64\n    N64 --> N65\n    N65 --> N66\n    N66 --> N67\n    N67 --> N68\n    N68 --> N69\n    N69 --> N70",
-        "caption": "Automatic failover is fast but risks split-brain; manual is safe but slow. Stateful failover risks data loss if the replica is behind.",
-        "alt_text": "Three diagrams. Automatic failover: a health checker detects the primary is down, the controller promotes a replica to primary, and traffic is redirected via DNS or load balancer. Recovery takes seconds to minutes, but a false positive can cause split-brain. Manual failover: an on-call engineer is paged, verifies the primary is really down rather than a partition, then promotes a replica. Recovery takes fifteen minutes to hours, but the outage is longer. Database failover: the primary writes a write-ahead log that replicas follow. When the primary dies, the most caught-up replica is promoted; if it was behind, data is lost."
+        "code": "flowchart LR\n  Primary[Primary instance] --> Health[Health check]\n  Health -->|healthy| Serve[Serve traffic]\n  Health -->|failed| Promote[Promote standby]\n  Promote --> Standby[Standby instance]\n  Standby --> Serve",
+        "caption": "Failover redirects work from a failed primary to a healthy standby.",
+        "alt_text": "Concept diagram: Failover"
       }
     },
     {
@@ -162,9 +162,9 @@
       "type": "mermaid",
       "id": "upgrade-mermaid-failover",
       "payload": {
-        "code": "flowchart LR\n  A[Client] --> B[Gateway] --> C[Service] --> D[State] --> E[Outcome]",
+        "code": "flowchart LR\n  Concept[\"Failover\"] --> Risk[\"Turns redundancy into actual availability —…\"]\n  Risk --> Mitigate[Mitigation / design choice]\n  Mitigate --> Outcome[Better system behavior]",
         "caption": "Failover: a simplified system view showing the primary flow and the main state boundaries.",
-        "alt_text": "Failover: a simplified system view showing the primary flow and the main state boundaries."
+        "alt_text": "Concept diagram: Failover"
       }
     },
     {

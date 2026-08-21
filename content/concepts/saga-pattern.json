@@ -34,9 +34,9 @@
       "type": "mermaid",
       "id": "saga-flow",
       "payload": {
-        "code": "flowchart TD\n    N0[\"central coordinator\"]\n    N1[\"ORCHESTRATED\"]\n    N2[\"SAGA\"]\n    N3[\"(central\"]\n    N4[\"coordinator)\"]\n    N5[\"Orchestrator\"]\n    N6[\"Order.create()\"]\n    N7[\"OrderCreated\"]\n    N8[\"Payment.charge()\"]\n    N9[\"PaymentCharged\"]\n    N10[\"out of stock\"]\n    N11[\"Inventory.reserve()\"]\n    N12[\"FAILS\"]\n    N13[\"(out\"]\n    N14[\"stock)\"]\n    N15[\"reverse order\"]\n    N16[\"compensation\"]\n    N17[\"phase\"]\n    N18[\"(reverse\"]\n    N19[\"order):\"]\n    N20[\"Payment.refund()\"]\n    N21[\"PaymentRefunded\"]\n    N22[\"Order.cancel()\"]\n    N23[\"OrderCancelled\"]\n    N24[\"State\"]\n    N25[\"machine\"]\n    N26[\"persists\"]\n    N27[\"orchestrator;\"]\n    N28[\"restartable\"]\n    N29[\"crash.\"]\n    N30[\"no central coordinator\"]\n    N31[\"CHOREOGRAPHED\"]\n    N32[\"(no\"]\n    N33[\"central\"]\n    N34[\"Order\"]\n    N35[\"service\"]\n    N36[\"event\"]\n    N37[\"Payment\"]\n    N38[\"Inventory\"]\n    N39[\"refunds\"]\n    N40[\"InventoryReserveFailed\"]\n    N41[\"(refunds)\"]\n    N42[\"cancels\"]\n    N43[\"(cancels)\"]\n    N44[\"Each\"]\n    N45[\"listens\"]\n    N46[\"for\"]\n    N47[\"events\"]\n    N48[\"and\"]\n    N49[\"acts\"]\n    N50[\"independently.\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44\n    N44 --> N45\n    N45 --> N46\n    N46 --> N47\n    N47 --> N48\n    N48 --> N49\n    N49 --> N50",
-        "caption": "Two saga variants: orchestrated (central coordinator) vs choreographed (event-driven).",
-        "alt_text": "Two diagrams comparing saga variants. The orchestrated saga has a central orchestrator that calls each service in sequence: Order create, Payment charge, Inventory reserve. When Inventory reserve fails, the orchestrator runs compensations in reverse: Payment refund, Order cancel. The orchestrator persists its state machine, so it can resume on crash. The choreographed saga has no central coordinator. The Order service emits an OrderCreated event; the Payment service reacts by charging and emits PaymentCharged; the Inventory service reacts by reserving and emits either InventoryReserved or InventoryReserveFailed. On failure, the Payment service listens for InventoryReserveFailed, refunds, and emits PaymentRefunded; the Order service listens for PaymentRefunded and cancels. Each service acts independently based on events."
+        "code": "flowchart LR\n  A[Service A] --> B[Service B]\n  B --> C[Service C]\n  C -->|failure| CompB[Compensate B]\n  CompB --> CompA[Compensate A]\n  C --> Success[Complete saga]",
+        "caption": "A saga coordinates a distributed workflow through local steps and compensations.",
+        "alt_text": "Concept diagram: Saga Pattern"
       }
     },
     {
@@ -159,9 +159,9 @@
       "type": "mermaid",
       "id": "upgrade-mermaid-saga-pattern",
       "payload": {
-        "code": "flowchart LR\n  A[Client] --> B[Gateway] --> C[Service] --> D[State] --> E[Outcome]",
+        "code": "flowchart LR\n  Concept[\"Saga Pattern\"] --> Risk[\"Non-blocking — the system stays available…\"]\n  Risk --> Mitigate[Mitigation / design choice]\n  Mitigate --> Outcome[Better system behavior]",
         "caption": "Saga Pattern: a simplified system view showing the primary flow and the main state boundaries.",
-        "alt_text": "Saga Pattern: a simplified system view showing the primary flow and the main state boundaries."
+        "alt_text": "Concept diagram: Saga Pattern"
       }
     },
     {

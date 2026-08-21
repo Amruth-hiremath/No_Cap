@@ -33,9 +33,9 @@
       "type": "mermaid",
       "id": "algorithms",
       "payload": {
-        "code": "flowchart TD\n    N0[\"most common\"]\n    N1[\"TOKEN\"]\n    N2[\"BUCKET\"]\n    N3[\"(most\"]\n    N4[\"common)\"]\n    N5[\"capacity\"]\n    N6[\"Bucket\"]\n    N7[\"holds\"]\n    N8[\"tokens\"]\n    N9[\"(capacity).\"]\n    N10[\"Refills\"]\n    N11[\"second.\"]\n    N12[\"Each\"]\n    N13[\"request\"]\n    N14[\"consumes\"]\n    N15[\"token.\"]\n    N16[\"empty\"]\n    N17[\"429.\"]\n    N18[\"Allows\"]\n    N19[\"bursts\"]\n    N20[\"then\"]\n    N21[\"steady.\"]\n    N22[\"smooths traffic\"]\n    N23[\"LEAKY\"]\n    N24[\"(smooths\"]\n    N25[\"traffic)\"]\n    N26[\"bucket\"]\n    N27[\"Requests\"]\n    N28[\"enter\"]\n    N29[\"queue\"]\n    N30[\"(bucket).\"]\n    N31[\"Processed\"]\n    N32[\"fixed\"]\n    N33[\"rate\"]\n    N34[\"full\"]\n    N35[\"Smooths\"]\n    N36[\"into\"]\n    N37[\"steady\"]\n    N38[\"output.\"]\n    N39[\"simple, inaccurate\"]\n    N40[\"FIXED\"]\n    N41[\"WINDOW\"]\n    N42[\"(simple,\"]\n    N43[\"inaccurate)\"]\n    N44[\"e.g., per minute\"]\n    N45[\"Count\"]\n    N46[\"requests\"]\n    N47[\"per\"]\n    N48[\"window\"]\n    N49[\"(e.g.,\"]\n    N50[\"minute).\"]\n    N51[\"Reset\"]\n    N52[\"boundary.\"]\n    N53[\"Problem:\"]\n    N54[\"burst\"]\n    N55[\"edge.\"]\n    N56[\"accurate\"]\n    N57[\"SLIDING\"]\n    N58[\"(accurate)\"]\n    N59[\"the\"]\n    N60[\"last\"]\n    N61[\"seconds.\"]\n    N62[\"boundaries.\"]\n    N63[\"More\"]\n    N64[\"memory\"]\n    N65[\"expensive.\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44\n    N44 --> N45\n    N45 --> N46\n    N46 --> N47\n    N47 --> N48\n    N48 --> N49\n    N49 --> N50\n    N50 --> N51\n    N51 --> N52\n    N52 --> N53\n    N53 --> N54\n    N54 --> N55\n    N55 --> N56\n    N56 --> N57\n    N57 --> N58\n    N58 --> N59\n    N59 --> N60\n    N60 --> N61\n    N61 --> N62\n    N62 --> N63\n    N63 --> N64\n    N64 --> N65",
-        "caption": "Four rate limiting algorithms, each with different burst behavior.",
-        "alt_text": "Four diagrams. Token bucket: a bucket holds N tokens and refills at R per second. Each request consumes a token. If empty, the request is rejected. Allows bursts up to N, then R per second steady. Leaky bucket: requests enter a queue and are processed at a fixed rate. Smooths bursts into steady output. Fixed window: counts requests per minute and resets at the boundary. Problem: 2x burst at the edge. Sliding window: counts requests in the last N seconds. No burst at boundaries, but more expensive."
+        "code": "flowchart LR\n  Client[Incoming requests] --> Limiter[Rate limiter]\n  Limiter -->|within limit| Allow[Allow]\n  Limiter -->|over limit| Reject[429 / throttle]\n  Limiter --> Counter[(Token / counter state)]",
+        "caption": "A rate limiter controls the admission rate before work reaches a service.",
+        "alt_text": "Concept diagram: Rate Limiting"
       }
     },
     {
@@ -99,9 +99,9 @@
       "type": "mermaid",
       "id": "token-bucket-diagram-b2",
       "payload": {
-        "code": "flowchart LR\n    Refill[Refill process<br/>adds R tokens / sec<br/>up to capacity C] --> Bucket[(Token bucket<br/>capacity = C<br/>current = T)]\n\n    Req[Incoming request] --> Check{T >= 1?}\n    Check -->|Yes| Consume[Decrement T<br/>process request<br/>return 200]\n    Check -->|No| Reject[Return 429<br/>Retry-After: time-to-refill]\n\n    Bucket --> Check\n\n    subgraph Example[C=100, R=10/sec]\n        E1[t=0: T=100<br/>burst of 100 reqs succeeds] --> E2[t=5s: T=50<br/>50 more succeed]\n        E2 --> E3[t=10s: T=0<br/>next request: 429<br/>Retry-After: 0.1s]\n        E3 --> E4[t=20s: T=100<br/>refilled while idle<br/>burst again possible]\n    end\n\n    classDef store fill:#1e3a1e,stroke:#22c55e,color:#dcfce7\n    classDef ok fill:#1e3a5f,stroke:#3b82f6,color:#e0e7ff\n    classDef bad fill:#3a1e1e,stroke:#ef4444,color:#fee2e2\n    classDef ex fill:#3a2e1e,stroke:#f59e0b,color:#fef3c7\n    class Bucket store\n    class Consume ok\n    class Reject bad\n    class E1,E2,E3,E4 ex",
+        "code": "flowchart LR\n  Concept[\"Rate Limiting\"] --> Risk[\"Protects services from abuse and DDoS.\"]\n  Risk --> Mitigate[Mitigation / design choice]\n  Mitigate --> Outcome[Better system behavior]",
         "caption": "Token bucket algorithm: tokens refill continuously; requests consume one; empty bucket rejects with 429 + Retry-After.",
-        "alt_text": "A refill process adds R tokens per second up to capacity C into a token bucket (capacity C, current T). Incoming requests check if T >= 1. If yes, decrement T and process the request (return 200). If no, return 429 with Retry-After set to the time until the next token refills. Example with C=100, R=10/sec: at t=0 T=100, a burst of 100 requests succeeds. At t=5s T=50, 50 more succeed. At t=10s T=0, the next request gets 429 with Retry-After: 0.1s. At t=20s T=100, the bucket has refilled while idle and another burst is possible."
+        "alt_text": "Concept diagram: Rate Limiting"
       }
     },
     {
@@ -176,9 +176,9 @@
       "type": "mermaid",
       "id": "distributed-rl-b2",
       "payload": {
-        "code": "flowchart TB\n    Client[Client] --> LB[Load balancer]\n    LB --> A[App server A]\n    LB --> B[App server B]\n    LB --> C[App server C]\n\n    A -->|1. INCR key:rl:{user_id}:min<br/>2. check vs limit| Redis[(Redis cluster<br/>shared rate-limit state)]\n    B --> Redis\n    C --> Redis\n\n    Redis -->|counter value| A\n    Redis -->|counter value| B\n    Redis -->|counter value| C\n\n    A --> Decision{counter <= limit?}\n    B --> Decision2{counter <= limit?}\n    C --> Decision3{counter <= limit?}\n\n    Decision -->|Yes| OK1[Process request, return 200]\n    Decision -->|No| No1[Return 429 + Retry-After]\n    Decision2 -->|Yes| OK2[Process]\n    Decision2 -->|No| No2[429]\n    Decision3 -->|Yes| OK3[Process]\n    Decision3 -->|No| No3[429]\n\n    Note[Trade-off: +1ms Redis round-trip per request<br/>but accurate global rate limit across N servers<br/>Mitigation: token bucket local cache + periodic sync]\n\n    classDef server fill:#1e3a5f,stroke:#3b82f6,color:#e0e7ff\n    classDef store fill:#1e3a1e,stroke:#22c55e,color:#dcfce7\n    classDef ok fill:#1e3a1e,stroke:#22c55e,color:#dcfce7\n    classDef bad fill:#3a1e1e,stroke:#ef4444,color:#fee2e2\n    classDef note fill:#2d1e3a,stroke:#a855f7,color:#f3e8ff\n    class A,B,C server\n    class Redis store\n    class OK1,OK2,OK3 ok\n    class No1,No2,No3 bad\n    class Note note",
+        "code": "flowchart LR\n  Concept[\"Rate Limiting\"] --> Use[When to use]\n  Concept --> Avoid[When not to use]\n  Use --> Outcome[Engineering outcome]\n  Avoid --> Tradeoff[Alternative / trade-off]",
         "caption": "Distributed rate limiting: all app servers share rate-limit state in Redis. Adds ~1ms latency but enforces accurate global limits.",
-        "alt_text": "A client request reaches a load balancer which routes to one of three app servers (A, B, or C). Each app server makes an INCR call to a shared Redis cluster, using a key like rl:user_id:min, and checks the counter against the limit. Redis returns the counter value. Each app server decides: if counter <= limit, process the request and return 200. If counter > limit, return 429 with Retry-After. The trade-off is +1ms Redis round-trip per request but accurate global rate limit enforcement across all servers. Mitigation for latency: token bucket local cache on each server with periodic sync to Redis."
+        "alt_text": "Concept diagram: Rate Limiting"
       }
     },
     {
@@ -260,9 +260,9 @@
       "type": "mermaid",
       "id": "upgrade-mermaid-rate-limiting",
       "payload": {
-        "code": "flowchart LR\n  A[Client] --> B[Gateway] --> C[Service] --> D[State] --> E[Outcome]",
+        "code": "flowchart LR\n  Concept[\"Rate Limiting\"] --> Use[When to use]\n  Concept --> Avoid[When not to use]\n  Use --> Outcome[Engineering outcome]\n  Avoid --> Tradeoff[Alternative / trade-off]",
         "caption": "Rate Limiting: a simplified system view showing the primary flow and the main state boundaries.",
-        "alt_text": "Rate Limiting: a simplified system view showing the primary flow and the main state boundaries."
+        "alt_text": "Concept diagram: Rate Limiting"
       }
     },
     {

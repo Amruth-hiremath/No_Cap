@@ -31,9 +31,9 @@
       "type": "mermaid",
       "id": "replication",
       "payload": {
-        "code": "flowchart TD\n    N0[\"PRIMARY\"]\n    N1[\"accepts reads + writes\"]\n    N2[\"(accepts\"]\n    N3[\"reads\"]\n    N4[\"writes)\"]\n    N5[\"async or sync\"]\n    N6[\"replicate\"]\n    N7[\"(async\"]\n    N8[\"sync)\"]\n    N9[\"Replica\"]\n    N10[\"(reads)\"]\n    N11[\"Writes:\"]\n    N12[\"always\"]\n    N13[\"primary.\"]\n    N14[\"strong\"]\n    N15[\"may be stale\"]\n    N16[\"Reads:\"]\n    N17[\"primary\"]\n    N18[\"(strong)\"]\n    N19[\"replica\"]\n    N20[\"(may\"]\n    N21[\"stale).\"]\n    N22[\"Failover:\"]\n    N23[\"promote\"]\n    N24[\"dies.\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24",
-        "caption": "Single-primary replication: writes to primary, reads from primary or replicas.",
-        "alt_text": "A diagram of single-primary replication. The primary database accepts both reads and writes. It replicates writes asynchronously or synchronously to three replicas. Writes always go to the primary. Reads can go to the primary (strongly consistent) or to replicas (may be stale due to replication lag). If the primary dies, a replica is promoted to become the new primary."
+        "code": "flowchart LR\n  Writer[Write traffic] --> Primary[(Primary)]\n  Primary --> R1[(Replica 1)]\n  Primary --> R2[(Replica 2)]\n  Primary --> R3[(Replica N)]\n  Readers[Read traffic] --> R1\n  Readers --> R2\n  Readers --> R3\n  Primary -.failover.-> R1",
+        "caption": "Replication keeps multiple copies of data for scale or resilience.",
+        "alt_text": "Concept diagram: Replication"
       }
     },
     {
@@ -97,9 +97,9 @@
       "type": "mermaid",
       "id": "primary-replica-arch-b2",
       "payload": {
-        "code": "flowchart TB\n    W[Write request] --> Primary[(Primary DB<br/>accepts writes)]\n    Primary -->|WAL stream<br/>async or sync| R1[(Replica 1<br/>reads only)]\n    Primary -->|WAL stream| R2[(Replica 2<br/>reads only)]\n    Primary -->|WAL stream| R3[(Replica 3<br/>cross-region DR)]\n\n    R1 --> Ro1[Read request 1]\n    R2 --> Ro2[Read request 2]\n    R3 -.standby, no traffic.-> DR[Disaster recovery]\n\n    Primary --> FailoverMonitor{Failover monitor<br/>etcd / Patroni / RDS HA}\n    FailoverMonitor -.primary down detected.-> PromoteR1[Promote R1 to primary<br/>update DNS / connection pool]\n\n    classDef primary fill:#3a2e1e,stroke:#f59e0b,color:#fef3c7\n    classDef replica fill:#1e3a5f,stroke:#3b82f6,color:#e0e7ff\n    classDef dr fill:#2d1e3a,stroke:#a855f7,color:#f3e8ff\n    classDef monitor fill:#3a1e1e,stroke:#ef4444,color:#fee2e2\n    class Primary primary\n    class R1,R2,Ro1,Ro2 replica\n    class R3,DR dr\n    class FailoverMonitor,PromoteR1 monitor",
+        "code": "flowchart LR\n  Concept[\"Replication\"] --> Risk[\"High availability — survive primary failure.\"]\n  Risk --> Mitigate[Mitigation / design choice]\n  Mitigate --> Outcome[Better system behavior]",
         "caption": "Primary-replica replication: writes to primary, reads from replicas, monitor promotes a replica on primary failure.",
-        "alt_text": "A write request goes to the primary database. The primary streams its write-ahead log (WAL) to three replicas, asynchronously or synchronously. Read requests go to replica 1 or replica 2. Replica 3 sits in another region as disaster recovery standby. A failover monitor (etcd, Patroni, RDS HA) watches the primary; if it goes down, the monitor promotes replica 1 to be the new primary and updates DNS / connection pool routing."
+        "alt_text": "Concept diagram: Replication"
       }
     },
     {
@@ -180,9 +180,9 @@
       "type": "mermaid",
       "id": "failover-sequence-b2",
       "payload": {
-        "code": "sequenceDiagram\n    participant App as Application\n    participant LB as Connection Pool / DNS\n    participant Mon as Failover Monitor<br/>(Patroni / etcd / RDS HA)\n    participant P as Primary (dies)\n    participant R1 as Replica 1\n    participant R2 as Replica 2\n\n    Note over P: t=0: Primary crash\n    Mon->>P: Health check (no response)\n    Mon->>P: Retry 1, 2, 3 (no response)\n    Note over Mon: t=5s: Declared dead\n    Mon->>R1: Promote to primary\n    R1->>R1: End recovery mode,<br/>accept writes\n    Mon->>LB: Update routing<br/>(DNS TTL / etcd key)\n    LB->>App: New primary is R1\n    App->>R1: Subsequent writes\n    Note over R1,R2: R2 re-points replication<br/>from P (dead) to R1 (new primary)\n    R2->>R1: Replication stream\n    Note over App: Total recovery: 10-60s typical",
+        "code": "flowchart LR\n  Concept[\"Replication\"] --> Use[When to use]\n  Concept --> Avoid[When not to use]\n  Use --> Outcome[Engineering outcome]\n  Avoid --> Tradeoff[Alternative / trade-off]",
         "caption": "Failover sequence: monitor detects primary death, promotes a replica, updates routing. Total downtime 10-60s in practice.",
-        "alt_text": "A sequence diagram. At t=0, the primary crashes. The failover monitor (Patroni, etcd, or AWS RDS HA) sends health checks to the primary, retries three times with no response, and at t=5s declares it dead. The monitor promotes Replica 1 to primary; Replica 1 ends its recovery mode and accepts writes. The monitor updates routing — DNS TTL or etcd key — and the connection pool / DNS layer routes the application's subsequent writes to the new primary. Replica 2 re-points its replication stream from the dead primary to the new primary (R1). Total recovery time: 10-60 seconds typical."
+        "alt_text": "Concept diagram: Replication"
       }
     },
     {
@@ -264,9 +264,9 @@
       "type": "mermaid",
       "id": "upgrade-mermaid-replication",
       "payload": {
-        "code": "flowchart TD\n W[Write] --> P[(Primary)]\n P --> R1[(Replica 1)]\n P --> R2[(Replica 2)]\n Q[Read] --> R1\n Q --> R2",
+        "code": "flowchart LR\n  Concept[\"Replication\"] --> Use[When to use]\n  Concept --> Avoid[When not to use]\n  Use --> Outcome[Engineering outcome]\n  Avoid --> Tradeoff[Alternative / trade-off]",
         "caption": "Replication creates multiple copies so reads can scale and a node failure does not necessarily take the dataset offline.",
-        "alt_text": "Replication creates multiple copies so reads can scale and a node failure does not necessarily take the dataset offline."
+        "alt_text": "Concept diagram: Replication"
       }
     },
     {

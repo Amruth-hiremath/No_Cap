@@ -38,9 +38,9 @@
       "type": "mermaid",
       "id": "normalized-vs-denormalized",
       "payload": {
-        "code": "flowchart TD\n    N0[\"Read\"]\n    N1[\"'list\"]\n    N2[\"products\"]\n    N3[\"with\"]\n    N4[\"category\"]\n    N5[\"name\"]\n    N6[\"and\"]\n    N7[\"supplier\"]\n    N8[\"name'\"]\n    N9[\"3 tables, JOIN on read\"]\n    N10[\"NORMALIZED\"]\n    N11[\"tables,\"]\n    N12[\"JOIN\"]\n    N13[\"read)\"]\n    N14[\"categories\"]\n    N15[\"suppliers\"]\n    N16[\"price\"]\n    N17[\"country\"]\n    N18[\"category_id\"]\n    N19[\"supplier_id\"]\n    N20[\"cost:\"]\n    N21[\"query\"]\n    N22[\"JOINs.\"]\n    N23[\"Cache\"]\n    N24[\"invalidation\"]\n    N25[\"easy.\"]\n    N26[\"1 table, no JOIN\"]\n    N27[\"DENORMALIZED\"]\n    N28[\"table,\"]\n    N29[\"JOIN)\"]\n    N30[\"products_with_lookups\"]\n    N31[\"id,\"]\n    N32[\"name,\"]\n    N33[\"price,\"]\n    N34[\"category_id,\"]\n    N35[\"category_name,\"]\n    N36[\"supplier_id,\"]\n    N37[\"supplier_name,\"]\n    N38[\"supplier_country\"]\n    N39[\"query,\"]\n    N40[\"JOIN.\"]\n    N41[\"Write\"]\n    N42[\"rename\"]\n    N43[\"update\"]\n    N44[\"every\"]\n    N45[\"product\"]\n    N46[\"it.\"]\n    N47[\"Trade\"]\n    N48[\"off:\"]\n    N49[\"read\"]\n    N50[\"latency\"]\n    N51[\"write\"]\n    N52[\"amplification\"]\n    N53[\"consistency\"]\n    N54[\"risk\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44\n    N44 --> N45\n    N45 --> N46\n    N46 --> N47\n    N47 --> N48\n    N48 --> N49\n    N49 --> N50\n    N50 --> N51\n    N51 --> N52\n    N52 --> N53\n    N53 --> N54",
-        "caption": "Normalized: 1 write per fact, JOINs on read. Denormalized: writes propagate to every copy, reads are single-table.",
-        "alt_text": "Two diagrams of a products lookup with category and supplier names. In the normalized version, three separate tables (products, categories, suppliers) are joined by foreign keys at read time, costing one query plus two JOINs but making writes simple — rename a category in one row. In the denormalized version, one table products_with_lookups contains id, name, price, category_id, category_name, supplier_id, supplier_name, and supplier_country — reads are a single query with no JOIN, but renaming a category requires updating every product row in that category, increasing write amplification and consistency risk."
+        "code": "flowchart LR\n  Normalized[Normalized tables] --> Joins[Many joins at read time]\n  Joins --> Latency[Read complexity]\n  Normalized --> Duplicate[Denormalized copy]\n  Duplicate --> Faster[Fast read path]\n  Duplicate --> Sync[Consistency / update cost]",
+        "caption": "Denormalization: shape storage around the access pattern.",
+        "alt_text": "Concept diagram: Denormalization"
       }
     },
     {
@@ -163,9 +163,9 @@
       "type": "mermaid",
       "id": "upgrade-mermaid-denormalization",
       "payload": {
-        "code": "flowchart LR\n  A[Client] --> B[Gateway] --> C[Service] --> D[State] --> E[Outcome]",
+        "code": "flowchart LR\n  Concept[\"Denormalization\"] --> Risk[\"Reads are faster — no JOINs,…\"]\n  Risk --> Mitigate[Mitigation / design choice]\n  Mitigate --> Outcome[Better system behavior]",
         "caption": "Denormalization: a simplified system view showing the primary flow and the main state boundaries.",
-        "alt_text": "Denormalization: a simplified system view showing the primary flow and the main state boundaries."
+        "alt_text": "Concept diagram: Denormalization"
       }
     },
     {

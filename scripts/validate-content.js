@@ -10,7 +10,7 @@
  *   - every concept has required fields (slug, title, area, phase, summary, blocks, etc.)
  *   - every prerequisite / related slug resolves to an existing concept
  *   - every quiz block has a question, options, answer_index, rationale
- *   - every diagram block has ascii + voice_alt_text
+ *   - every Mermaid block has canonical code + accessibility metadata
  *   - no duplicate slugs
  *   - tracks.json concept references resolve
  *   - glossary concept_slug references resolve
@@ -39,7 +39,7 @@ const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
 
 /* ── Load all concepts ── */
 const concepts = {};
-const conceptFiles = fs.readdirSync(CONCEPTS_DIR).filter(f => f.endsWith('.json') && f !== 'manifest.json');
+const conceptFiles = fs.readdirSync(CONCEPTS_DIR).filter(f => f.endsWith('.json') && f !== 'manifest.json' && f !== 'index.json');
 
 for (const file of conceptFiles) {
   const filePath = path.join(CONCEPTS_DIR, file);
@@ -145,11 +145,13 @@ for (const [fileSlug, data] of Object.entries(concepts)) {
         warn(`${fileSlug}.json: quiz block ${block.id} has no rationale`);
       }
     }
-    if (block.type === 'diagram') {
-      const p = block.payload;
-      if (!p.ascii) error(`${fileSlug}.json: diagram block ${block.id} has no ascii`);
-      if (!p.voice_alt_text) {
-        warn(`${fileSlug}.json: diagram block ${block.id} has no voice_alt_text (needed for accessibility/voice mode)`);
+    if (block.type === 'mermaid') {
+      const p = block.payload || {};
+      if (!p.code || typeof p.code !== 'string') {
+        error(`${fileSlug}.json: Mermaid block ${block.id} has no canonical Mermaid code`);
+      }
+      if (!p.alt_text && !p.voice_alt_text) {
+        warn(`${fileSlug}.json: Mermaid block ${block.id} has no accessibility description`);
       }
     }
   }

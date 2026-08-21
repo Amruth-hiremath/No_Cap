@@ -16,7 +16,7 @@ import { AccentRule } from '@/components/ui/AccentRule';
 import { Badge, MasteryBadge } from '@/components/ui/Badge';
 import { useStore } from '@/lib/store';
 import { useHydrated } from '@/lib/useHydrated';
-import { getConcept } from '@/lib/content';
+import { getConceptSummary } from '@/lib/content-lite';
 import { cn } from '@/lib/utils';
 import type { Note, Highlight, Bookmark } from '@/lib/types';
 
@@ -199,7 +199,7 @@ export default function LibraryPage() {
           icon={<Clock className="h-3.5 w-3.5" />}
           action={
             <Link
-              href="/library/notes"
+              href="/notes"
               className="hidden items-center gap-1 text-xs font-medium text-accent hover:underline sm:inline-flex"
             >
               All notes <ArrowRight className="h-3 w-3" />
@@ -268,7 +268,7 @@ export default function LibraryPage() {
         ) : (
           <div className="mt-4 grid gap-2 sm:grid-cols-2">
             {recentConceptSlugs.map((slug) => {
-              const concept = getConcept(slug);
+              const concept = getConceptSummary(slug);
               if (!concept) return null;
               const state = hydrated ? getMasteryState(slug) : 'not_started';
               return (
@@ -315,7 +315,7 @@ export default function LibraryPage() {
 /* ── Saved row (mixed note/highlight/bookmark) ─────────────────── */
 function SavedRow({ item }: { item: SavedItem }) {
   const { kind, data, ts } = item;
-  const concept = getConcept(data.concept_slug);
+  const concept = getConceptSummary(data.concept_slug);
 
   if (kind === 'note') {
     const n = data;

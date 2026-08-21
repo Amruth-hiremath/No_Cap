@@ -33,9 +33,9 @@
       "type": "mermaid",
       "id": "otel-stack",
       "payload": {
-        "code": "flowchart TD\n    N0[\"YOUR\"]\n    N1[\"CODE\"]\n    N2[\"'db.insert', attrs={order_id: 42}\"]\n    N3[\"order_id: 42\"]\n    N4[\"tracer.start_span('db.insert',\"]\n    N5[\"attrs\"]\n    N6[\"{order_id:\"]\n    N7[\"42})\"]\n    N8[\"'order_created', {order_id: 42, trace_id: tid}\"]\n    N9[\"order_id: 42, trace_id: tid\"]\n    N10[\"logger.info('order_created',\"]\n    N11[\"42,\"]\n    N12[\"trace_id:\"]\n    N13[\"tid})\"]\n    N14[\"'orders_created'\"]\n    N15[\"meter.counter('orders_created').increment()\"]\n    N16[\"emits\"]\n    N17[\"OpenTelemetry\"]\n    N18[\"SDK\"]\n    N19[\"W3C traceparent\"]\n    N20[\"propagates\"]\n    N21[\"trace\"]\n    N22[\"context\"]\n    N23[\"(W3C\"]\n    N24[\"traceparent)\"]\n    N25[\"batches\"]\n    N26[\"spans\"]\n    N27[\"log\"]\n    N28[\"metrics\"]\n    N29[\"service.name, version\"]\n    N30[\"adds\"]\n    N31[\"resource\"]\n    N32[\"(service.name,\"]\n    N33[\"version)\"]\n    N34[\"exports\"]\n    N35[\"via\"]\n    N36[\"OTLP\"]\n    N37[\"Collector\"]\n    N38[\"receives\"]\n    N39[\"from\"]\n    N40[\"all\"]\n    N41[\"services\"]\n    N42[\"samples,\"]\n    N43[\"filters,\"]\n    N44[\"transforms\"]\n    N45[\"fans\"]\n    N46[\"out\"]\n    N47[\"backends\"]\n    N48[\"Prometheus\"]\n    N49[\"(metrics)\"]\n    N50[\"logs\"]\n    N51[\"Loki\"]\n    N52[\"Elasticsearch\"]\n    N53[\"(logs)\"]\n    N54[\"traces\"]\n    N55[\"Tempo\"]\n    N56[\"Jaeger\"]\n    N57[\"(traces)\"]\n    N58[\"One\"]\n    N59[\"instrumentation\"]\n    N60[\"layer,\"]\n    N61[\"any\"]\n    N62[\"backend.\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44\n    N44 --> N45\n    N45 --> N46\n    N46 --> N47\n    N47 --> N48\n    N48 --> N49\n    N49 --> N50\n    N50 --> N51\n    N51 --> N52\n    N52 --> N53\n    N53 --> N54\n    N54 --> N55\n    N55 --> N56\n    N56 --> N57\n    N57 --> N58\n    N58 --> N59\n    N59 --> N60\n    N60 --> N61\n    N61 --> N62",
-        "caption": "OpenTelemetry: instrument once in your code, ship to any metrics/logs/traces backend via the collector.",
-        "alt_text": "A stack diagram. Your code emits spans via tracer dot start_span, structured logs via logger dot info with order_id and trace_id, and metrics via meter dot counter. The OpenTelemetry SDK receives these, propagates trace context using the W3C traceparent header, batches spans logs and metrics, and adds resource attributes like service dot name and version. The OpenTelemetry Collector receives from all services, samples, filters, transforms, and fans out to multiple backends: Prometheus for metrics, Loki or Elasticsearch for logs, and Tempo or Jaeger for traces. One instrumentation layer, any backend."
+        "code": "flowchart LR\n  Code[Application code] --> Instrument[Instrumentation]\n  Instrument --> Metrics[Metrics]\n  Instrument --> Logs[Logs]\n  Instrument --> Traces[Traces]\n  Metrics --> Backend[Telemetry backend]\n  Logs --> Backend\n  Traces --> Backend",
+        "caption": "Instrumentation: turn running-system behavior into observable signals.",
+        "alt_text": "Concept diagram: Instrumentation"
       }
     },
     {
@@ -165,9 +165,9 @@
       "type": "mermaid",
       "id": "upgrade-mermaid-instrumentation",
       "payload": {
-        "code": "flowchart LR\n  A[Client] --> B[Gateway] --> C[Service] --> D[State] --> E[Outcome]",
+        "code": "flowchart LR\n  Concept[\"Instrumentation\"] --> Risk[\"Makes a service debuggable — every…\"]\n  Risk --> Mitigate[Mitigation / design choice]\n  Mitigate --> Outcome[Better system behavior]",
         "caption": "Instrumentation: a simplified system view showing the primary flow and the main state boundaries.",
-        "alt_text": "Instrumentation: a simplified system view showing the primary flow and the main state boundaries."
+        "alt_text": "Concept diagram: Instrumentation"
       }
     },
     {

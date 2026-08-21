@@ -34,9 +34,9 @@
       "type": "mermaid",
       "id": "queue-flow",
       "payload": {
-        "code": "flowchart TD\n    N0[\"Producer\"]\n    N1[\" MESSAGE QUEUE \"]\n    N2[\"MESSAGE\"]\n    N3[\"QUEUE\"]\n    N4[\"Consumer\"]\n    N5[\"(FIFO:\"]\n    N6[\"first\"]\n    N7[\"in,\"]\n    N8[\"out)\"]\n    N9[\"Producers\"]\n    N10[\"write\"]\n    N11[\"fast.\"]\n    N12[\"Consumers\"]\n    N13[\"read\"]\n    N14[\"their\"]\n    N15[\"own\"]\n    N16[\"pace.\"]\n    N17[\"Queue\"]\n    N18[\"absorbs\"]\n    N19[\"the\"]\n    N20[\"spike.\"]\n    N21[\"Add\"]\n    N22[\"more\"]\n    N23[\"consumers\"]\n    N24[\"scale.\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24",
-        "caption": "A message queue decouples producers from consumers, smoothing traffic spikes.",
-        "alt_text": "A diagram of a message queue. Multiple producers write messages into a queue, which acts as a FIFO buffer. Multiple consumers read from the queue at their own pace. Producers can write fast while consumers process at a steady rate. The queue absorbs traffic spikes. Add more consumers to scale throughput."
+        "code": "flowchart LR\n  Producer[Producer] --> Queue[(Message queue)]\n  Queue --> ConsumerA[Consumer A]\n  Queue --> ConsumerB[Consumer B]\n  ConsumerA --> Result[Processing result]\n  ConsumerB --> Result",
+        "caption": "Message queues decouple producers from consumers and absorb bursts.",
+        "alt_text": "Concept diagram: Message Queues"
       }
     },
     {
@@ -100,9 +100,9 @@
       "type": "mermaid",
       "id": "producer-consumer-b2",
       "payload": {
-        "code": "flowchart LR\n    P1[Producer 1<br/>web front-end] --> Q\n    P2[Producer 2<br/>mobile API] --> Q\n    P3[Producer 3<br/>batch job] --> Q\n\n    Q[(Message Queue<br/>partitioned by key<br/>FIFO per partition)]\n\n    Q --> C1[Consumer 1<br/>group=orders]\n    Q --> C2[Consumer 2<br/>group=orders]\n    Q --> C3[Consumer 3<br/>group=orders]\n\n    Q --> S1[Subscriber A<br/>analytics pipeline]\n    Q --> S2[Subscriber B<br/>notification service]\n\n    C1 --> H[(idempotency<br/>key store)]\n    C2 --> H\n    C3 --> H\n    C1 --> DB1[(orders DB)]\n    C2 --> DB1\n    C3 --> DB1\n\n    S1 --> DW[(data warehouse)]\n    S2 --> Push[Push notification service]\n\n    DLQ[(Dead-letter queue<br/>poison messages)] -.after N retries.-> Q\n\n    classDef prod fill:#1e3a5f,stroke:#3b82f6,color:#e0e7ff\n    classDef cons fill:#3a2e1e,stroke:#f59e0b,color:#fef3c7\n    classDef store fill:#1e3a1e,stroke:#22c55e,color:#dcfce7\n    classDef warn fill:#3a1e1e,stroke:#ef4444,color:#fee2e2\n    class P1,P2,P3 prod\n    class C1,C2,C3,S1,S2 cons\n    class Q,DB1,DW,Push,H store\n    class DLQ warn",
+        "code": "flowchart LR\n  Concept[\"Message Queues\"] --> Risk[\"Smooths traffic spikes — producers write…\"]\n  Risk --> Mitigate[Mitigation / design choice]\n  Mitigate --> Outcome[Better system behavior]",
         "caption": "Full producer-consumer topology: multiple producers, competing consumers in a group, pub/sub subscribers, idempotency store, dead-letter queue.",
-        "alt_text": "Three producers (web front-end, mobile API, batch job) write to a partitioned message queue. Three consumers in the orders group compete for messages (each message goes to exactly one consumer in the group). Two subscribers (analytics pipeline and notification service) each get a copy of every message. Each consumer checks an idempotency key store before writing to the orders database, so duplicate deliveries don't cause double processing. A dead-letter queue receives messages that fail processing N times, isolating poison messages from the main queue."
+        "alt_text": "Concept diagram: Message Queues"
       }
     },
     {
@@ -177,9 +177,9 @@
       "type": "mermaid",
       "id": "dlq-flow-b2",
       "payload": {
-        "code": "flowchart TD\n    Q[Main queue] --> C[Consumer]\n    C --> Proc{Process message}\n    Proc -->|Success| Ack[ACK → remove from queue]\n    Proc -->|Failure<br/>exception, timeout| Retry[Increment retry count]\n    Retry --> Check{retry count<br/>>= max?}\n    Check -->|No| Reprocess[Re-queue with backoff<br/>e.g., exp(2, n) seconds]\n    Reprocess --> Q\n    Check -->|Yes, e.g., 5 tries| DLQ[(Dead-letter queue)]\n    DLQ --> Alert[PagerDuty alert<br/>ops investigates]\n    DLQ --> Inspect[Replay tool<br/>inspect + reprocess]\n    Inspect -->|fix + replay| Q\n    Inspect -->|poison, discard| Archive[Archive to S3<br/>for audit]\n\n    classDef ok fill:#1e3a1e,stroke:#22c55e,color:#dcfce7\n    classDef warn fill:#3a2e1e,stroke:#f59e0b,color:#fef3c7\n    classDef bad fill:#3a1e1e,stroke:#ef4444,color:#fee2e2\n    class Ack ok\n    class Retry,Reprocess,Inspect warn\n    class DLQ,Alert,Archive bad",
+        "code": "flowchart LR\n  Concept[\"Message Queues\"] --> Use[When to use]\n  Concept --> Avoid[When not to use]\n  Use --> Outcome[Engineering outcome]\n  Avoid --> Tradeoff[Alternative / trade-off]",
         "caption": "Dead-letter queue flow: failed messages retry with backoff, then move to DLQ for inspection. Ops can replay or archive.",
-        "alt_text": "A consumer reads a message from the main queue. On success, it ACKs and the message is removed. On failure (exception, timeout), it increments a retry count. If retry count is below max, the message is re-queued with exponential backoff. If retry count reaches max (e.g., 5 tries), the message is moved to a dead-letter queue (DLQ). The DLQ triggers a PagerDuty alert for ops investigation. An inspect tool allows replay (after fixing the consumer bug) or archive to S3 (for poison messages that will never succeed)."
+        "alt_text": "Concept diagram: Message Queues"
       }
     },
     {
@@ -261,9 +261,9 @@
       "type": "mermaid",
       "id": "upgrade-mermaid-message-queues",
       "payload": {
-        "code": "flowchart LR\n P1[Producer] --> Q[(Queue)] --> C1[Consumer]\n P2[Producer] --> Q\n Q --> C2[Consumer]",
+        "code": "flowchart LR\n  Concept[\"Message Queues\"] --> Use[When to use]\n  Concept --> Avoid[When not to use]\n  Use --> Outcome[Engineering outcome]\n  Avoid --> Tradeoff[Alternative / trade-off]",
         "caption": "A message queue decouples producers from consumers and buffers work.",
-        "alt_text": "A message queue decouples producers from consumers and buffers work."
+        "alt_text": "Concept diagram: Message Queues"
       }
     },
     {

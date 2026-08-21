@@ -35,9 +35,9 @@
       "type": "mermaid",
       "id": "topology",
       "payload": {
-        "code": "flowchart TD\n    N0[\"Writes\"]\n    N1[\"Reads\"]\n    N2[\"commands\"]\n    N3[\"queries\"]\n    N4[\"(commands)\"]\n    N5[\"(queries)\"]\n    N6[\"s\"]\n    N7[\"Write\"]\n    N8[\"Model\"]\n    N9[\"event\"]\n    N10[\"stream\"]\n    N11[\"Read\"]\n    N12[\"Model(s)\"]\n    N13[\"(source\"]\n    N14[\"OrderCreated,\"]\n    N15[\"orders_by_user\"]\n    N16[\"truth)\"]\n    N17[\"OrderShipped,\"]\n    N18[\"orders_by_status\"]\n    N19[\"e.g.\"]\n    N20[\"Postgres\"]\n    N21[\"OrderCancelled\"]\n    N22[\"search\"]\n    N23[\"index\"]\n    N24[\"business\"]\n    N25[\"Elasticsearch\"]\n    N26[\"rules\"]\n    N27[\"Redis\"]\n    N28[\"caches\"]\n    N29[\"eventually consistent\"]\n    N30[\"(eventually\"]\n    N31[\"consistent)\"]\n    N32[\"read\"]\n    N33[\"models\"]\n    N34[\"lag\"]\n    N35[\"Apply\"]\n    N36[\"Serve\"]\n    N37[\"command,\"]\n    N38[\"validate,\"]\n    N39[\"fast,\"]\n    N40[\"emit\"]\n    N41[\"evt\"]\n    N42[\"scaled\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42",
-        "caption": "CQRS topology: commands hit the write model, which emits events; projections build read models optimized for queries. Reads are eventually consistent with writes.",
-        "alt_text": "A diagram showing writes (commands) on the left and reads (queries) on the right. The write model on the left is the source of truth, implemented as Postgres with business rules. It emits an event stream — OrderCreated, OrderShipped, OrderCancelled — which is consumed by the read model on the right, consisting of multiple projections like orders_by_user, orders_by_status, and a search index in Elasticsearch with Redis caches. The two sides are eventually consistent — read models lag writes by milliseconds. The caption notes that commands apply, validate, and emit events; reads serve fast, scaled queries."
+        "code": "flowchart LR\n  Command[Write] --> WriteModel[Command model]\n  WriteModel --> Store[(Write store)]\n  Store --> Projection[Projection]\n  Projection --> ReadModel[(Read model)]\n  Query[Read] --> ReadModel",
+        "caption": "CQRS: apply a pattern to a recurring architectural pressure.",
+        "alt_text": "Concept diagram: CQRS"
       }
     },
     {
@@ -136,9 +136,9 @@
       "type": "mermaid",
       "id": "upgrade-mermaid-cqrs",
       "payload": {
-        "code": "flowchart LR\n  A[Client] --> B[Gateway] --> C[Service] --> D[State] --> E[Outcome]",
+        "code": "flowchart LR\n  Concept[\"CQRS\"] --> Risk[\"Reads and writes can be independently…\"]\n  Risk --> Mitigate[Mitigation / design choice]\n  Mitigate --> Outcome[Better system behavior]",
         "caption": "CQRS: a simplified system view showing the primary flow and the main state boundaries.",
-        "alt_text": "CQRS: a simplified system view showing the primary flow and the main state boundaries."
+        "alt_text": "Concept diagram: CQRS"
       }
     },
     {

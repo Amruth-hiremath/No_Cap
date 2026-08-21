@@ -34,9 +34,9 @@
       "type": "mermaid",
       "id": "flow",
       "payload": {
-        "code": "flowchart TD\n    N0[\"synchronous, in the request path\"]\n    N1[\"WRITE\"]\n    N2[\"FLOW\"]\n    N3[\"(synchronous,\"]\n    N4[\"the\"]\n    N5[\"request\"]\n    N6[\"path)\"]\n    N7[\"App\"]\n    N8[\"[App]\"]\n    N9[\"Cache\"]\n    N10[\"SET user:42, value\"]\n    N11[\"write\"]\n    N12[\"[Cache]\"]\n    N13[\"(SET\"]\n    N14[\"user:42,\"]\n    N15[\"value)\"]\n    N16[\"Database\"]\n    N17[\"UPDATE users SET ...\"]\n    N18[\"[Database]\"]\n    N19[\"(UPDATE\"]\n    N20[\"users\"]\n    N21[\"SET\"]\n    N22[\"...)\"]\n    N23[\"both\"]\n    N24[\"ACK\"]\n    N25[\"return\"]\n    N26[\"caller\"]\n    N27[\"READ\"]\n    N28[\"always fresh, ~1ms\"]\n    N29[\"HIT?\"]\n    N30[\"YES\"]\n    N31[\"(always\"]\n    N32[\"fresh,\"]\n    N33[\"~1ms)\"]\n    N34[\"cache cold start or evicted\"]\n    N35[\"(cache\"]\n    N36[\"cold\"]\n    N37[\"start\"]\n    N38[\"evicted)\"]\n    N39[\"repopulate\"]\n    N40[\"cache\"]\n    N41[\"KEY\"]\n    N42[\"PROPERTY:\"]\n    N43[\"HIT\"]\n    N44[\"ALWAYS\"]\n    N45[\"fresh.\"]\n    N46[\"There\"]\n    N47[\"stale\"]\n    N48[\"window\"]\n    N49[\"between\"]\n    N50[\"and\"]\n    N51[\"update,\"]\n    N52[\"because\"]\n    N53[\"they\"]\n    N54[\"happen\"]\n    N55[\"same\"]\n    N56[\"atomic\"]\n    N57[\"ish\"]\n    N58[\"step.\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44\n    N44 --> N45\n    N45 --> N46\n    N46 --> N47\n    N47 --> N48\n    N48 --> N49\n    N49 --> N50\n    N50 --> N51\n    N51 --> N52\n    N52 --> N53\n    N53 --> N54\n    N54 --> N55\n    N55 --> N56\n    N56 --> N57\n    N57 --> N58",
-        "caption": "Write-through: writes hit both cache and DB synchronously. Reads always return fresh data on a hit.",
-        "alt_text": "Write-through diagram. Write flow: the app writes to the cache and the database synchronously — both must ACK before the caller returns. Read flow: the app checks the cache; on a hit it returns immediately and the value is always fresh because it was written there in the same step as the database update. On a miss, the app falls through to the database and repopulates the cache. The key property is that a cache hit is always fresh — there is no stale window between a database write and the cache update, because they happen in the same atomic-ish step."
+        "code": "flowchart LR\n  App[Application] --> Cache[(Cache)]\n  Cache --> DB[(Database)]\n  App --> Cache\n  Cache -.write synchronously.-> DB",
+        "caption": "Write Through: problem → mechanism → behavior → outcome.",
+        "alt_text": "Concept diagram: Write Through"
       }
     },
     {
@@ -159,9 +159,9 @@
       "type": "mermaid",
       "id": "upgrade-mermaid-write-through",
       "payload": {
-        "code": "flowchart LR\n  A[Client] --> B[Gateway] --> C[Service] --> D[State] --> E[Outcome]",
+        "code": "flowchart LR\n  Concept[\"Write Through\"] --> Risk[\"Cache is always fresh on a…\"]\n  Risk --> Mitigate[Mitigation / design choice]\n  Mitigate --> Outcome[Better system behavior]",
         "caption": "Write Through: a simplified system view showing the primary flow and the main state boundaries.",
-        "alt_text": "Write Through: a simplified system view showing the primary flow and the main state boundaries."
+        "alt_text": "Concept diagram: Write Through"
       }
     },
     {

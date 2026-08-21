@@ -24,7 +24,7 @@
 
 import { useEffect } from 'react';
 import { useStore } from '@/lib/store';
-import { getConcept } from '@/lib/content';
+import { getConceptSummary } from '@/lib/content-lite';
 
 const TYPING_TAGS = new Set(['INPUT', 'TEXTAREA', 'SELECT']);
 
@@ -97,7 +97,7 @@ export function useKeyboardShortcuts(): void {
         const s = useStore.getState();
         const slug = s.last_visited_concept;
         if (!slug) return;
-        const concept = getConcept(slug);
+        const concept = getConceptSummary(slug);
         e.preventDefault();
         s.addBookmark(slug, concept?.title ?? slug);
         return;

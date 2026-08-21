@@ -35,9 +35,9 @@
       "type": "mermaid",
       "id": "rw-quorum",
       "payload": {
-        "code": "flowchart TD\n    N0[\"any read overlaps the last write\"]\n    N1[\"nodes,\"]\n    N2[\"(any\"]\n    N3[\"read\"]\n    N4[\"overlaps\"]\n    N5[\"the\"]\n    N6[\"last\"]\n    N7[\"write)\"]\n    N8[\"Node\"]\n    N9[\"before\"]\n    N10[\"write\"]\n    N11[\"WRITE\"]\n    N12[\"write to 3 of 5\"]\n    N13[\"(write\"]\n    N14[\"now\"]\n    N15[\"majority\"]\n    N16[\"has\"]\n    N17[\"Read\"]\n    N18[\"with\"]\n    N19[\"ANY\"]\n    N20[\"nodes\"]\n    N21[\"least\"]\n    N22[\"one\"]\n    N23[\"correct\"]\n    N24[\"set\"]\n    N25[\"returns\"]\n    N26[\"(correct)\"]\n    N27[\"old\"]\n    N28[\"(old)\"]\n    N29[\"would\"]\n    N30[\"also\"]\n    N31[\"overlap\"]\n    N32[\"chosen;\"]\n    N33[\"guarantees\"]\n    N34[\"strong\"]\n    N35[\"consistency\"]\n    N36[\"stale\"]\n    N37[\"reads\"]\n    N38[\"possible\"]\n    N39[\"eventual,\"]\n    N40[\"fast,\"]\n    N41[\"may\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41",
-        "caption": "R + W > N ensures every read sees the latest write because the read set must overlap the write set.",
-        "alt_text": "A diagram of five nodes holding a value. Initially nodes 1, 2, 3 have version 2 and nodes 4, 5 have version 1. A write of version 3 is acknowledged by three of the five nodes (a write quorum of 3). After the write, nodes 1, 2, 3 have version 3 and nodes 4, 5 still have version 1. A read with a read quorum of 3 reads any three nodes; because 3 plus 3 is greater than 5, any three-node read set must include at least one node that participated in the write, so the read returns the latest version 3. If R plus W is less than or equal to N, the read set might not overlap the write set and reads can return stale values."
+        "code": "flowchart LR\n  Write[Write] --> Qw[Write quorum]\n  Read[Read] --> Qr[Read quorum]\n  Qw --> Intersect{Qr + Qw > N?}\n  Qr --> Intersect\n  Intersect --> Yes[Read and write sets intersect]\n  Intersect --> No[Possible stale read]",
+        "caption": "Quorum systems trade acknowledgement cost for consistency and availability.",
+        "alt_text": "Concept diagram: Quorum"
       }
     },
     {
@@ -160,9 +160,9 @@
       "type": "mermaid",
       "id": "upgrade-mermaid-quorum",
       "payload": {
-        "code": "flowchart LR\n  A[Client] --> B[Gateway] --> C[Service] --> D[State] --> E[Outcome]",
+        "code": "flowchart LR\n  Concept[\"Quorum\"] --> Risk[\"No single point of failure —…\"]\n  Risk --> Mitigate[Mitigation / design choice]\n  Mitigate --> Outcome[Better system behavior]",
         "caption": "Quorum: a simplified system view showing the primary flow and the main state boundaries.",
-        "alt_text": "Quorum: a simplified system view showing the primary flow and the main state boundaries."
+        "alt_text": "Concept diagram: Quorum"
       }
     },
     {

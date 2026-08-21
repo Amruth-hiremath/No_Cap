@@ -31,9 +31,9 @@
       "type": "mermaid",
       "id": "av-vs-cons",
       "payload": {
-        "code": "flowchart TD\n    N0[\"linearizable\"]\n    N1[\"CONSISTENCY\"]\n    N2[\"(linearizable)\"]\n    N3[\"Write\"]\n    N4[\"Node\"]\n    N5[\"syncs\"]\n    N6[\"Read\"]\n    N7[\"from\"]\n    N8[\"sees\"]\n    N9[\"the\"]\n    N10[\"write\"]\n    N11[\"Guarantee:\"]\n    N12[\"every\"]\n    N13[\"read\"]\n    N14[\"latest\"]\n    N15[\"write.\"]\n    N16[\"Cost:\"]\n    N17[\"can't\"]\n    N18[\"reach\"]\n    N19[\"reads\"]\n    N20[\"fail.\"]\n    N21[\"eventually consistent\"]\n    N22[\"AVAILABILITY\"]\n    N23[\"(eventually\"]\n    N24[\"consistent)\"]\n    N25[\"responds\"]\n    N26[\"maybe stale\"]\n    N27[\"(maybe\"]\n    N28[\"stale)\"]\n    N29[\"request\"]\n    N30[\"gets\"]\n    N31[\"response.\"]\n    N32[\"might\"]\n    N33[\"see\"]\n    N34[\"old\"]\n    N35[\"data\"]\n    N36[\"until\"]\n    N37[\"replication\"]\n    N38[\"catches\"]\n    N39[\"up.\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39",
-        "caption": "Consistency requires coordination (and refuses during partition). Availability responds always (but may be stale).",
-        "alt_text": "Two diagrams comparing consistency and availability. In the consistency model: a write goes to Node A, which synchronizes to Node B before acknowledging. A subsequent read from Node B sees the latest write. The guarantee is that every read sees the latest write, but the cost is that if Node B can't reach Node A, reads fail. In the availability model: a write goes to Node A and gets an immediate OK. A read from Node B gets an immediate response, but it might be stale. The guarantee is that every request gets a response, but the cost is that reads might see old data until replication catches up."
+        "code": "flowchart LR\n  Partition[Network partition] --> Choice{What must stay true?}\n  Choice --> C[Consistency clients see one current view]\n  Choice --> A[Availability clients keep getting responses]\n  C --> CTradeoff[May reject / delay requests]\n  A --> ATradeoff[May return stale data]",
+        "caption": "During a partition, distributed systems face a consistency-versus-availability trade-off.",
+        "alt_text": "Concept diagram: Availability vs Consistency"
       }
     },
     {
@@ -104,9 +104,9 @@
       "type": "mermaid",
       "id": "cap-triangle-diagram",
       "payload": {
-        "code": "flowchart TD\n    C((Consistency<br/>linearizable))\n    A((Availability<br/>every request responds))\n    P((Partition tolerance<br/>survives network splits))\n    C --- A\n    A --- P\n    P --- C\n    CP[CP systems<br/>reject on partition<br/>e.g., Spanner, HBase,<br/>MongoDB majority]\n    AP[AP systems<br/>serve stale data on partition<br/>e.g., Cassandra, DynamoDB,<br/>CouchDB]\n    CA[CA systems<br/>only valid without partitions<br/>= single-machine DB<br/>e.g., Postgres on one box]\n    C -.-> CP\n    P -.-> CP\n    A -.-> AP\n    P -.-> AP\n    C -.-> CA\n    A -.-> CA\n    classDef cap fill:#e8f0fe,stroke:#1967d2,stroke-width:2px,color:#174ea6\n    classDef cp fill:#fee,stroke:#c33,color:#900\n    classDef ap fill:#fff4e5,stroke:#cc7a00,color:#995500\n    classDef ca fill:#f3e8fd,stroke:#9334c6,color:#681da8\n    class C,A,P cap\n    class CP cp\n    class AP ap\n    class CA ca",
+        "code": "flowchart LR\n  Concept[\"Availability vs Consistency\"] --> Risk[\"Consistency prevents bugs where users see…\"]\n  Risk --> Mitigate[Mitigation / design choice]\n  Mitigate --> Outcome[Better system behavior]",
         "caption": "CAP triangle. Because partitions (P) are inevitable on real networks, distributed systems are either CP (sacrifice availability during partition) or AP (sacrifice strong consistency). CA only exists for single-machine systems with no partition to tolerate.",
-        "alt_text": "A CAP triangle with Consistency, Availability, and Partition tolerance at the corners. CP systems (like Spanner, HBase, MongoDB with majority) prioritize consistency by rejecting requests during a partition. AP systems (like Cassandra, DynamoDB, CouchDB) prioritize availability by serving possibly stale data. CA systems only work without partitions, which means single-machine databases like Postgres on one box."
+        "alt_text": "Concept diagram: Availability vs Consistency"
       }
     },
     {
@@ -129,9 +129,9 @@
       "type": "mermaid",
       "id": "partition-scenario",
       "payload": {
-        "code": "flowchart TD\n    subgraph Normal[Normal operation - no partition]\n        W1[Write to leader] --> R1[Sync to replica 1]\n        W1 --> R2[Sync to replica 2]\n        R1 --> A1[ACK write]\n        R2 --> A1\n        A1 --> Done1[Strong read from any replica<br/>sees the write]\n    end\n    subgraph Partitioned[Network partition - leader cut off from replica 2]\n        W2[Write to leader] --> R3[Sync to replica 1 only]\n        R3 --> A2[ACK write - CP path]\n        A2 --> Q1{Read from replica 2?}\n        Q1 -->|CP: refuse the read| Err[Return error<br/>unavailable but safe]\n        Q1 -->|AP: serve stale| Stale[Return old value<br/>available but stale]\n        W3[Write to replica 2] --> A3[ACK - AP path]\n        A3 --> Diverge[Replicas now diverge.<br/>Reconcile on heal via<br/>read-repair or vector clocks]\n    end\n    classDef cp fill:#fee,stroke:#c33,color:#900\n    classDef ap fill:#fff4e5,stroke:#cc7a00,color:#995500\n    classDef ok fill:#e6f4ea,stroke:#188038,color:#0d652d\n    class Err cp\n    class Stale,Diverge ap\n    class Done1 ok",
+        "code": "flowchart LR\n  Concept[\"Availability vs Consistency\"] --> Use[When to use]\n  Concept --> Avoid[When not to use]\n  Use --> Outcome[Engineering outcome]\n  Avoid --> Tradeoff[Alternative / trade-off]",
         "caption": "Network partition scenario. CP systems refuse reads from the unreachable side (return error). AP systems serve stale data and reconcile later (eventual consistency).",
-        "alt_text": "A flowchart contrasting normal operation and partitioned operation. In normal operation, a write to the leader syncs to both replicas before ACKing, and strong reads from any replica see the write. In a partition, the leader can only sync to one replica. CP path: ACK the write, but refuse reads from the unreachable replica (return error - unavailable but safe). AP path: serve stale reads from the unreachable replica, and accept writes on that replica too (available but stale, replicas diverge, reconcile on heal)."
+        "alt_text": "Concept diagram: Availability vs Consistency"
       }
     },
     {
@@ -226,9 +226,9 @@
       "type": "mermaid",
       "id": "upgrade-mermaid-availability-vs-consistency",
       "payload": {
-        "code": "flowchart LR\n  A[Client] --> B[Gateway] --> C[Service] --> D[State] --> E[Outcome]",
+        "code": "flowchart LR\n  Concept[\"Availability vs Consistency\"] --> Use[When to use]\n  Concept --> Avoid[When not to use]\n  Use --> Outcome[Engineering outcome]\n  Avoid --> Tradeoff[Alternative / trade-off]",
         "caption": "Availability vs Consistency: a simplified system view showing the primary flow and the main state boundaries.",
-        "alt_text": "Availability vs Consistency: a simplified system view showing the primary flow and the main state boundaries."
+        "alt_text": "Concept diagram: Availability vs Consistency"
       }
     },
     {

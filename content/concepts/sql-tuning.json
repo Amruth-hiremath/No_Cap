@@ -34,9 +34,9 @@
       "type": "mermaid",
       "id": "explain-anatomy",
       "payload": {
-        "code": "flowchart TD\n    N0[\"PostgreSQL\"]\n    N1[\"EXPLAIN\"]\n    N2[\"ANALYZE\"]\n    N3[\"anatomy\"]\n    N4[\"(PostgreSQL)\"]\n    N5[\"o.id\"]\n    N6[\"SELECT\"]\n    N7[\"u.name,\"]\n    N8[\"COUNT(o.id)\"]\n    N9[\"FROM\"]\n    N10[\"users\"]\n    N11[\"LEFT\"]\n    N12[\"JOIN\"]\n    N13[\"orders\"]\n    N14[\"o.user_id\"]\n    N15[\"u.id\"]\n    N16[\"WHERE\"]\n    N17[\"u.country\"]\n    N18[\"'US'\"]\n    N19[\"GROUP\"]\n    N20[\"u.name;\"]\n    N21[\"HashAggregate\"]\n    N22[\"Group\"]\n    N23[\"Key:\"]\n    N24[\"u.name\"]\n    N25[\"Rows:\"]\n    N26[\"12,453\"]\n    N27[\"actual\"]\n    N28[\"time\"]\n    N29[\"45ms\"]\n    N30[\"Hash\"]\n    N31[\"Join\"]\n    N32[\"o.user_id = u.id\"]\n    N33[\"Cond:\"]\n    N34[\"(o.user_id\"]\n    N35[\"u.id)\"]\n    N36[\"12ms\"]\n    N37[\"Seq\"]\n    N38[\"Scan\"]\n    N39[\"8.4M\"]\n    N40[\"1.2s\"]\n    N41[\"BOTTLENECK\"]\n    N42[\"NO INDEX USED\"]\n    N43[\"(NO\"]\n    N44[\"INDEX\"]\n    N45[\"USED)\"]\n    N46[\"Index\"]\n    N47[\"idx_users_country\"]\n    N48[\"12k\"]\n    N49[\"3ms\"]\n    N50[\"Read\"]\n    N51[\"from\"]\n    N52[\"inside\"]\n    N53[\"out:\"]\n    N54[\"bottom\"]\n    N55[\"execution.\"]\n    N56[\"8.4M rows, 1.2s\"]\n    N57[\"(8.4M\"]\n    N58[\"rows,\"]\n    N59[\"1.2s)\"]\n    N60[\"the\"]\n    N61[\"problem.\"]\n    N62[\"user_id\"]\n    N63[\"Fix:\"]\n    N64[\"CREATE\"]\n    N65[\"idx_orders_user_id\"]\n    N66[\"orders(user_id);\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44\n    N44 --> N45\n    N45 --> N46\n    N46 --> N47\n    N47 --> N48\n    N48 --> N49\n    N49 --> N50\n    N50 --> N51\n    N51 --> N52\n    N52 --> N53\n    N53 --> N54\n    N54 --> N55\n    N55 --> N56\n    N56 --> N57\n    N57 --> N58\n    N58 --> N59\n    N59 --> N60\n    N60 --> N61\n    N61 --> N62\n    N62 --> N63\n    N63 --> N64\n    N64 --> N65\n    N65 --> N66",
-        "caption": "Read EXPLAIN from the inside out; find the Seq Scan over millions of rows — that's the bottleneck.",
-        "alt_text": "A PostgreSQL EXPLAIN ANALYZE tree for a query joining users and orders, grouped by user name, filtered by country equals US. The plan reads bottom-up. The bottleneck is a sequential scan on the orders table scanning 8.4 million rows in 1.2 seconds because no index covers user_id. The users table uses an index scan on idx_users_country returning 12,000 rows in 3 milliseconds. The Hash Join combines them and HashAggregate groups by name. The fix is to create an index on orders(user_id)."
+        "code": "flowchart LR\n  SlowQuery[Slow SQL query] --> Explain[EXPLAIN plan]\n  Explain --> Index[Indexes / access path]\n  Explain --> Join[Join strategy]\n  Explain --> Rows[Reduce scanned rows]\n  Rows --> Fast[Faster query]",
+        "caption": "SQL Tuning: shape storage around the access pattern.",
+        "alt_text": "Concept diagram: SQL Tuning"
       }
     },
     {
@@ -176,9 +176,9 @@
       "type": "mermaid",
       "id": "upgrade-mermaid-sql-tuning",
       "payload": {
-        "code": "flowchart LR\n  A[Client] --> B[Service] --> C[Data layer] --> D[Replication] --> E[Durability]",
+        "code": "flowchart LR\n  Concept[\"SQL Tuning\"] --> Risk[\"Right indexes turn 10s queries into…\"]\n  Risk --> Mitigate[Mitigation / design choice]\n  Mitigate --> Outcome[Better system behavior]",
         "caption": "SQL Tuning: a simplified system view showing the primary flow and the main state boundaries.",
-        "alt_text": "SQL Tuning: a simplified system view showing the primary flow and the main state boundaries."
+        "alt_text": "Concept diagram: SQL Tuning"
       }
     },
     {

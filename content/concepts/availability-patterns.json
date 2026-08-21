@@ -35,9 +35,9 @@
       "type": "mermaid",
       "id": "topologies",
       "payload": {
-        "code": "flowchart TD\n    N0[\"failover\"]\n    N1[\"load-balanced\"]\n    N2[\"ACTIVE\"]\n    N3[\"PASSIVE\"]\n    N4[\"(failover)\"]\n    N5[\"(load\"]\n    N6[\"balanced)\"]\n    N7[\"Primary\"]\n    N8[\"Standby\"]\n    N9[\"Region A\"]\n    N10[\"Region B\"]\n    N11[\"[Primary]\"]\n    N12[\"[Standby]\"]\n    N13[\"[Region\"]\n    N14[\"sync\"]\n    N15[\"replication\"]\n    N16[\"async\"]\n    N17[\"repl\"]\n    N18[\"idle\"]\n    N19[\"WRITES\"]\n    N20[\"(idle)\"]\n    N21[\"(both\"]\n    N22[\"accept\"]\n    N23[\"writes,\"]\n    N24[\"via\"]\n    N25[\"consensus\"]\n    N26[\"LB\"]\n    N27[\"[LB]\"]\n    N28[\"health\"]\n    N29[\"check\"]\n    N30[\"reconcile\"]\n    N31[\"later)\"]\n    N32[\"Global LB\"]\n    N33[\"primary\"]\n    N34[\"fails,\"]\n    N35[\"[Global\"]\n    N36[\"LB]\"]\n    N37[\"promote\"]\n    N38[\"standby.\"]\n    N39[\"routes\"]\n    N40[\"latency\"]\n    N41[\"geo\"]\n    N42[\"Availability:\"]\n    N43[\"step.\"]\n    N44[\"failover,\"]\n    N45[\"already serving\"]\n    N46[\"RTO:\"]\n    N47[\"seconds\"]\n    N48[\"minutes.\"]\n    N49[\"zero\"]\n    N50[\"(already\"]\n    N51[\"serving).\"]\n    N52[\"standby unused\"]\n    N53[\"Capacity:\"]\n    N54[\"(standby\"]\n    N55[\"unused).\"]\n    N56[\"2x.\"]\n    N57[\"Complexity:\"]\n    N58[\"lower.\"]\n    N59[\"split\"]\n    N60[\"brain\"]\n    N61[\"risk.\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44\n    N44 --> N45\n    N45 --> N46\n    N46 --> N47\n    N47 --> N48\n    N48 --> N49\n    N49 --> N50\n    N50 --> N51\n    N51 --> N52\n    N52 --> N53\n    N53 --> N54\n    N54 --> N55\n    N55 --> N56\n    N56 --> N57\n    N57 --> N58\n    N58 --> N59\n    N59 --> N60\n    N60 --> N61",
-        "caption": "Two topologies for high availability. Active-passive trades capacity for simplicity; active-active doubles capacity but needs conflict handling.",
-        "alt_text": "A side-by-side comparison. On the left, active-passive has a primary taking writes and a standby receiving replication. A load balancer health-checks the primary and promotes the standby if it fails; recovery time is seconds to minutes, capacity is one times since the standby is idle. On the right, active-active has two regions both accepting writes, with asynchronous replication between them and a global load balancer routing by latency and geography. Recovery time is zero because both are already serving, capacity is two times, but split-brain is a risk."
+        "code": "flowchart LR\n  Service[Service] --> Redundancy[Multiple instances]\n  Redundancy --> Health[Health checks]\n  Health --> Failover[Failover]\n  Failover --> Continue[Continue serving]\n  Redundancy --> MultiRegion[Optional multi-region]",
+        "caption": "Availability patterns add redundant capacity and a controlled failover path.",
+        "alt_text": "Concept diagram: Availability Patterns — Failover, Replication, Redundancy"
       }
     },
     {
@@ -160,9 +160,9 @@
       "type": "mermaid",
       "id": "upgrade-mermaid-availability-patterns",
       "payload": {
-        "code": "flowchart LR\n  A[Client] --> B[Gateway] --> C[Service] --> D[State] --> E[Outcome]",
+        "code": "flowchart LR\n  Concept[\"Availability Patterns — Failover, Replication, Redundancy\"] --> Risk[\"Redundancy eliminates single points of failure…\"]\n  Risk --> Mitigate[Mitigation / design choice]\n  Mitigate --> Outcome[Better system behavior]",
         "caption": "Availability Patterns — Failover, Replication, Redundancy: a simplified system view showing the primary flow and the main state boundaries.",
-        "alt_text": "Availability Patterns — Failover, Replication, Redundancy: a simplified system view showing the primary flow and the main state boundaries."
+        "alt_text": "Concept diagram: Availability Patterns — Failover, Replication, Redundancy"
       }
     },
     {

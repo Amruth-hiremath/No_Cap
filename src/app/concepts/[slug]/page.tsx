@@ -1,6 +1,7 @@
 // Pre-render all known concept slugs at build time (static export)
 import { notFound } from 'next/navigation';
 import { getConcept, getAllConcepts } from '@/lib/content';
+import { getConceptGraph, calculateReadingMinutesLite } from '@/lib/content-graph';
 import { ConceptView } from './concept-view';
 
 export function generateStaticParams() {
@@ -15,5 +16,7 @@ export default async function ConceptPage({
   const { slug } = await params;
   const concept = getConcept(slug);
   if (!concept) notFound();
-  return <ConceptView concept={concept} />;
+  const graph = getConceptGraph(slug);
+  const readingMinutes = calculateReadingMinutesLite(concept);
+  return <ConceptView concept={concept} graph={graph} readingMinutes={readingMinutes} />;
 }

@@ -35,9 +35,9 @@
       "type": "mermaid",
       "id": "normalized-vs-document",
       "payload": {
-        "code": "flowchart TD\n    N0[\"SQL\"]\n    N1[\"NORMALIZED\"]\n    N2[\"(SQL)\"]\n    N3[\"users\"]\n    N4[\"orders\"]\n    N5[\"order_items\"]\n    N6[\"PK\"]\n    N7[\"(PK)\"]\n    N8[\"user_id\"]\n    N9[\"order_id\"]\n    N10[\"name\"]\n    N11[\"sku\"]\n    N12[\"email\"]\n    N13[\"total\"]\n    N14[\"qty\"]\n    N15[\"country\"]\n    N16[\"created\"]\n    N17[\"price\"]\n    N18[\"Read\"]\n    N19[\"order\"]\n    N20[\"JOIN\"]\n    N21[\"users,\"]\n    N22[\"orders,\"]\n    N23[\"order_items.\"]\n    N24[\"Three\"]\n    N25[\"tables,\"]\n    N26[\"three\"]\n    N27[\"migrations\"]\n    N28[\"field\"]\n    N29[\"changes.\"]\n    N30[\"MongoDB\"]\n    N31[\"DOCUMENT\"]\n    N32[\"(MongoDB)\"]\n    N33[\"one document\"]\n    N34[\"collection\"]\n    N35[\"(one\"]\n    N36[\"document)\"]\n    N37[\"'abc'\"]\n    N38[\"_id:\"]\n    N39[\"ObjectId('abc'),\"]\n    N40[\"user:\"]\n    N41[\"42,\"]\n    N42[\"name:\"]\n    N43[\"'Ada',\"]\n    N44[\"email:\"]\n    N45[\"'ada@x.io',\"]\n    N46[\"country:\"]\n    N47[\"'PT'\"]\n    N48[\"total:\"]\n    N49[\"145.50,\"]\n    N50[\"'2025-01-15'\"]\n    N51[\"created:\"]\n    N52[\"ISODate('2025\"]\n    N53[\"15'),\"]\n    N54[\"items:\"]\n    N55[\" sku:'B1', qty:1, price:45\"]\n    N56[\"sku:'B1',\"]\n    N57[\"qty:1,\"]\n    N58[\"price:45},\"]\n    N59[\" sku:'P2', qty:2, price:50\"]\n    N60[\"sku:'P2',\"]\n    N61[\"qty:2,\"]\n    N62[\"price:50}\"]\n    N63[\"one\"]\n    N64[\"document,\"]\n    N65[\"round\"]\n    N66[\"trip.\"]\n    N67[\"Schema\"]\n    N68[\"evolves:\"]\n    N69[\"just\"]\n    N70[\"add\"]\n    N71[\"field.\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44\n    N44 --> N45\n    N45 --> N46\n    N46 --> N47\n    N47 --> N48\n    N48 --> N49\n    N49 --> N50\n    N50 --> N51\n    N51 --> N52\n    N52 --> N53\n    N53 --> N54\n    N54 --> N55\n    N55 --> N56\n    N56 --> N57\n    N57 --> N58\n    N58 --> N59\n    N59 --> N60\n    N60 --> N61\n    N61 --> N62\n    N62 --> N63\n    N63 --> N64\n    N64 --> N65\n    N65 --> N66\n    N66 --> N67\n    N67 --> N68\n    N68 --> N69\n    N69 --> N70\n    N70 --> N71",
-        "caption": "SQL normalizes aggregates across tables; document stores persist them as one self-contained unit.",
-        "alt_text": "Side-by-side comparison. In SQL, an order with its user and line items lives across three normalized tables (users, orders, order_items) joined by foreign keys; reading an order requires a JOIN across three tables and a schema change requires three migrations. In MongoDB, the same order is a single nested JSON document in the orders collection containing the user object and an items array; reading the order is one round trip, and adding a field doesn't require touching any other document."
+        "code": "flowchart LR\n  App[Application] --> Store[(Document store)]\n  Store --> Document[Flexible document]\n  Document --> Index[Field indexes]\n  Index --> Query[Document queries]",
+        "caption": "Document Stores: shape storage around the access pattern.",
+        "alt_text": "Concept diagram: Document Stores"
       }
     },
     {
@@ -160,9 +160,9 @@
       "type": "mermaid",
       "id": "upgrade-mermaid-document-stores",
       "payload": {
-        "code": "flowchart LR\n  A[Client] --> B[Service] --> C[Data layer] --> D[Replication] --> E[Durability]",
+        "code": "flowchart LR\n  Concept[\"Document Stores\"] --> Risk[\"Aggregate-oriented reads are one round trip…\"]\n  Risk --> Mitigate[Mitigation / design choice]\n  Mitigate --> Outcome[Better system behavior]",
         "caption": "Document Stores: a simplified system view showing the primary flow and the main state boundaries.",
-        "alt_text": "Document Stores: a simplified system view showing the primary flow and the main state boundaries."
+        "alt_text": "Concept diagram: Document Stores"
       }
     },
     {

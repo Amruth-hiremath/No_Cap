@@ -36,9 +36,9 @@
       "type": "mermaid",
       "id": "partial-failure",
       "payload": {
-        "code": "flowchart TD\n    N0[\"Single\"]\n    N1[\"machine:\"]\n    N2[\"Distributed\"]\n    N3[\"system:\"]\n    N4[\" CPU \"]\n    N5[\" RAM \"]\n    N6[\" DISK \"]\n    N7[\"CPU\"]\n    N8[\"RAM\"]\n    N9[\"DISK\"]\n    N10[\"Node\"]\n    N11[\" NETWORK \"]\n    N12[\"NETWORK\"]\n    N13[\"can\"]\n    N14[\"crash\"]\n    N15[\"keep\"]\n    N16[\"running\"]\n    N17[\"network\"]\n    N18[\"partitions\"]\n    N19[\"A,B\"]\n    N20[\"C\"]\n    N21[\"(A,B)\"]\n    N22[\"(C)\"]\n    N23[\"Failure\"]\n    N24[\"mode:\"]\n    N25[\"all\"]\n    N26[\"nothing.\"]\n    N27[\"partial.\"]\n    N28[\"Either\"]\n    N29[\"works\"]\n    N30[\"doesn't.\"]\n    N31[\"Some\"]\n    N32[\"requests\"]\n    N33[\"succeed,\"]\n    N34[\"some\"]\n    N35[\"fail,\"]\n    N36[\"hang\"]\n    N37[\"forever.\"]\n    N38[\"The\"]\n    N39[\"worst\"]\n    N40[\"case\"]\n    N41[\"'maybe'\"]\n    N42[\"did\"]\n    N43[\"the\"]\n    N44[\"write\"]\n    N45[\"happen?\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44\n    N44 --> N45",
-        "caption": "Partial failure: a node or the network can fail while the rest keep running. 'Maybe' is the new failure mode.",
-        "alt_text": "Two side-by-side diagrams. On the left, a single machine with CPU, RAM, and disk fails all-or-nothing: either it works or it doesn't. On the right, a distributed system with three nodes connected through a network. Any single node can crash while the others keep running. The network can partition, leaving a subset of nodes unable to communicate. The new failure mode is partial: some requests succeed, some fail, some hang forever. The worst case is 'maybe' — the system can no longer tell whether a write happened."
+        "code": "flowchart LR\n  Concept[\"Distributed Systems Fundamentals\"] --> Nodes[Distributed nodes] --> Protocol[Coordination protocol]\n  Protocol --> State[Replicated state]\n  State --> Outcome[Consistent system behavior]",
+        "caption": "Distributed Systems Fundamentals: problem → mechanism → behavior → outcome.",
+        "alt_text": "Concept diagram: Distributed Systems Fundamentals"
       }
     },
     {
@@ -172,9 +172,9 @@
       "type": "mermaid",
       "id": "upgrade-mermaid-distributed-systems-intro",
       "payload": {
-        "code": "flowchart LR\n  A[Client] --> B[Gateway] --> C[Service] --> D[State] --> E[Outcome]",
+        "code": "flowchart LR\n  Concept[\"Distributed Systems Fundamentals\"] --> Risk[\"Horizontal scalability — add more nodes…\"]\n  Risk --> Mitigate[Mitigation / design choice]\n  Mitigate --> Outcome[Better system behavior]",
         "caption": "Distributed Systems Fundamentals: a simplified system view showing the primary flow and the main state boundaries.",
-        "alt_text": "Distributed Systems Fundamentals: a simplified system view showing the primary flow and the main state boundaries."
+        "alt_text": "Concept diagram: Distributed Systems Fundamentals"
       }
     },
     {

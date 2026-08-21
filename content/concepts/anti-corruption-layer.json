@@ -34,9 +34,9 @@
       "type": "mermaid",
       "id": "acl",
       "payload": {
-        "code": "flowchart TD\n    N0[\"clean\"]\n    N1[\"New\"]\n    N2[\"System\"]\n    N3[\"(clean)\"]\n    N4[\"Legacy\"]\n    N5[\"messy, untouchable\"]\n    N6[\"(messy,\"]\n    N7[\"untouchable)\"]\n    N8[\"Order\"]\n    N9[\"id:\"]\n    N10[\"UUID\"]\n    N11[\"ORD_TBL\"]\n    N12[\"8\"]\n    N13[\"status:\"]\n    N14[\"OrderStatus\"]\n    N15[\"ord_id\"]\n    N16[\"CHAR(8)\"]\n    N17[\"4\"]\n    N18[\"totalCents:\"]\n    N19[\"int\"]\n    N20[\"stts_cd\"]\n    N21[\"CHAR(4)\"]\n    N22[\"tot_amt\"]\n    N23[\"DECIMAL\"]\n    N24[\"api\"]\n    N25[\"GetOrd?ordno\"]\n    N26[\"calls\"]\n    N27[\"with\"]\n    N28[\"returns\"]\n    N29[\"legacy\"]\n    N30[\"Anti\"]\n    N31[\"Corruption\"]\n    N32[\"Layer\"]\n    N33[\"CHAR(8\"]\n    N34[\"Order.id\"]\n    N35[\"(UUID)\"]\n    N36[\"ORD_TBL.ord_id\"]\n    N37[\"(CHAR(8))\"]\n    N38[\"Order.status.PAID\"]\n    N39[\"'PD'\"]\n    N40[\"Order.totalCents\"]\n    N41[\"(int)\"]\n    N42[\"100\"]\n    N43[\"errors\"]\n    N44[\"exceptions\"]\n    N45[\"retcode\"]\n    N46[\"Translates\"]\n    N47[\"both\"]\n    N48[\"directions.\"]\n    N49[\"system\"]\n    N50[\"sees\"]\n    N51[\"only\"]\n    N52[\"Order.\"]\n    N53[\"When\"]\n    N54[\"retires,\"]\n    N55[\"ACL\"]\n    N56[\"removed\"]\n    N57[\"new\"]\n    N58[\"already\"]\n    N59[\"clean.\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44\n    N44 --> N45\n    N45 --> N46\n    N46 --> N47\n    N47 --> N48\n    N48 --> N49\n    N49 --> N50\n    N50 --> N51\n    N51 --> N52\n    N52 --> N53\n    N53 --> N54\n    N54 --> N55\n    N55 --> N56\n    N56 --> N57\n    N57 --> N58\n    N58 --> N59",
-        "caption": "Anti-Corruption Layer translates between the new system's clean domain model and the legacy's messy schema. New code never sees legacy types.",
-        "alt_text": "A diagram showing the new clean system on the left with an Order class containing id as UUID, status as OrderStatus enum, and totalCents as integer, and the legacy system on the right with ORD_TBL containing ord_id CHAR(8), stts_cd CHAR(4), and tot_amt DECIMAL, plus an API endpoint /api/GetOrd. Between them sits the Anti-Corruption Layer, which translates: Order.id UUID to ord_id CHAR(8), Order.status.PAID to stts_cd equals PD, Order.totalCents int to tot_amt times 100, and legacy retcode integers to exceptions. The diagram notes that the new system sees only the clean Order object, and when the legacy retires, the ACL is removed, leaving the new system already clean."
+        "code": "flowchart LR\n  Legacy[Legacy model] --> ACL[Anti-corruption layer]\n  ACL --> Modern[Modern domain model]\n  Modern --> New[New service]\n  ACL -.translates concepts.-> Modern",
+        "caption": "Anti-Corruption Layer: apply a pattern to a recurring architectural pressure.",
+        "alt_text": "Concept diagram: Anti-Corruption Layer"
       }
     },
     {
@@ -135,9 +135,9 @@
       "type": "mermaid",
       "id": "upgrade-mermaid-anti-corruption-layer",
       "payload": {
-        "code": "flowchart LR\n  A[Client] --> B[Gateway] --> C[Service] --> D[State] --> E[Outcome]",
+        "code": "flowchart LR\n  Concept[\"Anti-Corruption Layer\"] --> Risk[\"New system's domain model stays clean…\"]\n  Risk --> Mitigate[Mitigation / design choice]\n  Mitigate --> Outcome[Better system behavior]",
         "caption": "Anti-Corruption Layer: a simplified system view showing the primary flow and the main state boundaries.",
-        "alt_text": "Anti-Corruption Layer: a simplified system view showing the primary flow and the main state boundaries."
+        "alt_text": "Concept diagram: Anti-Corruption Layer"
       }
     },
     {

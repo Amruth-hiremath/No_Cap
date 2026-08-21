@@ -37,9 +37,9 @@
       "type": "mermaid",
       "id": "rest-mapping",
       "payload": {
-        "code": "flowchart TD\n    N0[\"RESTFUL\"]\n    N1[\"ENDPOINT\"]\n    N2[\"DESIGN\"]\n    N3[\"paginated\"]\n    N4[\"GET\"]\n    N5[\"users\"]\n    N6[\"list\"]\n    N7[\"(paginated)\"]\n    N8[\"idempotent via key\"]\n    N9[\"POST\"]\n    N10[\"create\"]\n    N11[\"user\"]\n    N12[\"(idempotent\"]\n    N13[\"via\"]\n    N14[\"key)\"]\n    N15[\"id\"]\n    N16[\"{id}\"]\n    N17[\"fetch\"]\n    N18[\"one\"]\n    N19[\"idempotent\"]\n    N20[\"PUT\"]\n    N21[\"replace\"]\n    N22[\"(idempotent)\"]\n    N23[\"PATCH\"]\n    N24[\"partial\"]\n    N25[\"update\"]\n    N26[\"DELETE\"]\n    N27[\"delete\"]\n    N28[\"orders\"]\n    N29[\"user's\"]\n    N30[\"order\"]\n    N31[\"for\"]\n    N32[\"avoid\"]\n    N33[\"NON\"]\n    N34[\"REST\"]\n    N35[\"(avoid)\"]\n    N36[\"createUser\"]\n    N37[\"getUserData\"]\n    N38[\"deleteOrder\"]\n    N39[\"listOrdersByUser\"]\n    N40[\"verbs in URL = RPC style, not REST\"]\n    N41[\"(verbs\"]\n    N42[\"URL\"]\n    N43[\"RPC\"]\n    N44[\"style,\"]\n    N45[\"not\"]\n    N46[\"REST)\"]\n    N47[\"IDEMPOTENCY\"]\n    N48[\"GET,\"]\n    N49[\"PUT,\"]\n    N50[\"PATCH,\"]\n    N51[\"HTTP\"]\n    N52[\"spec\"]\n    N53[\"default\"]\n    N54[\"Stripe pattern\"]\n    N55[\"Solution:\"]\n    N56[\"Idempotency\"]\n    N57[\"Key\"]\n    N58[\"header\"]\n    N59[\"(Stripe\"]\n    N60[\"pattern)\"]\n    N61[\"charges\"]\n    N62[\"Key:\"]\n    N63[\"abc\"]\n    N64[\"123\"]\n    N65[\"second\"]\n    N66[\"with\"]\n    N67[\"same\"]\n    N68[\"key\"]\n    N69[\"response,\"]\n    N70[\"double\"]\n    N71[\"charge\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44\n    N44 --> N45\n    N45 --> N46\n    N46 --> N47\n    N47 --> N48\n    N48 --> N49\n    N49 --> N50\n    N50 --> N51\n    N51 --> N52\n    N52 --> N53\n    N53 --> N54\n    N54 --> N55\n    N55 --> N56\n    N56 --> N57\n    N57 --> N58\n    N58 --> N59\n    N59 --> N60\n    N60 --> N61\n    N61 --> N62\n    N62 --> N63\n    N63 --> N64\n    N64 --> N65\n    N65 --> N66\n    N66 --> N67\n    N67 --> N68\n    N68 --> N69\n    N69 --> N70\n    N70 --> N71",
-        "caption": "REST maps verbs to actions on resources. POST needs an idempotency key to be safe to retry.",
-        "alt_text": "Two diagrams. RESTful endpoint design shows standard CRUD mappings: GET slash v1 users lists users paginated; POST creates a user idempotently via a key; GET slash v1 users slash id fetches one user; PUT replaces idempotently; PATCH partially updates idempotently; DELETE deletes idempotently; sub-resources like orders are nested under the user. The non-REST anti-pattern shows verbs in URLs like POST slash createUser or POST slash deleteOrder — that's RPC style, not REST. Idempotency: GET, PUT, PATCH, and DELETE are idempotent by HTTP spec; POST is not by default. The solution is an Idempotency-Key header (the Stripe pattern) so a second POST with the same key returns the same response and doesn't double-charge."
+        "code": "flowchart LR\n  Client[Client needs] --> Contract[API contract]\n  Contract --> Resources[Resources / endpoints]\n  Resources --> Validation[Validation + auth]\n  Validation --> Response[Status + schema + errors]",
+        "caption": "API Design: problem → mechanism → behavior → outcome.",
+        "alt_text": "Concept diagram: API Design"
       }
     },
     {
@@ -162,9 +162,9 @@
       "type": "mermaid",
       "id": "upgrade-mermaid-api-design",
       "payload": {
-        "code": "flowchart LR\n  A[Client] --> B[Gateway] --> C[Service] --> D[State] --> E[Outcome]",
+        "code": "flowchart LR\n  Concept[\"API Design\"] --> Risk[\"Consistent, predictable APIs are easy to…\"]\n  Risk --> Mitigate[Mitigation / design choice]\n  Mitigate --> Outcome[Better system behavior]",
         "caption": "API Design: a simplified system view showing the primary flow and the main state boundaries.",
-        "alt_text": "API Design: a simplified system view showing the primary flow and the main state boundaries."
+        "alt_text": "Concept diagram: API Design"
       }
     },
     {

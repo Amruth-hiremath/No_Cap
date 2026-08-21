@@ -32,9 +32,9 @@
       "type": "mermaid",
       "id": "idempotency",
       "payload": {
-        "code": "flowchart TD\n    N0[\"dangerous retries\"]\n    N1[\"WITHOUT\"]\n    N2[\"IDEMPOTENCY\"]\n    N3[\"(dangerous\"]\n    N4[\"retries)\"]\n    N5[\"amount: $100\"]\n    N6[\"Client\"]\n    N7[\"POST\"]\n    N8[\"charges\"]\n    N9[\"{amount:\"]\n    N10[\"$100}\"]\n    N11[\"network blip\"]\n    N12[\"Timeout\"]\n    N13[\"(network\"]\n    N14[\"blip)\"]\n    N15[\"retries\"]\n    N16[\"Result:\"]\n    N17[\"TWO\"]\n    N18[\"$100.\"]\n    N19[\"User\"]\n    N20[\"angry.\"]\n    N21[\"safe retries\"]\n    N22[\"WITH\"]\n    N23[\"KEY\"]\n    N24[\"(safe\"]\n    N25[\"Headers:\"]\n    N26[\"Idempotency\"]\n    N27[\"Key:\"]\n    N28[\"abc\"]\n    N29[\"123\"]\n    N30[\"Body:\"]\n    N31[\"Server\"]\n    N32[\"sees\"]\n    N33[\"key\"]\n    N34[\"already\"]\n    N35[\"processed\"]\n    N36[\"returns\"]\n    N37[\"the\"]\n    N38[\"SAME\"]\n    N39[\"result.\"]\n    N40[\"double\"]\n    N41[\"charge.\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41",
-        "caption": "Idempotency keys make non-idempotent operations safe to retry.",
-        "alt_text": "Two diagrams. Without idempotency: a client sends a POST to charge $100, gets a timeout, retries, and the server creates two charges — the user is double-charged. With an idempotency key: the client sends the same unique key with each request. On retry, the server recognizes the key, skips processing, and returns the original result. No double charge."
+        "code": "flowchart LR\n  Request[Client request] --> Key[Idempotency key]\n  Key --> Store[(Request result store)]\n  Store -->|seen| Replay[Return same result]\n  Store -->|new| Process[Process operation]\n  Process --> Store",
+        "caption": "Idempotent Operations: problem → mechanism → behavior → outcome.",
+        "alt_text": "Concept diagram: Idempotent Operations"
       }
     },
     {
@@ -126,9 +126,9 @@
       "type": "mermaid",
       "id": "upgrade-mermaid-idempotent-operations",
       "payload": {
-        "code": "flowchart LR\n  A[Client] --> B[Gateway] --> C[Service] --> D[State] --> E[Outcome]",
+        "code": "flowchart LR\n  Concept[\"Idempotent Operations\"] --> Risk[\"Safe retries — the foundation of…\"]\n  Risk --> Mitigate[Mitigation / design choice]\n  Mitigate --> Outcome[Better system behavior]",
         "caption": "Idempotent Operations: a simplified system view showing the primary flow and the main state boundaries.",
-        "alt_text": "Idempotent Operations: a simplified system view showing the primary flow and the main state boundaries."
+        "alt_text": "Concept diagram: Idempotent Operations"
       }
     },
     {

@@ -35,9 +35,9 @@
       "type": "mermaid",
       "id": "triangle",
       "payload": {
-        "code": "flowchart TD\n    N0[\"CP:\"]\n    N1[\"Consistency\"]\n    N2[\"Partition\"]\n    N3[\"tolerance\"]\n    N4[\"sacrifice A\"]\n    N5[\"reject\"]\n    N6[\"requests\"]\n    N7[\"during\"]\n    N8[\"partition\"]\n    N9[\"(sacrifice\"]\n    N10[\"with majority write concern\"]\n    N11[\"e.g.,\"]\n    N12[\"Spanner,\"]\n    N13[\"HBase,\"]\n    N14[\"MongoDB\"]\n    N15[\"(with\"]\n    N16[\"majority\"]\n    N17[\"write\"]\n    N18[\"concern)\"]\n    N19[\"AP:\"]\n    N20[\"Availability\"]\n    N21[\"sacrifice C\"]\n    N22[\"serve\"]\n    N23[\"stale\"]\n    N24[\"data\"]\n    N25[\"Cassandra,\"]\n    N26[\"DynamoDB,\"]\n    N27[\"CouchDB\"]\n    N28[\"CA:\"]\n    N29[\"only\"]\n    N30[\"possible\"]\n    N31[\"when\"]\n    N32[\"there\"]\n    N33[\"are\"]\n    N34[\"partitions\"]\n    N35[\"PostgreSQL on one box\"]\n    N36[\"single\"]\n    N37[\"machine\"]\n    N38[\"database\"]\n    N39[\"(PostgreSQL\"]\n    N40[\"one\"]\n    N41[\"box)\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41",
-        "caption": "CAP triangle. Because partitions are inevitable, real distributed systems are CP or AP.",
-        "alt_text": "A triangle diagram showing the three CAP properties at the corners. CP systems prioritize consistency and partition tolerance by rejecting requests during a partition. AP systems prioritize availability and partition tolerance by serving possibly stale data. CA systems only work without partitions, which means single-machine databases."
+        "code": "flowchart LR\n  System[Distributed data system] --> Partition[Network partition]\n  Partition --> CP[Choose Consistency + Partition tolerance]\n  Partition --> AP[Choose Availability + Partition tolerance]\n  CP --> CPout[Some requests may reject / wait]\n  AP --> APout[Some reads may be stale]\n  CPout --> Tradeoff[Trade-off under partition]\n  APout --> Tradeoff",
+        "caption": "CAP is about behavior when a network partition occurs.",
+        "alt_text": "Concept diagram: CAP Theorem"
       }
     },
     {
@@ -106,9 +106,9 @@
       "type": "mermaid",
       "id": "cap-triangle-labeled",
       "payload": {
-        "code": "flowchart TD\n    C((C: Consistency<br/>every read sees<br/>latest write))\n    A((A: Availability<br/>every non-failed node<br/>responds))\n    P((P: Partition tolerance<br/>survives network splits))\n    C ---|cannot have both during partition| A\n    A ---|P is inevitable<br/>on real networks| P\n    P ---|cannot have both during partition| C\n    CP[CP systems<br/>reject writes during partition<br/>sacrifice A<br/>Examples: Spanner, HBase,<br/>MongoDB majority, etcd, ZooKeeper]\n    AP[AP systems<br/>accept writes on any node<br/>sacrifice strong C<br/>Examples: Cassandra, DynamoDB,<br/>CouchDB, Riak, Redis Cluster]\n    CA[CA: only valid if P never happens<br/>= single-machine database<br/>Examples: Postgres on one box,<br/>MySQL on one box]\n    C -.-> CP\n    P -.-> CP\n    A -.-> AP\n    P -.-> AP\n    C -.-> CA\n    A -.-> CA\n    classDef corner fill:#e8f0fe,stroke:#1967d2,stroke-width:2px,color:#174ea6\n    classDef cp fill:#fee,stroke:#c33,color:#900\n    classDef ap fill:#fff4e5,stroke:#cc7a00,color:#995500\n    classDef ca fill:#f3e8fd,stroke:#9334c6,color:#681da8\n    class C,A,P corner\n    class CP cp\n    class AP ap\n    class CA ca",
+        "code": "flowchart LR\n  Concept[\"CAP Theorem\"] --> Risk[\"Gives a clear vocabulary for the…\"]\n  Risk --> Mitigate[Mitigation / design choice]\n  Mitigate --> Outcome[Better system behavior]",
         "caption": "CAP triangle with system labels. Real distributed systems are CP (reject on partition) or AP (serve stale). CA is only valid for single-machine databases.",
-        "alt_text": "A CAP triangle. C, A, P at the corners. CP systems (Spanner, HBase, MongoDB majority, etcd, ZooKeeper) sacrifice availability during partitions. AP systems (Cassandra, DynamoDB, CouchDB, Riak, Redis Cluster) sacrifice strong consistency. CA only works without partitions — single-machine databases like Postgres or MySQL on one box."
+        "alt_text": "Concept diagram: CAP Theorem"
       }
     },
     {
@@ -133,9 +133,9 @@
       "type": "mermaid",
       "id": "partition-simulation",
       "payload": {
-        "code": "flowchart TD\n    subgraph Healthy[Network healthy - both nodes reachable]\n        W1[Client writes 'set x=5']\n        W1 --> L1[Leader receives write]\n        L1 --> S1[Sync to follower]\n        S1 --> A1[ACK to client - both CP and AP succeed]\n        A1 --> R1[Subsequent read returns 5<br/>from either node]\n    end\n    subgraph Partitioned[Network partition - leader cannot reach follower]\n        W2[Client writes 'set x=6']\n        W2 --> L2[Leader receives write]\n        L2 --> S2{Can sync to follower?}\n        S2 -->|No - partitioned| CPPath[CP path:<br/>reject the write<br/>return error<br/>unavailable but consistent]\n        S2 -->|No - partitioned| APPath[AP path:<br/>accept write locally<br/>return OK<br/>available but may diverge]\n        CPPath --> CPRead[Reads may fail<br/>until partition heals<br/>but never return stale data]\n        APPath --> APRead[Reads from either side<br/>may return different values<br/>until reconciliation on heal]\n    end\n    classDef healthy fill:#e6f4ea,stroke:#188038,color:#0d652d\n    classDef cp fill:#fee,stroke:#c33,color:#900\n    classDef ap fill:#fff4e5,stroke:#cc7a00,color:#995500\n    class A1,R1 healthy\n    class CPPath,CPRead cp\n    class APPath,APRead ap",
+        "code": "flowchart LR\n  Concept[\"CAP Theorem\"] --> Use[When to use]\n  Concept --> Avoid[When not to use]\n  Use --> Outcome[Engineering outcome]\n  Avoid --> Tradeoff[Alternative / trade-off]",
         "caption": "Partition simulation. CP path rejects writes it can't prove are consistent (unavailable but safe). AP path accepts writes locally (available but may diverge until reconciliation).",
-        "alt_text": "A flowchart showing partition behavior. In healthy operation, a write to the leader syncs to the follower, ACKs, and subsequent reads return the new value from either node. During a partition, the leader can't reach the follower. CP path: reject the write, return error (unavailable but consistent). Reads may fail until the partition heals, but never return stale data. AP path: accept the write locally, return OK (available but may diverge). Reads from either side may return different values until reconciliation on heal."
+        "alt_text": "Concept diagram: CAP Theorem"
       }
     },
     {
@@ -239,9 +239,9 @@
       "type": "mermaid",
       "id": "upgrade-mermaid-cap-theorem",
       "payload": {
-        "code": "flowchart TD\n P[Network partition occurs] --> C{What does the system prefer?}\n C -->|Consistency| CP[CP: reject or delay some requests]\n C -->|Availability| AP[AP: serve a potentially stale value]\n CP --> T[Partition tolerance remains] ; AP --> T",
+        "code": "flowchart LR\n  Concept[\"CAP Theorem\"] --> Use[When to use]\n  Concept --> Avoid[When not to use]\n  Use --> Outcome[Engineering outcome]\n  Avoid --> Tradeoff[Alternative / trade-off]",
         "caption": "During a partition, a distributed system chooses between preserving strong consistency and preserving availability.",
-        "alt_text": "During a partition, a distributed system chooses between preserving strong consistency and preserving availability."
+        "alt_text": "Concept diagram: CAP Theorem"
       }
     },
     {

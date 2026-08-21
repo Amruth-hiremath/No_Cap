@@ -37,9 +37,9 @@
       "type": "mermaid",
       "id": "topologies",
       "payload": {
-        "code": "flowchart TD\n    N0[\"warm standby\"]\n    N1[\"ACTIVE\"]\n    N2[\"PASSIVE\"]\n    N3[\"(warm\"]\n    N4[\"standby)\"]\n    N5[\"east\"]\n    N6[\"async\"]\n    N7[\"west\"]\n    N8[\"STANDBY\"]\n    N9[\"all\"]\n    N10[\"traf.\"]\n    N11[\"Simple,\"]\n    N12[\"cheap.\"]\n    N13[\"Failover:\"]\n    N14[\"minutes.\"]\n    N15[\"RPO:\"]\n    N16[\"sec\"]\n    N17[\"min.\"]\n    N18[\"dir\"]\n    N19[\"sync\"]\n    N20[\"local\"]\n    N21[\"traf\"]\n    N22[\"Complex,\"]\n    N23[\"costly.\"]\n    N24[\"~0.\"]\n    N25[\"0–sec.\"]\n    N26[\"Needs\"]\n    N27[\"conflict\"]\n    N28[\"resolution\"]\n    N29[\"last\"]\n    N30[\"writer\"]\n    N31[\"wins.\"]\n    N32[\"LATENCY\"]\n    N33[\"BENEFIT\"]\n    N34[\"Tokyo\"]\n    N35[\"user\"]\n    N36[\"~150ms\"]\n    N37[\"RTT\"]\n    N38[\"northeast\"]\n    N39[\"~5ms\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39",
-        "caption": "Active-passive is simpler; active-active gives near-zero failover but needs conflict resolution. Multi-region also gives global latency wins.",
-        "alt_text": "Two topology diagrams. Active-passive: us-east-1 is active and serves all traffic; eu-west-1 is a standby receiving asynchronous replication. Failover takes minutes; RPO is seconds to minutes. Active-active: both regions serve local traffic with bidirectional replication, either async or sync. Failover is near-zero; RPO is zero to seconds but requires conflict resolution such as last-writer-wins. A third panel shows the latency benefit: a Tokyo user hits us-east-1 at 150ms round-trip but ap-northeast-1 at 5ms."
+        "code": "flowchart LR\n  Global[Global users] --> DNS[Global routing]\n  DNS --> R1[Region A]\n  DNS --> R2[Region B]\n  R1 --> Data[Data replication]\n  R2 --> Data\n  R1 --> Failover[Regional failover]\n  R2 --> Failover",
+        "caption": "Multi-Region Architecture: apply a pattern to a recurring architectural pressure.",
+        "alt_text": "Concept diagram: Multi-Region Architecture"
       }
     },
     {
@@ -162,9 +162,9 @@
       "type": "mermaid",
       "id": "upgrade-mermaid-multi-region",
       "payload": {
-        "code": "flowchart LR\n  A[Client] --> B[Gateway] --> C[Service] --> D[State] --> E[Outcome]",
+        "code": "flowchart LR\n  Concept[\"Multi-Region Architecture\"] --> Risk[\"Survives region-level outages — true high…\"]\n  Risk --> Mitigate[Mitigation / design choice]\n  Mitigate --> Outcome[Better system behavior]",
         "caption": "Multi-Region Architecture: a simplified system view showing the primary flow and the main state boundaries.",
-        "alt_text": "Multi-Region Architecture: a simplified system view showing the primary flow and the main state boundaries."
+        "alt_text": "Concept diagram: Multi-Region Architecture"
       }
     },
     {

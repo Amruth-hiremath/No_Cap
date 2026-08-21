@@ -37,9 +37,9 @@
       "type": "mermaid",
       "id": "topology",
       "payload": {
-        "code": "flowchart TD\n    N0[\"WITHOUT\"]\n    N1[\"GATEKEEPER\"]\n    N2[\"auth, rate limit, validate, log\"]\n    N3[\"Client\"]\n    N4[\"Service\"]\n    N5[\"(auth,\"]\n    N6[\"rate\"]\n    N7[\"limit,\"]\n    N8[\"validate,\"]\n    N9[\"log)\"]\n    N10[\"Each\"]\n    N11[\"service\"]\n    N12[\"reimplements\"]\n    N13[\"the\"]\n    N14[\"same\"]\n    N15[\"concerns.\"]\n    N16[\"Inconsistent.\"]\n    N17[\"Bug\"]\n    N18[\"prone.\"]\n    N19[\"One\"]\n    N20[\"forgets\"]\n    N21[\"check\"]\n    N22[\"vuln.\"]\n    N23[\"WITH\"]\n    N24[\" GATEKEEPER \"]\n    N25[\"authN\"]\n    N26[\"authZ\"]\n    N27[\"limit\"]\n    N28[\"validate\"]\n    N29[\"sanitize\"]\n    N30[\"log\"]\n    N31[\"TLS\"]\n    N32[\"termination\"]\n    N33[\"Svc\"]\n    N34[\"trusts GW — no auth checks\"]\n    N35[\"(trusts\"]\n    N36[\"auth\"]\n    N37[\"checks)\"]\n    N38[\"Single\"]\n    N39[\"point\"]\n    N40[\"security\"]\n    N41[\"enforcement.\"]\n    N42[\"Backends\"]\n    N43[\"focus\"]\n    N44[\"business\"]\n    N45[\"logic.\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44\n    N44 --> N45",
-        "caption": "Without a gateway, every service reimplements security. With one, concerns are centralized and backends trust the gateway.",
-        "alt_text": "Two topology diagrams. Without a gatekeeper: the client calls services A, B, and C directly. Each service reimplements authentication, rate limiting, validation, and logging. The result is inconsistent, bug-prone, and one service forgetting a check creates a vulnerability. With a gatekeeper: the client calls the gatekeeper, which performs authentication, authorization, rate limiting, validation, sanitization, logging, and TLS termination, then forwards to services A, B, and C. The services trust the gateway and don't repeat the auth checks. Single point of security enforcement; backends focus on business logic."
+        "code": "flowchart LR\n  Request[Request] --> Gate[Gatekeeper]\n  Gate --> Auth[Authenticate]\n  Auth --> Policy[Authorize]\n  Policy -->|allow| Resource[Resource]\n  Policy -->|deny| Reject[Reject]",
+        "caption": "Gatekeeper Pattern: identity and policy protect a downstream resource.",
+        "alt_text": "Concept diagram: Gatekeeper Pattern"
       }
     },
     {
@@ -162,9 +162,9 @@
       "type": "mermaid",
       "id": "upgrade-mermaid-gatekeeper",
       "payload": {
-        "code": "flowchart LR\n  A[Client] --> B[Gateway] --> C[Service] --> D[State] --> E[Outcome]",
+        "code": "flowchart LR\n  Concept[\"Gatekeeper Pattern\"] --> Risk[\"Centralizes cross-cutting security concerns in one…\"]\n  Risk --> Mitigate[Mitigation / design choice]\n  Mitigate --> Outcome[Better system behavior]",
         "caption": "Gatekeeper Pattern: a simplified system view showing the primary flow and the main state boundaries.",
-        "alt_text": "Gatekeeper Pattern: a simplified system view showing the primary flow and the main state boundaries."
+        "alt_text": "Concept diagram: Gatekeeper Pattern"
       }
     },
     {

@@ -34,9 +34,9 @@
       "type": "mermaid",
       "id": "probes",
       "payload": {
-        "code": "flowchart TD\n    N0[\"restart on failure\"]\n    N1[\"LIVENESS\"]\n    N2[\"PROBE\"]\n    N3[\"(restart\"]\n    N4[\"failure)\"]\n    N5[\"Kubelet\"]\n    N6[\"GET\"]\n    N7[\"health\"]\n    N8[\"every\"]\n    N9[\"10s\"]\n    N10[\"non\"]\n    N11[\"200\"]\n    N12[\"kill\"]\n    N13[\"container,\"]\n    N14[\"restart.\"]\n    N15[\"Use:\"]\n    N16[\"catch\"]\n    N17[\"deadlocks,\"]\n    N18[\"OOM\"]\n    N19[\"zombies,\"]\n    N20[\"infinite\"]\n    N21[\"loops.\"]\n    N22[\"reroute on failure\"]\n    N23[\"READINESS\"]\n    N24[\"(reroute\"]\n    N25[\"ready\"]\n    N26[\"remove\"]\n    N27[\"pod\"]\n    N28[\"from\"]\n    N29[\"Service\"]\n    N30[\"endpoints.\"]\n    N31[\"Container\"]\n    N32[\"keeps\"]\n    N33[\"running.\"]\n    N34[\"cache\"]\n    N35[\"warming,\"]\n    N36[\"downstream\"]\n    N37[\"dep\"]\n    N38[\"down,\"]\n    N39[\"reconnect.\"]\n    N40[\"disable liveness during boot\"]\n    N41[\"STARTUP\"]\n    N42[\"(disable\"]\n    N43[\"liveness\"]\n    N44[\"during\"]\n    N45[\"boot)\"]\n    N46[\"startup\"]\n    N47[\"5min\"]\n    N48[\"keep\"]\n    N49[\"waiting;\"]\n    N50[\"don't\"]\n    N51[\"kill.\"]\n    N52[\"readiness\"]\n    N53[\"probes\"]\n    N54[\"take\"]\n    N55[\"over.\"]\n    N56[\"JVM, large caches\"]\n    N57[\"slow\"]\n    N58[\"starting\"]\n    N59[\"apps\"]\n    N60[\"(JVM,\"]\n    N61[\"large\"]\n    N62[\"caches).\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44\n    N44 --> N45\n    N45 --> N46\n    N46 --> N47\n    N47 --> N48\n    N48 --> N49\n    N49 --> N50\n    N50 --> N51\n    N51 --> N52\n    N52 --> N53\n    N53 --> N54\n    N54 --> N55\n    N55 --> N56\n    N56 --> N57\n    N57 --> N58\n    N58 --> N59\n    N59 --> N60\n    N60 --> N61\n    N61 --> N62",
-        "caption": "Liveness restarts, readiness reroutes, startup waits. Each probe has a different job.",
-        "alt_text": "Three probe types. Liveness probe: the kubelet calls GET slash health every ten seconds; if it returns non-200, the container is killed and restarted. Use it to catch deadlocks, out-of-memory zombies, and infinite loops. Readiness probe: the kubelet calls GET slash ready every five seconds; if it returns non-200, the pod is removed from the service endpoints but the container keeps running with no restart. Use it for cache warming, downstream dependencies down, and database reconnection. Startup probe: the kubelet calls GET slash startup every ten seconds for up to five minutes; while it returns non-200, the kubelet keeps waiting without killing. Use it for slow-starting applications like JVMs and large caches."
+        "code": "flowchart LR\n  Service[Service] --> Probe[Health probe]\n  Probe --> Metrics[Health metrics]\n  Metrics --> Status[Healthy / degraded / failed]\n  Status --> Router[Traffic routing]",
+        "caption": "Health Monitoring: turn running-system behavior into observable signals.",
+        "alt_text": "Concept diagram: Health Monitoring"
       }
     },
     {
@@ -159,9 +159,9 @@
       "type": "mermaid",
       "id": "upgrade-mermaid-health-monitoring",
       "payload": {
-        "code": "flowchart LR\n  A[Signal] --> B[Collector] --> C[Store] --> D[Rule] --> E[Alert]",
+        "code": "flowchart LR\n  Concept[\"Health Monitoring\"] --> Risk[\"Self-healing: orchestrator restarts or reroutes automatically.\"]\n  Risk --> Mitigate[Mitigation / design choice]\n  Mitigate --> Outcome[Better system behavior]",
         "caption": "Health Monitoring: a simplified system view showing the primary flow and the main state boundaries.",
-        "alt_text": "Health Monitoring: a simplified system view showing the primary flow and the main state boundaries."
+        "alt_text": "Concept diagram: Health Monitoring"
       }
     },
     {

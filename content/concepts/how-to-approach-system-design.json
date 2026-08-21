@@ -32,9 +32,9 @@
       "type": "mermaid",
       "id": "approach-flow",
       "payload": {
-        "code": "flowchart TD\n    N0[\"Clarify\"]\n    N1[\"requirements\"]\n    N2[\"functional + non-functional\"]\n    N3[\"(functional\"]\n    N4[\"non\"]\n    N5[\"functional)\"]\n    N6[\"Capacity\"]\n    N7[\"estimation\"]\n    N8[\"QPS, storage, bandwidth\"]\n    N9[\"(QPS,\"]\n    N10[\"storage,\"]\n    N11[\"bandwidth)\"]\n    N12[\"APIs\"]\n    N13[\"interfaces\"]\n    N14[\"what does the system DO?\"]\n    N15[\"(what\"]\n    N16[\"does\"]\n    N17[\"the\"]\n    N18[\"system\"]\n    N19[\"DO?)\"]\n    N20[\"Data\"]\n    N21[\"model\"]\n    N22[\"what entities, what store?\"]\n    N23[\"entities,\"]\n    N24[\"what\"]\n    N25[\"store?)\"]\n    N26[\"High\"]\n    N27[\"level\"]\n    N28[\"design\"]\n    N29[\"boxes and arrows\"]\n    N30[\"(boxes\"]\n    N31[\"and\"]\n    N32[\"arrows)\"]\n    N33[\"Deep\"]\n    N34[\"dive\"]\n    N35[\"the hard components\"]\n    N36[\"(the\"]\n    N37[\"hard\"]\n    N38[\"components)\"]\n    N39[\"Bottlenecks\"]\n    N40[\"failures\"]\n    N41[\"what breaks first?\"]\n    N42[\"breaks\"]\n    N43[\"first?)\"]\n    N44[\"Trade\"]\n    N45[\"offs\"]\n    N46[\"alternatives\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44\n    N44 --> N45\n    N45 --> N46",
-        "caption": "The 8-step system design skeleton. Each step constrains the next.",
-        "alt_text": "A vertical flowchart showing the 8-step system design approach: clarify requirements, estimate capacity, define APIs, model data, high-level design, deep dive, bottlenecks and failures, and trade-offs. Each step flows into the next, and each constrains the decisions you make later."
+        "code": "flowchart LR\n  Concept[\"How to Approach System Design\"] --> Problem[System requirement] --> Design[System design]\n  Design --> Components[Components + data flows]\n  Components --> Tradeoffs[Trade-offs]\n  Tradeoffs --> System[Working system]",
+        "caption": "How to Approach System Design: problem → mechanism → behavior → outcome.",
+        "alt_text": "Concept diagram: How to Approach System Design"
       }
     },
     {
@@ -152,9 +152,9 @@
       "type": "mermaid",
       "id": "process-flowchart-b2",
       "payload": {
-        "code": "flowchart TD\n    Start([Interview starts]) --> S1\n    S1[1. Clarify<br/>functional + non-functional] --> S2\n    S2[2. Capacity<br/>QPS, storage, bandwidth] --> S3\n    S3[3. APIs<br/>REST / RPC contract] --> S4\n    S4[4. Data model<br/>entities + store choice] --> S5\n    S5[5. High-level design<br/>boxes and arrows] --> S6\n    S6[6. Deep dive<br/>1-2 hardest components] --> S7\n    S7[7. Bottlenecks<br/>what breaks first?] --> S8\n    S8[8. Trade-offs<br/>alternatives + what you give up] --> End([Done])\n\n    S1 -.interviewer may push back.-> S1\n    S6 -.may revise S4.-> S4\n    S7 -.may revise S5.-> S5\n\n    classDef step fill:#1e3a5f,stroke:#3b82f6,color:#e0e7ff\n    classDef io fill:#3a2e1e,stroke:#f59e0b,color:#fef3c7\n    class S1,S2,S3,S4,S5,S6,S7,S8 step\n    class Start,End io",
+        "code": "flowchart LR\n  Concept[\"How to Approach System Design\"] --> Risk[\"Prevents premature commitment to a technology.\"]\n  Risk --> Mitigate[Mitigation / design choice]\n  Mitigate --> Outcome[Better system behavior]",
         "caption": "The 8-step system-design skeleton, with feedback loops where interviewers (or new constraints) may force a revision.",
-        "alt_text": "A vertical flowchart of the 8-step approach: clarify requirements, capacity estimation, APIs, data model, high-level design, deep dive, bottlenecks, trade-offs. Dotted feedback arrows show that step 1 can loop on interviewer pushback, step 6 may force a revision of step 4 (data model), and step 7 may force a revision of step 5 (high-level design)."
+        "alt_text": "Concept diagram: How to Approach System Design"
       }
     },
     {
@@ -236,9 +236,9 @@
       "type": "mermaid",
       "id": "upgrade-mermaid-how-to-approach-system-design",
       "payload": {
-        "code": "flowchart LR\n  A[Client] --> B[Gateway] --> C[Service] --> D[State] --> E[Outcome]",
+        "code": "flowchart LR\n  Concept[\"How to Approach System Design\"] --> Use[When to use]\n  Concept --> Avoid[When not to use]\n  Use --> Outcome[Engineering outcome]\n  Avoid --> Tradeoff[Alternative / trade-off]",
         "caption": "How to Approach System Design: a simplified system view showing the primary flow and the main state boundaries.",
-        "alt_text": "How to Approach System Design: a simplified system view showing the primary flow and the main state boundaries."
+        "alt_text": "Concept diagram: How to Approach System Design"
       }
     },
     {

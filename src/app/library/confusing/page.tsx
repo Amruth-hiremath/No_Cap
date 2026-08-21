@@ -14,7 +14,7 @@ import { AccentRule } from '@/components/ui/AccentRule';
 import { Badge, MasteryBadge } from '@/components/ui/Badge';
 import { useStore } from '@/lib/store';
 import { useHydrated } from '@/lib/useHydrated';
-import { getConcept } from '@/lib/content';
+import { getConceptSummary } from '@/lib/content-lite';
 import { MASTERY_STATE_META } from '@/lib/mastery';
 import type { Concept, MasteryState, MasteryRecord } from '@/lib/types';
 
@@ -35,7 +35,7 @@ export default function ConfusingPage() {
   const items: ConfusingItem[] = hydrated
     ? confusing
         .map<ConfusingItem | null>((slug) => {
-          const concept = getConcept(slug);
+          const concept = getConceptSummary(slug);
           if (!concept) return null;
           return {
             slug,

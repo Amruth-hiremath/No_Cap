@@ -16,7 +16,7 @@ import { Surface, EmptyState } from '@/components/ui/Surface';
 import { AccentRule } from '@/components/ui/AccentRule';
 import { useStore } from '@/lib/store';
 import { useHydrated } from '@/lib/useHydrated';
-import { getConcept } from '@/lib/content';
+import { getConceptSummary } from '@/lib/content-lite';
 import { cn } from '@/lib/utils';
 import type { Highlight } from '@/lib/types';
 
@@ -93,7 +93,7 @@ export default function HighlightsPage() {
     }
     return Array.from(counts.entries())
       .map(([slug, count]) => {
-        const c = getConcept(slug);
+        const c = getConceptSummary(slug);
         return { slug, title: c?.title ?? slug, count };
       })
       .sort((a, b) => a.title.localeCompare(b.title));
@@ -117,7 +117,7 @@ export default function HighlightsPage() {
       list = list.filter(
         (h) =>
           h.selected_text.toLowerCase().includes(q) ||
-          (getConcept(h.concept_slug)?.title ?? h.concept_slug)
+          (getConceptSummary(h.concept_slug)?.title ?? h.concept_slug)
             .toLowerCase()
             .includes(q)
       );
@@ -331,7 +331,7 @@ function HighlightRow({
   onCancelConfirm: () => void;
   onConfirmRemove: () => void;
 }) {
-  const concept = getConcept(h.concept_slug);
+  const concept = getConceptSummary(h.concept_slug);
   const conceptTitle = concept?.title ?? h.concept_slug;
   const meta = HIGHLIGHT_COLOR[h.color];
 

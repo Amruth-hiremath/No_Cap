@@ -26,13 +26,12 @@ import { TableOfContents } from '@/components/concept/TableOfContents';
 import { ReadingTools } from '@/components/concept/ReadingTools';
 import { QuizBlock } from '@/components/concept/QuizCard';
 import { ScenarioCard } from '@/components/concept/ScenarioCard';
-import { getAllConcepts, calculateReadingMinutes } from '@/lib/content';
 import { useStore } from '@/lib/store';
 import { cn } from '@/lib/utils';
 import { clearRenderedHighlights, wrapTextHighlight, scrollToText } from '@/lib/highlight-dom';
 import type { Concept, LessonBlock, MasteryState } from '@/lib/types';
 
-export function ConceptView({ concept }: { concept: Concept }) {
+export function ConceptView({ concept, graph, readingMinutes }: { concept: Concept; graph: ConceptGraph; readingMinutes: number }) {
   const startConcept = useStore((s) => s.startConcept);
   const markUnderstood = useStore((s) => s.markConceptUnderstood);
   const recordQuizAttempt = useStore((s) => s.recordQuizAttempt);
@@ -136,17 +135,11 @@ export function ConceptView({ concept }: { concept: Concept }) {
   }, [mounted, concept.slug]);
 
 
-  const allConcepts = getAllConcepts();
-  const prereqs = concept.prerequisites
-    .map((s) => allConcepts.find((c) => c.slug === s))
-    .filter((x): x is Concept => Boolean(x));
-  const related = concept.related
-    .map((s) => allConcepts.find((c) => c.slug === s))
-    .filter((x): x is Concept => Boolean(x));
-  const dependents = allConcepts.filter((c) => c.prerequisites.includes(concept.slug));
+  const prereqs = graph.prerequisites;
+  const related = graph.related;
+  const dependents = graph.dependents;
 
   const isUnderstood = ['understood', 'practiced', 'applied', 'mastered'].includes(state);
-  const readingMinutes = calculateReadingMinutes(concept);
 
   return (
     <div ref={scrollRef} className="mx-auto w-full max-w-5xl space-y-6">
@@ -266,7 +259,7 @@ export function ConceptView({ concept }: { concept: Concept }) {
                   />
                 );
               }
-              return <div key={block.id} data-block-id={block.id} className="animate-soft-rise"><LessonBlockRenderer block={block} /></div>;
+              return <div key={block.id} data-block-id={block.id} className="animate-soft-rise lesson-block-virtualized"><LessonBlockRenderer block={block} /></div>;
             })}
 
             {/* Trade-offs */}

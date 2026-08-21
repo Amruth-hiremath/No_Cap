@@ -36,9 +36,9 @@
       "type": "mermaid",
       "id": "wide-column-data-model",
       "payload": {
-        "code": "flowchart TD\n    N0[\"a partitioned, sorted wide row\"]\n    N1[\"Cassandra\"]\n    N2[\"data\"]\n    N3[\"model\"]\n    N4[\"partitioned,\"]\n    N5[\"sorted\"]\n    N6[\"wide\"]\n    N7[\"row)\"]\n    N8[\"user_id, activity_ts\"]\n    N9[\"Table:\"]\n    N10[\"user_activity\"]\n    N11[\"(user_id,\"]\n    N12[\"activity_ts)\"]\n    N13[\"action,\"]\n    N14[\"device\"]\n    N15[\"hash → which node\"]\n    N16[\"Partition\"]\n    N17[\"key:\"]\n    N18[\"user_id\"]\n    N19[\"(hash\"]\n    N20[\"which\"]\n    N21[\"node)\"]\n    N22[\"sort order within partition\"]\n    N23[\"Clustering\"]\n    N24[\"activity_ts\"]\n    N25[\"(sort\"]\n    N26[\"order\"]\n    N27[\"within\"]\n    N28[\"partition)\"]\n    N29[\"Partition:\"]\n    N30[\"action\"]\n    N31[\"10:01:00\"]\n    N32[\"login\"]\n    N33[\"ios\"]\n    N34[\"10:02:14\"]\n    N35[\"view\"]\n    N36[\"10:02:45\"]\n    N37[\"click\"]\n    N38[\"10:05:10\"]\n    N39[\"logout\"]\n    N40[\"...\"]\n    N41[\"11:30:00\"]\n    N42[\"web\"]\n    N43[\"range\"]\n    N44[\"scan:\"]\n    N45[\"WHERE\"]\n    N46[\"AND\"]\n    N47[\"10:00\"]\n    N48[\"11:00\"]\n    N49[\"single\"]\n    N50[\"partition,\"]\n    N51[\"disk\"]\n    N52[\"sequential\"]\n    N53[\"read.\"]\n    N54[\"Each\"]\n    N55[\"partition\"]\n    N56[\"lives\"]\n    N57[\"node\"]\n    N58[\"chosen\"]\n    N59[\"hash(user_id).\"]\n    N60[\"activity_ts.\"]\n    N61[\"log N + result size\"]\n    N62[\"Range\"]\n    N63[\"scans\"]\n    N64[\"inside\"]\n    N65[\"are\"]\n    N66[\"O(log\"]\n    N67[\"result\"]\n    N68[\"size).\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44\n    N44 --> N45\n    N45 --> N46\n    N46 --> N47\n    N47 --> N48\n    N48 --> N49\n    N49 --> N50\n    N50 --> N51\n    N51 --> N52\n    N52 --> N53\n    N53 --> N54\n    N54 --> N55\n    N55 --> N56\n    N56 --> N57\n    N57 --> N58\n    N58 --> N59\n    N59 --> N60\n    N60 --> N61\n    N61 --> N62\n    N62 --> N63\n    N63 --> N64\n    N64 --> N65\n    N65 --> N66\n    N66 --> N67\n    N67 --> N68",
-        "caption": "Wide-column data model: data is partitioned by a key and sorted within a partition by a clustering key — perfect for time-bucketed range scans.",
-        "alt_text": "A diagram of a Cassandra partition. The table is user_activity with primary key (user_id, activity_ts). user_id is the partition key that determines which node stores the data via a hash. activity_ts is the clustering key that sorts rows within a partition on disk. The diagram shows partition user_id=42 holding a sorted sequence of activity records: login at 10:01, view at 10:02, click at 10:02, logout at 10:05, and a later login at 11:30. A range scan filtering user_id=42 and activity_ts between 10:00 and 11:00 is a single-partition, sequential on-disk read."
+        "code": "flowchart LR\n  Write[High write volume] --> Partition[Partition key]\n  Partition --> Table[(Wide-column table)]\n  Table --> Row[Partitioned rows / columns]\n  Row --> Read[Predictable key-based reads]",
+        "caption": "Wide Column Stores: shape storage around the access pattern.",
+        "alt_text": "Concept diagram: Wide Column Stores"
       }
     },
     {
@@ -161,9 +161,9 @@
       "type": "mermaid",
       "id": "upgrade-mermaid-wide-column-stores",
       "payload": {
-        "code": "flowchart LR\n  A[Client] --> B[Service] --> C[Data layer] --> D[Replication] --> E[Durability]",
+        "code": "flowchart LR\n  Concept[\"Wide Column Stores\"] --> Risk[\"Highest write throughput of any data…\"]\n  Risk --> Mitigate[Mitigation / design choice]\n  Mitigate --> Outcome[Better system behavior]",
         "caption": "Wide Column Stores: a simplified system view showing the primary flow and the main state boundaries.",
-        "alt_text": "Wide Column Stores: a simplified system view showing the primary flow and the main state boundaries."
+        "alt_text": "Concept diagram: Wide Column Stores"
       }
     },
     {

@@ -8,7 +8,8 @@ import { AccentRule } from '@/components/ui/AccentRule';
 import { Badge, MasteryBadge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { RoadmapGraph } from '@/components/roadmap/RoadmapGraph';
-import { getTracks, getAllConcepts, getConcept } from '@/lib/content';
+import { getTracks } from '@/lib/curriculum';
+import { getAllConceptSummaries, getConceptSummary, getLiteRecommendations } from '@/lib/content-lite';
 import { useStore } from '@/lib/store';
 import { MASTERY_STATE_META } from '@/lib/mastery';
 import { getRecommendations } from '@/lib/recommendations';
@@ -27,7 +28,7 @@ const modes: { id: Mode; label: string; icon: typeof Map; hint: string }[] = [
 export default function RoadmapPage() {
   const [mode, setMode] = useState<Mode>('guided');
   const tracks = getTracks();
-  const allConcepts = getAllConcepts();
+  const allConcepts = getAllConceptSummaries();
   const mastery = useStore((s) => s.mastery);
   const review_items = useStore((s) => s.review_items);
   const last_visited_concept = useStore((s) => s.last_visited_concept);
@@ -140,7 +141,7 @@ export default function RoadmapPage() {
                     return (
                       <li key={c.slug}>
                         <Link
-                          href={`/concepts/${c.slug}`}
+                          prefetch={false} href={`/concepts/${c.slug}`}
                           className="flex items-center gap-3 py-2 hover:bg-surface-subtle"
                         >
                           <span className={cn('h-2 w-2 shrink-0 rounded-full', meta.dot)} />
@@ -166,7 +167,7 @@ export default function RoadmapPage() {
         <div className="space-y-3">
           <Surface variant="solid" className="p-4">
             <p className="text-xs text-text-muted">
-              {allConcepts.filter((c) => c.interview_prompts.length > 0).length} concepts
+              {allConcepts.filter((c) => (c.interview_count ?? 0) > 0).length} concepts
               with interview prompts. Use these for mock interview practice.
             </p>
           </Surface>
@@ -174,7 +175,7 @@ export default function RoadmapPage() {
             const phaseConcepts = phase.concepts
               .map((slug) => allConcepts.find((c) => c.slug === slug))
               .filter((x): x is NonNullable<typeof x> => Boolean(x))
-              .filter((c) => c.interview_prompts.length > 0);
+              .filter((c) => (c.interview_count ?? 0) > 0);
             if (phaseConcepts.length === 0) return null;
             return (
               <Surface key={phase.slug} variant="solid" className="p-4">
@@ -188,16 +189,16 @@ export default function RoadmapPage() {
                   {phaseConcepts.map((c) => (
                     <li key={c.slug}>
                       <Link
-                        href={`/concepts/${c.slug}`}
+                        prefetch={false} href={`/concepts/${c.slug}`}
                         className="flex items-start gap-3 py-2.5 hover:bg-surface-subtle"
                       >
                         <div className="flex-1">
                           <div className="text-sm font-medium text-text-primary">{c.title}</div>
                           <div className="mt-0.5 line-clamp-2 text-xs text-text-secondary">
-                            {c.interview_prompts[0]}
+                            {c.summary}
                           </div>
                           <div className="mt-1.5 flex flex-wrap gap-2 text-[11px] text-text-muted">
-                            <Badge variant="accent">{c.interview_prompts.length} prompts</Badge>
+                            <Badge variant="accent">{c.interview_count ?? 0} prompts</Badge>
                             <Badge variant="default">{c.difficulty}</Badge>
                           </div>
                         </div>
@@ -224,10 +225,7 @@ function GuidedView({
   review_items: ReturnType<typeof useStore.getState>['review_items'];
   last_visited_concept: string | null;
 }) {
-  const recs = getRecommendations(
-    { mastery, review_items, last_visited_concept },
-    3
-  );
+  const recs = getLiteRecommendations(mastery, review_items, last_visited_concept, 3);
   if (recs.length === 0) {
     return (
       <EmptyState
@@ -240,7 +238,7 @@ function GuidedView({
   const primary = recs[0];
   const others = recs.slice(1);
   const prereqs = primary.concept.prerequisites
-    .map((p) => getConcept(p))
+    .map((p) => getConceptSummary(p))
     .filter((x): x is NonNullable<typeof x> => Boolean(x));
 
   return (

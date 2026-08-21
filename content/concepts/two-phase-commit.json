@@ -35,9 +35,9 @@
       "type": "mermaid",
       "id": "2pc-flow",
       "payload": {
-        "code": "flowchart TD\n    N0[\"Coordinator\"]\n    N1[\"Participant\"]\n    N2[\"PREPARE\"]\n    N3[\"write\"]\n    N4[\"WAL\"]\n    N5[\"lock\"]\n    N6[\"resources\"]\n    N7[\"VOTE\"]\n    N8[\"YES\"]\n    N9[\"decision: all YES -> COMMIT\"]\n    N10[\"[decision:\"]\n    N11[\"all\"]\n    N12[\"COMMIT]\"]\n    N13[\"COMMIT\"]\n    N14[\"apply\"]\n    N15[\"work\"]\n    N16[\"ACK\"]\n    N17[\"release\"]\n    N18[\"locks\"]\n    N19[\"Transaction\"]\n    N20[\"complete.\"]\n    N21[\"FAILURE\"]\n    N22[\"CASES:\"]\n    N23[\"crashes\"]\n    N24[\"after\"]\n    N25[\"PREPARE,\"]\n    N26[\"before\"]\n    N27[\"COMMIT:\"]\n    N28[\"and\"]\n    N29[\"have\"]\n    N30[\"voted\"]\n    N31[\"are\"]\n    N32[\"holding\"]\n    N33[\"locks.\"]\n    N34[\"maybe coordinator will COMMIT\"]\n    N35[\"They\"]\n    N36[\"cannot\"]\n    N37[\"abort\"]\n    N38[\"(maybe\"]\n    N39[\"coordinator\"]\n    N40[\"will\"]\n    N41[\"COMMIT).\"]\n    N42[\"maybe coordinator will ABORT\"]\n    N43[\"commit\"]\n    N44[\"ABORT).\"]\n    N45[\"BLOCK\"]\n    N46[\"until\"]\n    N47[\"recovers.\"]\n    N48[\"PREPARE:\"]\n    N49[\"or other participants\"]\n    N50[\"recovery,\"]\n    N51[\"asks\"]\n    N52[\"(or\"]\n    N53[\"other\"]\n    N54[\"participants)\"]\n    N55[\"for\"]\n    N56[\"the\"]\n    N57[\"decision.\"]\n    N58[\"decision\"]\n    N59[\"known,\"]\n    N60[\"apply.\"]\n    N61[\"not,\"]\n    N62[\"block\"]\n    N63[\"responds.\"]\n    N0 --> N1\n    N1 --> N2\n    N2 --> N3\n    N3 --> N4\n    N4 --> N5\n    N5 --> N6\n    N6 --> N7\n    N7 --> N8\n    N8 --> N9\n    N9 --> N10\n    N10 --> N11\n    N11 --> N12\n    N12 --> N13\n    N13 --> N14\n    N14 --> N15\n    N15 --> N16\n    N16 --> N17\n    N17 --> N18\n    N18 --> N19\n    N19 --> N20\n    N20 --> N21\n    N21 --> N22\n    N22 --> N23\n    N23 --> N24\n    N24 --> N25\n    N25 --> N26\n    N26 --> N27\n    N27 --> N28\n    N28 --> N29\n    N29 --> N30\n    N30 --> N31\n    N31 --> N32\n    N32 --> N33\n    N33 --> N34\n    N34 --> N35\n    N35 --> N36\n    N36 --> N37\n    N37 --> N38\n    N38 --> N39\n    N39 --> N40\n    N40 --> N41\n    N41 --> N42\n    N42 --> N43\n    N43 --> N44\n    N44 --> N45\n    N45 --> N46\n    N46 --> N47\n    N47 --> N48\n    N48 --> N49\n    N49 --> N50\n    N50 --> N51\n    N51 --> N52\n    N52 --> N53\n    N53 --> N54\n    N54 --> N55\n    N55 --> N56\n    N56 --> N57\n    N57 --> N58\n    N58 --> N59\n    N59 --> N60\n    N60 --> N61\n    N61 --> N62\n    N62 --> N63",
-        "caption": "2PC flow: prepare (vote YES/NO), then commit or abort. If the coordinator crashes after PREPARE, participants block holding locks.",
-        "alt_text": "A sequence diagram of Two-Phase Commit. A coordinator sends PREPARE to two participants A and B. Each participant writes to its write-ahead log and locks its resources, then votes YES. The coordinator, seeing all YES votes, sends COMMIT to both. Each participant applies the work, releases its locks, and acks. The transaction is complete. The diagram then shows failure cases. If the coordinator crashes after PREPARE but before COMMIT, participants A and B have voted YES and are holding locks. They cannot abort (the coordinator might commit) and cannot commit (the coordinator might abort). They block until the coordinator recovers. If a participant crashes after PREPARE, on recovery it asks the coordinator or other participants for the decision; if known, it applies; if not, it blocks."
+        "code": "sequenceDiagram\n  participant C as Coordinator\n  participant P1 as Participant 1\n  participant P2 as Participant 2\n  C->>P1: Prepare?\n  C->>P2: Prepare?\n  P1-->>C: Yes\n  P2-->>C: Yes\n  C->>P1: Commit\n  C->>P2: Commit\n  P1-->>C: Ack\n  P2-->>C: Ack",
+        "caption": "Two-phase commit separates prepare from commit so all participants agree on the outcome.",
+        "alt_text": "Concept diagram: Two-Phase Commit"
       }
     },
     {
@@ -160,9 +160,9 @@
       "type": "mermaid",
       "id": "upgrade-mermaid-two-phase-commit",
       "payload": {
-        "code": "flowchart LR\n  A[Client] --> B[Gateway] --> C[Service] --> D[State] --> E[Outcome]",
+        "code": "flowchart LR\n  Concept[\"Two-Phase Commit\"] --> Risk[\"Provides true atomicity across multiple resources…\"]\n  Risk --> Mitigate[Mitigation / design choice]\n  Mitigate --> Outcome[Better system behavior]",
         "caption": "Two-Phase Commit: a simplified system view showing the primary flow and the main state boundaries.",
-        "alt_text": "Two-Phase Commit: a simplified system view showing the primary flow and the main state boundaries."
+        "alt_text": "Concept diagram: Two-Phase Commit"
       }
     },
     {
