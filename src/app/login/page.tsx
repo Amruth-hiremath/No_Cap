@@ -1,5 +1,5 @@
-import { BrandLogo } from '@/components/ui/BrandLogo';
 'use client';
+import { BrandLogo } from '@/components/ui/BrandLogo';
 
 import { Github, Chrome, ArrowLeft, ShieldCheck } from 'lucide-react';
 import Link from 'next/link';

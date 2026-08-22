@@ -1,5 +1,5 @@
-import { BrandLogo } from '@/components/ui/BrandLogo';
 'use client';
+import { BrandLogo } from '@/components/ui/BrandLogo';
 
 import { useEffect, useMemo, useState } from 'react';
 import { ArrowRight, Check, Cloud, Target, Timer, Map, FlaskConical, RotateCcw, Library, Sparkles, type LucideIcon } from 'lucide-react';

@@ -1,5 +1,5 @@
-import { BrandLogo } from '@/components/ui/BrandLogo';
 'use client';
+import { BrandLogo } from '@/components/ui/BrandLogo';
 
 import { useEffect } from 'react';
 
