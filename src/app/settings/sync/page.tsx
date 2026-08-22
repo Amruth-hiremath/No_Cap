@@ -1,3 +1,4 @@
+import { BrandLogo } from '@/components/ui/BrandLogo';
 'use client';
 
 import { Check, Cloud, ExternalLink, Github, Globe2, KeyRound, Server, ShieldCheck } from 'lucide-react';
@@ -18,7 +19,7 @@ export default function SyncSetupPage() {
   const user = useStore((s) => s.user);
   return (
     <div className="setup-page">
-      <div className="setup-hero"><div className="setup-brand"><span className="setup-brand__mark"><img src="/brand/no-cap-mark-128.png" alt="" width={32} height={32} /></span><span>NO CAP</span></div><div className="account-eyebrow">Setup guide</div><h1>Connect your workspace.</h1><p>Your public workspace is live on Cloudflare. Connect OAuth and D1 to keep progress, notes and reviews synced across devices.</p></div>
+      <div className="setup-hero"><div className="setup-brand"><span className="setup-brand__mark"><BrandLogo size={128} alt="" className="h-8 w-8" /></span><span>NO CAP</span></div><div className="account-eyebrow">Setup guide</div><h1>Connect your workspace.</h1><p>Your public workspace is live on Cloudflare. Connect OAuth and D1 to keep progress, notes and reviews synced across devices.</p></div>
 
       <div className="setup-grid">
         <div className="space-y-3">

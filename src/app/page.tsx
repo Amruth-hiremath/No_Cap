@@ -12,6 +12,7 @@ import {
   CheckCircle2,
 } from 'lucide-react';
 import { Surface } from '@/components/ui/Surface';
+import { BrandLogo } from '@/components/ui/BrandLogo';
 import { AccentRule } from '@/components/ui/AccentRule';
 import { Badge, MasteryBadge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
@@ -85,7 +86,7 @@ export default function HomePage() {
     <div className="space-y-8">
       <header className="home-hero">
         <div className="home-hero__brand">
-          <div className="home-hero__mark"><img src="/brand/no-cap-mark-128.png" alt="" width={56} height={56} /></div>
+          <div className="home-hero__mark"><BrandLogo size={128} alt="" className="h-14 w-14" /></div>
           <div>
             <div className="home-hero__eyebrow">SYSTEM DESIGN WORKSPACE</div>
             <div className="home-hero__micro"><span>NO CAP</span><span className="home-hero__dot" /> <span>{conceptCount} concepts</span></div>

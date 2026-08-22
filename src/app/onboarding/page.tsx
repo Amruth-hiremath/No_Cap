@@ -1,3 +1,4 @@
+import { BrandLogo } from '@/components/ui/BrandLogo';
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
@@ -42,7 +43,7 @@ export default function OnboardingPage() {
       <div className="w-full max-w-2xl">
         <div className="mb-6 flex items-center justify-between text-[11px] font-semibold uppercase tracking-[0.16em] text-text-muted"><span>NO CAP setup</span><span>{step + 1}/{steps.length}</span></div>
         <div className="rounded-3xl border border-border bg-surface-elevated p-6 shadow-xl sm:p-9">
-          <div className="brand-mark brand-mark--lg"><img src="/brand/no-cap-mark-128.png" alt="" width={48} height={48} /></div>
+          <div className="brand-mark brand-mark--lg"><BrandLogo size={128} alt="" className="h-12 w-12" /></div>
           <div className="mt-8 flex h-10 w-10 items-center justify-center rounded-2xl bg-accent-soft text-accent"><Icon className="h-5 w-5"/></div>
           <div className="mt-6 text-[11px] font-semibold uppercase tracking-[0.16em] text-accent">{current.eyebrow}</div>
           <h1 className="mt-2 max-w-xl text-3xl font-semibold tracking-tight text-text-primary">{current.title}</h1>

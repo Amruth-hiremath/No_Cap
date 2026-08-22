@@ -28,14 +28,14 @@ export const metadata: Metadata = {
     siteName: 'NO CAP',
     url: siteUrl,
     images: [
-      { url: '/brand/no-cap-mark-256.png', width: 256, height: 256, alt: 'NO CAP' },
+      { url: '/brand/no-cap-light-256.png', width: 256, height: 256, alt: 'NO CAP' },
     ],
   },
   twitter: {
     card: 'summary',
     title: 'NO CAP — System Design Workspace',
     description: 'Learn system design by understanding, visualizing and designing it.',
-    images: ['/brand/no-cap-mark-256.png'],
+    images: ['/brand/no-cap-light-256.png'],
   },
   icons: {
     icon: [

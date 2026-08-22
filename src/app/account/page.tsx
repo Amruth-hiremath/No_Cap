@@ -1,3 +1,4 @@
+import { BrandLogo } from '@/components/ui/BrandLogo';
 'use client';
 
 import Link from 'next/link';
@@ -52,7 +53,7 @@ export default function AccountPage() {
     return (
       <div className="account-page">
         <div className="account-hero account-hero--guest">
-          <div className="account-brand-orb"><img src="/brand/no-cap-mark-128.png" alt="" width={64} height={64} /></div>
+          <div className="account-brand-orb"><BrandLogo size={128} alt="" className="h-16 w-16" /></div>
           <div className="min-w-0">
             <div className="account-eyebrow">Account</div>
             <h1>Keep your learning with you.</h1>

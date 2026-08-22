@@ -2,7 +2,7 @@
   "name": "nocap",
   "version": "0.1.0",
   "private": true,
-  "description": "NO CAP — a public system-design learning platform built for static-first, free-tier-efficient deployment",
+  "description": "NO CAP \u2014 a public system-design learning platform built for static-first, free-tier-efficient deployment",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
@@ -54,5 +54,8 @@
     "@mermaid-js/parser": "1.2.0",
     "nanoid": "5.1.16",
     "lodash-es": "4.18.0"
+  },
+  "engines": {
+    "node": ">=22.0.0"
   }
 }

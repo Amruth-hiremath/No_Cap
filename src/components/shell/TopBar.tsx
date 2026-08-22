@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { Search, Flame, Focus, UserRound, ChevronDown, Settings, Cloud, CloudOff, Loader2 } from 'lucide-react';
 import { useStore } from '@/lib/store';
 import { cn } from '@/lib/utils';
+import { BrandLogo } from '@/components/ui/BrandLogo';
 import { useSync } from '@/lib/useSync';
 import { useEffect, useRef, useState } from 'react';
 
@@ -81,7 +82,7 @@ export function TopBar() {
             {/* Mobile-only brand — sidebar is hidden below 768px so the topbar
                 must carry the NO CAP mark. Uses the optimized 32px variant. */}
             <Link href="/" className="topbar-mobile-brand" aria-label="NO CAP home">
-              <img src="/brand/no-cap-mark-32.png" alt="" width={24} height={24} />
+              <BrandLogo size={32} alt="" className="h-6 w-6" />
               <span className="topbar-mobile-brand__text">NO CAP</span>
             </Link>
 

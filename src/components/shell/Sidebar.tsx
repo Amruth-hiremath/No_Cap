@@ -8,6 +8,7 @@ import {
   Pin, PinOff,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { BrandLogo } from '@/components/ui/BrandLogo';
 import { useStore } from '@/lib/store';
 import { useEffect, useMemo, useState } from 'react';
 
@@ -49,7 +50,7 @@ function Brand({ expanded }: { expanded: boolean }) {
   return (
     <div className={cn('nocap-brand', !expanded && 'justify-center')}>
       <div className="nocap-brand__mark" aria-hidden>
-        <img src="/brand/no-cap-mark-64.png" alt="" width={28} height={28} />
+        <BrandLogo size={64} alt="" className="h-7 w-7" />
       </div>
       {expanded && <div className="min-w-0 animate-brand-reveal">
         <div className="truncate text-[14px] font-extrabold tracking-[-0.03em] text-text-primary">NO CAP</div>
