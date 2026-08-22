@@ -1,33 +1,60 @@
 'use client';
 
-import { Chrome, Cloud, CloudOff, Download, Focus, Github, Monitor, Moon, Palette, RotateCcw, ShieldCheck, Sun, WandSparkles } from 'lucide-react';
+import { Download, Focus, Palette, RotateCcw, ShieldCheck, WandSparkles, Sun, Moon } from 'lucide-react';
 import Link from 'next/link';
 import { Surface } from '@/components/ui/Surface';
-import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { useStore } from '@/lib/store';
 import { useEffect, useState } from 'react';
 import { cn } from '@/lib/utils';
-import { authUrl, logoutCurrentUser } from '@/lib/api';
+import { themeGroups, type ThemeId } from '@/lib/themes';
 
-const themeOptions = [
-  ['sage', 'Light Green', 'NO CAP default'],
-  ['dark', 'Dark', 'Low-light workspace'],
+const sections = [
+  { id: 'appearance', label: 'Appearance' },
+  { id: 'learning', label: 'Learning' },
+  { id: 'data', label: 'Data & backup' },
 ] as const;
-
-type Theme = typeof themeOptions[number][0];
 
 export default function SettingsPage() {
   const theme = useStore((s) => s.theme);
   const setTheme = useStore((s) => s.setTheme);
   const focusMode = useStore((s) => s.focus_mode);
   const setFocusMode = useStore((s) => s.setFocusMode);
-  const isAuthenticated = useStore((s) => s.isAuthenticated);
-  const currentUser = useStore((s) => s.user);
   const [sidebarAutoPeek, setSidebarAutoPeek] = useState(true);
+  const [activeSection, setActiveSection] = useState<string>('appearance');
 
   useEffect(() => {
     try { setSidebarAutoPeek(localStorage.getItem('nocap-sidebar-auto-peek') !== '0'); } catch {}
+  }, []);
+
+  // Scroll-spy: highlight the section currently in view. Route-aware (hash changes
+  // from clicking nav links also update active state) and works for future nested
+  // settings routes because each section is anchored by id.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (window.location.hash) {
+      setActiveSection(window.location.hash.slice(1));
+    }
+    const targets = sections
+      .map((s) => document.getElementById(s.id))
+      .filter((el): el is HTMLElement => Boolean(el));
+    if (!targets.length) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const visible = entries
+          .filter((e) => e.isIntersecting)
+          .sort((a, b) => b.intersectionRatio - a.intersectionRatio)[0];
+        if (visible) setActiveSection(visible.target.id);
+      },
+      { rootMargin: '-20% 0px -60% 0px', threshold: [0, 0.25, 0.5, 1] },
+    );
+    targets.forEach((t) => observer.observe(t));
+    const onHash = () => window.location.hash && setActiveSection(window.location.hash.slice(1));
+    window.addEventListener('hashchange', onHash);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('hashchange', onHash);
+    };
   }, []);
 
   const setSidebarMode = (value: boolean) => {
@@ -41,27 +68,74 @@ export default function SettingsPage() {
   return (
     <div className="settings-page">
       <div className="settings-hero">
-        <div><div className="account-eyebrow">Workspace controls</div><h1>Settings</h1><p>Shape how NO CAP looks, behaves and syncs.</p></div>
+        <div><div className="account-eyebrow">Workspace controls</div><h1>Settings</h1><p>Shape how NO CAP looks and behaves.</p></div>
         <Link href="/settings/sync" className="settings-guide-button"><ShieldCheck className="h-4 w-4" /> Setup & sync guide</Link>
       </div>
 
       <div className="settings-layout">
-        <aside className="settings-index">
-          <a href="#appearance" className="is-active">Appearance</a>
-          <a href="#learning">Learning</a>
-          <a href="#account">Account & sync</a>
-          <a href="#data">Data</a>
+        <aside className="settings-index" aria-label="Settings sections">
+          {sections.map((s) => (
+            <a
+              key={s.id}
+              href={`#${s.id}`}
+              className={cn(activeSection === s.id && 'is-active')}
+              aria-current={activeSection === s.id ? 'true' : undefined}
+            >
+              {s.label}
+            </a>
+          ))}
         </aside>
 
         <div className="settings-content">
           <section id="appearance" className="settings-section">
-            <div className="settings-section-head"><div className="settings-section-icon"><Palette className="h-4 w-4" /></div><div><h2>Appearance</h2><p>Keep the workspace calm, readable and easy on the eyes.</p></div></div>
+            <div className="settings-section-head"><div className="settings-section-icon"><Palette className="h-4 w-4" /></div><div><h2>Appearance</h2><p>Eight deliberate, premium palettes. Pick the workspace that fits your eyes and the time of day.</p></div></div>
             <Surface variant="solid" className="settings-card p-5">
-              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
-                {themeOptions.map(([value, label, hint]) => (
-                  <button key={value} onClick={() => setTheme(value as Theme)} className={cn('theme-choice', theme === value && 'theme-choice--active')} aria-pressed={theme === value}>
-                    <span className={cn('theme-swatch', `theme-swatch--${value}`)} />
-                    <span className="min-w-0 flex-1 text-left"><span className="block text-xs font-semibold text-text-primary">{label}</span><span className="mt-0.5 block text-[10px] text-text-muted">{hint}</span></span>
+              {/* LIGHT THEMES */}
+              <div className="mb-4 flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.18em] text-text-muted"><Sun className="h-3 w-3" /> Light</div>
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                {themeGroups.light.map((t) => (
+                  <button
+                    key={t.id}
+                    onClick={() => setTheme(t.id as ThemeId)}
+                    className={cn('theme-choice', theme === t.id && 'theme-choice--active')}
+                    aria-pressed={theme === t.id}
+                    aria-label={`Use ${t.label} theme — ${t.hint}`}
+                  >
+                    <span className="theme-swatch-stack" aria-hidden>
+                      <span className="theme-swatch-bar" style={{ background: t.swatches.bg }} />
+                      <span className="theme-swatch-bar" style={{ background: t.swatches.surface }} />
+                      <span className="theme-swatch-bar" style={{ background: t.swatches.accent }} />
+                      <span className="theme-swatch-bar" style={{ background: t.swatches.text }} />
+                    </span>
+                    <span className="min-w-0 flex-1 text-left">
+                      <span className="block text-xs font-semibold text-text-primary">{t.label}</span>
+                      <span className="mt-0.5 block text-[10px] text-text-muted">{t.hint}</span>
+                    </span>
+                  </button>
+                ))}
+              </div>
+
+              {/* DARK THEMES */}
+              <div className="mb-2 mt-5 flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.18em] text-text-muted"><Moon className="h-3 w-3" /> Dark</div>
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                {themeGroups.dark.map((t) => (
+                  <button
+                    key={t.id}
+                    onClick={() => setTheme(t.id as ThemeId)}
+                    className={cn('theme-choice', theme === t.id && 'theme-choice--active')}
+                    aria-pressed={theme === t.id}
+                    aria-label={`Use ${t.label} theme — ${t.hint}`}
+                  >
+                    <span className="theme-swatch-stack" aria-hidden>
+                      <span className="theme-swatch-bar" style={{ background: t.swatches.bg }} />
+                      <span className="theme-swatch-bar" style={{ background: t.swatches.surface }} />
+                      <span className="theme-swatch-bar" style={{ background: t.swatches.accent }} />
+                      <span className="theme-swatch-bar" style={{ background: t.swatches.text }} />
+                    </span>
+                    <span className="min-w-0 flex-1 text-left">
+                      <span className="block text-xs font-semibold text-text-primary">{t.label}</span>
+                      <span className="mt-0.5 block text-[10px] text-text-muted">{t.hint}</span>
+                    </span>
                   </button>
                 ))}
               </div>
@@ -77,24 +151,12 @@ export default function SettingsPage() {
             </Surface>
           </section>
 
-          <section id="account" className="settings-section">
-            <div className="settings-section-head"><div className="settings-section-icon"><Cloud className="h-4 w-4" /></div><div><h2>Account & sync</h2><p>Connect once and carry your learning to another device.</p></div></div>
-            <Surface variant="solid" className="settings-card p-5">
-              {isAuthenticated ? (
-                <div className="flex flex-wrap items-center justify-between gap-4"><div className="flex min-w-0 items-center gap-3"><div className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-xl bg-accent-soft text-accent">{currentUser?.avatar_url ? <img src={currentUser.avatar_url} alt="" className="h-full w-full object-cover" /> : <span className="font-semibold">{currentUser?.name?.slice(0, 1) || 'N'}</span>}</div><div className="min-w-0"><div className="truncate text-sm font-semibold text-text-primary">{currentUser?.name || currentUser?.email}</div><div className="truncate text-xs text-text-muted">{currentUser?.email}</div></div></div><div className="flex items-center gap-2"><Badge variant="success"><span className="h-1.5 w-1.5 rounded-full bg-success" /> Cloud sync active</Badge><Link href="/account" className="settings-secondary-button">Account</Link></div></div>
-              ) : (
-                <div><div className="flex items-start gap-3"><div className="settings-cloud-icon"><CloudOff className="h-4 w-4" /></div><div><div className="text-sm font-semibold text-text-primary">Sync your workspace</div><p className="mt-1 text-xs leading-relaxed text-text-muted">Sign in to sync progress, reviews, notes, highlights and bookmarks across devices.</p></div></div><div className="mt-4 grid gap-2 sm:grid-cols-2"><a href={authUrl('github')} className="provider-button provider-button--github"><Github className="h-4 w-4" /> Continue with GitHub</a><a href={authUrl('google')} className="provider-button"><Chrome className="h-4 w-4" /> Continue with Google</a></div><Link href="/settings/sync" className="mt-4 inline-flex items-center text-xs font-semibold text-accent hover:underline">See the no-domain setup steps →</Link></div>
-              )}
-            </Surface>
-          </section>
-
           <section id="data" className="settings-section">
-            <div className="settings-section-head"><div className="settings-section-icon"><RotateCcw className="h-4 w-4" /></div><div><h2>Data</h2><p>Reset learning signals without destroying your study library.</p></div></div>
+            <div className="settings-section-head"><div className="settings-section-icon"><RotateCcw className="h-4 w-4" /></div><div><h2>Data & backup</h2><p>Reset learning signals or export a portable backup.</p></div></div>
             <Surface variant="solid" className="settings-card p-5">
               <div className="settings-row"><div><div className="text-sm font-semibold text-text-primary">Reset learning progress</div><div className="mt-1 text-xs leading-relaxed text-text-muted">Clears mastery, review queue, attempts, streak and learning history. Notes, highlights, bookmarks and confusing items remain.</div></div><Button variant="danger" size="sm" onClick={() => { if (window.confirm('Reset all learning progress? This cannot be undone.')) useStore.getState().resetLearningProgress(); }}>Reset</Button></div>
               <div className="mt-4 border-t border-border pt-4">
                 <div className="flex flex-wrap items-center justify-between gap-3"><div><div className="text-sm font-semibold text-text-primary">Backup your workspace</div><div className="mt-1 text-xs text-text-muted">Download a portable JSON backup of progress, notes, highlights, bookmarks and settings.</div></div><Button variant="ghost" size="sm" onClick={() => { const s = useStore.getState(); const payload = { exported_at: new Date().toISOString(), version: 2, state: { mastery: s.mastery, review_items: s.review_items, attempts: s.attempts, streak: s.streak, notes: s.notes, highlights: s.highlights, bookmarks: s.bookmarks, workspace_notes: s.workspace_notes, confusing_concepts: s.confusing_concepts, theme: s.theme } }; const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' }); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `nocap-backup-${new Date().toISOString().slice(0,10)}.json`; a.click(); URL.revokeObjectURL(url); }}><Download className="h-3.5 w-3.5"/> Export backup</Button></div>
-                {isAuthenticated && <div className="mt-4"><Button variant="ghost" size="sm" onClick={async () => { await logoutCurrentUser().catch(() => undefined); useStore.getState().signOut(); }}>Sign out</Button></div>}
               </div>
             </Surface>
           </section>

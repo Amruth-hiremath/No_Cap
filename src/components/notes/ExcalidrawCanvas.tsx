@@ -2,6 +2,7 @@
 
 import dynamic from 'next/dynamic';
 import { useRef } from 'react';
+import '@excalidraw/excalidraw/index.css';
 
 type Props = {
   elements: readonly any[];

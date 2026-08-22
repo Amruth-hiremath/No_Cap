@@ -11,7 +11,7 @@ export default function LoginPage() {
         <Link href="/" className="inline-flex items-center gap-2 text-xs text-text-muted hover:text-text-primary"><ArrowLeft className="h-3.5 w-3.5"/> Back to NO CAP</Link>
         <div className="mt-6 rounded-3xl border border-border bg-surface-elevated p-6 shadow-xl sm:p-8">
           <div className="flex items-center gap-3">
-            <div className="brand-mark brand-mark--lg" aria-hidden><img src="/brand/no-cap-logo.png" alt="" /></div>
+            <div className="brand-mark brand-mark--lg" aria-hidden><img src="/brand/no-cap-mark-128.png" alt="" width={48} height={48} /></div>
             <div><div className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">NO CAP</div><div className="mt-0.5 text-sm text-text-muted">System design, without the fluff.</div></div>
           </div>
           <h1 className="mt-8 text-2xl font-semibold tracking-tight text-text-primary">Save your learning across devices.</h1>

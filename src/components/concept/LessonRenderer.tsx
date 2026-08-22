@@ -188,7 +188,7 @@ function CodeBlockView({ language, code }: { language: string; code: string }) {
           )}
         </button>
       </div>
-      <div className="glass-dark">
+      <div className="glass-dark min-w-0">
         <pre className="overflow-x-auto px-4 py-3 font-mono text-xs leading-relaxed text-text-inverse">
           <code>{code}</code>
         </pre>
@@ -239,7 +239,7 @@ function TableView({ block }: { block: TableBlock }) {
   const { headers, rows, caption } = block.payload;
   return (
     <figure className="nocap-breakout my-5 overflow-hidden rounded-lg border border-border lg:-mx-24 lg:w-[calc(100%+12rem)]">
-      <div className="overflow-x-auto">
+      <div className="overflow-x-auto min-w-0">
         <table className="w-full border-collapse text-sm">
           <thead className="bg-surface-subtle">
             <tr>
@@ -282,7 +282,7 @@ function TableView({ block }: { block: TableBlock }) {
 function CodeView({ block }: { block: CodeBlock }) {
   return (
     <figure className="nocap-breakout my-5 overflow-hidden rounded-lg border border-border lg:-mx-24 lg:w-[calc(100%+12rem)]">
-      <div className="glass-dark px-4 py-3">
+      <div className="glass-dark min-w-0 px-4 py-3">
         <pre className="overflow-x-auto font-mono text-xs leading-relaxed text-text-inverse">
           <code>{block.payload.code}</code>
         </pre>

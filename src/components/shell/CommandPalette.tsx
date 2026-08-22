@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { allThemes } from '@/lib/themes';
 import {
   Search,
   X,
@@ -75,8 +76,8 @@ const ACTIONS: ResultRow[] = [
   },
   {
     type: 'action',
-    title: 'Toggle theme',
-    subtitle: 'Light Green / Dark',
+    title: 'Cycle theme',
+    subtitle: 'Sage · Cyan · Coffee · Sand · Forest · Cyan Night · Coffee Dark · Slate',
     href: '__theme__',
     group: 'Actions',
     meta: 'T',
@@ -131,7 +132,9 @@ export function CommandPalette() {
       return;
     }
     if (row.href === '__theme__') {
-      const next = theme === 'sage' ? 'dark' : 'sage';
+      // Cycle through all 8 themes (light first, dark second).
+      const idx = allThemes.findIndex((t) => t.id === theme);
+      const next = allThemes[(idx + 1) % allThemes.length].id;
       setTheme(next);
       setOpen(false);
       return;

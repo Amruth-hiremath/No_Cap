@@ -24,6 +24,7 @@ import type {
 } from './types';
 import { computeMasteryState } from './mastery';
 import { scheduleNextReview, qualityFromScore } from './review-scheduler';
+import { DEFAULT_THEME, isDarkTheme, resolveColorScheme, type ThemeId } from './themes';
 
 interface StoreState {
   /* Identity */
@@ -52,7 +53,7 @@ interface StoreState {
   last_visited_concept: string | null;
   last_visited_positions: Record<string, number>;
   command_palette_open: boolean;
-  theme: 'sage' | 'dark';
+  theme: ThemeId;
   /** Tracks concepts exposed this browser session to avoid duplicate writes. */
   exposed_session: string[];
 
@@ -111,7 +112,7 @@ interface StoreState {
   setCommandPaletteOpen: (open: boolean) => void;
 
   /* Theme */
-  setTheme: (theme: 'sage' | 'dark') => void;
+  setTheme: (theme: ThemeId) => void;
   resetLearningProgress: () => void;
 
   /* Account */
@@ -237,7 +238,7 @@ export const useStore = create<StoreState>()(
       last_visited_concept: null,
       last_visited_positions: {},
       command_palette_open: false,
-      theme: 'sage',
+      theme: DEFAULT_THEME,
       exposed_session: [],
       notes: [],
       highlights: [],
@@ -705,11 +706,23 @@ export const useStore = create<StoreState>()(
     }),
     {
       name: 'nocap-state-v0.2',
-      version: 3,
+      // Bumped to v4: theme field expanded from {'sage'|'dark'} to 8 themes.
+      // Old 'dark' value maps to 'forest' (closest visual match). Old 'sage'
+      // and any unrecognized value fall back to default 'sage'.
+      version: 4,
       migrate: (persistedState) => {
         const state = (persistedState ?? {}) as Partial<StoreState>;
-        const oldTheme = state.theme;
-        const theme = oldTheme === 'dark' ? 'dark' : 'sage';
+        const old = state.theme as string | undefined;
+        let theme: ThemeId;
+        if (old === 'sage' || old === 'cyan' || old === 'coffee' || old === 'sand'
+          || old === 'forest' || old === 'cyan-night' || old === 'coffee-dark' || old === 'slate') {
+          theme = old;
+        } else if (old === 'dark') {
+          // Legacy v3 dark theme → forest (dark green graphite).
+          theme = 'forest';
+        } else {
+          theme = DEFAULT_THEME;
+        }
         return { ...state, theme } as StoreState;
       },
       partialize: (s) => ({
@@ -742,9 +755,11 @@ export const useStore = create<StoreState>()(
 export function applyTheme(theme: StoreState['theme']) {
   if (typeof document === 'undefined') return;
   const root = document.documentElement;
-  const resolved = theme === 'dark' ? 'dark' : 'sage';
-  root.setAttribute('data-theme', resolved);
-  root.style.colorScheme = resolved === 'dark' ? 'dark' : 'light';
+  root.setAttribute('data-theme', theme);
+  root.style.colorScheme = resolveColorScheme(theme);
+  // Expose whether the active theme is dark — Mermaid + code highlight
+  // adapters read this to pick the right token set without re-parsing CSS.
+  root.dataset.themeDark = isDarkTheme(theme) ? '1' : '0';
 }
 
 export function userTimezoneLabel(): string {

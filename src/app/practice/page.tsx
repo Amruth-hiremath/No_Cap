@@ -13,7 +13,7 @@ import { useStore } from '@/lib/store';
 import { cn } from '@/lib/utils';
 import type { Concept, QuizBlock } from '@/lib/types';
 
-type FilterMode = 'all' | 'weak' | 'not_started' | 'in_progress';
+type FilterMode = 'all' | 'weak' | 'not_started' | 'in_progress' | 'mastered' | 'review_due';
 type PracticeEntry = { slug: string; title: string; area: string; difficulty: string; quizCount: number; };
 
 export default function PracticePage() {
@@ -30,11 +30,18 @@ export default function PracticePage() {
   const [revealed, setRevealed] = useState(false);
   const [loadingQuizId, setLoadingQuizId] = useState<string | null>(null);
 
+  // Mastery state semantics:
+  //   not_started — never seen
+  //   exposed / understood / practiced / applied — in-progress (still learning)
+  //   review_due — in-progress but needs a refresher (SM-2 scheduled)
+  //   mastered — completed
   const filtered = useMemo(() => practiceEntries.filter(({ slug }) => {
     const state = getMasteryState(slug);
     if (filter === 'weak') return state === 'review_due' || (state !== 'not_started' && state !== 'mastered');
     if (filter === 'not_started') return state === 'not_started';
-    if (filter === 'in_progress') return ['exposed','understood','practiced','applied'].includes(state);
+    if (filter === 'in_progress') return ['exposed','understood','practiced','applied','review_due'].includes(state);
+    if (filter === 'mastered') return state === 'mastered';
+    if (filter === 'review_due') return state === 'review_due';
     return true;
   }), [practiceEntries, filter, mastery, getMasteryState]);
 
@@ -97,7 +104,7 @@ export default function PracticePage() {
   return (
     <div className="space-y-6">
       <div><h1 className="text-3xl font-bold tracking-tight text-text-primary">Practice</h1><AccentRule className="mt-3" /><p className="mt-3 text-sm text-text-secondary">Quiz yourself without loading the entire curriculum into the browser. Only compact concept metadata is loaded here; the full lesson bundle is fetched only for the concept you open.</p></div>
-      <div className="flex items-center gap-2 overflow-x-auto pb-1"><Filter className="h-3.5 w-3.5 shrink-0 text-text-muted" />{([{key:'all',label:'All'},{key:'weak',label:'Weak / due'},{key:'in_progress',label:'In progress'},{key:'not_started',label:'Not started'}] as {key:FilterMode;label:string}[]).map((f)=><button key={f.key} onClick={()=>setFilter(f.key)} className={cn('shrink-0 rounded-lg border px-3 py-1.5 text-xs transition-colors',filter===f.key?'border-accent bg-accent-soft text-accent':'border-border text-text-secondary hover:border-border-strong')}>{f.label}</button>)}</div>
+      <div className="flex items-center gap-2 overflow-x-auto pb-1"><Filter className="h-3.5 w-3.5 shrink-0 text-text-muted" />{([{key:'all',label:'All'},{key:'not_started',label:'Not started'},{key:'in_progress',label:'In progress'},{key:'review_due',label:'Review due'},{key:'mastered',label:'Mastered'},{key:'weak',label:'Weak / due'}] as {key:FilterMode;label:string}[]).map((f)=><button key={f.key} onClick={()=>setFilter(f.key)} className={cn('shrink-0 rounded-lg border px-3 py-1.5 text-xs transition-colors',filter===f.key?'border-accent bg-accent-soft text-accent':'border-border text-text-secondary hover:border-border-strong')}>{f.label}</button>)}</div>
       {filtered.length===0 ? <EmptyState title="No quizzes match this filter." description="Try a different filter or browse the concept library." icon={<Dumbbell className="h-5 w-5" />} action={<Link href="/concepts" className="inline-flex items-center gap-1 text-sm font-medium text-accent hover:underline">Browse concepts <ArrowRight className="h-3.5 w-3.5" /></Link>} /> : <div className="grid gap-2 md:grid-cols-2">
         {filtered.map((entry)=>{ const state=getMasteryState(entry.slug); const busy=loadingQuizId===`${entry.slug}:random`; return <button key={entry.slug} onClick={()=>void handleOpenQuiz(entry)} disabled={busy} className="w-full rounded-lg border border-border bg-surface p-4 text-left transition-all hover:border-border-strong hover:-translate-y-px disabled:opacity-60"><div className="flex items-start justify-between gap-3"><div className="min-w-0 flex-1"><div className="flex items-center gap-2 text-[11px] text-text-muted"><span className="font-medium uppercase tracking-wider">{entry.area}</span><span>·</span><span className="truncate">{entry.title}</span></div><p className="mt-1 line-clamp-2 text-sm text-text-secondary">{entry.quizCount} question{entry.quizCount === 1 ? '' : 's'} available. Open a question and full lesson data will be loaded only for that concept.</p><div className="mt-2 flex items-center gap-2"><Badge variant="default">{entry.difficulty}</Badge><MasteryBadge state={state} /></div></div><ArrowRight className={cn('h-4 w-4 shrink-0 text-text-muted',busy&&'animate-pulse')} /></div></button>; })}
       </div>}

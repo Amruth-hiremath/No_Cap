@@ -1,0 +1,77 @@
+# NO CAP — Continuous Integration
+#
+# Runs on every push to main and on every PR. Performs the same checks
+# the maintainer runs locally:
+#   1. install dependencies
+#   2. type-check (tsc --noEmit)
+#   3. content:validate (144 concepts, schema + quality gates)
+#   4. build (Next.js static export — generates out/ with 180 pages)
+#   5. worker:check (Wrangler dry-run — verifies Worker bundles OK)
+#
+# This workflow does NOT deploy. Deployment is handled separately via
+# `npx wrangler pages deploy out` (Pages) and `npx wrangler deploy`
+# (Worker) — typically triggered by a maintainer or by a release tag.
+#
+# Critical: do NOT introduce OpenNext / @opennextjs/cloudflare here.
+# The frontend is a Next.js static export; the Worker is plain JavaScript
+# at worker/src/index.js. Mixing in OpenNext would convert the project
+# into a Workers Build project and break the static-first architecture.
+#
+# Auth/D1 secrets are NOT used by this workflow — type-check, build,
+# and worker:check all run without env bindings.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Cancel any superseded run on the same ref.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Type-check + content + build + worker
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Type-check
+        run: npm run type-check
+
+      - name: Content validate
+        run: npm run content:validate
+
+      - name: Content report
+        run: npm run content:report
+
+      - name: Build (Next.js static export)
+        run: npm run build
+        env:
+          # Static export must not depend on production secrets.
+          NEXT_PUBLIC_SITE_URL: https://no-cap.pages.dev
+
+      - name: Worker dry-run check
+        run: npm run worker:check
+
+      - name: Audit dependencies
+        run: npm audit
+        continue-on-error: true

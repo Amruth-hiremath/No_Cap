@@ -17,17 +17,47 @@ export function TopBar() {
   const [open, setOpen] = useState(false);
   const [hidden, setHidden] = useState(false);
   const lastY = useRef(0);
+  const rafId = useRef<number | null>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
 
+  // Scroll-reveal/hide with rAF coalescing — avoids per-pixel state churn.
   useEffect(() => {
     const onScroll = () => {
-      const y = window.scrollY;
-      if (y > lastY.current + 8 && y > 100) setHidden(true);
-      if (y < lastY.current - 8 || y < 42) setHidden(false);
-      lastY.current = y;
+      if (rafId.current != null) return;
+      rafId.current = window.requestAnimationFrame(() => {
+        rafId.current = null;
+        const y = window.scrollY;
+        if (y > lastY.current + 8 && y > 100) setHidden(true);
+        if (y < lastY.current - 8 || y < 42) setHidden(false);
+        lastY.current = y;
+      });
     };
     window.addEventListener('scroll', onScroll, { passive: true });
-    return () => window.removeEventListener('scroll', onScroll);
+    return () => {
+      window.removeEventListener('scroll', onScroll);
+      if (rafId.current != null) window.cancelAnimationFrame(rafId.current);
+    };
   }, []);
+
+  // Close the profile dropdown when the user clicks anywhere outside of it.
+  useEffect(() => {
+    if (!open) return;
+    const onMouseDown = (event: MouseEvent) => {
+      const node = menuRef.current;
+      if (node && !node.contains(event.target as Node)) {
+        setOpen(false);
+      }
+    };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setOpen(false);
+    };
+    document.addEventListener('mousedown', onMouseDown);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onMouseDown);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [open]);
 
   const syncIcon = status === 'syncing'
     ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -48,6 +78,13 @@ export function TopBar() {
       <header className={cn('topbar-shell', hidden && 'topbar-shell--hidden')}>
         <div className="topbar-inner">
           <div className="topbar-core">
+            {/* Mobile-only brand — sidebar is hidden below 768px so the topbar
+                must carry the NO CAP mark. Uses the optimized 32px variant. */}
+            <Link href="/" className="topbar-mobile-brand" aria-label="NO CAP home">
+              <img src="/brand/no-cap-mark-32.png" alt="" width={24} height={24} />
+              <span className="topbar-mobile-brand__text">NO CAP</span>
+            </Link>
+
             <button
               onClick={() => setCommandPaletteOpen(true)}
               className="topbar-search"
@@ -92,7 +129,7 @@ export function TopBar() {
               )}
 
               {user ? (
-                <div className="relative">
+                <div className="relative" ref={menuRef}>
                   <button
                     onClick={() => setOpen((value) => !value)}
                     className="profile-pill"

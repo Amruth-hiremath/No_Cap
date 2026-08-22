@@ -1,6 +1,5 @@
 import Link from 'next/link';
 import { Home } from 'lucide-react';
-import { Button } from '@/components/ui/Button';
 
 export default function NotFound() {
   return (
@@ -12,10 +11,11 @@ export default function NotFound() {
       <p className="mt-2 text-sm text-text-secondary">
         Maybe it hasn&apos;t been authored yet. Check the library.
       </p>
-      <Link href="/concepts" className="mt-6">
-        <Button>
-          <Home className="h-4 w-4" /> Back to library
-        </Button>
+      <Link
+        href="/concepts"
+        className="mt-6 inline-flex items-center justify-center gap-2 rounded-lg bg-accent px-3.5 py-2 text-sm font-medium text-text-inverse transition-all hover:bg-accent-hover border border-accent shadow-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+      >
+        <Home className="h-4 w-4" /> Back to library
       </Link>
     </div>
   );

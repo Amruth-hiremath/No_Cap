@@ -53,8 +53,8 @@ export function AppShell({ children }: AppShellProps) {
         <div className="min-h-screen">
           <Sidebar />
           <TopBar />
-          <main className="min-h-screen pl-0 md:pl-[86px] pt-24">
-            <div key={pathname} className="route-enter mx-auto w-full max-w-7xl px-4 py-7 md:px-8 md:py-10">{children}</div>
+          <main id="main-content" className="app-main">
+            <div className="route-enter mx-auto w-full max-w-7xl px-4 py-7 md:px-8 md:py-10">{children}</div>
           </main>
         </div>
       )}

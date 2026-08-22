@@ -12,7 +12,6 @@ import { getTracks } from '@/lib/curriculum';
 import { getAllConceptSummaries, getConceptSummary, getLiteRecommendations } from '@/lib/content-lite';
 import { useStore } from '@/lib/store';
 import { MASTERY_STATE_META } from '@/lib/mastery';
-import { getRecommendations } from '@/lib/recommendations';
 import { cn } from '@/lib/utils';
 import type { MasteryState } from '@/lib/types';
 
@@ -36,6 +35,28 @@ export default function RoadmapPage() {
 
   const states: Record<string, MasteryState> = {};
   for (const c of allConcepts) states[c.slug] = getMasteryState(c.slug);
+
+  // Guard: if the curriculum returned no tracks, bail out with a friendly
+  // empty state instead of crashing on `tracks[0].phases` below.
+  if (tracks.length === 0) {
+    return (
+      <div className="space-y-6">
+        <header>
+          <h1 className="text-3xl font-bold tracking-tight text-text-primary">Roadmap</h1>
+          <AccentRule className="mt-3" />
+          <p className="mt-3 max-w-2xl text-sm text-text-secondary">
+            The roadmap is a map, not a checklist. Switch modes to find what to learn next,
+            explore the dependency graph, see mastery, or focus on interview-relevant concepts.
+          </p>
+        </header>
+        <EmptyState
+          title="No curriculum loaded"
+          description="The roadmap will appear here once concept tracks are available. Try reloading the page, or check back later."
+          icon={<Map className="h-5 w-5" />}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">

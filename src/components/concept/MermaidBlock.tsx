@@ -23,6 +23,36 @@ function MermaidBlockInner({ code, caption, alt_text }: MermaidBlockProps) {
 
   useEffect(() => setMounted(true), []);
 
+  // Read theme tokens from the CSS custom properties exposed on <html>.
+  // This way Mermaid adapts to whichever of the 8 themes is active —
+  // no hard-coded hex values, no re-render needed when CSS variables
+  // change (the parent re-mounts the component on theme switch because
+  // the boot script mutates <html data-theme>).
+  const readThemeVars = (): Record<string, string> => {
+    if (typeof window === 'undefined') return {};
+    const root = getComputedStyle(document.documentElement);
+    const get = (name: string, fallback: string) => root.getPropertyValue(name).trim() || fallback;
+    return {
+      primaryColor:    get('--color-surface-subtle', '#f0ece4'),
+      primaryTextColor:get('--color-text-primary',  '#1a1714'),
+      primaryBorderColor:get('--color-border-strong', '#b98a49'),
+      lineColor:       get('--color-text-muted',    '#8f8068'),
+      secondaryColor:  get('--color-surface-inset', '#e8f0e8'),
+      tertiaryColor:   get('--color-surface',       '#f0ece4'),
+      textColor:       get('--color-text-secondary','#4a4138'),
+      fontSize:        '14px',
+      // Mermaid also uses these for sub-graph fills and edge labels
+      noteBkgColor:    get('--color-accent-soft',   '#fbe9cf'),
+      noteTextColor:   get('--color-text-primary',  '#1a1714'),
+      noteBorderColor: get('--color-border-strong', '#b98a49'),
+      clusterBkg:      get('--color-surface-subtle', '#f0ece4'),
+      clusterBorder:  get('--color-border-strong',  '#b98a49'),
+      // Edge label background — usually the page bg so labels read cleanly
+      // against the diagram container.
+      edgeLabelBackground: get('--color-surface-elevated', '#ffffff'),
+    };
+  };
+
   useEffect(() => {
     if (!mounted) return;
     let cancelled = false;
@@ -34,11 +64,7 @@ function MermaidBlockInner({ code, caption, alt_text }: MermaidBlockProps) {
           theme: 'base',
           securityLevel: 'strict',
           fontFamily: 'ui-sans-serif, system-ui, sans-serif',
-          themeVariables: {
-            primaryColor: '#f5ead7', primaryTextColor: '#251f18', primaryBorderColor: '#b98a49',
-            lineColor: '#8f8068', secondaryColor: '#e8f0e8', tertiaryColor: '#f0ece4',
-            fontSize: '14px',
-          },
+          themeVariables: readThemeVars(),
           flowchart: { useMaxWidth: false, htmlLabels: false, curve: 'linear', nodeSpacing: 46, rankSpacing: 54, padding: 12 },
           sequence: { useMaxWidth: false, diagramMarginX: 16, diagramMarginY: 12, actorMargin: 30, messageMargin: 24 },
         });

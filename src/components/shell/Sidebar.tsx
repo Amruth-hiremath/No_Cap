@@ -49,7 +49,7 @@ function Brand({ expanded }: { expanded: boolean }) {
   return (
     <div className={cn('nocap-brand', !expanded && 'justify-center')}>
       <div className="nocap-brand__mark" aria-hidden>
-        <img src="/brand/no-cap-mark.png" alt="" />
+        <img src="/brand/no-cap-mark-64.png" alt="" width={28} height={28} />
       </div>
       {expanded && <div className="min-w-0 animate-brand-reveal">
         <div className="truncate text-[14px] font-extrabold tracking-[-0.03em] text-text-primary">NO CAP</div>
@@ -84,10 +84,15 @@ export function Sidebar() {
 
   const expanded = !autoPeek || hovered || pinned;
 
+  // Single source of truth for sidebar geometry.
+  // These CSS custom properties are consumed by globals.css (.app-main, .topbar-shell).
+  // Values MUST match the `:root` defaults declared in globals.css.
   useEffect(() => {
-    document.documentElement.style.setProperty('--sidebar-current', expanded ? '250px' : '64px');
+    const root = document.documentElement;
+    root.style.setProperty('--sidebar-current', expanded ? 'var(--sidebar-expanded)' : 'var(--sidebar-rail)');
     return () => {
-      document.documentElement.style.removeProperty('--sidebar-current');
+      // Restore CSS-default value so other pages aren't left with a stale override.
+      root.style.removeProperty('--sidebar-current');
     };
   }, [expanded]);
 

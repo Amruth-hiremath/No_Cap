@@ -1,0 +1,14 @@
+[project]
+name = "nocap-worker"
+version = "0.1.0"
+description = "NO CAP Cloudflare Python Worker — auth, D1 persistence, sync API"
+requires-python = ">=3.13"
+# The Worker itself has NO third-party dependencies.
+# It only uses: js (Pyodide built-in), json, os, secrets (stdlib).
+# workers-py is installed as a development tool, not as a runtime dependency.
+dependencies = []
+
+[tool.uv]
+# workers-py is installed in the local venv for pywrangler CLI access.
+# It is NOT a Worker runtime dependency.
+# To install the dev tool: uv pip install workers-py==1.16.5

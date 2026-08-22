@@ -30,6 +30,7 @@ export default function HomePage() {
   const lastVisited = useStore((s) => s.last_visited_concept);
   const mastery = useStore((s) => s.mastery);
   const review_items = useStore((s) => s.review_items);
+  const getMasteryState = useStore((s) => s.getMasteryState);
   const dueReviews = useMemo(() => {
     const now = Date.now();
     return Object.values(review_items).filter((r) => Date.parse(r.due_at) <= now);
@@ -84,7 +85,7 @@ export default function HomePage() {
     <div className="space-y-8">
       <header className="home-hero">
         <div className="home-hero__brand">
-          <div className="home-hero__mark"><img src="/brand/no-cap-mark.png" alt="" /></div>
+          <div className="home-hero__mark"><img src="/brand/no-cap-mark-128.png" alt="" width={56} height={56} /></div>
           <div>
             <div className="home-hero__eyebrow">SYSTEM DESIGN WORKSPACE</div>
             <div className="home-hero__micro"><span>NO CAP</span><span className="home-hero__dot" /> <span>{conceptCount} concepts</span></div>
@@ -118,7 +119,7 @@ export default function HomePage() {
                 <Badge variant="info">{todaysConcept.area}</Badge>
                 {mounted && (
                   <MasteryBadge
-                    state={useStore.getState().getMasteryState(todaysConcept.slug)}
+                    state={getMasteryState(todaysConcept.slug)}
                   />
                 )}
               </div>

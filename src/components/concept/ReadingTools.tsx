@@ -162,22 +162,28 @@ export function ReadingTools({ conceptSlug }: ReadingToolsProps) {
           <button onClick={handleHighlight} className="reading-action-btn reading-action-btn--primary"><Highlighter className="mr-1 inline h-3.5 w-3.5"/>Highlight</button>
           <div className="flex items-center gap-1 rounded-xl border border-border bg-surface-subtle px-1.5 py-1">
             {(['amber','green','rust','info'] as HighlightColor[]).map((c) => (
-              <button key={c} onClick={() => setHighlightColor(c)} className={cn('h-4 w-4 shrink-0 rounded-full border-2 transition-transform', c==='amber'?'bg-[#f7d77a]':c==='green'?'bg-[#9cc8a7]':c==='rust'?'bg-[#e6a48e]':'bg-[#8fc8c4]', highlightColor===c?'scale-110 border-text-primary ring-2 ring-border-strong ring-offset-1':'border-white/70')} title={`Highlight ${c}`}/>
+              <button key={c} onClick={() => setHighlightColor(c)} aria-label={`Highlight ${c}`} aria-pressed={highlightColor === c} className={cn('h-4 w-4 shrink-0 rounded-full border-2 transition-transform', c==='amber'?'bg-[#f7d77a]':c==='green'?'bg-[#9cc8a7]':c==='rust'?'bg-[#e6a48e]':'bg-[#8fc8c4]', highlightColor===c?'scale-110 border-text-primary ring-2 ring-border-strong ring-offset-1':'border-white/70')} title={`Highlight ${c}`}/>
             ))}
           </div>
-          <button onClick={handleAddNote} className="reading-action-btn"><StickyNote className="mr-1 inline h-3.5 w-3.5"/>Note</button>
-          <button onClick={handleCopy} className="reading-action-btn" title="Copy"><Copy className="h-3.5 w-3.5"/></button>
-          <button onClick={handleBookmark} className="reading-action-btn" title="Bookmark"><BookmarkIcon className="h-3.5 w-3.5"/></button>
+          <button onClick={handleAddNote} aria-label="Add note" className="reading-action-btn"><StickyNote className="mr-1 inline h-3.5 w-3.5"/>Note</button>
+          <button onClick={handleCopy} aria-label="Copy selection" className="reading-action-btn" title="Copy"><Copy className="h-3.5 w-3.5"/></button>
+          <button onClick={handleBookmark} aria-label="Bookmark selection" className="reading-action-btn" title="Bookmark"><BookmarkIcon className="h-3.5 w-3.5"/></button>
         </div>
       )}
 
       {showNoteEditor && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-text-primary/30 p-4 backdrop-blur-[2px]">
-          <div className="w-full max-w-lg rounded-2xl border border-border bg-surface-elevated p-5 shadow-2xl animate-scale-in">
-            <div className="mb-3 flex items-center justify-between"><div><p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-accent">Reading note</p><h3 className="mt-1 text-base font-semibold text-text-primary">Capture the idea</h3></div><button onClick={() => setShowNoteEditor(false)} className="reading-icon-btn"><X className="h-4 w-4"/></button></div>
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-text-primary/30 p-4 backdrop-blur-[2px]" onClick={() => setShowNoteEditor(false)}>
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="note-editor-title"
+            className="w-full max-w-lg rounded-2xl border border-border bg-surface-elevated p-5 shadow-2xl animate-scale-in"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="mb-3 flex items-center justify-between"><div><p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-accent">Reading note</p><h3 id="note-editor-title" className="mt-1 text-base font-semibold text-text-primary">Capture the idea</h3></div><button onClick={() => setShowNoteEditor(false)} aria-label="Close note editor" className="reading-icon-btn"><X className="h-4 w-4"/></button></div>
             <div className="mb-3 rounded-xl border border-accent/30 bg-accent-soft/40 p-3 text-xs leading-relaxed text-text-secondary">“{selection.length > 180 ? selection.slice(0,180) + '…' : selection}”</div>
-            <input autoFocus value={noteTitle} onChange={(e)=>setNoteTitle(e.target.value)} placeholder="Give this note a useful title" className="mb-2 w-full rounded-xl border border-border bg-surface px-3 py-2.5 text-sm text-text-primary outline-none focus:border-accent"/>
-            <textarea value={noteBody} onChange={(e)=>setNoteBody(e.target.value)} placeholder="Your interpretation, question, analogy, or interview tip…" rows={6} className="w-full resize-y rounded-xl border border-border bg-surface px-3 py-3 text-sm leading-relaxed text-text-primary outline-none focus:border-accent"/>
+            <input autoFocus value={noteTitle} onChange={(e)=>setNoteTitle(e.target.value)} placeholder="Give this note a useful title" aria-label="Note title" className="mb-2 w-full rounded-xl border border-border bg-surface px-3 py-2.5 text-sm text-text-primary outline-none focus:border-accent"/>
+            <textarea value={noteBody} onChange={(e)=>setNoteBody(e.target.value)} onKeyDown={(e) => { if (e.key === 'Escape') setShowNoteEditor(false); }} placeholder="Your interpretation, question, analogy, or interview tip…" rows={6} aria-label="Note body" className="w-full resize-y rounded-xl border border-border bg-surface px-3 py-3 text-sm leading-relaxed text-text-primary outline-none focus:border-accent"/>
             <div className="mt-3 flex justify-end gap-2"><button onClick={()=>setShowNoteEditor(false)} className="rounded-lg border border-border px-3 py-2 text-xs text-text-secondary hover:bg-surface-subtle">Cancel</button><button onClick={handleSaveNote} className="rounded-lg bg-accent px-3.5 py-2 text-xs font-semibold text-text-inverse hover:bg-accent-hover">Save note</button></div>
           </div>
         </div>

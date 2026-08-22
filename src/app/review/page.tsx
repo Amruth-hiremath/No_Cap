@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { RotateCcw, Brain, ArrowRight, CheckCircle2, XCircle, RotateCw } from 'lucide-react';
 import { Surface, EmptyState } from '@/components/ui/Surface';
 import { AccentRule } from '@/components/ui/AccentRule';
@@ -16,6 +17,7 @@ import type { AttemptRecord, ReviewItem, Concept } from '@/lib/types';
 type Phase = 'recall' | 'revealed' | 'graded';
 
 export default function ReviewPage() {
+  const router = useRouter();
   const review_items = useStore((s) => s.review_items);
   const recordReview = useStore((s) => s.recordReview);
   const attempts = useStore((s) => s.attempts);
@@ -108,7 +110,7 @@ export default function ReviewPage() {
           description="Nothing needs review right now. Take today's dose or browse the library."
           icon={<Brain className="h-5 w-5" />}
           action={
-            <Button variant="secondary" onClick={() => (window.location.href = '/daily')}>
+            <Button variant="secondary" onClick={() => router.push('/daily')}>
               Continue today's dose
             </Button>
           }

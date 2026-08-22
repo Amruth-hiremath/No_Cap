@@ -2,7 +2,7 @@
   "name": "nocap",
   "version": "0.1.0",
   "private": true,
-  "description": "NO CAP \u2014 a public system-design learning platform built for static-first, free-tier-efficient deployment",
+  "description": "NO CAP — a public system-design learning platform built for static-first, free-tier-efficient deployment",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
@@ -21,6 +21,7 @@
     "worker:check": "wrangler deploy --dry-run --outdir worker/.wrangler-dry-run --config worker/wrangler.toml"
   },
   "dependencies": {
+    "@excalidraw/excalidraw": "0.18.1",
     "clsx": "^2.1.1",
     "lucide-react": "^0.460.0",
     "mermaid": "^11.16.1",
@@ -30,12 +31,10 @@
     "react-markdown": "^10.1.0",
     "remark-gfm": "^4.0.1",
     "tailwind-merge": "^2.5.0",
-    "zustand": "^5.0.0",
-    "@excalidraw/excalidraw": "0.18.1"
+    "zustand": "^5.0.0"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.0.0",
-    "@types/flexsearch": "^0.7.6",
     "@types/node": "^22.0.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",

@@ -113,8 +113,10 @@ export function FocusOverlay({ children }: { children: ReactNode }) {
       </div>
 
       {/* Reading column — scrollable, centered at max-w-3xl.
-          Bottom padding leaves room for the exit pill. */}
-      <main className="h-full overflow-y-auto px-5 pb-24 pt-10">
+          Bottom padding leaves room for the exit pill.
+          id="main-content" matches the skip-link target so keyboard users
+          can jump straight to the article even in focus mode. */}
+      <main id="main-content" className="h-full overflow-y-auto px-5 pb-24 pt-10">
         <div className="mx-auto max-w-3xl">{children}</div>
       </main>
 

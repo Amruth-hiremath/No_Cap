@@ -7,7 +7,11 @@ const SITE =
 
 export default function robots(): MetadataRoute.Robots {
   return {
-    rules: [{ userAgent: '*', allow: '/' }],
+    rules: [
+      // Public educational content is fully crawlable.
+      { userAgent: '*', allow: '/', disallow: ['/account', '/settings', '/api', '/auth'] },
+    ],
     sitemap: `${SITE}/sitemap.xml`,
+    host: SITE,
   };
 }
